@@ -24,7 +24,7 @@ from .machines import cmd_assistants, cmd_machines, cmd_outbox, cmd_sync_auto, c
 from .flags import cmd_flags
 from .home import cmd_home
 from .assistant_settings import cmd_session_note
-from .feedback import cmd_feedback
+from .feedback import KINDS as FEEDBACK_KINDS, cmd_feedback
 from .sandbox import cmd_sandbox
 from .after_merge import cmd_follow_up
 
@@ -348,7 +348,10 @@ def main():
     g.add_argument("--list", action="store_true", help="what waits to be offered in this space")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
                      ("expected", "what should have happened"), ("fix", "a suggested fix"), ("repro", "minimal steps to reproduce")):
-        c.add_argument(f"--{f}", help=f"--file: {words}")
+        c.add_argument(f"--{f}", help=(f"--file: {words}" if f != "fix" else "a suggested fix in one line, for every Shepherdr user: kept with the report; --file puts it in the issue"))
+    c.add_argument("--kind", choices=FEEDBACK_KINDS, help="what kind of problem it is")
+    c.add_argument("--all", action="store_true", help="--list: every problem kept, in every space and state (read only)")
+    c.add_argument("--space", help="the space a report comes from, for a caller outside any space (the web app)")
     c.add_argument("--title", help="--file: the issue's title (default: the one line)")
     c.add_argument("--surface", choices=["web", "window", "both"], help="--file: where the person used Shepherdr")
     c.add_argument("--repo", help=argparse.SUPPRESS)  # a test's throwaway repo; Settings' otherwise
