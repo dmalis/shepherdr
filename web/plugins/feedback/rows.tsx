@@ -35,27 +35,28 @@ export async function saveBox(text: string, chat: string, setText: (v: string) =
 }
 
 /** Not now, Never or Undo on a row; its toast offers Undo (Gmail's and Linear's pattern) */
-export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string): Promise<boolean> {
-  const a = await call({ do: what, key: r.id, ...(when ? { when } : {}) })
+export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string, expect?: 'later' | 'declined'): Promise<boolean> {
+  const a = await call({ do: what, key: r.id, ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
   }
-  notice(doneWords(what, when), { tone: 'ok', ...(what === 'undo' ? {} : { act: { label: W.undo, run: () => void decide(r, 'undo') } }) })
+  notice(doneWords(what, when), { tone: 'ok', ...(what === 'undo' ? {} : { act: { label: W.undo, run: () => void decide(r, 'undo', undefined, what === 'no' ? 'declined' : 'later') } }) })
   return true
 }
 
 /** where a row's space is now: its place, and whether Write it up reaches it */
-export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space'>): { place?: Place; why?: 'gone' | 'away' } {
+export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'>): { place?: Place; why?: 'gone' | 'away' | 'asleep' } {
   const place = r.space ? snap.places.find((p) => p.chat === chatOfSpace(r.space!)) : undefined
   if (!r.space) return {}
   if (!place || place.archived) return { why: 'gone' }
   if (place.unreachableSince || place.herdrDown) return { place, why: 'away' }
+  if (r.noChat) return { place, why: 'asleep' }
   return { place }
 }
 
 /** where Write it up goes: the origin's chat, else Everything's */
-export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space'>): Place | undefined {
+export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'>): Place | undefined {
   const o = originOf(snap, r)
   return (!o.why && o.place) || everything(snap)
 }
@@ -75,8 +76,8 @@ function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snaps
     openMenu(el, LATER.map((x) => ({ label: x.label, run: () => void run('later', () => decide(r, 'later', x.when), true) })), { label: W.notNow })
   const btns = () => {
     if (r.section === 'filed') return r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
-    if (r.section === 'later') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo'), true)}>{W.restore}</Btn>
-    if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo'), true)}>{W.undo}</Btn>
+    if (r.section === 'later') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'later'), true)}>{W.restore}</Btn>
+    if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'declined'), true)}>{W.undo}</Btn>
     const never = <Btn small disabled={!!busy} onClick={() => void run('no', () => decide(r, 'no'), true)}>{W.never}</Btn>
     if (r.off) return never
     return (

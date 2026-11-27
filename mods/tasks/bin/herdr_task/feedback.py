@@ -528,7 +528,7 @@ def cmd_feedback(args):
         space = args.space
     if args.list:
         rows = [{"key": key, **p} for key, p in problems_read().items() if p.get("state") in ("found", "telling", "told", "later")
-                and not snoozed(p) and p.get("decision") != "declined" and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
+                and not snoozed(p) and p.get("decision") != "declined" and "/" not in (p.get("space") or "") and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
         return say(args, rows, "\n".join(f"{r['key']}  {r['state']}  {r['line']}" for r in rows) or "Nothing waits to be offered.")
     if not line and not args.key:
         raise Fail("Say the problem in one line: herdr-task feedback \"Ready refused a reviewed commit\" --details \"…\"")
@@ -610,6 +610,9 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
     from .launch import coordinator_in
     from .feedback_page import snoozed
     state = (p or {}).get("state")
+    if p and "/" in (p.get("space") or ""):
+        # from another machine's space (the Feedback page's box there): never this machine's chat to offer
+        return ({"key": key, "sent": False, "kept": True, "why": "elsewhere"}, "That one belongs to another machine's space: nothing to do. Carry on."), None
     if p and snoozed(p):
         # the person's Not now on the Feedback page (#94): nothing offered until it comes back or happens again
         return ({"key": key, "sent": False, "why": "later"}, "The person said not now to this one: nothing to do. Carry on."), None

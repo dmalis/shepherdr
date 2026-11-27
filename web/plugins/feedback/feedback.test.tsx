@@ -103,7 +103,8 @@ test('Undo in the toast puts it back; a no from the service is said, not swallow
   expect(toasts[0].text).toBe('Said no: it stays out of the way')
   toasts[0].o.act!.run()
   await Bun.sleep(0)
-  expect(sent.at(-1)).toEqual({ type: 'feedback', do: 'undo', key: r.id })
+  // the Undo names the decision it is for: one made since on another device is left alone
+  expect(sent.at(-1)).toEqual({ type: 'feedback', do: 'undo', key: r.id, expect: 'declined' })
   answer({ ok: false, error: 'Nothing to undo.' })
   toasts.length = 0
   expect(await decide(r, 'undo')).toBe(false)
@@ -138,6 +139,9 @@ test("Write it up goes to the origin's chat; to Everything's when that space is 
   const real = { ...s, places: [...s.places, { ...s.places[1], id: 'sp1', chat: 'p:sp1', archived: false }, { ...s.places[1], id: 'vm/sp2', chat: 'p:vm:sp2', archived: false }] } as typeof s
   expect(writeUpTo(real, { space: 'sp1' })?.id).toBe('sp1')
   expect(writeUpTo(real, { space: 'vm/sp2' })?.id).toBe('vm/sp2')
+  // no chat runs in its space now: Everything's, and the row says so
+  expect(writeUpTo(real, { space: 'sp1', noChat: true })?.id).toBe(s.everything)
+  expect(originOf(real, { space: 'sp1', noChat: true }).why).toBe('asleep')
   expect(W.writeUpText('A mention resolved to eleven tasks')).toBe('Write up the feedback about “A mention resolved to eleven tasks”')
 })
 

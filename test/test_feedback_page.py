@@ -213,18 +213,42 @@ class Person(World):
         with mock.patch("herdr_task.launch.coordinator_in", lambda sp: self.assistants.get(sp.split("/")[-1])):
             code, out = self.person("Feedback page needs a search", "--person", "--space", "vm/sp2", "--json")
         self.assertEqual(code, 0, out)
-        self.assertEqual((json.loads(out)["why"], self.held), ("no-assistant", []))
+        self.assertEqual((json.loads(out)["why"], self.held), ("elsewhere", []))
         self.assertEqual(self.listed()[0]["space"], "vm/sp2")
+        # nor listed or offered in this machine's sp2 chat, whose id only looks the same
+        self.assistants = {"sp1": "t5"}
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp2"}, "name": "assistant"}
+        with mock.patch("herdr_task.launch.is_coordinator", lambda k: True):
+            self.assertEqual(json.loads(self.say("--list", "--json")[1]), [])
+            key = self.listed()[0]["key"]
+            self.assertEqual(json.loads(self.say("--key", key, "--json")[1])["why"], "elsewhere")
 
     def test_the_persons_calls_are_never_sent_to_another_machine(self):
         from herdr_task import cli
         for argv in (["--key", "k1", "--later", "week"], ["--key", "k1", "--undo"], ["--key", "k1", "--no", "--person"],
-                     ["The page needs a search", "--person", "--space", "sp1"], ["--key", "k1", "--later=week"]):
+                     ["The page needs a search", "--person", "--space", "sp1"], ["--key", "k1", "--later=week"],
+                     ["--key", "k1", "--lat", "week"], ["--key", "k1", "--und"], ["--key", "k1", "--no", "--pers"]):
             with mock.patch.object(cli, "remote", side_effect=AssertionError("sent")):
                 out = io.StringIO()
                 with mock.patch.object(sys, "argv", ["herdr-task", "--on", "vm", "feedback", *argv]), contextlib.redirect_stderr(out):
                     self.assertEqual(cli.main(), 1, argv)
                 self.assertIn("own Feedback page", out.getvalue())
+        # a line that only reads like one, after --, is an agent's ordinary report there
+        with mock.patch.object(cli, "remote", return_value=0) as sent, mock.patch.object(sys, "argv", ["herdr-task", "--on", "vm", "feedback", "--", "--undo is broken"]):
+            self.assertEqual(cli.main(), 0)
+        sent.assert_called_once()
+
+    def test_an_old_undo_leaves_a_newer_decision_alone(self):
+        key = self.report()
+        self.person("--key", key, "--later", "week", "--json")           # device A: Not now (its toast keeps Undo)
+        self.person("--key", key, "--undo", "--expect", "later", "--json")  # device B: Restore
+        self.person("--key", key, "--no", "--person", "--json")           # device B: Never
+        code, out = self.person("--key", key, "--undo", "--expect", "later", "--json")  # A's old Undo
+        self.assertEqual((code, json.loads(out)["changed"]), (0, False))
+        self.assertEqual(self.one(key)["state"], "declined")
+        # Said no's own Undo still works
+        self.assertTrue(json.loads(self.person("--key", key, "--undo", "--expect", "declined", "--json")[1])["changed"])
+        self.assertNotEqual(self.one(key)["state"], "declined")
 
 
 class Pins(unittest.TestCase):

@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { argsOf, Feedback, herdrTask, rowsOf, sectionOf, type Runner } from "./feedback.ts";
+import { argsOf, Feedback, githubUrl, herdrTask, rowsOf, sectionOf, withChats, type Runner } from "./feedback.ts";
 
 const NOW = Date.UTC(2026, 10, 27, 12);
 const H = 3600_000;
@@ -91,6 +91,8 @@ test("the person's calls, as herdr-task's arguments", () => {
   expect(argsOf({ do: "later", key: "a1", when: "week" })).toEqual(["--key", "a1", "--later", "week", "--json"]);
   expect(argsOf({ do: "no", key: "a1" })).toEqual(["--key", "a1", "--no", "--person", "--json"]);
   expect(argsOf({ do: "undo", key: "a1" })).toEqual(["--key", "a1", "--undo", "--json"]);
+  expect(argsOf({ do: "undo", key: "a1", expect: "declined" })).toEqual(["--key", "a1", "--undo", "--expect", "declined", "--json"]);
+  expect(() => argsOf({ do: "undo", key: "a1", expect: "--all" })).toThrow();
   expect(argsOf({ do: "report", text: "  Ready refused a reviewed commit ", space: "sp1" })).toEqual(["--person", "--space", "sp1", "--json", "--", "Ready refused a reviewed commit"]);
   // a line that starts like a flag is still the line
   expect(argsOf({ do: "report", text: "--file is broken", space: "sp1" }).slice(-2)).toEqual(["--", "--file is broken"]);
@@ -133,6 +135,17 @@ test("On GitHub links only to an issue or pull request on github.com", () => {
     "https://github.com.evil.example/a/b/issues/1", "http://github.com/a/b/issues/1", "https://github.com/acme", "https://user@github.com/a/b/issues/1"];
   const l = rowsOf(urls.map((url, i) => row({ id: `u${i}`, url, state: "filed", at: NOW - i })), {}, NOW);
   expect(l.rows.filter((r) => r.url).map((r) => r.id)).toEqual(["u0", "u1"]);
+  // the canonical link is what the page gets, never a string a browser would read against Shepherdr's own site
+  expect(githubUrl("https:github.com/acme/shep/issues/42")).toBeNull();
+  expect(githubUrl("https://github.com/acme/shep/issues/42/../../../x")).toBeNull();
+  expect(githubUrl("https://github.com:444/acme/shep/issues/42")).toBeNull();
+  expect(githubUrl("https://GitHub.com/acme/shep/pull/7")).toBe("https://github.com/acme/shep/pull/7");
+});
+
+test("a row whose space has no chat running says so; an unknown set leaves rows as they are", () => {
+  const l = rowsOf([row({ id: "a1", space: "sp1" }), row({ id: "b2", space: "vm/sp2" }), row({ id: "c3", space: null })], {}, NOW);
+  expect(Object.fromEntries(withChats(l, new Set(["sp1"])).rows.map((r) => [r.id, !!r.noChat]))).toEqual({ a1: false, b2: true, c3: false });
+  expect(withChats(l).rows.some((r) => r.noChat)).toBe(false);
 });
 
 test("polling follows the plugin switch: nothing read while it is off, read again once it is on", async () => {

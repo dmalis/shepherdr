@@ -481,7 +481,9 @@ const screens = createScreens({
 if (pluginOn("screens")) screens.start();
 let desktopsOf: () => string[] = () => (pluginOn("screens") ? screens.desktops() : []);
 // the Feedback page (plugin feedback, friction loop #94): what this machine kept, read when its record changes
-const withFeedback = (snap: Snapshot): Snapshot => { const f = pluginOn("feedback") ? feedback.list() : null; return f ? { ...snap, feedback: f } : snap; };
+// each row knows whether its origin has a chat running (Write it up goes to Everything's when not)
+const chatsNow = () => new Set<string>(model.spaces.filter((s: any) => s.assistant && s.assistantStatus !== "stopped").map((s: any) => s.id));
+const withFeedback = (snap: Snapshot): Snapshot => { const f = pluginOn("feedback") ? feedback.list(Date.now(), chatsNow()) : null; return f ? { ...snap, feedback: f } : snap; };
 feedback.changed = () => model.rebuild();
 feedback.start(); // reads only while the plugin is on
 const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withNext(compat.snapshot({

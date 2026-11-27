@@ -1519,6 +1519,8 @@ export interface FeedbackRow {
   url?: string
   /** Feedback offers is off in its origin: kept and shown, nothing more but Never */
   off?: boolean
+  /** no chat runs in its origin now: Write it up goes to Everything's (the spec's "no Assistant running") */
+  noChat?: boolean
 }
 
 export interface FeedbackList {

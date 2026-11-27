@@ -17,6 +17,7 @@ export type Runner = (args: string[]) => Promise<Ran>;
 const KEY = /^[A-Za-z0-9][\w-]{0,39}$/;
 const SPACE = /^(?:[\w.][\w.-]{0,79}\/)?[\w.~][\w.~-]{0,79}$/;
 const WHEN = new Set(["tomorrow", "week", "again"]);
+const EXPECT = new Set(["later", "declined"]);
 const LINE_MAX = 160;
 const TEXT_MAX = 4000;
 const FIELDS = ["bug", "confusing", "workaround", "manual", "miss"] as const;
@@ -40,10 +41,20 @@ function answer(out: string): any {
   return null;
 }
 
-/** an issue or comment on GitHub, the only link a filed row shows as "On GitHub" */
-export function githubUrl(u: unknown): boolean {
-  if (typeof u !== "string") return false;
-  try { const x = new URL(u); return x.protocol === "https:" && x.hostname === "github.com" && !x.username && !x.password && /^\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(x.pathname); } catch { return false; }
+/** an issue or pull request on GitHub, the only link a filed row shows as "On GitHub": its canonical form, else null */
+export function githubUrl(u: unknown): string | null {
+  if (typeof u !== "string" || !u.startsWith("https://")) return null;
+  try {
+    const x = new URL(u);
+    const ok = x.protocol === "https:" && x.hostname === "github.com" && !x.port && !x.username && !x.password && /^\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+\/?$/.test(x.pathname);
+    return ok ? x.href : null;
+  } catch { return null; }
+}
+
+/** each row whose origin has no chat running (`chats`: the spaces that have one) says so; unknown: left as it is */
+export function withChats(l: FeedbackList, chats?: Set<string>): FeedbackList {
+  if (!chats) return l;
+  return { ...l, rows: l.rows.map((r) => (r.space && !chats.has(r.space) ? { ...r, noChat: true } : r)) };
 }
 
 /** Feedback offers in a space: its own, else Everywhere's, else on (herdr-task's feedback_on) */
@@ -85,7 +96,7 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...(typeof p.space === "string" && p.space ? { space: p.space } : {}),
       ...(from && Object.keys(from).length ? { from } : {}),
       ...(section === "later" ? { until: typeof p.until === "number" ? p.until : null } : {}),
-      ...(githubUrl(p.url) ? { url: p.url } : {}),
+      ...((u) => (u ? { url: u } : {}))(githubUrl(p.url)),
       ...(!offersOn(settings, p.space) ? { off: true } : {}),
     });
   }
@@ -151,9 +162,9 @@ export class Feedback {
   }
 
   /** what the page shows (null until the first read answered or failed) */
-  list(now = Date.now()): FeedbackList | null {
+  list(now = Date.now(), chats?: Set<string>): FeedbackList | null {
     if (this.last === null && !this.error) return null;
-    const out = rowsOf(this.last ?? [], this.settings(), now);
+    const out = withChats(rowsOf(this.last ?? [], this.settings(), now), chats);
     return this.error ? { ...out, error: "Couldn't read the newest list just now: showing the last one." } : out;
   }
 
@@ -164,6 +175,8 @@ export class Feedback {
     try { args = argsOf(b); } catch (e) { return { ok: false, error: (e as Error).message }; }
     const r = await this.run(args);
     const out = answer(r.stdout);
+    // a poll that started before the call can't answer for it: wait for it, then read again
+    if (this.reading) await this.reading;
     await this.read();
     if (r.code !== 0 || !out || out.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "That didn't work." };
     // a decision already made (another device, a list that was old): said as it is, no Undo that would reverse theirs
@@ -192,7 +205,11 @@ export function argsOf(b: any): string[] {
       if (!WHEN.has(b.when)) throw new Error("Not now is tomorrow, next week or when it happens again.");
       return ["--key", key(), "--later", b.when, "--json"];
     case "no": return ["--key", key(), "--no", "--person", "--json"];
-    case "undo": return ["--key", key(), "--undo", "--json"];
+    case "undo": {
+      // the decision this Undo is for (its toast's, its row's): one made since, by another device, is left alone
+      if (b.expect !== undefined && !EXPECT.has(b.expect)) throw new Error("Undo is for a Not now or a Said no.");
+      return ["--key", key(), "--undo", ...(b.expect ? ["--expect", b.expect] : []), "--json"];
+    }
   }
   throw new Error("Shepherdr can't do that yet.");
 }

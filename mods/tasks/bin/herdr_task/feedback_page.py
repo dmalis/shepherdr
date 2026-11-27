@@ -72,17 +72,21 @@ def decide(args):
         p = ps.get(args.key)
         if not isinstance(p, dict):
             raise Fail("No problem with that key is kept here.")
-        said = change(ps, args.key, p, later, undo, no)
+        said = change(ps, args.key, p, later, undo, no, getattr(args, "expect", None))
     say(args, {"key": args.key, **said[0]}, said[1])
     return True
 
 
-def change(ps, key, p, later, undo, no):
+def change(ps, key, p, later, undo, no, expect=None):
     """One decision on problem p (under the lock): ({changed, ...}, words). Two devices tapping at once: the second
     finds it already so and says so."""
     if p.get("state") in ("filed", "filing"):
         return {"changed": False, "why": "filed"}, "It's filed already: nothing to decide here."
     if undo:
+        # the page's Undo names the decision it is for: one made since (another device) is left alone
+        now_is = "declined" if p.get("state") == "declined" or p.get("decision") == "declined" else p.get("decision")
+        if expect and now_is != expect:
+            return {"changed": False}, "That was decided again since: nothing undone."
         was = p.get("was")
         if not isinstance(was, dict) and p.get("state") != "declined" and p.get("decision") is None:
             return {"changed": False}, "Nothing to undo."

@@ -103,7 +103,8 @@ export function doneWords(what: 'later' | 'no' | 'undo', when?: string): string 
 }
 
 /** where Write it up goes, when it isn't the origin: why, for the row */
-export function elsewhereWords(where: string, why: 'gone' | 'away'): string {
+export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep'): string {
+  if (why === 'asleep') return `No chat runs in ${where} now: Write it up goes to Everything`
   return why === 'gone' ? 'Its space is gone: Write it up goes to Everything' : `${where} can't be reached: Write it up goes to Everything`
 }
 
