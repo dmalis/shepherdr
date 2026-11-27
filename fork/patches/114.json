@@ -7,6 +7,7 @@
     "core/chat-log.js",
     "core/chat-view.js",
     "web/shared/needs-you.ts",
+    "web/shared/needs-words.ts",
     "web/shared/types.ts",
     "service/compat.ts",
     "web/plugins/chat/news.ts",
