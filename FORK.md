@@ -83,17 +83,29 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   it. It closes only when the patch is retired, after a healthy install without it.
 - **The issue keeps a short status line**, one of:
   - building;
-  - carried since `ours-…`;
-  - proposed upstream (with the link);
-  - fixed upstream in `vX.Y.Z`, then dropped;
-  - fork-only, not offered upstream (with why).
+  - carried since `ours-…`, not filed yet;
+  - proposed upstream (with the link), or declined upstream (with the link);
+  - fork-only (with why);
+  - reverted (with the revert's pull request);
+  - fixed upstream in `vX.Y.Z`, then dropped.
+
+  After it, in plain words: what the fix does and how to try it. An issue with several fixes lists each pull
+  request on its status line, with what became of it.
 - **Labels:**
   - `patch`: a change we carry.
   - `pipeline`: sync, trial and install.
   - `sync-blocked`: a release waits on a patch.
-  - `upstream-proposed`: we asked upstream.
   - `fixed-upstream`: upstream shipped it.
   - `later`: not now.
+- **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
+  every issue its installed `fork/patches.json` lists, and takes it off one whose fix left (upstream-sync skill,
+  step 7). No `live`: not installed yet.
+- **What the person decided about a fix:** one of these describes the issue as a whole (the upstream-issue skill:
+  "After a fix lands").
+  - `not-filed`: the fix is merged and live, and the person hasn't decided yet.
+  - `upstream-proposed`: they said file it, and we posted it upstream.
+  - `fork-only`: they said keep it ours.
+  - `reverted`: they said undo it, and the revert has merged and installed.
 
 ## How a change becomes a patch
 
@@ -118,24 +130,33 @@ A release whose patches don't fit yet waits until they do. After 24 hours waitin
 ## Upstream issues
 
 The upstream-issue skill. The person's standing rule: our Shepherdr works for them, built in a way that fits
-Shepherdr for everyone, and upstream's author decides whether it goes into theirs.
+Shepherdr for everyone. The person decides, fix by fix, whether we offer it upstream, and upstream's author decides
+whether it goes into theirs.
 - **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
   find later is fixed here as a patch (the fork-patch skill), unless upstream's own release already fixes it. The
   person never waits on upstream.
 - **Confusion is a UX problem.** When Shepherdr's behaviour confuses the person, first check whether they know the
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
-    it here and offer it upstream with our pull request, like any other fix. Explaining it away closes nothing.
+    it here like any other fix. Explaining it away closes nothing.
   - They don't know the process yet: explain it briefly.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
-  only suits them becomes a setting, with their value in their settings file. What can't fit everyone stays
-  fork-only and isn't offered.
-- **Then offer it, with no further yes.** Once our pull request is merged:
-  - an issue the person already filed, open or closed: one comment linking our pull request;
-  - a new problem: one new upstream issue linking it.
+  only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
+  issue, so the person can keep it ours.
+- **Then the person decides, fix by fix,** after trying it for a day or two. Every fix has its own issue here, and
+  its status line says in plain words what the fix does and how to try it. Once the fix is merged and live (the
+  install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
+  decides that fix:
+  - **File it:** that is the yes, with no draft round. After a search upstream for a duplicate, we post one comment
+    on their existing issue, or one new upstream issue, linking our pull request. `upstream-proposed`.
+  - **Keep it ours:** `fork-only`. Nothing is posted.
+  - **Undo it:** a revert pull request first. `reverted` goes on, and the issue closes, only once the revert has
+    merged and installed healthily.
 
-  The words always say it is the author's to take as it is, do differently or drop. One comment per issue, ever,
+  What we post always says it is the author's to take as it is, do differently or drop. One comment per issue, ever,
   and never a second issue for the same problem.
+- **The person sees what waits.** The Assistant lists the `not-filed` fixes when asked, and once a day, with a link
+  that opens exactly those issues on GitHub.
 - **Our pull request stays in our fork,** linked from upstream. No pull request on upstream unless the person asks
   for that one.
 - **When the author fixes it their own way,** the next sync drops our patch and keeps theirs.

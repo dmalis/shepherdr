@@ -129,8 +129,29 @@ it found: report that, never a guess at why, and never repair `main` by force.
 
 ## 7. Finish and report
 
-1. After a healthy install: each issue in `fork/patches.json` at the candidate gets the status line "carried since
-   `<tag>`"; a `fixed-upstream` issue whose line the candidate no longer has is closed now.
+1. After a healthy install: each issue in `fork/patches.json` at the candidate gets "carried since `<tag>`" at the
+   start of its status line, in place of "building" or an older "carried since". The rest of the line stays as it
+   is: what the fix does and how to try it, what the person decided, upstream links, each pull request's part. A
+   `fixed-upstream` issue whose line the candidate no longer has no longer waits on the person: remove `not-filed`,
+   its status line says "fixed upstream in `vX.Y.Z`, then dropped", and it is closed now.
+   - **`live` follows the install:** every issue in `fork/patches.json` at the installed commit gets `live`. An
+     issue with `live` that the line no longer has (its fix reverted, or dropped for upstream's) loses it:
+     `gh issue list -R dmalis/shepherdr --label live --state all`, then `gh issue edit <n> -R dmalis/shepherdr
+     --remove-label live`. A rollback changes no labels, since this step runs only after a healthy install.
+   - **Find what this install made live:** our merged pull requests (`gh pr list -R dmalis/shepherdr --state merged
+     --limit 100 --json number,headRefName,mergeCommit,body`) whose merge commit is in the installed range
+     (`git merge-base --is-ancestor <its commit> <candidate>`, and not an ancestor of the last `ours-*` tag). Herdr
+     squash-merges, so go by the pull requests, not by merge commits. Leave out sync pull requests (`sync/*`
+     branches).
+   - **A fix** is one that says `Part of #n` for a `patch` issue: it lands now (upstream-issue skill: "After a fix
+     lands"). Its part of the status line goes from "building" to "not filed yet", and the issue's labels are set
+     from its parts (that skill: "Several fixes on one issue"), which puts `not-filed` on.
+   - **A revert** (its issue's status line says "reverting in #m" for it): that part becomes "reverted in #m", and
+     the labels are set from the parts again. The issue closes only when every fix on it was undone.
+   - **A pull request that changes Shepherdr** (any file outside `FORK.md`, `fork/` and `.agents/`) and names no
+     issue gets one now (fork-patch skill, step 1), labelled `patch` and `not-filed`. Its status line: "carried
+     since `<tag>`, not filed yet. What it does: … Try it: …", from the pull request. Comment the issue's link on
+     the pull request.
 2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.

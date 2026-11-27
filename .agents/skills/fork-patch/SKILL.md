@@ -35,7 +35,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
 ## 3. Build it to survive
 
 - **For every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What only suits
-  them is a setting (below). A patch that can't fit everyone is fork-only, and its issue says so (upstream-issue
+  them is a setting (below). A patch that can't fit everyone says so on its issue, so the person can keep it ours (upstream-issue
   skill: "Built for everyone").
 - **New files over edits.** Put our code in our own modules: a new Python module beside upstream's, a plugin under
   `web/plugins/<name>/` (docs/plugins.md), our scripts in `fork/`. Edit upstream's files only at one call site or one
@@ -66,6 +66,11 @@ so the cost of a patch is how often a release breaks it. Build for that.
 
 - The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
   `check` passed, and the reviewer had no must-fix finding left.
-- The issue's status says "carried since `ours-…`" once it is installed.
-- Once it is merged, offer it upstream with no further yes, unless it is fork-only (upstream-issue skill: "Offering a
-  fix").
+- Every fix has its own issue, and merging never closes it. A new fix for a problem an earlier fix covers gets a
+  new issue that links the earlier one.
+- Before ready, its status line says in plain words what the fix does and how to try it: "building. What it does:
+  <one line>. Try it: <what to open or do, and what you should see>". On an older issue that already holds several
+  fixes, it adds this pull request as "#m: building", with its own what and try-it.
+- The install that makes it live puts "carried since `ours-…`" in front of that line and labels the issue
+  `not-filed`. It stays open, with `not-filed`, until the person decides whether to file it upstream, keep it ours or
+  undo it (upstream-issue skill: "After a fix lands").
