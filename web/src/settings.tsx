@@ -17,6 +17,7 @@ import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
 import { OWN_VERSION } from './update.ts'
 import { ReviewRows } from './review-rows.tsx'
 import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
+import { READS } from '@core/machines.js'
 import { IconButton } from './space-icon.tsx'
 import { Btn, cx, I, IB, Meter, Row, Seg, Tgl } from './ui.tsx'
 
@@ -473,7 +474,7 @@ function Machines({ snap }: { snap: Snapshot }) {
 /** A plan Shepherdr may read but can't now, with why (an ElevenLabs key without User → Read). Claude Code's and Codex's
  *  plan usage is never read: their notes stay off, and Usage says once where to see it (core/agent-usage.js). */
 function noUsageOf(limits: Snapshot['machines'][number]['limits']): [string, string][] {
-  return Object.entries(limits ?? {}).filter(([k, l]) => !notRead(k) && l?.state === 'no-access').map(([k, l]) => [k, (l as { why?: string }).why ?? ''])
+  return Object.entries(limits ?? {}).filter(([k, l]) => !notRead(k) && l?.state === 'no-access').map(([k, l]) => [READS[k as keyof typeof READS] ?? k, (l as { why?: string }).why ?? ''])
 }
 
 function Usage({ snap }: { snap: Snapshot }) {
