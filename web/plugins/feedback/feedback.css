@@ -38,7 +38,7 @@
 .fb-note.off{color:var(--sub)}
 /* what a check on GitHub found (slice 3): a quiet group under the meta line, one match a line, its Follow at the
    trailing end; on a narrow row the button wraps under its words */
-.fb-check{display:grid;gap:4px;margin:4px 0 0;padding:0;list-style:none}
+.fb-check{display:grid;gap:8px;margin:6px 0 2px;padding:0;list-style:none}
 .fb-m{display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;row-gap:4px;min-width:0}
 .fb-mw{flex:1 1 16em;min-width:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl);overflow-wrap:anywhere;text-wrap:pretty}
 .fb-mw.quiet{color:var(--muted)}
