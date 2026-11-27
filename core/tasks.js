@@ -127,6 +127,8 @@ export function readyWait(task, live = []) {
   // dmalis/shepherdr#42: its checks still run (or one failed): what it waits for, never "Merging" yet
   const checks = checksWait(task);
   if (checks) return checks.line;
+  // dmalis/shepherdr#42: GitHub still works out whether it can merge (or it went back to its agent): not Merging yet
+  if (task.auto_merge && task.pr?.wait && !task.merged) return task.pr.wait;
   // #743: waits calmly for a review GitHub requires.
   // Merge "on its own" waits on no check its base doesn't require: Merging.
   if (task.auto_merge && task.pr && !task.merged) return task.pr.needs_approval ? "Merges once it's approved" : task.auto_merge === "auto" ? "Merging" : "Merges once its checks pass";

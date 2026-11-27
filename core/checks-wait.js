@@ -17,9 +17,9 @@ const WAITS = "Checks running";
 const BACK = "Back to its agent to fix";
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
 
-/** Its pull request's checks while a Ready task waits on them: { state, line, next, passed, total, more, auto, runs },
- *  or null when it doesn't (no pull request, merged, its merge asked for or in GitHub's queue, its checks passed or
- *  never read). now: ms. */
+/** Its pull request's checks while a Ready task waits on them: { state, line, next, passed, total, ...the facts
+ *  waitWords() takes }, or null when it doesn't (no pull request, merged, its merge asked for or in GitHub's queue,
+ *  herdr-task's tick not waiting on its checks). now: ms. */
 export function checksWait(task, now = Date.now()) {
   const pr = task?.pr;
   if (!pr || task.merged || task.merge_requested || task.merge_queued || task.state !== "ready") return null;
@@ -28,20 +28,29 @@ export function checksWait(task, now = Date.now()) {
     name: r.n, state: STATES.includes(r.s) ? r.s : "running", at: num(r.at), end: num(r.end),
     typical: num(r.typ), ...(typeof r.u === "string" && r.u ? { url: r.u } : {}),
   }));
-  return waitWords({ runs, more: !!pr.runs_more, auto: !!task.auto_merge, failed: pr.checks === "failed",
-    cut: num(pr.runs_cut), approval: !!pr.needs_approval }, now);
+  const c = pr.runs_cut && typeof pr.runs_cut === "object" ? pr.runs_cut : {};
+  return waitWords({ runs, more: !!pr.runs_more, auto: !!task.auto_merge, back: pr.wait === BACK,
+    failed: pr.checks === "failed", cut: { p: num(c.p), o: num(c.o), f: num(c.f) }, approval: !!pr.needs_approval,
+    held: !!pr.runs_held, base: task.base || "main" }, now);
 }
 
-/** The words for checks as checksWait() keeps them ({ runs, more, auto, failed: GitHub says one failed, cut: passed
- *  checks past the rows kept, approval: a review still needed }), at a time: the page asks again as the minutes pass. */
-export function waitWords({ runs, more, auto, failed: anyFailed = false, cut = 0, approval = false }, now = Date.now()) {
+/** The words for checks as checksWait() keeps them, at a time: the page asks again, with the same facts, as the minutes
+ *  pass. runs: the rows kept; cut: how many past them passed, are open, failed ({ p, o, f }); back: the tick sent it
+ *  back to its agent (a failure counts only then: a new hand-in's rows of the commit before are gone); failed: GitHub
+ *  says one failed; held: its base fails them too, so its agent isn't asked; approval: a review still needed. */
+export function waitWords(facts, now = Date.now()) {
+  const { runs, more, auto, back = false, failed: anyFailed = false, cut = {}, approval = false, held = false, base: on = "main" } = facts;
+  const cp = num(cut.p), co = num(cut.o), cf = num(cut.f);
   const counted = runs.filter((r) => r.state !== "skipped");
-  const passed = counted.filter((r) => r.state === "passed").length + cut;
+  const passed = counted.filter((r) => r.state === "passed").length + cp;
   const failed = counted.filter((r) => r.state === "failed");
   const open = counted.filter((r) => r.state === "running" || r.state === "queued");
-  const base = { passed, total: counted.length + cut, more: !!more, auto: !!auto, runs };
-  if (failed.length || anyFailed) {
-    const which = failed.length ? `“${failed[0].name}” failed${failed.length > 1 ? ` and ${failed.length - 1} more` : ""}` : "A check failed";
+  const base = { ...facts, passed, total: counted.length + cp + co + cf, more: !!more, auto: !!auto, runs };
+  if (back && (failed.length || cf || anyFailed)) {
+    const others = failed.length ? failed.length - 1 + cf : cf - 1;
+    const which = `${failed.length ? `“${failed[0].name}” failed` : "A check failed"}${others > 0 ? ` and ${others} more` : ""}`;
+    if (held) return { ...base, state: "failed", line: `${which} · on ${on} too, waits for it to be fixed`,
+      next: `The same check fails on ${on}, so its agent isn't asked to fix it. Herdr goes on once ${on} is green again.` };
     return { ...base, state: "failed", line: `${which} · back to its agent to fix`,
       next: "Its agent gets the failure to fix, then hands it in again." };
   }
@@ -52,9 +61,9 @@ export function waitWords({ runs, more, auto, failed: anyFailed = false, cut = 0
       next: "Herdr keeps waiting for it. GitHub shows why it's slow." };
   }
   const next = auto ? (approval ? "It merges by itself once they pass and it's approved." : "It merges by itself once they pass.") : "Once they pass, it's yours to merge.";
-  if (!counted.length && !cut) return { ...base, state: "running", line: "Waiting for GitHub's checks", next };
-  const count = more || !open.length ? `${passed} passed, more to come` : `${passed} of ${base.total} passed`;
-  const left = leftOf(open, now);
+  if (!base.total) return { ...base, state: "running", line: "Waiting for GitHub's checks", next };
+  const count = more || !(open.length || co) ? `${passed} passed, more to come` : `${passed} of ${base.total} passed`;
+  const left = co ? "" : leftOf(open, now);
   return { ...base, state: "running", line: `Waiting for GitHub's checks · ${count}${left ? ` · ${left}` : ""}`, next };
 }
 

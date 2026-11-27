@@ -213,7 +213,7 @@ def facts(s, t, report):
         missing = checks_missing(v, since, expect)
         # SHEP-348: the mark on its row (running, failed, passed)
         word = checks_state(v, missing)
-        checkwait.keep(s, t, v, missing)  # dmalis/shepherdr#42: each check, for what a Ready task waits on
+        checkwait.keep(s, t, v, missing, held=word == "failed" and held_by_base(s, t, v))  # dmalis/shepherdr#42: each check
         if word != pr.get("checks"):
             if word:
                 pr["checks"] = word

@@ -303,6 +303,8 @@ def ready_wait(task, live):
     checks = line(task)
     if checks:
         return checks
+    if task.get("auto_merge") and (task.get("pr") or {}).get("wait") and not task.get("merged"):
+        return task["pr"]["wait"]  # dmalis/shepherdr#42: GitHub still works out if it can merge: not Merging yet
     if task.get("auto_merge") and task.get("pr") and not task.get("merged"):
         # #743: waits calmly for a review GitHub requires
         # merge "on its own": it waits on no check its base doesn't require: Merging

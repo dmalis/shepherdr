@@ -14,7 +14,7 @@ const runs = [
   { name: 'lint', state: 'passed', at: NOW - 9 * MIN, end: NOW - 7 * MIN, typical: 2 * MIN },
   { name: 'check', state: 'running', at: NOW - 6 * MIN, end: 0, typical: 14 * MIN },
 ]
-const cw = (x: Partial<{ runs: unknown[]; auto: boolean }> = {}) => waitWords({ runs, more: false, auto: true, ...x }, NOW) as ChecksWait
+const cw = (x: Partial<{ runs: unknown[]; auto: boolean; back: boolean }> = {}) => waitWords({ runs, more: false, auto: true, ...x }, NOW) as ChecksWait
 const task = (w: ChecksWait): Task => ({ id: 'SHOP-21', name: 'Thumbnails', place: 'p', status: 'work', state: 'work', pr: { number: 216, url: 'https://github.com/example/shop/pull/216', checks: 'running' }, report: { msg: 'x', progress: 100, eta: 5 }, checksWait: w }) as Task
 
 test('its row says what it waits for, a still dot, no time left of its own', () => {
@@ -23,7 +23,7 @@ test('its row says what it waits for, a still dot, no time left of its own', () 
   expect(statusWord(t)).toMatchObject({ word: 'Waiting for checks' })
   expect(ringOf(t)).toMatchObject({ kind: 'pending', tone: 'working', pct: null })
   expect(etaOf(t)).toBeNull()
-  const failed = task(cw({ runs: [{ ...runs[0], state: 'failed' }] }))
+  const failed = task(cw({ runs: [{ ...runs[0], state: 'failed' }], back: true }))
   expect(statusWord(failed)).toMatchObject({ word: 'A check failed' })
   expect(ringOf(failed)).toMatchObject({ kind: 'pending', tone: 'red' })
 })

@@ -901,6 +901,13 @@ export interface ChecksWait {
   /** it merges by itself once they pass */
   auto: boolean
   runs: CheckRun[]
+  /** the facts the words come from, carried so the page tells them again the same (core/checks-wait.js waitWords) */
+  back?: boolean
+  failed?: boolean
+  cut?: { p?: number; o?: number; f?: number }
+  approval?: boolean
+  held?: boolean
+  base?: string
 }
 
 export interface Job {

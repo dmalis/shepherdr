@@ -19,11 +19,20 @@ for (const c of cases) {
   });
 }
 
+// the page tells the words again from what the service sent: the same facts, the same words
+test("the words told again from their own answer are the same", () => {
+  for (const c of cases.filter((x) => x.line)) {
+    const w = checksWait(inMs(c.task), c.now * MIN);
+    expect(waitWords(w, c.now * MIN).line).toBe(c.line);
+  }
+});
+
 test("what happens next: merges by itself, yours to merge, its agent fixes it", () => {
   const run = [{ name: "check", state: "running", at: 0, end: 0, typical: 0 }];
   expect(waitWords({ runs: run, more: false, auto: true }, MIN).next).toBe("It merges by itself once they pass.");
   expect(waitWords({ runs: run, more: false, auto: false }, MIN).next).toBe("Once they pass, it's yours to merge.");
-  expect(waitWords({ runs: [{ ...run[0], state: "failed" }], more: false, auto: true }).state).toBe("failed");
+  expect(waitWords({ runs: [{ ...run[0], state: "failed" }], more: false, auto: true, back: true }).state).toBe("failed");
+  expect(waitWords({ runs: [{ ...run[0], state: "failed" }], more: false, auto: true, back: true, held: true, base: "main" }).next).toBe("The same check fails on main, so its agent isn't asked to fix it. Herdr goes on once main is green again.");
   expect(waitWords({ runs: run, more: false, auto: true, approval: true }, MIN).next).toBe("It merges by itself once they pass and it's approved.");
 });
 
@@ -40,7 +49,10 @@ test("one check's words", () => {
 test("readyWait says what it waits for before Merging", () => {
   const t = { state: "ready", auto_merge: "auto", pr: { number: 3, checks: "running", wait: "Checks running", runs: [{ n: "check", s: "running", at: Date.now() - MIN, typ: 9 * MIN }] } };
   expect(readyWait(t)).toBe("Waiting for GitHub's checks · 0 of 1 passed · about 8 min");
-  expect(readyWait({ ...t, merge_requested: true })).toBe("Merging");
+  expect(readyWait({ ...t, merge_requested: true }, [{ address: "t1" }])).toBe("Merging");
+  // its checks passed, GitHub still works out whether it can merge: that, not Merging yet
+  expect(readyWait({ ...t, pr: { number: 3, checks: "passed", wait: "Waiting for GitHub" } })).toBe("Waiting for GitHub");
+  expect(readyWait({ ...t, pr: { number: 3, checks: "passed" } })).toBe("Merging");
 });
 
 test("a plain Suggested replies list last in a message is read as suggestions", () => {

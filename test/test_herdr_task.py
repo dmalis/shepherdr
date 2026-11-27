@@ -12060,14 +12060,37 @@ class ChecksWait(unittest.TestCase):
         self.cw.keep(s, task, {"statusCheckRollup": rows + [{"name": "e2e", "status": "COMPLETED", "conclusion": "FAILURE"}]})
         self.assertEqual(len(task["pr"]["runs"]), self.cw.MOST)
         self.assertEqual(task["pr"]["runs"][0]["n"], "e2e")
-        self.assertEqual(task["pr"]["runs_cut"], 41 - self.cw.MOST)
+        self.assertEqual(task["pr"]["runs_cut"], {"p": 41 - self.cw.MOST})
         self.assertEqual(self.cw.line(task, 0), "“e2e” failed · back to its agent to fix")
+        # 40 still running: counted from them all, no time left given
+        task["pr"].update(checks="running", wait="Checks running")
+        self.cw.keep(s, task, {"statusCheckRollup": [{"name": f"job {i}", "status": "IN_PROGRESS"} for i in range(40)]})
+        self.assertEqual(task["pr"]["runs_cut"], {"o": 40 - self.cw.MOST})
+        self.assertEqual(self.cw.line(task, 0), "Waiting for GitHub's checks · 0 of 40 passed")
+
+    def test_a_new_hand_in_never_shows_the_failure_before(self):
+        """The seam in commands (ready on the same pull request): the checks of the commit before are dropped, and a
+        failure counts only while the tick sent it back."""
+        pr = {"checks": "failed", "wait": "Checks running", "runs_held": True, "runs_cut": {"f": 1},
+              "runs": [{"n": "e2e", "s": "failed"}], "runs_more": True}
+        self.assertNotIn("failed", self.cw.line({"state": "ready", "pr": pr}, 0))
+        self.cw.fresh(pr)
+        self.assertEqual(pr, {"checks": "failed", "wait": "Checks running"})
+        with open(os.path.join(BIN, "herdr_task", "commands.py")) as f:
+            self.assertRegex(f.read(), r'pr\["wait"\] = PR_CHECKS_RUNNING\n\s+from \.checkwait import fresh.*\n\s+fresh\(pr\)')
+
+    def test_github_working_out_a_merge_is_not_merging(self):
+        """Merging on its own, its checks passed, GitHub still works out whether it can merge: that, not Merging."""
+        t = {"state": "ready", "auto_merge": "auto", "pr": {"number": 3, "checks": "passed", "wait": "Waiting for GitHub"}}
+        self.assertEqual(self.agents.ready_wait(t, []), "Waiting for GitHub")
+        t["pr"].pop("wait")
+        self.assertEqual(self.agents.ready_wait(t, []), self.agents.MERGING)
 
     def test_the_tick_calls_keep(self):
         """The seam in tick.facts: the checks are kept where it reads its pull request's checks."""
         with open(os.path.join(BIN, "herdr_task", "tick.py")) as f:
             src = f.read()
-        self.assertRegex(src, r"word = checks_state\(v, missing\)\n\s+checkwait\.keep\(s, t, v, missing\)")
+        self.assertRegex(src, r"word = checks_state\(v, missing\)\n\s+checkwait\.keep\(s, t, v, missing, held=word == \"failed\" and held_by_base\(s, t, v\)\)")
 
 
 class HandInAsksNothing(unittest.TestCase):

@@ -54,7 +54,8 @@ ORDER = {"failed": 0, "running": 1, "queued": 2, "passed": 3, "skipped": 4}
 
 def runs_of(v):
     """Its checks as the task keeps them: [{n: name, s: state, at, end (ms), u: link}], from gh pr view's rows, at most
-    MOST of them, failed and open ones first; and how many passed ones didn't fit."""
+    MOST of them, failed and open ones first; and how many of each didn't fit ({p: passed, o: open, f: failed}), so
+    the count and the time left stay those of all of them."""
     out = []
     for c in v.get("statusCheckRollup") or []:
         if not isinstance(c, dict) or not (c.get("name") or c.get("context")):
@@ -69,9 +70,12 @@ def runs_of(v):
             r["u"] = c.get("detailsUrl") or c.get("targetUrl")
         out.append(r)
     if len(out) <= MOST:
-        return out, 0
+        return out, {}
     out.sort(key=lambda r: ORDER[r["s"]])  # stable: GitHub's order within each
-    return out[:MOST], sum(1 for r in out[MOST:] if r["s"] == "passed")
+    rest = out[MOST:]
+    cut = {"p": sum(r["s"] == "passed" for r in rest), "o": sum(r["s"] in ("running", "queued") for r in rest),
+           "f": sum(r["s"] == "failed" for r in rest)}
+    return out[:MOST], {k: n for k, n in cut.items() if n}
 
 
 def usual(s, task):
@@ -95,17 +99,24 @@ def usual(s, task):
     return cache[repo]
 
 
-def keep(s, task, v, missing=False):
+def keep(s, task, v, missing=False, held=False):
     """The tick's look at its pull request (v: pr_view's answer, a merge's own checks only): each check kept on the
-    task, with its usual time, and runs_more while more will come (a workflow not started, checks expected)."""
+    task, with its usual time, and runs_more while more will come (a workflow not started, checks expected). held:
+    its failed checks fail its base too (ghnews.held_by_base): its agent isn't asked to fix them."""
     pr = task["pr"]
+    if bool(held) != bool(pr.get("runs_held")):
+        if held:
+            pr["runs_held"] = True
+        else:
+            pr.pop("runs_held", None)
+        s.dirty = True
     runs, cut = runs_of(v)
     typ = usual(s, task) if runs else {}
     for r in runs:
         if typ.get(r["n"]):
             r["typ"] = typ[r["n"]]
     more = bool(v.get("runs_pending") or missing)
-    if cut != (pr.get("runs_cut") or 0):
+    if cut != (pr.get("runs_cut") or {}):
         if cut:
             pr["runs_cut"] = cut
         else:
@@ -121,6 +132,12 @@ def keep(s, task, v, missing=False):
         else:
             pr.pop("runs_more", None)
         s.dirty = True
+
+
+def fresh(pr):
+    """A new hand-in on the same pull request: the checks kept from the commit before are no longer what it waits on."""
+    for k in ("runs", "runs_cut", "runs_more", "runs_held"):
+        pr.pop(k, None)
 
 
 def _num(x):
@@ -147,25 +164,30 @@ def line(task, now_=None):
     runs = [{"name": r["n"], "state": r.get("s") if r.get("s") in ("passed", "failed", "running", "queued", "skipped") else "running",
              "at": _num(r.get("at")), "typical": _num(r.get("typ"))}
             for r in pr.get("runs") or [] if isinstance(r, dict) and isinstance(r.get("n"), str)]
-    cut = _num(pr.get("runs_cut"))
+    c = pr.get("runs_cut") if isinstance(pr.get("runs_cut"), dict) else {}
+    cp, co, cf = _num(c.get("p")), _num(c.get("o")), _num(c.get("f"))
     counted = [r for r in runs if r["state"] != "skipped"]
-    passed = sum(1 for r in counted if r["state"] == "passed") + cut
-    total = len(counted) + cut
+    passed = sum(1 for r in counted if r["state"] == "passed") + cp
+    total = len(counted) + cp + co + cf
     failed = [r for r in counted if r["state"] == "failed"]
     open_ = [r for r in counted if r["state"] in ("running", "queued")]
-    if failed or pr.get("checks") == "failed":
-        which = (f"“{failed[0]['name']}” failed" + (f" and {len(failed) - 1} more" if len(failed) > 1 else "")) if failed else "A check failed"
+    # failed only while the tick sent it back for that (a new hand-in's rows from the commit before were cleared: fresh())
+    if pr.get("wait") == BACK_TO_AGENT and (failed or cf or pr.get("checks") == "failed"):
+        more = len(failed) - 1 + cf if failed else cf - 1
+        which = (f"“{failed[0]['name']}” failed" if failed else "A check failed") + (f" and {_int(more)} more" if more > 0 else "")
+        if pr.get("runs_held"):
+            return which + f" · on {task.get('base') or 'main'} too, waits for it to be fixed"
         return which + " · back to its agent to fix"
     for r in open_:
         if r["state"] == "running" and r["at"] and t - r["at"] > (max(2 * r["typical"], r["typical"] + SLOW_OVER) if r["typical"] else SLOW_NONE):
             ran = _round((t - r["at"]) / MIN)
             return f"“{r['name']}” is taking longer than usual · {ran} min so far" + \
                 (f", usually {max(1, _round(r['typical'] / MIN))}" if r["typical"] else "")
-    if not counted and not cut:
+    if not total:
         return "Waiting for GitHub's checks"
-    count = f"{_int(passed)} passed, more to come" if pr.get("runs_more") or not open_ else f"{_int(passed)} of {_int(total)} passed"
+    count = f"{_int(passed)} passed, more to come" if pr.get("runs_more") or not (open_ or co) else f"{_int(passed)} of {_int(total)} passed"
     left = ""
-    if open_ and all(r["typical"] and not (r["state"] == "running" and not r["at"]) for r in open_):
+    if open_ and not co and all(r["typical"] and not (r["state"] == "running" and not r["at"]) for r in open_):
         ms = max(r["typical"] - (t - r["at"] if r["state"] == "running" else 0) for r in open_)
         left = "almost done" if ms <= MIN else f"about {math.ceil(ms / MIN)} min"
     return f"Waiting for GitHub's checks · {count}" + (f" · {left}" if left else "")

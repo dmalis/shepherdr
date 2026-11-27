@@ -10,18 +10,30 @@ const ITEM = /^\s*(?:[-*•]|\d{1,2}[.)])\s+(.+)$/;
 // quoted words in a line: “…”, "…", `…`
 const QUOTED = /[“"`]([^”"`]+)[”"`]/g;
 
+// a code fence: ``` or ~~~ (three or more), closed by the same kind
+const FENCE = /^\s*(`{3,}|~{3,})/;
+
+/** which lines are in a code block (a fence line counts as in) */
+function fenced(lines) {
+  let open = null;
+  return lines.map((l) => {
+    const m = FENCE.exec(l);
+    if (!m) return !!open;
+    if (!open) open = m[1][0];
+    else if (m[1][0] === open) open = null;
+    return true;
+  });
+}
+
 const clean = (t) => t.replace(/^[*_]+|[*_]+$/g, "").trim().replace(/^[“"'`]+|[”"'`]+$/g, "").replace(/\s+/g, " ").trim();
 
 /** { text, suggests } with a trailing "Suggested replies:" block taken out, or null when the message ends without one.
  *  Only the end counts: such words earlier in a message are the agent's to say. A code block is never read. */
 export function plainSuggests(text) {
   const lines = String(text ?? "").replace(/\s+$/, "").split("\n");
-  if (lines.some((l) => l.trim().startsWith("```"))) {
-    // a fence after the heading, or an odd number before it (one left open), would mean the list is in code: leave it
-    const fences = lines.map((l) => l.trim().startsWith("```"));
-    const head = lines.findLastIndex((l) => HEAD.test(l));
-    if (head < 0 || fences.lastIndexOf(true) > head || fences.slice(0, head).filter(Boolean).length % 2) return null;
-  }
+  // a list in a code block (its heading in one, even one left open) is code: leave it; a fence after the heading
+  // ends the items' run below, so it isn't last
+  const code = fenced(lines);
   let i = lines.length - 1;
   const items = [];
   for (; i >= 0; i--) {
@@ -32,7 +44,7 @@ export function plainSuggests(text) {
     items.unshift(clean(m[1]));
   }
   if (i < 0) return null;
-  const h = HEAD.exec(lines[i]);
+  const h = code[i] ? null : HEAD.exec(lines[i]);
   if (!h) return null;
   // items on the heading's own line: quoted ones ("Suggested replies: “Yes”, “Not yet”")
   // only quoted items, with commas, "or" and a full stop between them: anything else is a sentence ("Suggested

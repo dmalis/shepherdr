@@ -327,31 +327,6 @@ test("odd characters and quotes in a suggestion come through as written; a repea
   expect(a.suggests).toEqual(['Say "yes" & go', "it's <fine> \"ok\"", "🚀 ship it — now"]);
 });
 
-// dmalis/shepherdr#42: a "Suggested replies:" list an agent wrote as words (its compacted conversation lost the
-// <hc suggest> form) is never shown: its items are the reply's suggestions; a list earlier in a reply stays words
-test("a plain Suggested replies list last in a reply becomes its suggestions, never its words", async () => {
-  const c = await read([person,
-    reply("m1", [text('Done: the tests pass.\n\nSuggested replies:\n- "Merge it"\n- "Show me the diff"')]),
-    reply("m2", [text('Suggested replies:\n- one\n\nThen I carried on.')]),
-  ]);
-  const agents = c.items.filter((x) => x.kind === "agent");
-  expect(agents.map((x) => x.text)).toEqual(["Done: the tests pass.", "Suggested replies:\n- one\n\nThen I carried on."]);
-  expect(agents.map((x) => x.suggests)).toEqual([["Merge it", "Show me the diff"], undefined]);
-});
-
-// the same reply in two blocks (one message id): a question, then its list or its suggest lines on their own; and a
-// list that a later block shows wasn't last after all
-test("suggestions in a block of their own are the question's buttons; a list followed by more words stays words", async () => {
-  for (const tail of ['Suggested replies:\n- Red\n- Blue', '<hc suggest="Red"/>\n<hc suggest="Blue"/>']) {
-    const c = await read([person, reply("m1", [text("Which colour?")]), reply("m1", [text(tail)])]);
-    const agents = c.items.filter((x) => x.kind === "agent");
-    expect(agents.map((x) => [x.text, x.suggests])).toEqual([["Which colour?", ["Red", "Blue"]]]);
-  }
-  const c = await read([person, reply("m1", [text("Plan:\nSuggested replies:\n- a\n- b")]), reply("m1", [text("Then I carry on.")])]);
-  const agents = c.items.filter((x) => x.kind === "agent");
-  expect(agents.map((x) => [x.text, x.suggests])).toEqual([["Plan:\nSuggested replies:\n- a\n- b\n\nThen I carry on.", undefined]]);
-});
-
 // GitHub #1201: a Codex process holds its approval reviewer's ("guardian") and its spawned helpers' rollouts open
 // beside its own; the chat must show its own, whichever the process opened first.
 import { FIND } from "./chat-log.js";

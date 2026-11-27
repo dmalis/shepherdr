@@ -318,7 +318,9 @@
         "pr": {
           "checks": "running",
           "wait": "Checks running",
-          "runs_cut": 40,
+          "runs_cut": {
+            "p": 40
+          },
           "runs": [
             {
               "n": "check",
@@ -375,6 +377,101 @@
         }
       },
       "line": "Waiting for GitHub's checks · 1 of 2 passed · about 8 min"
+    },
+    {
+      "name": "more open checks than rows kept: counted, and no time left given",
+      "now": 100,
+      "task": {
+        "state": "ready",
+        "pr": {
+          "checks": "running",
+          "wait": "Checks running",
+          "runs_cut": {
+            "o": 10
+          },
+          "runs": [
+            {
+              "n": "lint",
+              "s": "passed",
+              "at": 91,
+              "end": 93,
+              "typ": 2
+            },
+            {
+              "n": "check",
+              "s": "running",
+              "at": 94,
+              "typ": 14
+            }
+          ]
+        }
+      },
+      "line": "Waiting for GitHub's checks · 1 of 12 passed"
+    },
+    {
+      "name": "failed ones past the rows kept count too",
+      "now": 100,
+      "task": {
+        "state": "ready",
+        "pr": {
+          "checks": "failed",
+          "wait": "Back to its agent to fix",
+          "runs_cut": {
+            "f": 2
+          },
+          "runs": [
+            {
+              "n": "e2e",
+              "s": "failed",
+              "at": 91,
+              "end": 98
+            }
+          ]
+        }
+      },
+      "line": "“e2e” failed and 2 more · back to its agent to fix"
+    },
+    {
+      "name": "its base fails the same check: waits for the base, its agent not asked",
+      "now": 100,
+      "task": {
+        "state": "ready",
+        "base": "develop",
+        "pr": {
+          "checks": "failed",
+          "wait": "Back to its agent to fix",
+          "runs_held": true,
+          "runs": [
+            {
+              "n": "e2e",
+              "s": "failed",
+              "at": 91,
+              "end": 98
+            }
+          ]
+        }
+      },
+      "line": "“e2e” failed · on develop too, waits for it to be fixed"
+    },
+    {
+      "name": "a new hand-in while the old failure is still recorded: never that failure",
+      "now": 100,
+      "task": {
+        "state": "ready",
+        "pr": {
+          "checks": "failed",
+          "wait": "Checks running",
+          "runs": [
+            {
+              "n": "e2e",
+              "s": "failed",
+              "at": 91,
+              "end": 98
+            }
+          ]
+        }
+      },
+      "line": "Waiting for GitHub's checks · 0 passed, more to come"
     }
   ]
 }

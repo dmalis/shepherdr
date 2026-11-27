@@ -44,8 +44,8 @@ export function ChecksCard({ t }: { t: Task }) {
       <span className="s">{checksNext(w, now)}</span>
       {w.runs.length > 0 && (
         <ul className="ckrows" aria-label="Its checks">
-          {w.runs.map((r) => (
-            <li key={r.name} aria-label={`${r.name}, ${SPOKEN[r.state]}`}>
+          {w.runs.map((r, i) => (
+            <li key={i + ":" + r.name} aria-label={`${r.name}, ${SPOKEN[r.state]}`}>
               <Mark r={r} />
               <span className="ckn">{r.name}</span>
               <span className="ckw">{runWords(r, now)}</span>

@@ -6,6 +6,7 @@
     "core/tasks.js",
     "core/plain-suggests.js",
     "core/chat-log.js",
+    "mods/tasks/bin/herdr_task/commands.py",
     "mods/tasks/bin/herdr_task/checkwait.py",
     "mods/tasks/bin/herdr_task/agents.py",
     "mods/tasks/bin/herdr_task/tick.py",
@@ -28,6 +29,7 @@
   ],
   "tests": [
     "core/checks-wait.test.js",
+    "core/plain-suggests.test.js",
     "test/test_herdr_task.py::ChecksWait",
     "test/test_herdr_task.py::HandInAsksNothing",
     "web/plugins/tasks/checks-card.test.tsx",
