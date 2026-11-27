@@ -30,7 +30,9 @@ MERGE_SHORT = {"ask": "ask the person first (they mark it as done on its card, w
                "auto": "on its own (Herdr merges a ready task at once, waiting only on checks its base branch requires)"}
 BY = {"space": "set for this space", "repo": "this repo's setting", "machine": "this machine's setting",
       "everywhere": "your setting everywhere"}
-NOTICE_END = "Nothing to answer: reply only <hc no-reply/>."
+# A notice can reach an Assistant mid-turn (between its tool calls): it carries on, as with the reactions notice
+# (dmalis/shepherdr#7: "reply only <hc no-reply/>" ended its work there).
+NOTICE_END = reactions.CARRY_ON
 # Settings › Instructions is gone (SHEP-319): an Assistant told some before is told once that they no longer apply.
 INSTRUCTIONS_GONE = ("Shepherdr's Instructions setting is gone: the instructions you were told from it no longer apply. "
                      "How to work comes from the repo's or folder's AGENTS.md / CLAUDE.md and your own global file.")
