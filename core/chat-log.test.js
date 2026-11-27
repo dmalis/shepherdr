@@ -260,6 +260,27 @@ test("a template's example news lines are words, real news lines are news (#589)
   expect(c.items[3].text).toBe("And look at `<herdr-news>` too");
 });
 
+// dmalis/shepherdr#119: an urgent task's news carries urgent="yes" on its tag, and the first such message to a chat
+// not told yet starts with the settings notice that says what it means (herdr_task/urgent.py, its real words). The
+// news row reads as without the mark, and the notice shows nothing.
+test("an urgent news line reads as any other, and its settings notice shows nothing (#119)", async () => {
+  const code = "import sys; sys.dont_write_bytecode = True; sys.path.insert(0, 'mods/tasks/bin');"
+    + "from herdr_task import assistant_settings as a, urgent as u;"
+    + "print(a.notice([{'key': u.KEY, 'label': u.LABEL, 'text': u.TEXT, 'value': 'on', 'by': None, 'scope': 'everywhere'}]))";
+  const p = Bun.spawn(["python3", "-c", code], { stdout: "pipe", cwd: join(import.meta.dir, "..") });
+  const notice = (await new Response(p.stdout).text()).trim();
+  expect(notice).toStartWith('<herdr-setting name="urgent"');
+  const plain = '<herdr-news task="SHOP-2" event="waiting" needs="reply">"Fix checkout" is waiting: Which plan?</herdr-news>';
+  const marked = plain.replace('needs="reply">', 'needs="reply" urgent="yes">');
+  const rows = async (content) => (await read([person, reply("m1", [text("On it.")]), { ...person, uuid: "n1", message: { role: "user", content } }]))
+    .items.filter((x) => x.kind !== "agent" && x.id !== "p1").map(({ id, ...x }) => x);
+  const want = await rows(plain);
+  expect(want.filter((x) => x.kind === "news")).toMatchObject([{ ref: "SHOP-2", event: "waiting", needs: "reply" }]);
+  expect(JSON.stringify(want)).not.toContain("herdr-setting");
+  expect(await rows(marked)).toEqual(want);
+  expect(await rows(`${notice}\n${marked}`)).toEqual(want);
+});
+
 // Suggested replies: <hc suggest="…"/> lines last on a reply rides on that reply's item, never shows, and only the
 // newest words' suggestion counts (an earlier one never leaks onto a later reply).
 test("a reply's suggest line rides on the reply, never shows, and a later reply without one has none", async () => {

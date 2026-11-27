@@ -1,0 +1,20 @@
+{
+  "issue": 119,
+  "name": "Urgent tasks: what urgent means and how to mark it",
+  "files": [
+    "fork/specs/urgent-tasks.md",
+    "mods/tasks/bin/herdr_task/urgent.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/news.py",
+    "mods/tasks/bin/herdr_task/output.py",
+    "mods/tasks/bin/herdr_task/assistant_settings.py",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::Urgent",
+    "test/test_herdr_task.py::AssistantSettings.test_the_block_by_default",
+    "test/test_herdr_task.py::AssistantSettings.test_the_block_for_a_space_with_its_own",
+    "core/chat-log.test.js"
+  ]
+}

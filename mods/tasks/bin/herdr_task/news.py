@@ -21,6 +21,7 @@ from .launch import coordinator_in, core_spaces, everything_of, tilde_of
 from .store import locate, read_list, Store, store_files
 from .output import line, minutes, view
 from .answered import prompt_answered
+from . import urgent
 
 
 # ---- news -----------------------------------------------------------------------------------
@@ -102,7 +103,8 @@ def news_line(s, t, v, event, words=None):
     # The wait's kind (attention, reply, stopped, asks) rides along, so the chat tells the Assistant's from the person's
     # (web/shared/needs-you.ts forAssistant).
     kind = f' needs="{attr(v["needs"])}"' if event in ("waiting", "needs-you", "failed") and v.get("needs") else ""
-    return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
+    # dmalis/shepherdr#119: an urgent task's line says so on its tag (read again when it goes: urgent.first)
+    return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}{urgent.attr(t)}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 
 
 def untold(t):
@@ -157,6 +159,7 @@ def news_pass(report, folder=None):
     tilde, every = tilde_of(here), everything_of(here)
     told_in = lambda sp: every if tilde and every and sp == tilde else sp
     current = {}  # key -> (status, stall mark), to check queued lines against
+    marks = {}  # dmalis/shepherdr#119: key -> urgent now, for every list this pass reads
     for path in store_files(folder):
         d = read_list(path)
         if not d or not os.path.isdir(d.get("folder") or ""):
@@ -216,6 +219,7 @@ def news_pass(report, folder=None):
                     s.dirty = True
                 cur = {"status": v["status"], "why": v.get("why"), "stall": stall[0] if stall else None}
                 current[key] = cur
+                marks[key] = urgent.urgent_now(t)
                 prev = mine.get(str(t["id"]))
                 mine[str(t["id"])] = {"status": cur["status"], "stall": cur["stall"] or (prev or {}).get("stall"),
                                       **({"needs": v["needs"]} if v.get("needs") else {}),
@@ -263,7 +267,7 @@ def news_pass(report, folder=None):
                     outbox[:] = [x for x in outbox if not (x["key"] == key and not APART & {ev, x["event"]}
                                                            and (x["event"] == ev or ev != "stalled"))]
                     outbox.append({"key": key, "space": told_in(bare(t["space"])), "folder": os.path.basename(s.loc["folder"]), "event": ev, "status": v["status"],
-                                   "stall": stall[0] if ev == "stalled" else None, "text": text, "at": now()})
+                                   "stall": stall[0] if ev == "stalled" else None, "text": text, "at": now(), "urgent": marks[key]})
             ids = {str(t["id"]) for t in s.data["tasks"]}
             for k in [k for k in mine if k not in ids and k != "_init"]:
                 mine.pop(k)
@@ -281,7 +285,12 @@ def news_pass(report, folder=None):
             continue
         to = coordinator_in(space)
         k = hc_json("get", to) if to else None
-        if to and news_send(to, "\n".join(x["text"] for x in batch)):
+        # dmalis/shepherdr#119: urgent tasks' lines first, each marked as its task is now, led by what urgent means
+        # for a running chat not told yet
+        batch = urgent.first(batch, marks)
+        lead = urgent.lead(k, batch) if to else None
+        if to and news_send(to, "\n".join(([lead[0]] if lead else []) + [x["text"] for x in batch])):
+            urgent.told(to, lead)
             outbox[:] = [x for x in outbox if x not in batch]
             report["news"].append({"to": to, "lines": [x["text"] for x in batch]})
             # Kept for the main machine's home Assistant, which keeps every machine's overview.

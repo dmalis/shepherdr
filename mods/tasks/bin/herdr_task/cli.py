@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from . import analytics, link
+from . import analytics, link, urgent
 from .base import bundle, ENTRY, Fail, guard, run, STORE, sync_held, VERSION
 from .agents import LINE_MAX, ROW_MAX, SUMMARY_MAX
 from .launch import cmd_allow, name_tabs
@@ -185,6 +185,11 @@ def remote(machine, argv):
 
 def main():
     argv = sys.argv[1:]
+    # dmalis/shepherdr#119: only the person marks a task urgent; a task's own agent is refused before anything goes
+    # to another machine or runs as a job
+    no = urgent.refusal(argv)
+    if no:
+        return _refused(argparse.Namespace(json="--json" in argv), no)
     if argv[:1] == ["--detach"]:
         # #1211: the window's way to run an action that may outlast its 30 s (an Accept waiting on GitHub's merge)
         argv = argv[1:]
@@ -297,6 +302,7 @@ def main():
                                    "machine's with the machine first (vm-b:HAT-12). Only for a task that needs their result "
                                    "(or a release): with worktrees, tasks on the same files still run in parallel")
     c.add_argument("--space", help="the space it's for, whose settings it takes (default: yours)")
+    urgent.flag(c)
     when_opts(c)
     c = cmd("show", cmd_show, "one task")
     c.add_argument("--evidence", action="store_true", help="with what its Accept card shows: commits, changed files, checks and its proof")
@@ -412,6 +418,7 @@ def main():
     g = c.add_mutually_exclusive_group()
     g.add_argument("--here", action="store_true")
     g.add_argument("--worktree", action="store_true")
+    urgent.flag(c, edit=True)
     when_opts(c, edit=True)
     cmd("rm", cmd_rm, "remove a task")
     c = cmd("config", cmd_config, "this folder's settings", id=False)

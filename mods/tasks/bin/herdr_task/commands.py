@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, sandbox, stack
+from . import after_merge, sandbox, stack, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -127,6 +127,7 @@ def cmd_add(args):
         take_pr(s, t, getattr(args, "pr", None))
         detached_refusal(s, t)
         set_notes(t, args)
+        urgent.mark(s, t, getattr(args, "urgent", None))  # dmalis/shepherdr#119
         if args.after:
             set_after(s, t, *parse_after(s, args.after))
         if at:
@@ -434,7 +435,7 @@ def cmd_show(args):
         if getattr(args, "evidence", False):
             # What the Accept card shows: commits, files, checks and the proof (proof.py).
             v["evidence"] = evidence(s, t)
-    text = [line(v), f"folder: {v['folder']}"]
+    text = [line(v), f"folder: {v['folder']}"] + (["Urgent: yes"] if v.get("urgent") else [])  # dmalis/shepherdr#119
     if v.get("worktree"):
         text.append(f"worktree: {v['worktree']} (branch {v['branch']}, base {v.get('base')})")
     elif v.get("branch") and v.get("mode") == "worktree":
@@ -1542,9 +1543,11 @@ def move_into(t, loc, old_ref, old_prefix):
 
 
 def cmd_edit(args):
+    urgent.check_before_move(args)  # dmalis/shepherdr#119: a refused mark moves nothing
     moved = move_task(args) if getattr(args, "move_to", None) else None
     with open_store(args) as s:
         t = s.find(args.id)
+        urgent.mark(s, t, getattr(args, "urgent", None))
         old = t["title"]
         if getattr(args, "space", None) is not None:
             # 3.2: Move to another space, only before it has started (its settings and its Assistant's news are that space's)
