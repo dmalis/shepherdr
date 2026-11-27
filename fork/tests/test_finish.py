@@ -274,7 +274,7 @@ class CompletionPin(unittest.TestCase):
                 (commands, "say", lambda a, v, text=None: self.said.append(text)),
                 (commands, "live_agents", lambda key: self.live), (commands, "detail", lambda k: k),
                 (commands, "own_core_check", lambda: None), (commands, "review_limits", lambda s, t: (True, 2)),
-                (commands, "base_pr", lambda *a, **k: None), (commands, "finalize", ready),
+                (commands, "finalize", ready),
                 (commands, "find_proof", lambda *a: None), (commands, "task_settings", lambda s, t: []),
                 (commands, "ready_turns", lambda live: {}), (commands, "watch_main", lambda *a: None),
                 (commands, "update_main", lambda *a: None), (commands, "github", lambda s: "dmalis/shepherdr"),
