@@ -85,7 +85,8 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - building;
   - carried since `ours-…`;
   - proposed upstream (with the link);
-  - fixed upstream in `vX.Y.Z`, then dropped.
+  - fixed upstream in `vX.Y.Z`, then dropped;
+  - fork-only, not offered upstream (with why).
 - **Labels:**
   - `patch`: a change we carry.
   - `pipeline`: sync, trial and install.
@@ -116,15 +117,25 @@ A release whose patches don't fit yet waits until they do. After 24 hours waitin
 
 ## Upstream issues
 
-The upstream-issue skill.
-- **Fix it here first, then tell upstream:** an issue linking our merged pull request, on the person's yes. The
+The upstream-issue skill. The person's standing rule: our Shepherdr works for them, built in a way that fits
+Shepherdr for everyone, and upstream's author decides whether it goes into theirs.
+- **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
+  find later is fixed here as a patch (the fork-patch skill), unless upstream's own release already fixes it. The
   person never waits on upstream.
-- **When the maintainer closes one of the person's issues without a fix,** we always build our own solution.
-  Once it is merged, we post one comment on that closed issue linking our pull request, for the maintainer to decide
-  on. We never post a second issue for it.
-- **When the maintainer proposes another approach or asks something,** it is rethought with the person. It is never
+- **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
+  only suits them becomes a setting, with their value in their settings file. What can't fit everyone stays
+  fork-only and isn't offered.
+- **Then offer it, with no further yes.** Once our pull request is merged:
+  - an issue the person already filed, open or closed: one comment linking our pull request;
+  - a new problem: one new upstream issue linking it.
+
+  The words always say it is the author's to take as it is, do differently or drop. One comment per issue, ever,
+  and never a second issue for the same problem.
+- **Our pull request stays in our fork,** linked from upstream. No pull request on upstream unless the person asks
+  for that one.
+- **When the author fixes it their own way,** the next sync drops our patch and keeps theirs.
+- **When the author proposes another approach or asks something,** it is rethought with the person. It is never
   ignored.
-- **When upstream ships one of ours,** the next sync drops our patch.
 - **Private context.** The planning notes are in `.private/` in this space's folder. It is git-ignored and never
   committed. Read `.private/CONTEXT.md` before your first piece of work.
 
