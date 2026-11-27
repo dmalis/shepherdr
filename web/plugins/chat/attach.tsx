@@ -82,7 +82,13 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
     if (!sheet) return
     // a sheet taller than the screen (a big zoom) scrolls instead
     const fits = () => sheet.scrollHeight <= sheet.clientHeight + 1
-    sheet.style.touchAction = fits() ? 'none' : ''
+    // again whenever the sheet or the screen changes size (a split screen, a turned phone)
+    const sync = () => void (sheet.style.touchAction = fits() ? 'none' : '')
+    sync()
+    const sizes = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null
+    sizes?.observe(sheet)
+    if (ref.current) sizes?.observe(ref.current)
+    addEventListener('resize', sync)
     // the Motion setting's Reduced, or the system's: the sheet doesn't move with the finger; the drag still closes it
     const calm = () => still() || document.documentElement.dataset.motion === 'reduced'
     let from: { id: number; y: number; t: number } | null = null
@@ -128,6 +134,8 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
     sheet.addEventListener('pointerup', up)
     sheet.addEventListener('pointercancel', up)
     return () => {
+      sizes?.disconnect()
+      removeEventListener('resize', sync)
       sheet.removeEventListener('pointerdown', down)
       sheet.removeEventListener('pointermove', move)
       sheet.removeEventListener('pointerup', up)

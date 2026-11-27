@@ -92,6 +92,13 @@ test('at a big zoom the tiles wrap instead of cutting their labels', async () =>
   expect(css).not.toContain('ellipsis')
   // its classes are its own: .atile is the artifact cards'
   expect(css).not.toContain('.atile')
+  // a wide phone's popover keeps the three in a row, and scrolls on a short screen
+  expect(css).toContain('.pop:not(.sheet)>.addsh{width:328px;max-width:100%')
+  expect(css).toMatch(/\.pop:not\(\.sheet\):has\(>\.addsh\)\{[^}]*max-height:calc\(100dvh - 16px\);overflow-y:auto/)
+  // a sheet that stops fitting (split screen, turned phone) scrolls again: touch-action follows its size
+  const src = await Bun.file(new URL('./attach.tsx', import.meta.url)).text()
+  expect(src).toContain('new ResizeObserver(sync)')
+  expect(src).toContain("addEventListener('resize', sync)")
 })
 
 // the seams this patch stands on: upstream may change them
