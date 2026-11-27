@@ -23,7 +23,7 @@ test("the details' words, as the window's popup says them", () => {
   expect(healthReadWords({ at: NOW - 120e3 }, NOW)).toBe("Read 2m ago");
   expect(noHealthWords({ error: "timed out" })).toBe("Couldn't read it: timed out");
   expect(noPlanWords({ limitsAt: 1 })).toBe("No agent CLIs here.");
-  expect(noPlanWords({})).toBe("Reading plan usage…");
+  expect(noPlanWords({})).toBe("Reading…");
   expect(whyWords({ state: "signed-out" })).toBe("Not signed in on this machine.");
   expect(whyWords({ state: "no-plan" })).toBe("No plan limits: not signed in to a subscription.");
   expect(cliTitle({ name: "Codex", read: { plan: "pro" } })).toBe("Codex · Pro");

@@ -11,7 +11,7 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 | Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |
 | Machines | Each machine's agents, processor, memory and disk. Add a machine. Open desktop, where a machine has one |
-| Usage | How much of each plan your agents have used, with reset times |
+| Usage | Your ElevenLabs plan, read with your own key, and where to see Claude Code's and Codex's (`/usage`, `/status`) |
 | Plugins | A switch for Terminal, Screens, Voice, Schedules and Reactions ([Plugins](plugins.md)) |
 | Personal analytics | How you use Shepherdr, kept only on your machines: on or off, your numbers, see, export or delete it ([analytics.md](analytics.md)) |
 
