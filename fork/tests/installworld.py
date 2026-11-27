@@ -297,14 +297,15 @@ class World(unittest.TestCase):
             self.put(w, f"{pkg}/layout.py", f.read())       # the real one: where the sync hold goes
         self.put(w, "fork/bin/sync", f"# pipeline {pipeline or 1}\n")
         self.put(w, "fork/sync/state.py", "# state\n")
-        # the patch list: one file per patch (patches=True), an older tree's single file ("legacy"), or none
+        # the patch list: one file per patch (patches=True), an older tree's single file ("legacy"), both ("mixed":
+        # a rebase that kept the old file), or none
         hold = {"issue": 1, "files": ["bin/shepherdr"], "tests": ["fork/tests/test_hold_patch.py"]}
         for rel in ("fork/patches.json", "fork/patches"):
             if os.path.exists(os.path.join(w, rel)):
                 git(w, "rm", "-q", "-r", rel)
-        if patches == "legacy":
+        if patches in ("legacy", "mixed"):
             self.put(w, "fork/patches.json", json.dumps({"patches": [hold]}))
-        elif patches:
+        if patches and patches != "legacy":
             self.put(w, "fork/patches/1.json", json.dumps(hold))
         git(w, "commit", "-q", "--allow-empty", "-m", version)
         return git(w, "rev-parse", "HEAD")

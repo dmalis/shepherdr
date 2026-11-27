@@ -206,6 +206,14 @@ class BeforeAnythingMoves(World):
         self.set(plan=["ok"])
         self.assertEqual(self.install(sha=c2)["update"], "ok")
 
+    def test_a_patch_list_laid_out_wrong_holds(self):
+        # the old fork/patches.json kept beside fork/patches/ by a rebase: held, though both name the hold patch
+        c2 = self.new_candidate(patches="mixed")
+        self.ready_to_install(c2)
+        e = self.refused(sha=c2)
+        self.assertEqual((e.fields["outcome"], e.fields["gate"]), ("held", "hold-patch"))
+        self.assertIn("laid out wrong: fork/patches.json is the old list", e.why)
+
     def test_the_hold_patch_must_be_carried(self):
         c2 = self.new_candidate(patches=False)
         self.ready_to_install(c2)

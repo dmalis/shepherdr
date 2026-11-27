@@ -193,9 +193,12 @@ def read_patches(repo, at=None):
 
 
 def patch_list(a, p):
-    """The patches a tree or a commit carries (the finish step's `live` labels read it at the installed commit)."""
+    """The patches a tree or a commit carries (the finish step's `live` labels read it at the installed commit).
+    Refused when the list is laid out wrong (the old list kept beside the new folder could hide a lost patch)."""
     lines, layout = read_patches(os.path.abspath(a.repo), a.at)
-    return {"patches": [{"issue": x.get("issue"), "name": x.get("name")} for x in lines], "layout": layout}
+    if layout:
+        raise Refused("the patch list is laid out wrong: " + "; ".join(layout), outcome="stop", problems=layout)
+    return {"patches": [{"issue": x.get("issue"), "name": x.get("name")} for x in lines]}
 
 
 def patch_list_args(c):

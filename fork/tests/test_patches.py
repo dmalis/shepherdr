@@ -219,9 +219,19 @@ class TheLoader(unittest.TestCase):
         new_without = self.commit("no hold patch")
         put(self.tmp, "fork/patches/19.json", "{broken")
         broken = self.commit("a broken file")
-        self.assertEqual([install.carries_hold_patch(self.tmp, s) for s in (old, old_without, new, new_without, broken)],
-                         [True, False, True, False, False])
+        # a rebase that lost the hold patch's file but kept the old list beside the folder: the old list still names
+        # it, yet the gate refuses, since the folder is the list now
+        git(self.tmp, "rm", "-q", "fork/patches/19.json")
+        put_legacy(self.tmp, [HOLD, line(7)])
+        mixed = self.commit("both")
+        self.assertEqual([install.carries_hold_patch(self.tmp, s)
+                          for s in (old, old_without, new, new_without, broken, mixed)],
+                         [True, False, True, False, False, False])
         self.assertFalse(install.carries_hold_patch(self.tmp, "0" * 40))
+        self.assertEqual(install.patch_list_at(self.tmp, mixed)[1], "its patch list is laid out wrong: fork/patches.json "
+                         "is the old list: move each of its lines to fork/patches/<issue>.json")
+        self.assertEqual(install.patch_list_at(self.tmp, broken), ([], "its patch list can't be read (JSONDecodeError)"))
+        self.assertEqual(install.patch_list_at(self.tmp, new)[1], None)
 
     def test_two_new_patches_merge_cleanly(self):
         """Two patch branches from the same main, each adding its own file, merge without a conflict; the same two
@@ -321,11 +331,18 @@ class TheStep(unittest.TestCase):
         git(self.tree, "commit", "-q", "-m", "new")
         want = lambda *ns: [{"issue": n, "name": "the hold patch" if n == 19 else f"fix {n}"} for n in ns]  # noqa: E731
         self.assertEqual(self.step("--at", old, step="patch-list"),
-                         (0, {"ok": True, "step": "patch-list", "patches": want(19), "layout": []}))
+                         (0, {"ok": True, "step": "patch-list", "patches": want(19)}))
         self.assertEqual(self.step("--at", "HEAD", step="patch-list")[1]["patches"], want(7, 19))
         self.assertEqual(self.step(step="patch-list")[1]["patches"], want(7, 19))
         code, out = self.step("--at", "0" * 40, step="patch-list")
         self.assertEqual((code, out["outcome"]), (1, "stop"))
+        # a rebase that kept the old list beside the folder: refused, not listed as if all were well
+        put_legacy(self.tree, [HOLD])
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "both")
+        code, out = self.step("--at", "HEAD", step="patch-list")
+        self.assertEqual((code, out["outcome"], out["problems"]),
+                         (1, "stop", ["fork/patches.json is the old list: move each of its lines to fork/patches/<issue>.json"]))
 
     def ran_tests(self):
         try:
