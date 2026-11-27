@@ -4,6 +4,7 @@
 // and who may use it, the whole width, with one ⋯ button: Replace and Remove in its sheet, as iOS and 1Password keep
 // a row's actions. On a computer the two buttons stay on the row, where the name has the room beside them.
 import { Fragment, useRef, useState } from 'react'
+import { keyboard } from './choice.tsx'
 import { openMenu } from './overlay.tsx'
 import { useUI } from './kernel.ts'
 import { Btn, I, IB } from './ui.tsx'
@@ -51,6 +52,28 @@ export function SecretList({ list, scope, replace, remove }: { list: Kept[]; sco
   const clear = () => {
     setQ('')
     box.current?.focus()
+  }
+  // a row's ⋯: its sheet, and the keyboard in it as in Settings' choice menus (choice.tsx): it starts on Replace,
+  // ↑ ↓ move, Tab closes it, and when it closes the keyboard goes back to the ⋯
+  const actions = (b: HTMLButtonElement, s: Kept) => {
+    const was = b.getAttribute('aria-expanded') === 'true'
+    openMenu(
+      b,
+      [
+        { icon: 'pen', label: 'Replace', run: () => replace(s) },
+        { icon: 'bin', label: 'Remove', danger: true, run: () => remove(s) },
+      ],
+      { cap: `${s.name} · ${scope(s)}`, label: `${s.name}, ${scope(s)}` },
+    )
+    if (was) return
+    b.setAttribute('aria-expanded', 'true')
+    requestAnimationFrame(() => {
+      const m = [...document.querySelectorAll<HTMLElement>('.layer [role="menu"]')].at(-1)
+      if (m && b.getAttribute('aria-expanded') === 'true' && !m.dataset.keys) {
+        m.dataset.keys = '1'
+        keyboard(b, m)
+      }
+    })
   }
   return (
     <>
@@ -105,16 +128,7 @@ export function SecretList({ list, scope, replace, remove }: { list: Kept[]; sco
               // with who may use it: the same name kept in two places is two rows, and each says which it is
               label={`More for ${s.name}, ${scope(s)}`}
               aria-haspopup="menu"
-              onClick={(e) =>
-                openMenu(
-                  e.currentTarget,
-                  [
-                    { icon: 'pen', label: 'Replace', run: () => replace(s) },
-                    { icon: 'bin', label: 'Remove', danger: true, run: () => remove(s) },
-                  ],
-                  { cap: `${s.name} · ${scope(s)}`, label: `${s.name}, ${scope(s)}` },
-                )
-              }
+              onClick={(e) => actions(e.currentTarget, s)}
             />
           ) : (
             <span className="acts">
