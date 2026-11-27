@@ -17,12 +17,13 @@
     padding-bottom: 8px;
   }
   /* the header keeps one line, a compact bar's height: the name and its buttons. The folder and the model line step
-     aside (the model stays in the message box's row), and so does a task's status line. Every header's height at
-     once, so a tablet's list and columns stay level (html: above .app.phone's own) */
+     aside (the model stays in the message box's row), and so does a task's status line (its .hline). Other panes'
+     second lines stay: an artifact's version, which a markup note is sent against. Every header's height at once, so
+     a tablet's list and columns stay level (html: above .app.phone's own); two lines still fit in it */
   html.kb-up .app {
     --hd: 44px;
   }
-  .kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2) {
+  .kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2:has(> .hline)) {
     display: none;
   }
   .kb-up .app .col > .hd .ttl > .tbtn {

@@ -24,6 +24,7 @@ function fakePhone(height: number) {
   let n = 0
   const due = new Map<number, { at: number; f: () => void }>()
   const vv = {
+    width: 390,
     height,
     addEventListener: (_: 'resize', f: () => void) => void fs.add(f),
     removeEventListener: (_: 'resize', f: () => void) => void fs.delete(f),
@@ -32,7 +33,7 @@ function fakePhone(height: number) {
     set: (f: () => void, ms: number) => (due.set(++n, { at: now + ms, f }), n),
     clear: (t: unknown) => void due.delete(t as number),
   }
-  const resize = (h: number) => ((vv.height = h), [...fs].forEach((f) => f()))
+  const resize = (h: number, w = vv.width) => ((vv.width = w), (vv.height = h), [...fs].forEach((f) => f()))
   const pass = (ms: number) => {
     const until = now + ms
     for (;;) {
@@ -95,20 +96,76 @@ test('the box loses focus while the keyboard is still sliding away: the tabs wai
   p.resize(695)
   p.pass(100)
   expect(r.on.has(TYPING)).toBe(true)
+  // the height back: the tabs come back in that same resize, never a frame without them first
   p.resize(844)
-  p.pass(100)
-  expect(r.on.has(TYPING)).toBe(true)
-  p.pass(60)
   expect(r.on.has(TYPING)).toBe(false)
+  expect(r.calls).toEqual([true, false])
+})
+
+test('a browser bar that comes back shorter: the tabs come back once the height is still', () => {
+  const r = fakeRoot()
+  const p = fakePhone(844)
+  let up = true
+  let tell = () => {}
+  markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  p.resize(508)
+  up = false
+  tell()
+  p.resize(720)
+  p.pass(149)
+  expect(r.on.has(TYPING)).toBe(true)
+  p.pass(1)
+  expect(r.on.has(TYPING)).toBe(false)
+})
+
+test('turned while typing and back: the other way up never lets go early', () => {
+  const r = fakeRoot()
+  const p = fakePhone(844)
+  let up = false
+  let tell = () => {}
+  markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  p.resize(390, 844)
+  p.resize(844, 390)
+  p.resize(508)
+  up = true
+  tell()
+  // turned with the keyboard up, then back
+  p.resize(190, 844)
+  p.resize(508, 390)
+  up = false
+  tell()
+  p.pass(500)
+  expect(r.on.has(TYPING)).toBe(true)
+  p.resize(844)
+  expect(r.on.has(TYPING)).toBe(false)
+})
+
+test('the keyboard closed by height with the focus kept (Android back): it goes in that resize', () => {
+  const r = fakeRoot()
+  const p = fakePhone(844)
+  let up = true
+  let tell = () => {}
+  markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  p.resize(508)
+  p.resize(844)
+  up = false
+  tell()
+  expect(r.on.has(TYPING)).toBe(false)
+  // and it opens again as before
+  up = true
+  tell()
+  expect(r.on.has(TYPING)).toBe(true)
 })
 
 test('typing again before the keyboard is down keeps the mark; one that never reports its way down lets go', () => {
   const r = fakeRoot()
   const p = fakePhone(844)
-  let up = true
+  let up = false
   let tell = () => {}
-  p.resize(508)
   markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  p.resize(508)
+  up = true
+  tell()
   up = false
   tell()
   p.pass(200)
@@ -144,7 +201,9 @@ test('what steps aside: the tabs, the bands, the folder and the model line, a ta
   expect(css).toContain('.kb-up .app :is(.chat, .pane) > .foot {\n    padding-bottom: 8px;')
   // every layout's headers (a phone turned and a tablet too), above .app.phone's own height
   expect(css).toContain('html.kb-up .app {\n    --hd: 44px;')
-  expect(css).toContain('.kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2)')
+  // the chat's folder and model line, a task's status line; never another pane's (an artifact's version)
+  expect(css).toContain('.kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2:has(> .hline))')
+  expect(read('web/plugins/tasks/client.tsx')).toContain('<span className="hline">')
   expect(css).toContain('.kb-up .app :is(.anote, .upchip)')
   // the offline line (.tline) stays: it says why a message waits
   expect(css).not.toContain('.tline')
