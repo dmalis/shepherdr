@@ -79,11 +79,13 @@ test('on a phone every choice is a menu button with its value; on a computer the
   // segmented control's does: Needs me again asks for permission; Merge's inherited value saved as the repo's own)
   const src = read('./choice.tsx')
   expect(src).toContain("import './settings-look.css'")
-  expect(src).toContain('run: () => live.current.onChange(v)')
-  expect(src).toContain('live.current = { onChange, value }')
+  expect(src).toContain('run: () => live.current.values.includes(v) && live.current.onChange(v)')
+  // and closes when what it was opened for changes: Settings' page, scope or repo, the row's choices or value
+  expect(src).toContain('}, [menu, where, key, value])')
+  expect(src).toContain('live.current = { onChange, value, values }')
   // the menu closes with its button, and the keyboard starts in it and comes back
   expect(src).toMatch(/return \(\) => \{\n\s*if \(b && isOpen\(b\)\) openMenu\(b, \[\]\)/)
-  expect(src).toMatch(/if \(m && isOpen\(b\)\) keyboard\(b, m\)/)
+  expect(src).toMatch(/if \(m && isOpen\(b\) && n === opened.current && !m.dataset.keys\) \{\n\s*m.dataset.keys = .1.\n\s*keyboard\(b, m\)/)
 })
 
 // the seams in upstream's files this patch hangs on (dmalis/shepherdr#68): a sync that moves one fails here first
@@ -104,5 +106,9 @@ test('pinned: Settings swaps its choices by import, has a page title, Notificati
   // the segmented control and the menu it becomes
   expect(read('./ui.tsx')).toContain('export function Seg<T extends string>({ values, value, onChange, label }: { values: readonly T[]; value: T; onChange: (v: T) => void; label?: string })')
   expect(read('./overlay.tsx')).toContain('export function openMenu(anchor: Element | null, rows: MenuRow[]')
+  // voice reads an open menu as the screen (a phone's choice is one) and presses its choices
+  const screen = read('../plugins/voice/screen.ts')
+  expect(screen).toContain('[aria-modal="true"], dialog[open], [role="alertdialog"], .layer [role="menu"]')
+  expect(screen).toMatch(/'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'/)
   expect(read('./kernel.ts')).toMatch(/export interface MenuRow \{[\s\S]*?\n {2}on\?: boolean/)
 })

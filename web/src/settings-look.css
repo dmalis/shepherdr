@@ -31,12 +31,20 @@
 .win .pg .srow .n,.win .pg .srow.wrap .n{flex:1 1 6em;min-width:0}
 /* where even that can't fit (a 320 px phone at 200% zoom), the controls go under the label on the right rather than
    past the row's edge */
-.win .pg .srow{flex-wrap:wrap;justify-content:flex-end}.win .pg .srow>:not(.n){max-width:100%}
+.win .pg .srow{flex-wrap:wrap;container-type:inline-size}.win .pg .srow>:not(.n){max-width:100%}
+/* the controls keep to the right, on the label's line or under it; an auto margin, so one too wide for the row never
+   runs past its left edge */
+.win .pg .srow>.n+:not(.chp),.win .pg .srow>.n+.chp+*{margin-left:auto}
+/* a choice's menu on a phone is a sheet the screen's width, at any zoom */
+.layer .pop.sheet[role="menu"]{min-width:0}.layer .pop.sheet[role="menu"] .row .n{white-space:normal}
 .win .pg .srow>:not(.n){flex:none}.win .pg .srow>.val{flex:0 1 auto}
 /* a long value (About's build) wraps on the right before it squeezes its label */
 .win .pg .srow>.n+.val:last-child{max-width:60%}
 /* a menu button never takes more than half the row: a long value ends in an ellipsis, its menu has it whole */
 .win .pg .srow>.chv{flex:0 1 auto;max-width:50%}.win .pg .chv>.v{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* a row narrower than a phone's (a small phone at a big zoom): a menu button takes the row it is on, and Zoom's
+   − and + come in closer */
+@container (max-width:260px){.win .pg .srow>.chv{max-width:100%;height:auto;min-height:var(--btns);white-space:normal;text-align:right}.win .pg .chv>.v{overflow:visible}.win .pg .zooms .ib{width:28px}.win .pg .zoomc{gap:0}}
 /* a value with its button (an agent): the value under the label, the button on the right */
 .win .pg .srow:has(>.val+.btn){display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:0}
 .win .pg .srow:has(>.val+.btn)>.n{grid-area:1/1}
@@ -49,7 +57,7 @@
 /* a choice as a menu button: the value now and a chevron (choice.tsx) */
 .win .pg .chv{display:inline-flex;align-items:center;gap:2px;height:var(--btns);padding:0 4px 0 10px;border-radius:8px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);white-space:nowrap}
 .win .pg .chv>.i{color:var(--muted)}
-.win .pg .chv:hover,.win .pg .chv[aria-expanded="true"]{background:var(--control)}
+.win .pg .chv[aria-expanded="true"]{background:var(--control)}@media(hover:hover){.win .pg .chv:hover{background:var(--control)}}
 @media(pointer:coarse){.win .pg .chv:active{opacity:.6}}
 /* the segmented control at its own width, never seen: it decides whether the choice fits */
 .win .pg .chp{position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none}

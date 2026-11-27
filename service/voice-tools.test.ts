@@ -272,6 +272,8 @@ test("open: what it shows, as the page's voiceNav takes it", async () => {
   expect(await nav({ what: "settings", id: "notification settings" })).toEqual({ kind: "settings", section: "Notifications" });
   expect(await nav({ what: "settings", id: "alerts" })).toEqual({ kind: "settings", section: "Notifications" });
   expect(await nav({ what: "settings", id: "the theme" })).toEqual({ kind: "settings", section: "General" });
+  expect(await nav({ what: "settings", id: "review alerts" })).toEqual({ kind: "settings", section: "Notifications" });
+  expect(await nav({ what: "settings", id: "schedule alerts" })).toEqual({ kind: "settings", section: "Notifications" });
   const bad = await voiceTool("open", { what: "settings", id: "banana" }, web, io());
   expect(bad.error).toBe(true);
   expect(bad.result).toContain("General, Notifications, Agents, Tasks, Secrets, Machines, Usage, Plugins");
