@@ -119,11 +119,11 @@ button.row:hover,.row[aria-current="true"],.rowx:has(>.row[aria-current="true"])
 .ttl{flex:1;min-width:0;padding:0 4px}
 .chat-heading{flex:1;min-width:0}
 .chat-heading>.t2{padding-inline:4px}
-/* #49: Everything's plain line under its name, then its model while the header has room for both (the message box
-   names the model too); a narrow header keeps the line alone */
+/* #49: Everything's plain line under its name, then its model while the header has room for both; a narrow header
+   keeps the line alone while the message box below names the model (.boxed) */
 .chat-heading:has(>.t2>.ev-line){container:evh/inline-size}.chat-heading>.t2:has(>.ev-line){display:flex;align-items:center}
-.ev-line{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ev-line+.pick-summary{flex:none}.ev-line+.pick-summary::before{content:"·";padding:0 4px}
-@container evh (max-width:420px){.ev-line+.pick-summary{display:none}}
+.ev-line{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ev-pick{display:flex;flex:none;max-width:100%}.ev-pick::before{content:"·";padding:0 4px}
+@container evh (max-width:420px){.ev-pick.boxed{display:none}}
 /* where the chat is, beside its name (SHEP-360): dim secondary text, no pill; it gives way before the name, from its
    start, and a finger gets a taller hit area than it shows */
 .ttl:has(>.hpath){display:flex;align-items:center;gap:0}.ttl>.tbtn{flex:none;max-width:100%}.ttl>.tbtn:has(+.hpath){max-width:calc(100% - 44px)}

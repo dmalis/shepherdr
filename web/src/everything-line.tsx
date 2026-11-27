@@ -1,11 +1,23 @@
 // What Everything is, in one plain line under its name in its chat's header (dmalis/shepherdr#49). Everything's agent
-// is the home space's: it starts tasks in any repo or space, sees every task on every machine and reaches each space's
-// own chat (templates/assistant.md, "Home space"). Its model stays in the message box, and beside this line while
-// the header has room for both (ds.css).
+// is the home space's: it starts tasks in any repo or space and checks on the tasks in the spaces and machines it
+// reaches, and passes on what changes another space's tasks to that space's own chat (templates/assistant.md, "Home
+// space"). Its model follows while the header has room; a narrow header keeps the line alone while the message box
+// below names the model, and keeps the model too when there is no box (View as terminal) (ds.css).
+import type { ComponentProps } from 'react'
+import { PickSummary } from './picker.tsx'
+import { cx } from './ui.tsx'
 
-/** the line itself: what Everything does, in everyday words, short enough to show uncut on a phone */
-export const EVERYTHING_LINE = 'Starts and checks work in all your spaces'
+/** the line itself: what you can do from Everything, in everyday words, short enough to show uncut on a small phone */
+export const EVERYTHING_LINE = 'Start or check work in any space'
 
-export function EverythingLine() {
-  return <span className="ev-line">{EVERYTHING_LINE}</span>
+/** Everything's second header line: the line, then its model. `box`: the message box shows (it names the model too) */
+export function EverythingLine({ box, ...pick }: ComponentProps<typeof PickSummary> & { box: boolean }) {
+  return (
+    <>
+      <span className="ev-line">{EVERYTHING_LINE}</span>
+      <span className={cx('ev-pick', box && 'boxed')}>
+        <PickSummary {...pick} />
+      </span>
+    </>
+  )
 }

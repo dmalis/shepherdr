@@ -36,6 +36,8 @@ export function placeholderOf(snap: Snapshot, thread: Thread): string {
 
 function ChatHeader({ snap, thread, place, scrolled }: { snap: Snapshot; thread: Thread; place: Space; scrolled: boolean }) {
   const phone = useUI((u) => u.phone)
+  // the message box shows under the chat (ChatColumn's rule): Everything's header may then leave the model to it
+  const box = useUI((u) => !registry.chatBody.some((b) => b.when(u, thread))) && !placeDown(snap, thread.place) && !!registry.views.box
   const hidden = useUI(sideHidden)
   const agent = useStore((s) => s.chats[thread.chat]?.agent)
   const cat = useCatalog(thread.task ? undefined : place.machine)
@@ -55,7 +57,7 @@ function ChatHeader({ snap, thread, place, scrolled }: { snap: Snapshot; thread:
           </button>
           <HeaderPath snap={snap} place={place} />
         </div>
-        <span className="t2">{every && <EverythingLine />}<PickSummary pick={pick} cat={cat} /></span>
+        <span className="t2">{every ? <EverythingLine pick={pick} cat={cat} box={box} /> : <PickSummary pick={pick} cat={cat} />}</span>
       </div>
       {registry.header.filter((h) => !phone || h.phone).map((h, i) => <h.View key={i} thread={thread} />)}
     </header>
