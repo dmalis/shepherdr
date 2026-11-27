@@ -36,6 +36,13 @@ test("a message wrapped twice is unwrapped: no tags in its words, its sender's a
   // a closing tag quoted in code inside it doesn't keep the wrapper
   expect(users(await conv([user("u1", '<hc from="t1 a"><hc from="SHOP-4 worker">The parser rejects a stray `</hc>` tag.</hc></hc>')])))
     .toEqual([{ text: "The parser rejects a stray `</hc>` tag.", from: "t1 a", by: "SHOP-4 worker" }]);
+  // in any kind of code: a double-backtick span, a tilde fence, a fence left open three deep
+  for (const words of ["Use `` `</hc>` `` to close it.", "Like this:\n~~~\n</hc>\n~~~", "Like this:\n```\n<hc from=\"x\">\n```", "```js\nconst end = 1"]) {
+    expect(users(await conv([user("u1", `<hc from="t1 a"><hc from="SHOP-4 worker">${words}</hc></hc>`)]))).toEqual([{ text: words, from: "t1 a", by: "SHOP-4 worker" }]);
+  }
+  expect(users(await conv([user("u1", '<hc from="t1 a"><hc from="t2 b">\n<hc from="t3">```partial</hc>\n</hc></hc>')]))).toEqual([{ text: "```partial", from: "t3" }]);
+  // a sender outside any terminal on another machine: a bare inner address is on that machine too
+  expect(users(await conv([user("u1", '<hc from="m3/ppid:123"><hc from="t9">Ready.</hc></hc>')]))).toEqual([{ text: "Ready.", from: "m3/t9" }]);
   // a slash command's markers quoted in it don't make it the person's command
   expect(users(await conv([user("u1", '<hc from="t1 a"><hc from="SHOP-4 worker">It sees `<command-name>/help</command-name>`.</hc></hc>')])))
     .toEqual([{ text: "It sees `<command-name>/help</command-name>`.", from: "t1 a", by: "SHOP-4 worker" }]);

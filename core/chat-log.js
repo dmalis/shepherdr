@@ -310,22 +310,23 @@ function cleanUser(t) {
 // on top: <hc from="t1 shop-4-fix"><hc from="SHOP-4 worker">words</hc></hc>), at any depth. The most specific sender:
 // an inner terminal address (from), else an inner name ("SHOP-4 worker", by), which names the sender when its address
 // can't (core/chat-view.js fromName). A bare inner address is on the outer sender's machine. Only a wrapper of the whole
-// text, and only one whose tags pair up outside code (two quoted tags side by side stay as written).
+// text: not two tags side by side (`<hc from="a">one</hc> and <hc from="b">two</hc>`, a tag that closes before another
+// opens, outside code). A closing tag quoted in the words, in any kind of code, leaves it one wrapper.
 const WRAP = /^<hc\b([^>]*)>([\s\S]*)<\/hc>$/;
-function paired(s) {
-  let depth = 0;
-  const code = codeRanges(s);
-  for (const m of s.matchAll(/<hc\b[^>]*?(\/?)>|<\/hc>/g)) {
+function whole(body) {
+  const code = codeRanges(body);
+  let closed = false;
+  for (const m of body.matchAll(/<hc\b[^>]*?(\/?)>|<\/hc>/g)) {
     if (inCode(code, m.index)) continue;
-    if (m[0] === "</hc>") { if (--depth < 0) return false; }
-    else if (!m[1]) depth++;
+    if (m[0] === "</hc>") closed = true;
+    else if (!m[1] && closed) return false;
   }
-  return depth === 0;
+  return true;
 }
 function unwrapped(text, outer) {
   let from = null, by = null;
-  const machine = /^([\w.-]+)\/t\d/.exec(String(outer ?? "").trim())?.[1];
-  for (let m; (m = WRAP.exec(text)) && paired(m[2]); ) {
+  const machine = /^([\w.-]+)\/(?:t\d|ppid:\d)/.exec(String(outer ?? "").trim())?.[1];
+  for (let m; (m = WRAP.exec(text)) && whole(m[2]); ) {
     const f = /\bfrom="([^"]*)"/.exec(m[1])?.[1];
     if (f === undefined) break;
     const v = f.trim();
