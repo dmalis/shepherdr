@@ -1055,7 +1055,7 @@ class ReplyBack(unittest.TestCase):
                 self.mock.patch.object(machines, "nodes", lambda g: [{"route": [{"to": "vm-kil"}], "node": {"core": {"name": "vm-kil", "id": "v1"}}}]), \
                 self.mock.patch.object(machines, "route_text", lambda r: "vm-kil" if r else ""), \
                 self.mock.patch.object(machines, "_path_back", lambda *a: None), \
-                self.mock.patch.object(machines, "_deliver", lambda n, h, a, t: sent.append(t) or True):
+                self.mock.patch("herdr_task.held_there.deliver", lambda n, h, a, t: sent.append(t) or (True, False, None)):  # dmalis/shepherdr#80
             r = self.run_on(self.mac, lambda: machines.tell("vm-kil/t3", "How full is the disk?", sender="t13"))
             waits = self.run_on(self.mac, machines._awaiting)
         self.assertTrue(r["can_reply"])

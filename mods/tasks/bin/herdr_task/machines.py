@@ -1506,7 +1506,7 @@ def tell(target, text, sender=None):
     if (mine or {}).get("task"):
         attrs["task"] = mine["task"]
     msg = _peer_message(attrs, text)
-    held, restarted = False, None
+    held, restarted, why = False, None, None
     if not to["route"]:
         # While the person writes to it, it waits for them (news.py's held_pass).
         got = send_or_hold(to["address"], msg, "news")
@@ -1520,13 +1520,14 @@ def tell(target, text, sender=None):
                            "and it couldn't be started again. Restart that Assistant from its chat, then send again")
         ok, held = bool(got), got == "held"
     else:
-        ok = _deliver(to["route"].split(">"), to["how"], to["address"], msg)
+        from .held_there import deliver  # dmalis/shepherdr#80: held there while it's busy, as here
+        ok, held, why = deliver(to["route"].split(">"), to["how"], to["address"], msg)
     if not ok:
         raise Fail(f"couldn't deliver to {to['target']}")
     if fetchable and can_reply:
         # it can't reach this machine: its answer waits there, and this machine fetches it (replies_pass)
         _await(to["route"], to["how"], (receiver.get("core") or {}).get("name") or to["route"].split(">")[-1], here.get("name"))
-    return {"to": to["target"], "space": to.get("space_name"), "can_reply": attrs["can-reply"] == "yes", "from": attrs["from"], "held": held, "why": held and _held_why(to["address"]),
+    return {"to": to["target"], "space": to.get("space_name"), "can_reply": attrs["can-reply"] == "yes", "from": attrs["from"], "held": held, "why": held and (why or _held_why(to["address"])),
             **({"restarted": restarted} if restarted else {})}
 
 
@@ -1737,8 +1738,8 @@ def cmd_tell(args):
         wait = TELL_WAIT
     try:
         r = _timed(lambda: tell(args.target, args.text), wait)
-    except Fail as e:
-        raise Fail(f"Not delivered to {args.target}: {e}") from None
+    except Fail as e:  # dmalis/shepherdr#80: an unknown outcome (held_there.Unknown) is never said not delivered
+        raise Fail(f"{getattr(e, 'lead', 'Not delivered to')} {args.target}: {e}") from None
     if r.get("left"):
         say(args, r, f"Not delivered yet, left for {r['to']} to fetch: {r['machine']} can't be reached from here, so it picks "
                      "this up itself the next time it checks (within a minute while it waits on an answer).")
