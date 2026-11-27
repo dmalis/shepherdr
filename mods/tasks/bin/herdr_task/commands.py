@@ -36,7 +36,7 @@ from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
 from .proof import evidence, find_proof
 from .waits import closed_words, closes_alone, left_files, waits_why
-from .merge_wait import after_refusal, blocked_waits, head_waits, pinned, WAITING as GITHUB_CATCHING_UP
+from .merge_wait import after_refusal, blocked_waits, head_waits, mergeable_waits, pinned, WAITING as GITHUB_CATCHING_UP
 from .when import when_from
 
 
@@ -1966,6 +1966,8 @@ def merge_now(s, t, accept=False):
                 said = t["attention"] = f"{MERGE_FAILED}: {said}"
                 t["attention_at"] = now()
             return said
+        if mergeable_waits(s, t, v):  # dmalis/shepherdr#97: GitHub still works out whether the commit pushed merges
+            return GITHUB_CATCHING_UP
         # only the base branch's required checks hold a merge (#1221); merge "on its own" (also a merge by hand) none
         # beyond them
         v = merge_checks(t, v, now_=(t.get("auto_merge") or merge_policy(s, t)) == "auto")

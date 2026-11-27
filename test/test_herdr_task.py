@@ -10064,6 +10064,294 @@ class PushedForItsMerge(unittest.TestCase):
         self.assertEqual(self.task["pushed"], {"sha": second, "at": 3000})
 
 
+class RebasedPush(unittest.TestCase):
+    """dmalis/shepherdr#97: ready's push of a rebased branch, against a real throwaway remote (a bare repo); gh never
+    runs. Only GitHub's bare "(failed)" refusal is faked (refusing()): its words, then the real push."""
+    setUp, patch, git, commit = TaskFlow.setUp, TaskFlow.patch, TaskFlow.git, TaskFlow.commit
+    remote = ReadyMergeGit.remote
+    GITHUB_FAILED = ("To https://github.com/o/r.git\n ! [remote rejected]   task/1 -> task/1 (failed)\n"
+                     "error: failed to push some refs to 'https://github.com/o/r.git'")
+
+    def rebased(self):
+        """Its branch pushed by ready, main moved on, the branch rebased onto it: (the remote, the commit GitHub has, the
+        rebased tip)."""
+        import herdr_task.github as github
+        remote = self.remote()
+        self.git(self.main, "push", "-q", "origin", "main")
+        wt = self.task["worktree"]
+        self.commit(wt, "work", "a.txt")
+        github.pr_push(self.store, self.task, "o/r")
+        there = self.at(remote)
+        self.commit(self.main, "main moved", "main.txt")
+        self.git(wt, "rebase", "-q", "main")
+        return remote, there, self.git(wt, "rev-parse", "HEAD")
+
+    def at(self, remote):
+        return self.git(self.root, "--git-dir", remote, "rev-parse", "task/1")
+
+    def pushes(self, refused=0):
+        """Every git push ready runs, its arguments; GitHub refuses the first `refused` with its bare "failed"."""
+        import herdr_task.github as github
+        try:
+            import herdr_task.rebased_push as rebased_push
+            self.patch(rebased_push, "RETRY_S", 0)
+        except ImportError:  # main before the fix (the before-check runs these there)
+            pass
+        real, seen = github.git, []
+
+        def git(cwd, *args):
+            if args[:1] == ("push",) and "--delete" not in args:
+                seen.append(args)
+                if len(seen) <= refused:
+                    return False, "", self.GITHUB_FAILED
+            return real(cwd, *args)
+        self.patch(github, "git", git)
+        return seen
+
+    def test_a_rebased_branch_pushes_with_a_lease_on_the_commit_github_has(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        seen = self.pushes()
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.at(remote), tip)
+        self.assertIn(f"--force-with-lease=refs/heads/task/1:{there}", seen[0])
+        self.assertEqual(self.task["pushed"]["sha"], tip)
+
+    def test_a_stale_tracking_ref_is_no_refusal(self):
+        """Its tracking ref behind GitHub's branch (pushed there another way), the commit there one its branch was at
+        before the rebase: leased on that commit, never refused as stale info."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        self.git(self.main, "update-ref", "refs/remotes/origin/task/1", self.task["start"])
+        self.task.pop("pushed")  # nor kept by Herdr: only the branch's own history (its reflog) had it
+        self.pushes()
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.at(remote), tip)
+
+    def test_a_commit_someone_else_pushed_is_still_refused_and_said(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        other = os.path.join(self.root, "other")
+        self.git(self.root, "clone", "-q", "-b", "task/1", remote, other)
+        for k, v in (("user.name", "O"), ("user.email", "o@example.com"), ("commit.gpgsign", "false")):
+            self.git(other, "config", k, v)
+        outsider = self.commit(other, "someone else's", "b.txt")
+        self.git(other, "push", "-q", "origin", "task/1")
+        self.pushes()
+        with self.assertRaises(self.commands.Fail) as e:
+            github.pr_push(self.store, self.task, "o/r")
+        self.assertIn("someone else pushed", str(e.exception))
+        self.assertIn("stale info", str(e.exception))
+        self.assertEqual(self.at(remote), outsider)
+
+    def test_githubs_bare_failed_is_pushed_again_once(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        seen = self.pushes(refused=1)
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual((self.at(remote), len(seen)), (tip, 2))
+        self.assertEqual(seen[0], seen[1])  # the same lease
+        self.assertEqual(self.task["pushed"]["sha"], tip)
+
+    def test_githubs_bare_failed_twice_says_it_gave_no_reason(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        seen = self.pushes(refused=5)
+        with self.assertRaises(self.commands.Fail) as e:
+            github.pr_push(self.store, self.task, "o/r")
+        said = str(e.exception)
+        self.assertIn("GitHub refused the push without giving a reason, twice, a few seconds apart", said)
+        self.assertIn("(failed)", said)
+        self.assertEqual((self.at(remote), len(seen)), (there, 2))
+
+    def test_a_refusal_with_githubs_reason_says_it_and_is_not_tried_again(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        hook = os.path.join(remote, "hooks", "pre-receive")
+        with open(hook, "w") as f:
+            f.write("#!/bin/sh\necho 'GH013: Repository rule violations found for refs/heads/task/1.' >&2\nexit 1\n")
+        os.chmod(hook, 0o755)
+        seen = self.pushes()
+        with self.assertRaises(self.commands.Fail) as e:
+            github.pr_push(self.store, self.task, "o/r")
+        self.assertIn("GH013: Repository rule violations found", str(e.exception))
+        self.assertNotIn("without giving a reason", str(e.exception))
+        self.assertEqual((self.at(remote), len(seen)), (there, 1))
+
+    def test_a_remote_that_drops_the_push_once_takes_it_the_second_time(self):
+        """A real refusal for now, from the remote itself: its ref update aborted once (the link then drops)."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        hook = os.path.join(remote, "hooks", "reference-transaction")
+        with open(hook, "w") as f:
+            f.write(f'#!/bin/sh\nif [ "$1" = prepared ] && [ ! -f {self.root}/once ]; then touch {self.root}/once; exit 1; fi\n')
+        os.chmod(hook, 0o755)
+        seen = self.pushes()
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual((self.at(remote), len(seen)), (tip, 2))
+
+    def test_a_push_github_took_after_all_is_done(self):
+        """Refused in words, yet there when looked at again: pushed, no second try."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        real = github.git
+        seen = []
+
+        def git(cwd, *args):
+            if args[:1] == ("push",):
+                seen.append(args)
+                real(cwd, *args)
+                return False, "", self.GITHUB_FAILED
+            return real(cwd, *args)
+        try:
+            import herdr_task.rebased_push as rebased_push
+            self.patch(rebased_push, "RETRY_S", 0)
+        except ImportError:
+            pass
+        self.patch(github, "git", git)
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual((self.at(remote), len(seen), self.task["pushed"]["sha"]), (tip, 1, tip))
+
+
+class MergeableAfterAPush(PrLooks):
+    """dmalis/shepherdr#97: right after ready's push GitHub works out whether the pull request merges: UNKNOWN, or for
+    a moment still CONFLICTING (its answer for the commit before the rebase). A task handed in again, set to merge on its
+    own, waits for it and merges, never sent to Fixing; a conflict git finds too still is. A real repo for the local
+    check, a fake gh (ReadyAfterARebase's)."""
+    gh_script, merges, check, branch_at = (ReadyAfterARebase.gh_script, ReadyAfterARebase.merges,
+                                           staticmethod(ReadyAfterARebase.check), ReadyAfterARebase.branch_at)
+    BUILD = ReadyAfterARebase.BUILD
+
+    def setUp(self):
+        super().setUp()
+        self.told = []
+        for mod, name, value in ((self.commands, "watch_main", lambda *a, **k: None),
+                                 (self.commands, "update_main", lambda *a, **k: None),
+                                 (self.commands, "drop_branch", lambda s, t: None),
+                                 (self.commands, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.commands, "tell", lambda s, t, msg, args=None: (self.told.append(msg), ("t1", False))[1]),
+                                 (self.tick, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.tick, "due_pass", lambda s, report: None)):
+            p = unittest.mock.patch.object(mod, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        with open(os.path.join(self.dir, "rules.json"), "w") as f:
+            json.dump([{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": self.BUILD}]}}], f)
+        self.repo = os.path.join(self.dir, "repo")
+        self.run_git(self.dir, "init", "-q", "-b", "main", self.repo)
+        for k, v in (("user.name", "T"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")):
+            self.run_git(self.repo, "config", k, v)
+        self.write("shared.txt", "one\n", "base")
+        self.run_git(self.repo, "checkout", "-q", "-b", "b")
+        self.store.loc["folder"] = self.repo
+
+    def run_git(self, cwd, *args):
+        return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    def write(self, name, text, words):
+        with open(os.path.join(self.repo, name), "w") as f:
+            f.write(text)
+        self.run_git(self.repo, "add", name)
+        self.run_git(self.repo, "commit", "-q", "-m", words)
+        return self.run_git(self.repo, "rev-parse", "HEAD")
+
+    def rebased(self):
+        """b's work, main moved on (another file), b rebased onto it: main is in b. Its tip."""
+        self.write("mine.txt", "work\n", "work")
+        self.run_git(self.repo, "checkout", "-q", "main")
+        self.write("theirs.txt", "main moved\n", "main moved")
+        self.run_git(self.repo, "checkout", "-q", "b")
+        self.run_git(self.repo, "rebase", "-q", "main")
+        return self.run_git(self.repo, "rev-parse", "HEAD")
+
+    def conflicting(self):
+        """b and main both changed shared.txt's one line: they really conflict. b's tip."""
+        tip = self.write("shared.txt", "mine\n", "work")
+        self.run_git(self.repo, "checkout", "-q", "main")
+        self.write("shared.txt", "theirs\n", "main moved")
+        self.run_git(self.repo, "checkout", "-q", "b")
+        return tip
+
+    def github_says(self, head, mergeable):
+        checks = [self.check(self.BUILD)]
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump({"state": "OPEN", "mergeable": mergeable, "headRefOid": head, "reviewDecision": "",
+                       "mergeStateStatus": "CLEAN" if mergeable == "MERGEABLE" else "DIRTY" if mergeable == "CONFLICTING"
+                       else "UNKNOWN", "statusCheckRollup": checks}, f)
+        with open(os.path.join(self.dir, "required.json"), "w") as f:
+            json.dump({"data": {"repository": {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {
+                "contexts": {"nodes": [{"__typename": "CheckRun", "name": self.BUILD, "isRequired": True}]}}}}]}}}}}, f)
+        self.branch_at(head)
+
+    def ready_again(self, tip):
+        """Its ready after the rebase: pushed (tip), merge on its own; its pull request was handed in before."""
+        t = {"id": 9, "title": "Login", "state": "running", "space": "sp1", "agents": [], "mode": "worktree",
+             "worktree": self.repo, "branch": "b", "base": "main", "set": {"merge": "auto"}, "head": tip,
+             "pr": {"number": 41, "url": "https://github.com/o/r/pull/41", "repo": "o/r", "head_sha": "0" * 40, "head_at": 1}}
+        self.store.data["tasks"] = [t]
+
+        def pushed(s, t, repo, summary=None):
+            t["pushed"] = {"sha": t["head"], "at": self.clock[0]}  # what github.pr_push() keeps
+            return t["pr"]
+        with unittest.mock.patch.object(self.commands, "github", lambda s: "o/r"), \
+                unittest.mock.patch.object(self.commands, "pr_open", pushed):
+            return t, self.commands.finalize(self.store, t)
+
+    def tick_after(self, t, after):
+        self.clock[0] += after
+        t["pr"]["checked"] = 0
+        report = {"attention": [], "done": []}
+        self.tick.tick_turn(self.store, report)
+        return report
+
+    def assert_waits(self, t):
+        self.assertEqual((t["state"], t.get("auto_merge"), self.merges(), self.told), ("ready", "auto", [], []))
+        self.assertNotIn("merge_failed", t)
+        self.assertNotIn("attention", t)
+
+    def test_unknown_then_mergeable_at_the_same_head_merges_and_never_fixes(self):
+        tip = self.rebased()
+        self.github_says(tip, "UNKNOWN")
+        t, msg = self.ready_again(tip)
+        self.assertIn("Merging it waits: Waiting for GitHub's checks.", msg)
+        self.assert_waits(t)
+        self.tick_after(t, 10_000)
+        self.assert_waits(t)
+        self.github_says(tip, "MERGEABLE")
+        report = self.tick_after(t, 10_000)
+        self.assertEqual((self.merges(), t["state"], report["done"], self.told), ([tip], "done", [9], []))
+
+    def test_conflicting_from_the_commit_before_waits_while_it_merges_cleanly_here(self):
+        """The report: rebased cleanly (main is in its branch), pushed, and GitHub said CONFLICTING for a moment."""
+        tip = self.rebased()
+        self.github_says(tip, "CONFLICTING")
+        t, msg = self.ready_again(tip)
+        self.assertIn("Merging it waits: Waiting for GitHub's checks.", msg)
+        self.assert_waits(t)
+        self.tick_after(t, 10_000)
+        self.assert_waits(t)
+        self.github_says(tip, "MERGEABLE")
+        report = self.tick_after(t, 10_000)
+        self.assertEqual((self.merges(), t["state"], report["done"], self.told), ([tip], "done", [9], []))
+
+    def test_a_real_conflict_still_goes_back_to_fixing(self):
+        tip = self.conflicting()
+        self.github_says(tip, "CONFLICTING")
+        t, msg = self.ready_again(tip)
+        self.assertIn("merging it failed: It conflicts with the base branch.", msg)
+        self.assertEqual((t["state"], self.merges()), ("running", []))
+        self.assertIn("It conflicts", t["merge_failed"])
+
+    def test_a_conflict_github_keeps_saying_past_the_wait_is_one(self):
+        tip = self.rebased()
+        self.github_says(tip, "CONFLICTING")
+        t, _ = self.ready_again(tip)
+        self.assert_waits(t)
+        self.tick_after(t, 3 * 60_000)
+        self.assertEqual(self.merges(), [])
+        self.assertTrue(t.get("merge_failed") or t.get("attention"), t)
+
+
 class ReadyAndPrFlow(unittest.TestCase):
     """SHEP-283: ready and pull request fixes (#1207, #1208, #1087, #1155, #1194, #1204, #1116), in TaskFlow's throwaway
     repo and store; hc and gh are never run."""

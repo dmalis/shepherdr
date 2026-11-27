@@ -9,6 +9,7 @@ import shutil
 from .base import Fail, GH, git, hc_json, now, run, STORE
 from .agents import agent_running, detail, live_agents, live_helpers, mid_turn_agents
 from .after_accept import start as after_accept
+from . import rebased_push
 
 
 # ---- GitHub ---------------------------------------------------------------------------------
@@ -132,12 +133,17 @@ def pr_push(s, task, repo):
                        f"commits since. Put them on a new branch (a new task) rather than a second pull request.")
     tracking = git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{to}")[1]
     expected = (pr.get("lease") or tracking) if to != br else ("" if gone else tracking)
+    # dmalis/shepherdr#97: the commit there, when this clone had it as the branch's (a stale tracking ref, a taken PR
+    # with no saved tip); one it never had keeps the lease above, for git to refuse.
+    expected = rebased_push.lease_on(wt, br, (there.split() or [""])[0], tracking, (task.get("pushed") or {}).get("sha")) \
+        or expected
     # Older taken PRs may have no saved tip and no tracking ref. Git can still push a fast-forward.
     lease = [f"--force-with-lease={ref}:{expected}"] if to == br or expected else []
     with released(s):
-        ok, out, err = git(wt, "push", *lease, *(["-u"] if to == br else []), remote, f"refs/heads/{br}:{ref}")
+        ok, out, err, again = rebased_push.push(wt, remote, ref, tip, [*lease, *(["-u"] if to == br else []), remote,
+                                                                       f"refs/heads/{br}:{ref}"])
     if not ok:
-        raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {push_error(out, err)}")
+        raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {rebased_push.said(out, err, again, push_error)}")
     task["pushed"] = {"sha": tip, "at": now()}
     current = task.get("pr") or {}
     if to != br and current.get("branch") == to and current.get("number") == pr.get("number"):
