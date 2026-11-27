@@ -25,6 +25,9 @@ import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { readyWords } from '@shared/ready-words.ts'
+import { needsCount } from '@shared/view.ts'
+import { needsItems, needsWords } from '@shared/needs-open.ts'
+import { listNeeds } from '@client/needs-count.tsx'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
 
 export { StatusIcon }
@@ -816,9 +819,11 @@ function TasksButton() {
   const on = useUI((u) => u.pane === 'tasks')
   const at = useUI((u) => u.at)
   const tf = useUI((u) => u.tf)
+  // red: what needs you here, and a tap lists it (web/src/needs-count.tsx); else the filter's own quiet count
+  const red = snap ? needsCount(snap, at) : 0
   return (
-    <IB icon="tasks" label="Tasks" pressed={on} onClick={() => togglePane('tasks')}>
-      {snap && <Cnt n={filterCount(snap, tf, at)} />}
+    <IB icon="tasks" label={red ? `Tasks, ${needsWords(red)}` : 'Tasks'} pressed={on} onClick={() => (snap && red && !on ? listNeeds(snap, needsItems(snap, at), { place: at }) : togglePane('tasks'))}>
+      {snap && (red ? <span className="cnt needs">{red}</span> : <Cnt n={filterCount(snap, tf, at)} />)}
     </IB>
   )
 }
@@ -827,7 +832,7 @@ export default definePlugin({
   name: 'tasks',
   setup(reg) {
     reg.header.push({ order: 50, View: TasksButton })
-    reg.bar.push({ order: 10, pane: 'tasks', label: 'Tasks', icon: 'tasks', count: (snap, place) => filterCount(snap, getState().ui.tf, place) })
+    reg.bar.push({ order: 10, pane: 'tasks', label: 'Tasks', icon: 'tasks', count: (snap, place) => filterCount(snap, getState().ui.tf, place), needs: needsCount, openNeeds: (snap, place) => listNeeds(snap, needsItems(snap, place), { place }) })
     reg.panes.push({ id: 'tasks', View: TasksPane })
     reg.views.taskHead = TaskHead
     reg.views.taskTop = TaskTop

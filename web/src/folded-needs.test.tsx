@@ -24,7 +24,7 @@ test('#45: a folded group keeps the space that needs you, with its count; the ot
     expect(html).toContain('data-project="shop"')
     expect(html).not.toContain('data-project="blog"')
     const shop = html.slice(html.indexOf('data-project="shop"'))
-    expect(shop.slice(0, shop.indexOf('</div>', shop.indexOf('cnt')) + 6)).toContain('<span class="cnt">1</span>')
+    expect(shop.slice(0, shop.indexOf('</div>', shop.indexOf('cnt')) + 6)).toContain('<span class="cnt needs">1</span>')
     // answered: it folds away with the rest
     expect(renderToStaticMarkup(<List snap={snap([{ ...held, state: 'working', status: 'work' }])} />)).not.toContain('data-project="shop"')
   } finally {
@@ -35,7 +35,7 @@ test('#45: a folded group keeps the space that needs you, with its count; the ot
 test('#45: a folded machine counts it', () => {
   setUI({ shut: { 'm:mini': true }, at: 'home' })
   try {
-    expect(renderToStaticMarkup(<List snap={snap([held])} />)).toContain('<span class="cnt">1</span>')
+    expect(renderToStaticMarkup(<List snap={snap([held])} />)).toContain('<span class="cnt needs">1</span>')
   } finally {
     setUI({ shut: {}, at: '' })
   }
