@@ -87,6 +87,8 @@ test('pinned: Settings swaps its choices by import, has a page title, Notificati
   expect(settings).toContain("if (sec === 'Notifications') return <Notifications />")
   expect(settings).toMatch(/export function SRow\(\{ label, wrap, children \}[^\n]*\n\s*return \(\n\s*<div className=\{cx\('srow', wrap && 'wrap'\)\}>\n\s*<span className="n">\{label\}<\/span>/)
   expect(read('./review-rows.tsx')).toContain("import { Choice as Seg } from './choice.tsx'")
+  // About's "What's in it" sits right under This device's row, so it joins that group (#44's file)
+  expect(read('./about.tsx')).toMatch(/<SRow label="This device" wrap>\n\s*<span className="val">[\s\S]*?<\/SRow>\n\s*\{changes\.length > 0 && \(\n\s*<section className="about-in"/)
   // the classes the look restyles are still ds.css's
   const ds = read('./ds.css')
   for (const sel of ['.srow{', '.win .pg{', '.win h3{', '.kset .srow{', '.mcard{', '.seg{', '.seg button{', '.b{', '.b.mine{', '.msgs{']) expect(ds).toContain(sel)
