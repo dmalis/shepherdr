@@ -134,10 +134,13 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
   /** a loose space among its machine's groups (level item): over a group's rows or the lower half of its heading,
    *  where they were when the drag began, it goes into that group (before that row); over the upper half, just above
    *  it. Where the rows were, not where they show: making room moves them, and must not change what is under it. Only
-   *  over the list: let go beside it (over the chat), it goes into no group */
+   *  over the list as it shows: let go beside it (over the chat), or above or below it where a scrolled list cuts its rows
+   *  off, it goes into no group */
   const isGroup = (b: Block) => b.els[0]?.dataset.heading === b.id
   const split = (b: Block) => (isGroup(b) ? (b.rs[0].top + b.rs[0].bottom) / 2 : (b.top + b.bottom) / 2)
-  const slotTarget = (x: number, y: number) => {
+  const slotTarget = (x: number, y: number, sy: number) => {
+    const box = scroller?.getBoundingClientRect()
+    if (box && (sy < box.top || sy >= box.bottom)) return null
     const b = blocks.find((b, i) => i !== from && isGroup(b) && y >= split(b) && y < b.bottom && x >= b.rs[0].left && x < b.rs[0].right)
     if (!b || !o.into?.may(b.id)) return null
     const row = b.els.find((x, i) => i > 0 && y >= b.rs[i].top && y < b.rs[i].bottom)
@@ -149,12 +152,14 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     for (const e of over?.lit ?? []) delete e.dataset.dropOver
     over = next
     for (const e of over?.lit ?? []) e.dataset.dropOver = e.dataset.heading ? 'heading' : 'before'
+    // the row itself says it goes into a group (styles.css: indented like the group's spaces)
+    for (const x of blocks[from]?.els ?? []) if (over) x.dataset.into = ''; else delete x.dataset.into
   }
   const place = (sy: number, x: number) => {
     const me = blocks[from]
     // where the pointer is in the list as it was measured, before any scroll
     const y = sy + scrolled()
-    light(o.level === 'item' ? (o.into ? slotTarget(x, y) : null) : target(x, sy))
+    light(o.level === 'item' ? (o.into ? slotTarget(x, y, sy) : null) : target(x, sy))
     if (over) {
       // out over another group: it follows the pointer, and the rest stay as they were
       dy = y - y0

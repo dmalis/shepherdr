@@ -86,6 +86,14 @@ test("a group dragged above the shown space a hidden one follows: the hidden one
   expect(drawn(x, ["B", "H", "C"])).toEqual(["s:work", "B", "H", "C"]);
 });
 
+test("two groups swapped in Active stay swapped in All, with a hidden space between them", () => {
+  // All: First, H (hidden), Second, V; Active shows First, Second, V and Second goes above First
+  const bar = { sections: [{ id: "first", name: "First", machine: null, spaces: [], after: [] }, { id: "second", name: "Second", machine: null, spaces: [], after: ["H"] }] };
+  const x = withGroupSlots(bar, null, [{ group: "second" }, { group: "first" }, "V"], ["H", "V"]);
+  expect(drawn(x, ["V"])).toEqual(["s:second", "s:first", "V"]);
+  expect(drawn(x, ["H", "V"])).toEqual(["H", "s:second", "s:first", "V"]);
+});
+
 test("a group's place survives the serving machine changing (core/host.js relocate names its spaces anew)", async () => {
   const { relocate } = await import("../core/host.js");
   const toLaptop = (m: string | null) => (m === null ? "mini" : m === "laptop" ? null : m);

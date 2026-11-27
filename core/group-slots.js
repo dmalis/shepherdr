@@ -18,13 +18,16 @@ export function withGroupSlots(d, machine, items, all = []) {
   const shown = new Set(items.filter((it) => typeof it === "string"));
   const at = new Map(all.map((id, i) => [id, i]));
   const above = [];
+  // the hidden ones kept above a group stay above every group after it too, so the groups keep the order named
+  const carried = new Set();
   for (const [k, it] of items.entries()) {
     if (typeof it === "string") { above.push(it); continue; }
     const g = it && mine.get(it.group);
     if (!g) continue;
     const below = items.slice(k + 1).find((y) => typeof y === "string");
     const hidden = (Array.isArray(g.after) ? g.after : []).filter((id) => !shown.has(id) && at.has(id) && (below === undefined || !at.has(below) || at.get(id) < at.get(below)));
-    g.after = [...above, ...hidden].sort((a, b) => (at.get(a) ?? -1) - (at.get(b) ?? -1));
+    for (const id of hidden) carried.add(id);
+    g.after = [...new Set([...above, ...carried])].sort((a, b) => (at.get(a) ?? -1) - (at.get(b) ?? -1));
   }
   return x;
 }
