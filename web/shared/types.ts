@@ -325,6 +325,8 @@ export interface Task {
   afterMerge?: AfterMerge
   /** Working, and none of its agents busy (their live state): a still mark, never the turning ring (dmalis/shepherdr#48) */
   agentIdle?: boolean
+  /** with agentIdle: no agent of its own runs at all (it ended; waiting on checks, say) */
+  agentGone?: boolean
   /** done: a schedule's run that had nothing to do, or that only had something to say (posted in its space's chat) */
   quiet?: 'nothing' | 'told'
   /** done: a few words after "Done and merged" ("1 link fixed") */

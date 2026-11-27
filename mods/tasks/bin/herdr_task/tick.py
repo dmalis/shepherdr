@@ -173,6 +173,9 @@ def facts(s, t, report):
             if merge_held(s, t):
                 return
             t["merged"] = True
+            if v.get("headRefOid"):
+                # dmalis/shepherdr#48: the commit GitHub merged, so a commit made here since is kept and offered
+                t["merged_head"], t["merged_head_by"] = v["headRefOid"], "github"
             watch_main(s, t, (v.get("mergeCommit") or {}).get("oid"))
             if t.get("merge_queued"):
                 # Herdr queued it: its base here catches up and its branch on GitHub goes, as a merge

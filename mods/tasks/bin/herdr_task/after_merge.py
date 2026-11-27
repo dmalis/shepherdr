@@ -77,7 +77,8 @@ def left_after(s, t, ask=False, most=MOST):
         return None
     up = upstream(s, t)
     head = merged_head(s, t, ask)
-    carried = ((t.get("after_merge") or {}).get("follow_up") or {}).get("tip")
+    # the last tip a follow-up really carried (cherry-picked cleanly): what came after it is new
+    carried = t.get("after_merge_carried")
     if carried and tip == carried:
         return None
     if carried and _in(main, carried, tip):
@@ -91,6 +92,14 @@ def left_after(s, t, ask=False, most=MOST):
         return None
     else:
         since = up  # merged here, its own commits in the base: whatever isn't came after
+    if since != up and _in(main, tip, up):
+        # its base took these very commits (fast-forwarded to them): already on main
+        ok, out, _ = git(main, "log", "--format=%H %s", f"{since}..{tip}")
+        rows = [["-"] + ln.split(" ", 1) for ln in out.splitlines()] if ok else []
+        if not rows:
+            return None
+        shown = [{"sha": r[1], "s": r[2] if len(r) > 2 else ""} for r in rows]
+        return {"n": len(shown), "commits": shown[:most] if most else shown, "tip": tip, "on_main": True}
     ok, out, _ = git(main, "cherry", "-v", up, tip, since)
     rows = [ln.split(" ", 2) for ln in out.splitlines() if ln[:2] in ("+ ", "- ")] if ok else []
     if not rows:
@@ -124,8 +133,8 @@ def record(s, t, ask=False, force=False):
     follow = (had or {}).get("follow_up")
     if got is None and follow and follow.get("tip") == tip:
         got = {k: had[k] for k in ("n", "commits", "tip", "on_main") if k in had}  # carried by its follow-up: still said
-    if got is not None and follow:
-        got["follow_up"] = follow
+    if got is not None and follow and follow.get("tip") == tip:
+        got["follow_up"] = follow  # the follow-up has (or, not picked cleanly, carries by hand) exactly these
     if got != had:
         if got is None:
             t.pop("after_merge", None)
@@ -140,7 +149,21 @@ def unsaved(s, t):
     """Commits after its merge that only its branch holds (none on its base, no follow-up has them): its worktree and
     branch are kept (github.tidy_done)."""
     got = left_after(s, t)
-    return bool(got and not got["on_main"])
+    if got:
+        return not got["on_main"]
+    return _merge_edits(s, t)
+
+
+def _merge_edits(s, t):
+    """Its branch has merge commits after its merge (git cherry leaves them out) and merging its tip into its base
+    would still change something: kept, never offered (a merge's own edits are conflict resolutions, not new work)."""
+    main, br = s.loc["folder"], t.get("branch")
+    tip = _rev(main, f"refs/heads/{br}") if br and t.get("mode") == "worktree" else None
+    head = t.get("merged_head")
+    if not tip or not head or tip == head or not _in(main, head, tip):
+        return False
+    merges = git(main, "rev-list", "--merges", f"{head}..{tip}")[1]
+    return bool(merges.strip()) and not _merges_to_nothing(main, upstream(s, t), tip)
 
 
 def watch(s, t, report):
@@ -175,11 +198,18 @@ def close(s, t):
 def merged_before(s, t):
     """At ready: its own pull request merged already and its branch has commits since (ready would push a second one,
     refused): done again, its later commits offered. Returns after_merge ({} when none is left), or None."""
+    from .github import github, pr_merged, pr_view
     pr = t.get("pr") or {}
-    if not pr.get("number") or not pr.get("repo"):
-        return None
-    from .github import pr_view
-    v = pr_view(t)
+    if pr.get("number") and pr.get("repo"):
+        v = pr_view(t)
+    else:
+        # one its agent opened itself (ready never took it): found by its branch, as the refusal finds it
+        repo = github(s) if t.get("branch") else None
+        found = pr_merged(t, repo) if repo else None
+        if not found:
+            return None
+        v = {"state": "MERGED", "headRefOid": found.get("headRefOid")}
+        t["pr"] = {**pr, "number": found["number"], "url": found.get("url"), "repo": repo}
     head = (v or {}).get("headRefOid")
     if not v or v.get("state") != "MERGED" or not head:
         return None
@@ -284,12 +314,19 @@ def cmd_follow_up(args):
     from .launch import branch_for, default_space, fresh_start
     from .output import say, view
     from .queues import queue_reason
-    from .settings import check_automatic_agent, worker_argv
+    from .settings import check_automatic_agent, worker_argv, worktrees_on
     from .store import open_store
     with open_store(args) as s:
         t = s.find(args.id)
         if t["state"] != "done" or not t.get("merged"):
             raise Fail(f"{s.name(t)} hasn't merged yet: what's on its branch goes in with its own ready.")
+        main, base = s.loc["folder"], t.get("base") or "main"
+        space = t.get("space") or default_space()
+        if not worktrees_on(s, space):
+            raise Fail(f"Worktrees are off here, and a follow-up needs a branch of its own (it carries {s.name(t)}'s commits "
+                       f"on one): turn worktrees on in Settings, or cherry-pick them by hand.")
+        # its base fetched first (as any start's), so what's on main is judged against main as it is now
+        start = fresh_start(main, base)
         got = record(s, t, ask=True, force=True)
         if not got:
             raise Fail(f"Nothing on {s.name(t)}'s branch came after its merge.")
@@ -297,10 +334,8 @@ def cmd_follow_up(args):
             raise Fail(f"Its follow-up {got['follow_up'].get('title')} ({got['follow_up'].get('ref')}) has them already.")
         if got["on_main"]:
             raise Fail(f"Already on {t.get('base') or 'main'}: {s.name(t)}'s {counted(got['n'])} after its merge {'is' if got['n'] == 1 else 'are'} there. Nothing to carry.")
-        main, base = s.loc["folder"], t.get("base") or "main"
         title = follow_title(got)
         n = s.new(title, "", "worktree")
-        space = t.get("space") or default_space()
         if t.get("space"):
             n["space"] = t["space"]
         if t.get("base_set"):
@@ -308,14 +343,18 @@ def cmd_follow_up(args):
         else:
             n["base"] = base
         n["follows"] = s.ref(t)
-        start = fresh_start(main, base)
         n["start"] = _rev(main, start)
         branch = branch_for(s, n)
         n["branch"] = branch
         every = left_after(s, t, most=None) or got
         picked, conflict = carry(main, n["start"], [c["sha"] for c in every["commits"]], branch)
-        n["prompt"] = follow_prompt(s, t, got, base, picked, conflict)
-        t["after_merge"]["follow_up"] = {"id": n["id"], "ref": s.ref(n), "title": title, "tip": got["tip"], "at": now()}
+        n["prompt"] = follow_prompt(s, t, every, base, picked, conflict)
+        t["after_merge"]["follow_up"] = {"id": n["id"], "ref": s.ref(n), "title": title, "tip": got["tip"], "at": now(),
+                                          **({} if picked else {"picked": False})}
+        if picked:
+            # carried: newer commits on its branch are offered again; not picked cleanly, its branch stays its own
+            # until main has them (unsaved())
+            t["after_merge_carried"] = got["tip"]
         s.dirty = True
         argv = worker_argv(s, n, space)
         check_automatic_agent(argv)

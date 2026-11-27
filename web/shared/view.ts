@@ -202,6 +202,8 @@ export const waitingReport = (text?: string | null) => /^needs\b/i.test(text?.tr
 
 /** a Working task whose agents are all idle (their live state), with no line of their own: what it waits for */
 export const IDLE = 'Its agent is idle, waiting for a message'
+/** the same with no agent of its own running at all (it ended: waiting on checks, say) */
+export const GONE = 'No agent running'
 
 /** a task's row words; just after its prompt was answered, that answer first (dmalis/shepherdr#45) */
 export const taskLine = (t: Task): string => answeredWords(t, rowLine(t))
@@ -217,9 +219,10 @@ function rowLine(t: Task): string {
     if (t.waitsDesktop) return 'Waiting for the desktop'
     if (t.queuedQuestions) return `Working · ${t.queuedQuestions} ${t.queuedQuestions === 1 ? 'question' : 'questions'} for you`
     const report = t.report?.msg
-    if (waitingReport(report)) return t.agentIdle ? IDLE : 'Working'
-    // dmalis/shepherdr#48: its agent idle, no line of its own: says so, never a bare Working
-    return report || (t.agentIdle ? IDLE : t.schedule ? 'Started by its schedule' : '')
+    const idle = t.agentGone ? GONE : IDLE
+    if (waitingReport(report)) return t.agentIdle ? idle : 'Working'
+    // dmalis/shepherdr#48: its agent idle (or none running), no line of its own: says so, never a bare Working
+    return report || (t.agentIdle ? idle : t.schedule ? 'Started by its schedule' : '')
   }
   return t.afterTitle ? afterWords(t) : t.startsAt ? `Starts ${dayTime(t.startsAt)}` : ''
 }
@@ -305,7 +308,7 @@ export function ringOf(t: Task): Ring {
   if (t.stopped) return t.stopped.by === 'you' ? { kind: 'ring', tone: 'ask', pct, mark: 'stop', label: `Stopped by you${done}` } : { kind: 'ring', tone: 'red', pct, mark: 'stop', label: `Stopped${done}` }
   if (s === 'ask') return { kind: 'ring', tone: 'ask', pct, mark: 'tint', label: `Needs you${done}` }
   // its agent idle (live state), no progress to draw: a still dot, the turning ring only for real work (dmalis/shepherdr#48)
-  if (s === 'working' && t.agentIdle && pct === null && !t.accepting) return { kind: 'pending', tone: 'working', pct, label: 'Idle' }
+  if (s === 'working' && t.agentIdle && pct === null && !t.accepting) return { kind: 'pending', tone: 'working', pct, label: t.agentGone ? 'No agent running' : 'Idle' }
   if (s === 'working') return { kind: 'ring', tone: 'working', pct, label: `Working${done}` }
   // added and waiting for the person's Start (SHEP-369): a dotted ring; queued or scheduled (starts by itself): a solid empty one
   if (t.status === 'todo' && !t.agent && !t.started) return { kind: 'ring', tone: 'mute', pct: pct ?? 0, mark: 'unstarted', label: 'Not started' }

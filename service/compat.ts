@@ -468,7 +468,9 @@ export class Compat {
     for (const k of (this as any).terminalsAll?.() ?? []) if (isHelper(k)) chats.set(`t:${k.address}`, k.address);
     this.tasks = new Map(rows.map((r) => [taskId(r), { ref: r.ref, folder: r.folder, machine: r.machine ?? null, key: `${r.slug}#${r.id}`, pin: r.key,
       where: { folder: r.worktree, machine: r.machine ?? null, base: r.base, start: r.start, branch: r.branch, pr: r.pr } }]));
-    const tasks: Task[] = rows.filter((r) => r.section !== "done" || (r.done_at && Date.now() - r.done_at < 7 * 86400000)).map((r) => {
+    // dmalis/shepherdr#48: a Done task whose commits after its merge are still offered stays past the week
+    const offered = (r: Row) => { const am = (r as any).x?.after_merge; return !!am && Number(am.n) > 0 && !am.on_main && !am.follow_up; };
+    const tasks: Task[] = rows.filter((r) => r.section !== "done" || (r.done_at && Date.now() - r.done_at < 7 * 86400000) || offered(r)).map((r) => {
       const id = taskId(r);
       const queued = r.worker ? this.queued?.(r.worker)?.length ?? 0 : 0;
       if (r.worker) chats.set(`${id}/worker`, r.worker);

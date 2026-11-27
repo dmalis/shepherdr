@@ -3276,6 +3276,70 @@ class WorkAfterTheMerge(unittest.TestCase):
         got = self.after_merge.record(self.store, self.task, force=True)
         self.assertEqual(self.after_merge.follow_title(got), "one more rule and 1 more")
 
+    def test_a_commit_after_githubs_merge_keeps_its_branch(self):
+        """Review: the tick finds the merge after its agent committed once more: GitHub's merged commit is kept, so
+        that commit counts as after the merge and its branch isn't removed with its worktree."""
+        tip = self.merged()
+        self.change(self.task["worktree"], "one more rule")
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        self.after_merge.note_merged(self.store, self.task)
+        self.assertEqual(self.task["merged_head"], tip)  # never the local tip
+        self.assertTrue(self.after_merge.unsaved(self.store, self.task))
+
+    def test_a_follow_up_that_didnt_pick_keeps_its_source_branch(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        self.change(self.main, "main moved the same line")
+        self.follow_up()
+        self.assertNotIn("after_merge_carried", self.task)
+        self.assertIs(self.task["after_merge"]["follow_up"]["picked"], False)
+        self.assertTrue(self.after_merge.unsaved(self.store, self.task))  # its branch is all that has them
+        self.assertEqual(self.after_merge.record(self.store, self.task, force=True)["follow_up"]["ref"], "SHEP-2")
+
+    def test_a_commit_after_its_follow_up_is_offered_again(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        first = self.change(self.task["worktree"], "one more rule")
+        self.follow_up()
+        later = self.change(self.task["worktree"], "and one after that")
+        got = self.after_merge.record(self.store, self.task, force=True)
+        self.assertEqual((got["n"], got["commits"][0]["s"], got.get("follow_up")), (1, "and one after that", None))
+        n, _ = self.follow_up()  # a second follow-up, for that one alone (it edits the first's line: by hand here)
+        self.assertIn(f"- {later[:9]} and one after that", n["prompt"])
+        self.assertNotIn(first[:9], n["prompt"])
+
+    def test_main_that_took_the_very_commit_says_already_on_main(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        later = self.change(self.task["worktree"], "one more rule")
+        self.git(self.main, "merge", "--quiet", "-s", "ours", "--no-edit", later)  # main holds it as an ancestor
+        got = self.after_merge.record(self.store, self.task, force=True)
+        self.assertTrue(got["on_main"])
+        self.assertFalse(self.after_merge.unsaved(self.store, self.task))
+
+    def test_a_pull_request_its_agent_opened_itself_is_found(self):
+        """Review: ready never took its pull request (its agent opened it): found by its branch, done, offered."""
+        self.merged()
+        self.task.pop("pr")
+        self.reopened()
+        self.change(self.task["worktree"], "one more rule")
+        said = self.refused()
+        self.assertEqual((self.task["state"], self.task["pr"]["number"]), ("done", 704))
+        self.assertIn("follow-up SHEP-1", said)
+
+    def test_no_follow_up_where_worktrees_are_off(self):
+        from unittest import mock
+        import herdr_task.settings as settings
+        from herdr_task.base import Fail
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        with mock.patch.object(settings, "worktrees_on", lambda s, space=None: False), self.assertRaises(Fail) as e:
+            self.follow_up()
+        self.assertIn("Worktrees are off", str(e.exception))
+        self.assertEqual(len(self.store.data["tasks"]), 1)
+
 
 class TimeLeft(unittest.TestCase):
     """Every status gives the time left, a rough guess beats none (SHEP-13): the minutes show from
@@ -10380,6 +10444,20 @@ class Next32(unittest.TestCase):
             v = self.run_cmd(self.commands.cmd_resume, id="1")
         self.assertEqual((v["resumed"], got["resume"], got["msg"]), (True, ["claude", "--resume", "S1"], self.commands.RESUME_NUDGE))
         self.assertNotIn("stopped_by", self.task(1))
+
+    def test_resuming_a_merged_task_keeps_it_done(self):
+        """dmalis/shepherdr#48: its agent starts again, the task stays Done (switch too)."""
+        self.begun()
+        self.live[:] = []
+        self.change(state="done", done_at=5, merged=True)
+        with self.mock.patch.object(self.commands, "launch", lambda s, t, argv, space, msg=None, parent=None, resume=None, **k: (
+                t["agents"].append({"address": "t10", "agent": "claude", "argv": argv, "at": 2}), t["agents"][-1])[1]), \
+                self.mock.patch.object(self.commands, "resume_argv", lambda argv, session, folder: [*argv, "--resume", session]), \
+                self.mock.patch.object(self.commands, "parent_for", lambda p, sp: None):
+            self.run_cmd(self.commands.cmd_resume, id="1")
+        t = self.task(1)
+        self.assertEqual((t["state"], t["merged"]), ("done", True))
+        self.assertGreater(t["ended_at"], t["done_at"])
 
     def test_a_person_stopping_it_is_no_news_but_a_crash_is(self):
         import herdr_task.news as news

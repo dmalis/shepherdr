@@ -394,7 +394,7 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
       ...(x.waits_why && t.status === "ready" ? { waitsWhy: String(x.waits_why).slice(0, 200) } : {}),
       // dmalis/shepherdr#48: what came after its merge, offered as a follow-up; Working with its agent idle
       ...((am) => (am && t.status === "done" ? { afterMerge: am } : {}))(afterMergeOf(x.after_merge, t.id)),
-      ...(x.idle && t.status === "work" ? { agentIdle: true } : {}),
+      ...(x.idle && t.status === "work" ? { agentIdle: true, ...(x.idle === "none" ? { agentGone: true } : {}) } : {}),
       ...(after ? { afterTitle: after, ...(waits.length > 1 ? { afterMore: waits.length - 1 } : {}) } : {}),
       ...(f.waiting?.includes(`task:${t.id}`) ? { waitsDesktop: true } : {}),
     };

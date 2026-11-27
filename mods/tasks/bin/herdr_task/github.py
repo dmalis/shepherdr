@@ -1043,15 +1043,17 @@ def finish(s, task, even_if_busy=False, quiet=False):
               "stopped_turns"):
         task.pop(k, None)
     s.dirty = True
+    later = False
     if task.get("merged"):
         base_moved(s, task)
-        from .after_merge import note_merged
+        from .after_merge import note_merged, unsaved
         note_merged(s, task)  # dmalis/shepherdr#48: what comes after it on its branch is work after the merge
+        later = unsaved(s, task)  # ... kept: its branch is all that holds it (tidy_done looks again)
     # The space's "When a task is accepted" command, in the background (after_accept.py): never waited on.
     # quiet: a schedule's run that ended with nothing to review (ready --nothing / --told): nothing was accepted.
     if not quiet:
         after_accept(s, task)
-    if not task.get("worktree") or mid_turn(s, task) or (not even_if_busy and any(agent_running(k) for k in live_agents(s.key(task)))):
+    if not task.get("worktree") or later or mid_turn(s, task) or (not even_if_busy and any(agent_running(k) for k in live_agents(s.key(task)))):
         return
     remove_worktree(s, task)
 

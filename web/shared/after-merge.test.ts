@@ -2,7 +2,7 @@
 // agent works
 import { describe, expect, test } from 'bun:test'
 import { afterMergeCard, afterMergeList, afterMergeNote, offersAfterMerge } from './after-merge.ts'
-import { headLine, IDLE, ringOf, statusWord, taskLine } from './view.ts'
+import { GONE, headLine, IDLE, ringOf, statusWord, taskLine } from './view.ts'
 import { afterMergeOf } from '../../service/next.ts'
 import type { Task } from './types.ts'
 
@@ -66,6 +66,12 @@ describe('the turning ring only for real work', () => {
     expect(ringOf(t)).toMatchObject({ kind: 'pending', label: 'Idle' })
     expect(taskLine(t)).toBe(IDLE)
     expect(headLine(t)).toBe(IDLE)
+  })
+
+  test('no agent running at all: still, and says so', () => {
+    const t = task({ status: 'work', agentIdle: true, agentGone: true })
+    expect(ringOf(t)).toMatchObject({ kind: 'pending', label: 'No agent running' })
+    expect(taskLine(t)).toBe(GONE)
   })
 
   test("its agent's own line stays, the dot still", () => {

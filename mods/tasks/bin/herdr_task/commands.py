@@ -1693,7 +1693,9 @@ def cmd_resume(args):
         if t["state"] in ("todo", "scheduled", "queued"):
             raise Fail(f"{s.name(t)} hasn't started. Use start.")
         space = bare(args.space) if args.space else (t.get("space") or default_space())
-        if t["state"] == "done":
+        if t["state"] == "done" and t.get("merged"):
+            t["ended_at"] = now()  # dmalis/shepherdr#48: its change merged: it stays done, its agent left to run
+        elif t["state"] == "done":
             t["state"] = "running"
         gone = [k["address"] for k in live_agents(s.key(t))]  # its agents' terminals, none running an agent
         back_to_work(s, t, "resumed")
@@ -1736,7 +1738,9 @@ def cmd_switch(args):
         # A given --space wins: the task moves there (#837); else the old agent's own space.
         space = ((bare(args.space) if args.space else None) or labels.get("herdr.task.space") or labels.get("herdr.space")
                  or t.get("space") or default_space())
-        if t["state"] in ("todo", "scheduled", "queued", "done"):
+        if t["state"] == "done" and t.get("merged"):
+            t["ended_at"] = now()  # dmalis/shepherdr#48: its change merged: it stays done, its new agent left to run
+        elif t["state"] in ("todo", "scheduled", "queued", "done"):
             t["state"] = "running"
             t.setdefault("started", now())
             t.pop("queue", None)

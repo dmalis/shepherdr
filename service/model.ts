@@ -15,7 +15,7 @@ import * as T from "../core/tasks.js";
 import { FIND } from "../core/chat-log.js";
 import { isHelper, subagentsOf } from "../core/chat-view.js";
 // The core is plain JavaScript; its defaults read as narrow types to TypeScript.
-const { place, refOf, taskKey, autoPrefix, reportOf, ownReport, secondLine, leftOf, queueReason, machineOf, inSpace } = T as any;
+const { place, refOf, taskKey, autoPrefix, reportOf, ownReport, secondLine, leftOf, queueReason, machineOf, inSpace, starting, STARTING_MS } = T as any;
 import * as S from "../core/spaces.js";
 const { sidebarOf, lastAssistantOf, isUnread, inOrder, byMachineOrder, machineOrderOf } = S as any;
 
@@ -367,7 +367,9 @@ export class Model {
           // dmalis/shepherdr#48: commits on its branch after its merge (herdr_task/after_merge.py), and Working with no
           // agent of its own busy (its live state): a still mark, never the turning ring
           after_merge: task.after_merge ?? null,
-          idle: p.section === "working" && live.length > 0 && !live.some((a) => a.status !== "idle" && a.status !== "done") && !helpers.some((a) => a.status === "working" || a.status === "blocked"),
+          idle: p.section === "working" && !starting(task) && Date.now() - (task.handed_at ?? 0) >= STARTING_MS
+            && !live.some((a) => a.status !== "idle" && a.status !== "done") && !helpers.some((a) => a.status === "working" || a.status === "blocked")
+            ? (live.length ? "idle" : "none") : null,
           pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,
