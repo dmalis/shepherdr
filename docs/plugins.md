@@ -5,7 +5,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 
 | Plugin | Switch | What it is | Off means |
 |---|---|---|---|
-| chat | always on | A chat's messages, cards and message box | |
+| chat | always on | A chat's messages, cards and message box; the space's menu has a Folder row while the header hides the folder (a phone, or the keyboard up; fork #105) | |
 | tasks | always on | The Tasks pane, a task's thread, the review card | |
 | artifacts | always on | The Artifacts pane, a page's tile in a chat, Mark up | |
 | search | always on | The command palette: finds anything and runs any command (⌘K, Ctrl+K) | |
