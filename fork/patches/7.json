@@ -1,0 +1,11 @@
+{
+  "issue": 7,
+  "name": "settings notices never end the Assistant's turn",
+  "files": [
+    "mods/tasks/bin/herdr_task/assistant_settings.py",
+    "templates/assistant.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::AssistantSettings.test_a_notice_never_ends_work_under_way"
+  ]
+}

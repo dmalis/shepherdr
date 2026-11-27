@@ -1,0 +1,12 @@
+{
+  "issue": 49,
+  "name": "Everything's one plain line",
+  "files": [
+    "web/src/everything-line.tsx",
+    "web/src/App.tsx",
+    "web/src/ds.css"
+  ],
+  "tests": [
+    "web/src/everything-line.test.tsx"
+  ]
+}

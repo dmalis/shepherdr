@@ -213,7 +213,7 @@ list; it never globs.
    checks passed ([Main's checks](#mains-checks)).
 6. The candidate's installer would write nothing to an agent's config ([Narrow exceptions](#narrow-exceptions)).
 7. The candidate carries the hold patch ([Narrow exceptions](#narrow-exceptions)), checked by its test's name in
-   `fork/patches.json` at that SHA.
+   the patch list at that SHA (`fork/patches/<issue>.json`, or an older SHA's `fork/patches.json`).
 8. Before-pictures for health: the Assistants (`herdr-task assistants --json`, their targets), and the sha256 of the
    two agent hook files (read only).
 
@@ -520,9 +520,12 @@ The held record, in state, one per blocker:
 Only as far as the sync run needs them.
 
 **Inventory (Codex point 16).** What we carry is what the candidate carries, not the open issue list:
-- Each patch, once merged, has a line in `fork/patches.json` at main: its issue, files and test files. The sync run
-  reads that file at the candidate SHA. Patches still being built aren't in it, so they are neither tested nor counted.
-- A patch dropped in the sync PR leaves the file there, and its issue gets `fixed-upstream`. It is closed only after the
+- Each patch, once merged, has its own file in the patch list at main, `fork/patches/<issue>.json`: its issue, files
+  and test files. One file per patch, so patches built side by side merge without a conflict (before, they all
+  appended to one `fork/patches.json`, and every rebase conflicted there). The sync run reads the list at the
+  candidate SHA (`fork/sync/patches.py`'s `read`, the one loader, which still reads an older SHA's
+  `fork/patches.json`). Patches still being built aren't in it, so they are neither tested nor counted.
+- A patch dropped in the sync PR leaves the list there, and its issue gets `fixed-upstream`. It is closed only after the
   install that no longer has it is healthy.
 - After a healthy install, each listed issue's status line becomes "carried since `ours-…`".
 - Our pull requests say `Part of #n`, never `Closes`, so no merge closes a carried patch's issue.
@@ -706,7 +709,7 @@ yes, a separate one.
 | 13 | Update permission before readiness | Created off; eight conditions | [The schedule](#the-schedule-codex-point-13) |
 | 14 | Setup branch and lifecycle | Space on `main` checked; milestones in phases; tested completion commands | [Completion commands](#completion-commands) |
 | 15 | Held runs not resumable | Held record per blocker; conflict vs draft; question once | [Held runs](#held-runs-codex-point-15) |
-| 16 | Patch list loses patches | `fork/patches.json` at the candidate; retire after a healthy install; `Part of` | [Patch inventory](#patch-inventory-and-issue-follow-up) |
+| 16 | Patch list loses patches | The patch list (`fork/patches/<issue>.json`) at the candidate; retire after a healthy install; `Part of` | [Patch inventory](#patch-inventory-and-issue-follow-up) |
 | 17 | Issue follow-up misses or repeats | No `--state`; cursor; fix proven by ancestry; keyed by URL | same |
 
 ## Build tasks

@@ -1,0 +1,13 @@
+{
+  "issue": 55,
+  "name": "agent messages fold at once, no tags",
+  "files": [
+    "core/chat-log.js",
+    "core/chat-view.js",
+    "service/compat.ts"
+  ],
+  "tests": [
+    "core/relayed.test.js",
+    "service/relay-queued.test.ts"
+  ]
+}

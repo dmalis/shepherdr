@@ -1,0 +1,27 @@
+{
+  "issue": 44,
+  "name": "About: show which build runs",
+  "files": [
+    "web/build-stamp.ts",
+    "web/shared/build-stamp.ts",
+    "web/vite.config.ts",
+    "web/shared/build.ts",
+    "service/webbuild.ts",
+    "service/live.ts",
+    "web/shared/types.ts",
+    "web/src/kernel.ts",
+    "web/src/about.tsx",
+    "web/src/about.css",
+    "web/src/settings.tsx",
+    "web/demo/builds.ts",
+    "web/demo/serve.ts",
+    "bin/shepherdr"
+  ],
+  "tests": [
+    "web/build-stamp.test.ts",
+    "web/shared/build-stamp.test.ts",
+    "service/webbuild.test.ts",
+    "web/src/update.test.ts",
+    "test/test_install.py::Install.test_web_stale_from_another_commit"
+  ]
+}

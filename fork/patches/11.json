@@ -1,0 +1,15 @@
+{
+  "issue": 11,
+  "name": "Review rounds and Must fix rows in Settings",
+  "files": [
+    "web/src/review-rows.tsx",
+    "web/src/settings.tsx",
+    "service/next.ts",
+    "web/shared/types.ts",
+    "web/demo/data.ts",
+    "docs/settings.md"
+  ],
+  "tests": [
+    "service/review-rows.test.ts"
+  ]
+}

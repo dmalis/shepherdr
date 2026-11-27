@@ -24,7 +24,7 @@ import sys
 import tempfile
 import time
 
-from . import gate, state
+from . import gate, patches, state
 from .release import git, is_ancestor, rev, tree
 from .state import Refused
 
@@ -32,7 +32,7 @@ SHARE = os.path.join(".local", "share", "shepherdr")
 RECORD = os.path.join(SHARE, "installed.json")
 HOOK_FILES = (".claude/settings.json", ".codex/hooks.json")
 HOOK_NAMES = {".claude/settings.json": "Claude Code's settings", ".codex/hooks.json": "Codex's hooks file"}
-HOLD_PATCH_TEST = "test_hold_patch.py"          # the hold patch's test, named in fork/patches.json (build task 5)
+HOLD_PATCH_TEST = "test_hold_patch.py"          # the hold patch's test, named in its patch list file (build task 5)
 # The run's own sync hold (Narrow exceptions, "Propagation to other machines"): no "install at <stamp>:", so
 # herdr-task's base.sync_held never clears it; only `shepherdr doctor` without HOLD_VAR lets go of it.
 HOLD_LINE = "held by the fork's sync until its health check passes: run shepherdr doctor"
@@ -209,14 +209,23 @@ def pipeline_hash(repo, sha):
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 
 
-def carries_hold_patch(repo, sha):
-    """fork/patches.json at that commit names the hold patch's test."""
-    ok, text, _ = git(repo, "show", f"{sha}:fork/patches.json")
-    if not ok:
-        return False
+def patch_list_at(repo, sha):
+    """(lines, why): the patch list at that commit, fork/patches/<issue>.json or the old fork/patches.json of a commit
+    from before (patches.read reads either). `why` says what is wrong (None when nothing is): unreadable, or laid out
+    wrong, such as the old list kept beside the new folder by a rebase, which could hide a patch the folder lost."""
     try:
-        data = json.loads(text)
-    except ValueError:
+        lines, layout = patches.read(repo, at=sha)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return [], f"its patch list can't be read ({type(e).__name__})"
+    if layout:
+        return lines, "its patch list is laid out wrong: " + "; ".join(layout)
+    return lines, None
+
+
+def carries_hold_patch(repo, sha):
+    """The patch list at that commit, read and laid out right, names the hold patch's test."""
+    data, why = patch_list_at(repo, sha)
+    if why:
         return False
 
     def walk(v):
@@ -686,8 +695,12 @@ def before_checks(s, st, repo, sha, run_key, folder, env=None, ours=False):
         raise Refused("the update would write " + " and ".join(HOOK_NAMES[f] for f in changed) +
                       ": the person runs that update themselves", outcome="held", kind="hooks", gate="hooks",
                       files=changed)
-    if not carries_hold_patch(repo, sha):                                                               # 7
-        raise Refused(f"{sha[:12]} doesn't carry the hold patch (fork/patches.json names no {HOLD_PATCH_TEST})",
+    _, why = patch_list_at(repo, sha)                                                                   # 7
+    if why:
+        raise Refused(f"{sha[:12]} doesn't carry the hold patch: {why}", outcome="held", kind="install",
+                      gate="hold-patch")
+    if not carries_hold_patch(repo, sha):
+        raise Refused(f"{sha[:12]} doesn't carry the hold patch (its patch list names no {HOLD_PATCH_TEST})",
                       outcome="held", kind="install", gate="hold-patch")
     if s.live:
         why = may_ask(run_key, folder, env)

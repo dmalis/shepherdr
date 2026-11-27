@@ -1,0 +1,27 @@
+{
+  "issue": 70,
+  "name": "About: a changelog of what changed in each version",
+  "files": [
+    "web/changelog.ts",
+    "web/shared/changelog.ts",
+    "web/plugins/whatsnew/client.tsx",
+    "web/plugins/whatsnew/whats-new.tsx",
+    "web/plugins/whatsnew/go.ts",
+    "web/plugins/whatsnew/whats-new.css",
+    "web/plugins.json",
+    "docs/plugins.md",
+    "web/src/changelog-module.d.ts",
+    "web/vite.config.ts",
+    "web/build-stamp.ts",
+    "web/shared/build-stamp.ts",
+    "web/src/about.tsx",
+    "web/src/about.css",
+    "web/src/kernel.ts"
+  ],
+  "tests": [
+    "web/changelog.test.ts",
+    "web/shared/changelog.test.ts",
+    "web/plugins/whatsnew/whats-new.test.ts",
+    "web/shared/build-stamp.test.ts"
+  ]
+}

@@ -21,7 +21,8 @@ when its step passed.
                                            the completion command
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
   held                                     reads the held records, and whether each one's question is due
-  patch-tests [--issue <n>]                runs each fork/patches.json line's tests in this tree (only those named)
+  patch-list [--at <sha>]                  the patches this tree (or that commit) carries: fork/patches/<issue>.json
+  patch-tests [--issue <n>]                runs each patch's tests in this tree (only those named)
   clear-broken                             the person's only: clears a broken phase (refused in a task's terminal)
 
 The git steps work in the current folder, the run's worktree (--repo names another). Every subcommand takes
@@ -183,20 +184,39 @@ def clear_broken(a, p):
     return {"phase": None}
 
 
+def read_patches(repo, at=None):
+    """The patch list's lines and layout problems (fork/sync/patches.py's one loader), or refused."""
+    try:
+        return patches.read(repo, at)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Refused(f"the patch list ({patches.DIR}/) can't be read ({type(e).__name__})", outcome="stop")
+
+
+def patch_list(a, p):
+    """The patches a tree or a commit carries (the finish step's `live` labels read it at the installed commit).
+    Refused when the list is laid out wrong (the old list kept beside the new folder could hide a lost patch)."""
+    lines, layout = read_patches(os.path.abspath(a.repo), a.at)
+    if layout:
+        raise Refused("the patch list is laid out wrong: " + "; ".join(layout), outcome="stop", problems=layout)
+    return {"patches": [{"issue": x.get("issue"), "name": x.get("name")} for x in lines]}
+
+
+def patch_list_args(c):
+    c.add_argument("--repo", default=".", help="the repo (default: here)")
+    c.add_argument("--at", help="a commit to read the list at, instead of the working tree")
+
+
 def patch_tests(a, p):
     """Each line's tests, in the tree at --repo (the sync's merge, its step 4): first the list itself is checked."""
     repo = os.path.abspath(a.repo)
-    try:
-        lines = patches.read(repo)
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        raise Refused(f"{patches.FILE} can't be read ({type(e).__name__})", outcome="stop")
-    found = patches.problems(repo, lines)
+    lines, found = read_patches(repo)
+    found = found + patches.problems(repo, lines)
     if found:
-        raise Refused(f"{patches.FILE} doesn't match this tree: " + "; ".join(found), outcome="stop", problems=found)
+        raise Refused("the patch list doesn't match this tree: " + "; ".join(found), outcome="stop", problems=found)
     if a.issue is not None:
         lines = [x for x in lines if x["issue"] == a.issue]
         if not lines:
-            raise Refused(f"{patches.FILE} has no line for #{a.issue}", outcome="stop")
+            raise Refused(f"the patch list has no line for #{a.issue}", outcome="stop")
     done = [{"issue": x["issue"], "name": x["name"], "tests": patches.run(repo, x)} for x in lines]
     failed = [d["issue"] for d in done if not all(t["ok"] for t in d["tests"])]
     if failed:
@@ -206,7 +226,7 @@ def patch_tests(a, p):
 
 
 def patch_tests_args(c):
-    c.add_argument("--repo", default=".", help="the tree whose fork/patches.json runs (default: here)")
+    c.add_argument("--repo", default=".", help="the tree whose patch list (fork/patches/) runs (default: here)")
     c.add_argument("--issue", type=int, help="only that patch's line")
 
 
@@ -347,7 +367,8 @@ COMMANDS = [
     ("ci", "CI's verdict on this run's installs of our merges, then the completion command", run_args, ci),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),
-    ("patch-tests", "runs each fork/patches.json line's tests", patch_tests_args, patch_tests),
+    ("patch-list", "the patches a tree or a commit carries", patch_list_args, patch_list),
+    ("patch-tests", "runs each patch's tests (fork/patches/<issue>.json)", patch_tests_args, patch_tests),
     ("clear-broken", "the person's only: clears a broken phase", None, clear_broken),
 ]
 

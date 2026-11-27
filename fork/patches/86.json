@@ -1,0 +1,14 @@
+{
+  "issue": 86,
+  "name": "phone keyboard: the chat gets the room",
+  "files": [
+    "web/plugins/typing/client.tsx",
+    "web/plugins/typing/typing.ts",
+    "web/plugins/typing/typing.css",
+    "web/plugins.json",
+    "docs/plugins.md"
+  ],
+  "tests": [
+    "web/plugins/typing/typing.test.ts"
+  ]
+}

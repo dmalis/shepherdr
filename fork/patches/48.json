@@ -1,0 +1,39 @@
+{
+  "issue": 48,
+  "name": "a merged task stays done, work after its merge offered as a follow-up",
+  "files": [
+    "mods/tasks/bin/herdr_task/after_merge.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/github.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/link.py",
+    "mods/tasks/bin/herdr_task/agents.py",
+    "core/tasks.js",
+    "core/on-it.cases.json",
+    "service/model.ts",
+    "service/next.ts",
+    "service/actions.ts",
+    "web/shared/types.ts",
+    "web/shared/view.ts",
+    "web/shared/after-merge.ts",
+    "web/plugins/tasks/after-merge.tsx",
+    "web/plugins/tasks/after-merge.css",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/tasks/icon.tsx",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "service/compat.ts",
+    "templates/worker.md",
+    "templates/assistant.md",
+    "mods/tasks/bin/herdr_task/archive.py",
+    "service/voice-data.ts"
+  ],
+  "tests": [
+    "fork/tests/test_after_merge.py",
+    "test/test_herdr_task.py::WorkAfterTheMerge",
+    "test/test_herdr_task.py::Next32",
+    "core/tasks.test.js",
+    "web/shared/after-merge.test.ts"
+  ]
+}

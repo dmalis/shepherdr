@@ -374,7 +374,7 @@ and what they send is saved as a report `from: {action: "<label>"}` and goes thr
   list loses "On this machine" (a rollback, a dropped patch), and so does every issue when the recorded build changes
   to one that wasn't checked. For a fork whose issues stay open while a fix is carried (ours: `Part of`, never
   `Closes`), the install's list is the only signal. Our upstream-sync skill's step 7 runs it after each healthy
-  install, from the installed `fork/patches.json`, with each issue's Device check line (#83) as its Try it words.
+  install, from the installed patch list (`fork/patches/`), with each issue's Device check line (#83) as its Try it words.
 - **Works / Still broken** are recorded for the build the person has (`tried.build`). A newer build doesn't undo
   Works; a report after it makes it "came back".
 - **No push alerts.** A fix reaching the machine adds to the Feedback count only.
@@ -488,7 +488,7 @@ page or in chat, on the draft.
 ## Build plan
 
 Each slice is one task, added `--after` the slice it names (or this spec), small enough to review in one sitting.
-Each is a patch (fork-patch skill): its own issue labelled `patch` that links #94, a `fork/patches.json` line, tests
+Each is a patch (fork-patch skill): its own issue labelled `patch` that links #94, its own `fork/patches/<n>.json`, tests
 pinning the upstream seams it relies on, and upstream's style. UI slices use the frontend-design skill plus
 better-layout, better-typography and better-accessibility, follow the Motion setting, and screenshot phone and
 desktop, light and dark. Each starts with the "check upstream first" rule (#83). Slices 1 and 2 alone fix the loss in
@@ -502,7 +502,7 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   running; the new identity, matched with upstream's key; `id`, `space`, `reports`, `fix`, `kind`; a report only from
   a space with offers on; `--list --all --json` read-only, no pruning on read; an unreadable record kept aside;
   nothing undecided expires), `cli.py` (flags), `launch.py` (the brief's feedback line mentions `--fix`),
-  `fork/patches.json`.
+  `fork/patches/<n>.json`.
 - **Tests:** a new `test/test_feedback_found.py`: a report with no Assistant is kept; a repeat adds a report and sends
   news once; with an old declined row seeded for each, "is not shown" after a declined "is shown" is a new found
   problem, and a second Japanese line after a declined first is too; an old row still takes a report of its own
@@ -640,7 +640,7 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   reconciling gets a handoff on the next run; a failed send stays pending and is sent again; a delivered message
   whose answer was lost, sent again, makes one piece of work (`found task` answers with the first one), for a new
   task and for a reply to a running one; `took` closes it; the message holds the issue's link and no private words; `--installed` gets the installed
-  `fork/patches.json` issues with the installed build.
+  patch list's issues (`fork/patches/`) with the installed build.
 - **Demo:** a scratch store: approve and file a problem to a fake repo, claim it, fail the first send, run again:
   one message, one task.
 
