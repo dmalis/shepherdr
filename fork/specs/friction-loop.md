@@ -12,9 +12,11 @@ The building tasks follow this spec, one per slice ([Build plan](#build-plan)).
 | Word | Meaning |
 |---|---|
 | **friction** | Anything in Shepherdr that cost the person: a bug, a screen that confused them, a workaround, a step an agent did by hand that should happen on its own, a mistake Shepherdr's own words led an agent into. Never the person's own project's bugs. |
-| **problem** | One friction as Shepherdr records it: one row of herdr-task's feedback record (`feedback.py`'s `STATE`), keyed by the words of its one line (`key_of`). |
-| **report** | One time a problem was noticed: by a task's agent, an Assistant, the person, or a failed action. Several reports can be one problem. |
-| **the record** | `<herdr-task store>/.feedback.json`, upstream's file. This spec adds fields and states to it; nothing new is stored anywhere else. |
+| **problem** | One friction as Shepherdr records it: one row of herdr-task's feedback record, with a stable id. |
+| **report** | One time a problem was noticed: by a task's agent, an Assistant, or the person. A problem keeps every report it got. |
+| **the record** | `<herdr-task store>/.feedback.json`, upstream's file (`feedback.py`'s `STATE`). This spec adds fields to it; nothing new is stored anywhere else. |
+| **draft** | The exact issue or comment that would be posted: destination, action, title, body, already redacted. Each change makes a new revision. |
+| **approval** | The person's yes to one draft revision, recorded in the record and used once. |
 | **the feedback repo** | Where problems are filed: Settings › Agents › Feedback repo (`agents.feedback_repo`), upstream Shepherdr's by default. |
 | **Shepherdr's repo** | Upstream, `eliasstravik/shepherdr`. Different from the feedback repo when someone files to their own fork. |
 | **the Feedback page** | The new page behind the sidebar's Feedback row: what was found, what was filed, and where each fix is. |
@@ -23,23 +25,23 @@ The building tasks follow this spec, one per slice ([Build plan](#build-plan)).
 
 | Step | Where it lives today | By hand? | What gets lost |
 |---|---|---|---|
-| **Capture: a task's agent** | `herdr-task feedback "<line>" --details …` (upstream, `feedback.py`); a reviewer's "Shepherdr feedback:" line, passed on by its worker | No: one command, returns at once | It reaches the Assistant as one news row, "Feedback noted from <task>". If the Assistant is busy or the chat moves on, the row scrolls away. The record keeps it as `told`, but nothing shows it to the person. |
+| **Capture: a task's agent** | `herdr-task feedback "<line>" --details …` (upstream, `feedback.py`); a reviewer's "Shepherdr feedback:" line, passed on by its worker | No: one command, returns at once | It reaches the Assistant as one news row, "Feedback noted from <task>". If the Assistant is busy or the chat moves on, the row scrolls away. The record keeps it as `told`, but nothing shows it to the person. With no Assistant running, the report is not kept at all (`feedback.py`, "no-assistant"). |
 | **Capture: the Assistant** | Words: upstream's "Feedback for Shepherdr" section (real Shepherdr problems, the person's frustration); our FORK.md "Every friction is a candidate fix" (confusion, workarounds, its own misses), only in this repo's space | Yes: the Assistant has to notice | Upstream's words leave out confusion and workarounds. Ours reach only this space's Assistant, not the spaces where the person does their other work. |
-| **Capture: the person** | The sidebar's Feedback box: sends "File this feedback as an issue…" to Everything's chat | No | Fine for what they type. Nothing ties it to the problem record, so it isn't followed after filing. |
-| **Capture: a failed action** | An error toast in the app (`tryAct`), an error line in an agent's terminal | — | Nothing. The toast disappears and nobody is asked. |
-| **Capture: reactions** | The person's emoji reaction reaches the agent as an `<hc reaction>` line | — | Nothing turns a 😕 on an answer into a look at what confused them. |
-| **Triage: dedupe** | `key_of` (same words, same problem); `--file` searches the feedback repo's **open** issues | Partly | Closed issues aren't searched, so a problem fixed or declined before is filed again. Upstream's issues aren't searched when filing to a fork. Two reports in different words are two problems. |
-| **Triage: already fixed?** | Our FORK.md and the "check upstream first" rule (#83), words only | Yes | Every user but us files a problem a newer release already fixes. |
-| **Shape** | The Assistant's own words (`--goal`, `--fix` …); for us, the shaping-a-request skill | Yes | The reporter's suggested fix sits in free text (`--details`); the person never sees a fix next to the problem unless the Assistant writes one. |
-| **The yes** | A question card, "Leave feedback for Shepherdr about …?" Yes / No / Edit first; for us, "File it and fix it?" in chat | Yes | No "Not now": an unanswered card or a "later" is gone. 3 of the 32 problems on one machine this month were offered and never answered. |
-| **File** | `herdr-task feedback --file` (redacted, `gh issue create`) | No | — |
+| **Capture: the person** | The sidebar's Feedback box: sends "File this feedback as an issue…" to Everything's chat | No | The box closes before the send is confirmed. Nothing ties it to the record, so it isn't followed after filing. |
+| **Capture: a failed action** | An error toast in the app | — | Nothing. The toast disappears and nobody is asked. |
+| **Triage: dedupe** | The problem's key (the words of its line); `--file` searches the feedback repo's **open** issues | Partly | Closed issues aren't searched, so a problem fixed or declined before is filed again. Upstream's issues aren't searched when filing to a fork. |
+| **Triage: already fixed?** | Our "check upstream first" rule (#83), words only | Yes | Every user but us may file a problem a newer release already fixes. |
+| **Shape** | The Assistant's own words (`--goal`, `--fix` …); for us, the shaping-a-request skill | Yes | The reporter's suggested fix sits in free text; the person never sees a fix next to the problem unless the Assistant writes one. |
+| **The yes** | A question card, "Leave feedback for Shepherdr about …?" Yes / No / Edit first; for us, "File it and fix it?" in chat | Yes | No "Not now": an unanswered card is gone when the chat moves on. The yes is not tied to the text: `--file` writes the body again when it runs. |
+| **File** | `herdr-task feedback --file` (redacted, `gh issue create`) | No | A post that succeeded but whose answer was lost can be posted again: the state goes back when the answer is missing. |
 | **Build** | For us: an issue and a task, by hand from the Assistant | Yes | A problem filed from another space never reaches this repo's space as work. |
 | **Install** | Our "Install merged" schedule (upstream-sync skill) | No | — |
 | **Confirm on a device** | For us: the device-check rule (#83), words and a label | Yes | Everyone else: nothing. "Merged" was read as "works" for a fix no device had seen. |
 | **Upstream decision** | For us: the `not-filed` list, daily (upstream-issue skill) | Yes | — |
 
-**The evidence.** On one machine this month, 32 problems were recorded: 17 filed, 12 told to an Assistant and never
-offered, 3 offered and never answered. Half of what agents caught was lost, and nothing on any screen says so.
+**The evidence.** On one machine, over the last few days, 33 problems were recorded: 17 filed, 13 told to an
+Assistant and never offered, 3 offered and never answered. Half of what agents caught never reached the person, and
+nothing on any screen says so.
 
 ## Research
 
@@ -47,36 +49,38 @@ offered, 3 offered and never answered. Half of what agents caught was lost, and 
 
 | Practice | What it does | What we take |
 |---|---|---|
-| **Linear's Triage inbox** ([docs](https://linear.app/docs/triage)) | Issues from outside the team wait in Triage until someone decides: Accept, Decline (with a reason), Duplicate (merged into another), Snooze (until a time or new activity). Triage Intelligence suggests likely duplicates. | One list of undecided items, each with one primary action, a decline, and a snooze that comes back by itself. Duplicates suggested, never blocking. |
-| **Linear Asks** ([docs](https://linear.app/docs/linear-asks)) | A request from Slack or email becomes an issue in Triage; replies sync back, so the asker never opens Linear. | The person never opens GitHub: the page shows where their problem is. |
-| **Linear's zero-bugs policy** ([blog](https://linear.app/blog/zero-bugs-policy)) | Every incoming bug is fixed or explicitly marked won't fix; nothing sits undecided. | Every problem ends in a decision: filed, Never, or Not now with a date. None waits forever unseen. |
-| **GitHub issue forms and duplicates** ([forms](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms), [creating](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue)) | Fixed fields for a report; up to three possible duplicates shown while writing, advisory only. Closing has a reason: completed, not planned, duplicate. | Upstream's `--goal --happened --expected --fix --repro` already is the form. Show the close reason of a matching issue (fixed vs declined). |
-| **GitHub notifications** ([docs](https://docs.github.com/en/subscriptions-and-notifications/get-started/configuring-notifications)), **Superhuman**, **Linear Inbox** ([docs](https://linear.app/docs/inbox)) | Done, Save, Unsubscribe; snooze until a time, then back on top. | Yes / Not now / Never, with "Not now" coming back on its own. |
-| **Sentry issue grouping and states** ([grouping](https://docs.sentry.io/product/issues/grouping-and-fingerprints/), [states](https://docs.sentry.io/product/issues/states-triage/)) | Events with one fingerprint are one issue; similar issues can be merged. Resolve "in next release"; a later event makes it Regressed. | Reports of one problem count up on one row. Fixed is tied to a release; the same problem after a fix is "came back", not a new problem. |
-| **Sentry user feedback** ([docs](https://docs.sentry.io/product/user-feedback/)) | A widget, or a crash-report dialog right after an error, collects what the user was doing and links it to the error. | A Report button on the app's error toast, prefilled with what failed. |
-| **Google SRE postmortems** ([book](https://sre.google/sre-book/postmortem-culture/)) | Blameless, about systems not people; follow-up actions are tracked; "an unreviewed postmortem might as well never have existed". | An agent's own miss is recorded as a Shepherdr problem (what in Shepherdr's words or screens led to it), never as blame. Every problem has a follow-up that stays visible until done. |
-| **Linear Releases** ([docs](https://linear.app/docs/releases)) | Merged is a status; Done comes when the release ships. | Merged, released and "on this machine" are different states. Only the person's "Works" ends it. |
-| **Dogfooding** (Linear's Quality Wednesdays, GitHub built on GitHub) | The team uses its own product daily and fixes small imperfections on a cadence. | Shepherdr is built with Shepherdr. Every friction met while doing so is the cheapest bug report there is. |
+| **Linear's Triage inbox** ([docs](https://linear.app/docs/triage)) | Issues from outside the team wait in Triage until someone decides: Accept, Decline (with a reason), Duplicate (merged into a chosen issue), Snooze (until a time or new activity). Triage Intelligence suggests likely duplicates. | One list of undecided items, one primary action each, a decline, a snooze that comes back by itself. Duplicates suggested, linked only by a person's or agent's choice. |
+| **Linear Asks** ([docs](https://linear.app/docs/linear-asks)) | A request from Slack or email becomes an issue in Triage; replies sync back, so the asker never opens Linear. | The person never opens GitHub to know where their problem is. |
+| **Linear's zero-bugs policy** ([blog](https://linear.app/blog/zero-bugs-policy)) | Every incoming bug is fixed or explicitly marked won't fix. | Every problem ends in a decision the person made: filed, followed, Never, or Not now with a date. Nothing expires undecided. |
+| **GitHub issue forms and duplicates** ([forms](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms), [creating](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue), [closing](https://docs.github.com/en/issues/tracking-your-work-with-issues/administering-issues/closing-an-issue)) | Fixed fields for a report; up to three possible duplicates shown while writing, advisory only. Closing has a reason: completed, not planned, duplicate. | Upstream's `--goal --happened --expected --fix --repro` already is the form. Show a match's close reason (fixed before vs declined before). |
+| **GitHub notifications** ([docs](https://docs.github.com/en/subscriptions-and-notifications/get-started/configuring-notifications)), **Linear Inbox** ([docs](https://linear.app/docs/inbox)), **Superhuman** | Done, Save, Unsubscribe; snooze until a time, then back on top. | Yes / Not now / Never, with Not now coming back on its own; "Follow" an issue without writing on it. |
+| **Sentry issue grouping and states** ([grouping](https://docs.sentry.io/product/issues/grouping-and-fingerprints/), [states](https://docs.sentry.io/product/issues/states-triage/)) | Events with one fingerprint are one issue; similar ones are merged by hand. Resolve "in a release"; a later event in a newer release makes it Regressed. | Identical reports count on one row. Fixed is tied to the release that has the fix; the same problem after it is "came back", not new. |
+| **Sentry user feedback** ([docs](https://docs.sentry.io/product/user-feedback/)) | A widget, or a crash-report dialog right after an error, collects what the user was doing and links it to the error. | Later: Report on the app's error toast, the person's own words prefilled with the action. |
+| **Idempotent writes** ([AWS Well-Architected](https://docs.aws.amazon.com/wellarchitected/2025-02-25/framework/rel_prevent_interaction_failure_idempotent.html)) | A request carries a token, so a retry after a lost answer doesn't do it twice. | Each post carries the problem's id and draft revision; before a retry, GitHub is searched for it. |
+| **Google SRE postmortems** ([book](https://sre.google/sre-book/postmortem-culture/)) | Blameless, about systems not people; follow-ups tracked; "an unreviewed postmortem might as well never have existed". | An agent's miss is recorded as what in Shepherdr led to it, never as blame, and stays visible until decided. |
+| **Linear Releases** ([docs](https://linear.app/docs/releases)) | Merged is a status; Done comes when the release ships. | Closed, released, on this machine and works are separate facts, each with its evidence. Only the person's "Works" ends it. |
+| **Dogfooding** (Linear's Quality Wednesdays, GitHub built on GitHub) | The team uses its own product daily and fixes small imperfections on a cadence. | Shepherdr is built with Shepherdr: friction met while doing so is the cheapest bug report there is. |
 
 What fits a non-coding person running agents: the agents do the triage (dedupe, upstream check, the fix in plain
-words); the person sees only decisions, in plain words, with one tap each; nothing asks them mid-work; and they never
-have to read GitHub to know where a fix is.
+words); the person sees only decisions, in plain words, one tap each, with the exact text before anything goes
+public; nothing asks them mid-work; and they never read GitHub to know where a fix is.
 
 ### Upstream first
 
-- **Upstream's feature** (upstream issue/PR 728, SHEP-78, "agents offer feedback for Shepherdr itself, filed only on
-  the person's yes") is the base. Its rules, from the maintainer's brief: never block work, never nag; only real
-  Shepherdr-level problems; at most one offer per problem; "No" remembered; search for a duplicate first; redact
-  secrets, paths, hosts and names; never a whole log.
-- **What upstream already has:** the record (`.feedback.json`, states `told`, `offered`, `declined`, `filing`,
-  `filed`, and an unused `later`); `--list` (told and later only); `--dry-run` (the draft); redaction; Settings ›
-  Agents › Feedback offers and Feedback repo; the news row; the sidebar's Feedback box.
+- **Upstream's feature** (upstream PR 728, "agents offer feedback for Shepherdr itself, filed only on the person's
+  yes") is the base. Its rules, from the maintainer's brief: never block work, never nag; only real Shepherdr-level
+  problems; at most one offer per problem; "No" remembered; search for a duplicate first; redact secrets, paths,
+  hosts and names; never a whole log.
+- **What upstream already has:** the record (states `told`, `offered`, `declined`, `filing`, `filed`, and an unused
+  `later`); `--list` (told and later only); `--dry-run` (the draft); redaction; Settings › Agents › Feedback offers
+  (per space) and Feedback repo (Everywhere's); the news row; the sidebar's Feedback box.
 - **What upstream doesn't have:** a place where found problems wait; Not now; a fix next to the problem; closed or
-  upstream issues in the duplicate search; a release check; anything after filing. No upstream issue asks for these
-  (searched: feedback, file issue, triage, found).
-- **Upstream's Rules** (docs/develop.md) this must keep:
-  - "Behaviour is words, not code. Shepherdr's code never judges work." The code records, counts, searches and
-    follows; deciding what is a problem and writing the fix stay the agents' words.
+  upstream issues in the duplicate search; a release check; a yes bound to the posted text; anything after filing.
+  No upstream issue asks for these (searched: feedback, file issue, triage, found).
+- **Upstream's Rules** (docs/develop.md) this keeps:
+  - "Behaviour is words, not code. Shepherdr's code never judges work." The code keeps, counts, searches and
+    follows; deciding what is a problem, writing the fix and linking related reports stay the agents' and the
+    person's.
   - "A new feature is a plugin." The page is a plugin.
   - "The app never says Assistant, worker or coordinator." The page says "your agents", a task's title, "in chat".
   - "Nothing personal": made-up examples, no paths or names.
@@ -85,132 +89,143 @@ have to read GitHub to know where a fix is.
 
 Six principles, then each part.
 
-1. **Nothing is lost.** Every report lands in the record and shows on the Feedback page at once, whether or not an
-   Assistant is free.
-2. **Nothing interrupts.** Capture never asks a question mid-work. The page holds what waits, with a quiet count.
-   An Assistant mentions a new problem in one line; it asks with a card only between things, as upstream says today.
-3. **One tap decides.** File it, Not now, Never. Not now comes back on its own.
+1. **Nothing is lost.** Every report is saved before anyone is told, and shows on the Feedback page at once, whether
+   or not an Assistant is free or running.
+2. **Nothing interrupts.** Capture never asks a question mid-work. The page holds what waits, with a quiet count. An
+   Assistant mentions a new problem in one line; it asks with a card only between things, as upstream says today.
+3. **One tap decides.** File it, Not now, Never, or Follow an issue that already exists. Not now comes back on its
+   own.
 4. **Check before filing.** Duplicates (open and closed), Shepherdr's repo when filing elsewhere, and whether a newer
-   release already fixes it. Advisory, shown on the row: the person decides.
-5. **Follow it to live.** Filed, fixed, released, on this machine, works. "Works" is the person's tap, never a guess.
-6. **Nothing public without the person's yes,** and nothing private in what goes public. The person can read exactly
-   what will be posted before they tap.
+   release already fixes it. Advisory, shown on the row.
+5. **The yes is for the exact text.** The person sees the redacted post and where it goes, and their yes is for that
+   revision only, used once. Retrying never posts twice.
+6. **Every status has evidence.** Closed, in a release, on this machine and works are each shown only when something
+   proves them. "Works" is the person's tap.
 
 ### The record
 
-Upstream's `.feedback.json`, under its lock, grows these fields on a problem (all optional; an old record reads as
-before):
+Upstream's `.feedback.json`, under its lock. A problem keeps upstream's fields and gains these (all optional: an old
+record reads as before):
 
 | Field | What |
 |---|---|
-| `fix` | The proposed fix in one line, for every user. From the reporter's `--fix`, or the Assistant's when it shapes it. |
-| `kind` | `bug`, `confusing`, `workaround`, `manual` (done by hand, should happen on its own), `miss` (an agent's mistake that Shepherdr's words led to). The page words it; the code doesn't judge it. |
-| `from` | Where it came from, for the page: `{task: "<title>"}`, `{chat: true}`, `{person: true}`, `{action: "<what failed>"}`. Never a key. |
-| `seen`, `last` | How many reports, and when the last came. |
-| `also` | Other one-lines merged into this problem (reports in other words). |
-| `draft` | The issue as `--file` would post it (title and redacted body), written when shaped, so the page can show it. |
-| `checked` | The last check: `{at, dupes: [{url, title, state, reason}], upstream: [...], newest, installed}`. |
-| `until` | Not now: when it comes back (`null`: when it is reported again). |
-| `issue` | Once filed: `{url, repo, state, reason, fixed_in, live_at, checked_at}`. |
-| `tried` | The person's answer once it is live: `works` or `broken`, with when. |
+| `id` | Stable for the problem's life: its first key. Later reports with the same key count on it. |
+| `reports` | Each report: `{at, from, line, details}`. `from` is `{task: "<title>"}`, `{chat: true}` or `{person: true}`, never a key. Nothing is merged away. |
+| `fix`, `kind` | The proposed fix in one line, for every user; and `bug`, `confusing`, `workaround`, `manual` or `miss`, for the page's words. Written by the reporter (`--fix`, `--kind`) or the Assistant shaping it. |
+| `search` | The public words a duplicate search may use, written by the agent that shapes it (component and action names, never the person's project). |
+| `related` | Problems or issues an agent or the person linked (`--same-as`, Follow). Never set by word matching. |
+| `decision` | The person's: `found` (none yet), `later` (with `until`, or `null` for "when it happens again"), `declined`, `approved`, `following` (an existing issue, nothing posted). |
+| `draft` | `{rev, repo, action: "create" or "comment", issue?, title, body}`, redacted, the exact post. |
+| `approval` | `{rev, repo, action, issue?, at, by: "page" or "chat"}`; cleared when used, when the draft changes, or on Not now and Never. |
+| `post` | The filing attempt: `{state, rev, started, url?}`, `state` one of `waiting`, `posting`, `posted`, `failed`, `unsure`. |
+| `outcome` | GitHub's side once filed or followed: `{url, state: open or closed, reason: completed, not_planned or duplicate, canonical?, checked_at}`. |
+| `shipped` | The evidence it reached this machine: `{release?, build, machine, at, how: "release" or "install"}`; cleared when that build is no longer installed. |
+| `tried` | The person's answer on a shipped build: `{result: works or broken, build, at}`. |
+| `checked` | The last check: `{at, dupes: [...], upstream: [...], newest, installed}`. |
 
-States, adding `found`, `later` (now used), and the ones after filing. `told` and `offered` read as `found`: the 15
-lost ones on today's machines show up on the page the first day.
+The three sides are kept apart, as Codex's second opinion asked: what the person decided (`decision`), what GitHub
+says (`outcome`), and what this machine has (`shipped`, `tried`). One can change without the others: an issue
+reopened upstream updates `outcome` and leaves the person's decision alone.
 
 ```
-            report ─────────────┐
-                                v
-   ┌──────────────────────── found ◄────────── came back (reported again after fixed, or "Still broken")
-   │  Not now                │   │  Never
-   v                         │   v
- later ── its time, or ──►   │  declined  (Undo: back to found)
-          reported again     │
-                             │ File it (the person)
-                             v
-                          filing ──► filed ──► fixed ──► live ──► works (done)
-                                   (open)   (closed as    (on this   │
-                                            completed,    machine)   └► Still broken: came back
-                                            or --shipped)
+ report ──► found ──Not now──► later ──(its time, or reported again)──► found
+              │  └──Never────► declined ──(Undo)──► found
+              │  └──Follow───► following ─────────────┐
+              │                                       │
+              └──File it on draft rev N──► approved ──► post: waiting → posting → posted
+                                                        │            └→ failed / unsure (checked on GitHub before any retry)
+                                                        v
+                         outcome: open → closed (completed) ──► shipped (release has the fix, or an install says so)
+                                                                      │
+                                                     tried: works (done) / broken ──► came back: found again, linked
 ```
 
-- **One problem, many reports.** A report with the same key adds to `seen`. A report whose words overlap an open
-  problem's closely (most of its telling words shared, at least three) is merged into it as `also`; the Assistant can
-  merge or split by hand (`--same-as <key>`, `--split`). A reporter is told "already noted, seen N times" and carries
-  on; only the first report sends news.
-- **Reported again after Never:** stays declined; `seen` still counts it (the person can see it keeps happening).
-- **Reported again after fixed or live:** "came back", back to found, linked to its issue.
-- **Kept:** undecided and declined problems 90 days after their last report (upstream's `KEEP_MS`); filed ones until
-  30 days after "Works".
+- **Reads are reads.** `--list` and the page never rewrite the file or prune it (upstream's `problems()` does today).
+  An unreadable record is kept aside (`.feedback.json.bad-<time>`), never overwritten as empty.
+- **Kept:** a problem with no decision stays until the person decides; it never expires on its own. Declined ones
+  and done ones lose their report text after 90 days (upstream's `KEEP_MS`) but keep their id, line, decision and
+  issue link, so a later report finds its history.
+- **Reported again after Never:** stays declined; its report count still grows, so the page can say it keeps
+  happening.
+- **Reported again after it shipped:** "came back", back to found, linked to its issue.
 
 ### Capture
 
 | Source | How | New |
 |---|---|---|
-| A task's agent, a reviewer (through its worker), a schedule's run | `herdr-task feedback "<line>" --details … [--fix "<one line>"] [--kind …]` | `--fix`, `--kind`; the brief's feedback line and upstream's `AGENT_NOTE` mention `--fix` |
-| The Assistant | The same command, for what it notices: the person's frustration (today), **and** the person confused by a screen, working around something, an agent doing by hand what should be automatic, an agent's mistake that Shepherdr's words led to | The words, delivered through the Feedback offers line of the Assistant's "Your settings" block (`assistant_settings.py`), not the template. It records without asking and says so in one line ("Noted for Shepherdr: the reply bubble doesn't show which message it answers."). |
-| The person | The Feedback box, now at the top of the Feedback page (and still the sidebar row's first thing). What they write is their own yes: it is recorded `from: person` and sent to Everything to file, as today. | Recorded, so it is followed after filing |
-| A failed action | A **Report** button on the app's error toast (Sentry's crash-report pattern). It opens the Feedback box prefilled: "<what I did> didn't work: <what it said>". Nothing is sent until the person sends it. | Toast `act` from a kernel hook |
-| A reaction | Words only: a 😕, 👎 or 🤔 on an agent's answer about Shepherdr is a sign the person was confused; the Assistant looks and, if Shepherdr's screen or words caused it, records it. | In the same settings-block words |
+| A task's agent, a reviewer (through its worker), a schedule's run | `herdr-task feedback "<line>" --details … [--fix "<one line>"] [--kind …]` | Saved first, then told (with no Assistant running: saved, and shown on the page). `--fix` and `--kind`; the brief's feedback line and `AGENT_NOTE` mention `--fix`. |
+| The Assistant | The same command, for what it notices: the person's frustration (today), **and** the person confused by a screen, working around something, an agent doing by hand what should be automatic, an agent's mistake that Shepherdr's words led to. A confused emoji reaction is a clue to look, never a report by itself. | Words ([Instructions](#instructions)). It records without asking and says so in one line ("Noted for Shepherdr: the reply bubble doesn't show which message it answers."). |
+| The person | The Feedback box, at the top of the Feedback page. What they write is saved as a report (`from: person`) before anything is sent; the box keeps their text if saving fails. Filing it still takes the yes on its draft, like any other. | Saved and followed |
 
-Not captured automatically: errors in agents' terminals, crashes, logs. Reading those would mean judging work in code
-or sending logs; agents report what they see in words instead.
+Agents write reports in public-safe words: what Shepherdr did, in its own terms, never the person's project, customer
+or data. Redaction is the second pass, not the first.
 
 ### Check before filing
 
-`herdr-task feedback --key K --check` (run in the background when a problem is first recorded, and again right before
-filing; read-only GitHub calls with the person's own `gh`):
+`herdr-task feedback --key K --check`: read-only GitHub calls with the person's own `gh`, run once a problem has
+`search` words (so nothing leaves the machine before an agent wrote public words), and again right before posting:
 
-1. **The feedback repo's issues, open and closed** (today: open only). A closed match shows its close reason:
-   completed ("Fixed before: <title>"), not planned ("Declined before: <title>"), duplicate.
+1. **The feedback repo's issues, open and closed** (today: open only). A closed match shows its reason: completed
+   ("Fixed before: <title>"), not planned ("Declined before: <title>"), duplicate (followed to its canonical issue).
 2. **Shepherdr's repo's issues**, when the feedback repo is another one (a fork): open and closed.
-3. **The newest release** of Shepherdr's repo against the installed version (`shepherdr_version()`). A newer one,
-   with a closed match since the installed release: "Maybe fixed in 3.2.23 (you have 3.2.22)".
-4. Short keyword searches (the line's telling words, at most six, then three), as `search_terms` does today: a long
+3. **The newest release** of Shepherdr's repo against the installed version (`shepherdr_version()`): "A newer
+   version is out (3.2.23; you have 3.2.22)". With a closed match whose fix is in that release (below): "Fixed in
+   3.2.23".
+4. Short keyword searches from `search` (at most six words, then three), as upstream's `search_terms` does: a long
    quoted query finds nothing.
 
-The result is stored on the problem (`checked`) and shown on its row. It never blocks: like GitHub's duplicate
-suggestions, the person decides. When it finds a match, File it offers "Add to <title>" (a comment, upstream's
-`--comment`) beside "File new".
+The result is stored (`checked`) and shown on the row. It never blocks: the person decides. A match offers
+**Follow this one** (nothing posted; the problem follows that issue) and **Add to it** (a comment, as a draft to
+approve) beside **File new**.
 
 For us, the "check upstream first" rule (#83) stays in the fork's words: the agent also reads upstream's main after
 the release and the maintainer's words on each match.
 
 ### Shape
 
-The Assistant shapes a problem when it is free (not before it says anything else): `herdr-task feedback --key K
---shape --fix "<one line>" --title … --goal … --happened … --expected … --repro …`. This writes `fix` and `draft`
-(the same body `--dry-run` shows today, redacted) without filing. A problem nobody shaped still shows on the page
-with the reporter's words and their suggested fix, or "No fix proposed yet".
+The Assistant shapes a problem when it is free, never before answering the person: `herdr-task feedback --key K
+--shape --fix "<one line>" --search "<public words>" --title … --goal … --happened … --expected … --repro …
+[--comment <n>]`. It writes `fix`, `search` and a new draft revision (redacted, the body `--dry-run` shows today),
+and posts nothing. A problem nobody shaped still shows with the reporter's words and their suggested fix, or "No fix
+proposed yet", and offers **Write it up** instead of File it.
 
 The fix is for every Shepherdr user: what would have prevented it on any machine, in one plain line. For us, the
 shaping-a-request skill (need, research, options) does this step.
 
-### The yes
+### The yes and filing
 
-On the Feedback page, each found problem has **File it**, **Not now** and **Never**.
-
-- **File it** sends the person's message to the Assistant of the problem's space (Everything when there is none):
-  "File it: “<line>”", carrying a hidden `<hc feedback key="…" do="file"/>` line, the way a reply carries
-  `<hc reply-to>`. The tap is the person's own message, like a suggested-reply bubble. The Assistant files it with
-  `--file` (duplicate check, redaction) and the row shows Filing… until the record says filed. Filing stays an
-  Assistant's step, as upstream has it: the code never posts on its own.
-- **Not now** opens a menu: Tomorrow, Next week, When it happens again. The service records it (`--later
-  <when>`); nothing is sent to an agent. Undo in the toast.
-- **Never** records the person's No (`--no`, upstream's). Undo in the toast; later, from the Said no section.
-- **Edit first** (a quiet link on the row) opens the space's chat with "Let's change the feedback about “<line>”
-  before filing" in the box, unsent.
-- **In chat**, the person can still say yes, no or later in words; the Assistant runs the same commands. Upstream's
-  question card stays for an Assistant that asks between things.
-
-For us, a yes means "file it and fix it" (FORK.md). The fork part: when a problem is filed to the feedback repo, and a
-space works on that repo, that space's Assistant gets a `feedback-filed` news line ([slice 4](#slice-4-a-filed-problem-reaches-its-repos-space)). Our
-FORK.md says: that line is the person's yes to fix it; shape it (check upstream first) and add the task.
+- **On the page:** a shaped problem's row shows **File it** with where it goes ("Create an issue in
+  eliasstravik/shepherdr", or "Comment on <title>"), and **What will be posted ›** opens the draft as it will go out,
+  redactions shown as `<name>`, `<host>`. File it records an approval for that revision (the service runs
+  `herdr-task feedback --key K --approve <rev>`, a command refused in any agent's terminal, as `fork/bin/sync
+  clear-broken` is), then sends the problem's space's Assistant the person's message "File it: “<line>”" with a hidden
+  `<hc feedback id="…" rev="N"/>` line, the way a reply carries `<hc reply-to>` (`core/send.js`, hidden by
+  `core/chat-log.js`). It is the person's own message, sent by their tap, as a suggested-reply bubble is.
+- **In chat:** the Assistant shows the draft (`--dry-run`) and asks with its question card, upstream's flow. Yes:
+  `--approve <rev> --by chat`, then files. An agent may record a chat approval only right after the person's answer
+  to that card; its instructions say so. The person can't be impersonated by the page path; the chat path is
+  upstream's trust model today, unchanged.
+- **Filing** (`--file --rev N`, only an Assistant, as upstream): refuses unless an approval matches that revision,
+  destination and action, and the decision isn't Not now or Never. It posts the stored draft as it is, never a new
+  body; the body ends with a hidden marker `<!-- shepherdr-feedback <id> rev <N> -->`.
+  1. Before the post: `post.state = posting`, saved.
+  2. Answer with a link: `posted`, approval used up, `outcome` set.
+  3. No answer, or an error after the request went out: `unsure`. Before anything else, the repo is searched for the
+     marker: found, it is `posted`; not found, `failed`, and File it shows again with the same approval.
+  4. A clear refusal (gh not signed in, no permission): `failed`, with its words on the row.
+- **Not now, Never** (the service: `--later <when>`, `--no`, refused in an agent's terminal; the Assistant's
+  existing `--no` stays for a No said in chat) clear any approval. An approval whose message reaches the Assistant
+  after Never is refused by `--file`.
+- **The page shows:** Waiting to file (approved, the Assistant hasn't started), Posting, Couldn't post (with why and
+  File it again), Checking whether it posted, Filed.
+- **Honest limit:** agents run as the same user as the service, so a command "refused in an agent's terminal" stops
+  mistakes, not a determined agent. The instructions forbid it, as they forbid every other person-only step.
 
 ### The Feedback page
 
 The sidebar's Feedback row (desktop list foot; the phone's drawer) shows the number of found problems as a quiet,
-neutral count (not Needs you's red: nothing waits urgently), and opens the page. On a computer it takes the middle
-column (the `middle` place, as an expanded artifact does); on a phone it is a full-screen sheet with Back.
+neutral count (not Needs you's red: nothing here is urgent), and opens the page: on a computer in the middle column
+(the `middle` place), on a phone a full-screen sheet with Back.
 
 ```
  Feedback
@@ -223,14 +238,14 @@ column (the `middle` place, as an expanded artifact does); on a phone it is a fu
  ─────────────────────────────────────────────────────────────
  The reply bubble doesn't show which message it answers
  Fix: show the first line of the message it answers above it
- From the task "Sticker book" · 2 h ago · seen 3 times
- Maybe related: "Reply context in chat" (open)
- [ File it ]  [ Not now ▾ ]  [ Never ]        What will be posted ›
+ From the task "Sticker book" · 2 h ago · 3 reports
+ Maybe the same: "Reply context in chat" (open)   [ Follow this one ]
+ [ File it ]  [ Not now ▾ ]  [ Never ]    Create an issue in … · What will be posted ›
 
  Needs you showed a task with nothing for you to do
- Fix: …
- Noted in chat · yesterday · Maybe fixed in 3.2.23 (you have 3.2.22)
- [ File it ]  [ Not now ▾ ]  [ Never ]        What will be posted ›
+ Noted in chat · yesterday · A newer version is out (3.2.23; you have 3.2.22)
+ No fix proposed yet
+ [ Write it up ]  [ Not now ▾ ]  [ Never ]
 
  Filed · 5
  ─────────────────────────────────────────────────────────────
@@ -238,213 +253,266 @@ column (the `middle` place, as an expanded artifact does); on a phone it is a fu
  Try it: mention a task by its title; it opens that one
  [ Works ]  [ Still broken ]                      On GitHub ›
 
- Ready failed to push after a rebase                    Fixed
- The service skipped a tick                   In 3.2.23 · update to get it
+ Ready failed to push after a rebase       Closed as fixed
+ The service skipped a tick                Fixed in 3.2.23 · update to get it
 
  › Not now · 2        › Said no · 1
 ```
 
-- **Rows** follow Linear's Triage and GitHub's notifications: the problem in the person's words first, the fix under
-  it, then one quiet line of where it came from, when, how often, and what the check found. The actions sit under it,
-  File it as the one primary button.
-- **What will be posted ›** opens the draft exactly as it will go public (title and body, redactions shown as
-  `<name>`, `<host>`), so the person sees there is nothing private in it. No draft yet: "Not written yet; your agents
-  write it when you say File it."
-- **Filed** rows show one status, in plain words: Filing…, Open, Fixed, In 3.2.23 · update to get it, On this
-  machine, Works, Came back, Declined there (the repo closed it as not planned). "On GitHub ›" opens the issue.
-- **On this machine** shows "Try it: <how>" (the problem's `try`, else its Expected words) with Works and Still
-  broken. Works folds the row into a "Fixed" history after a day. Still broken makes it "came back", back under Found.
-- **Not now** and **Said no** fold, with their counts; each row says when it comes back, with Restore or Undo.
+- **Rows** follow Linear's Triage and GitHub's notifications: the problem in plain words first, the fix under it,
+  then one quiet line of where it came from, when, how many reports, and what the check found. One primary button.
+- **Write it up** sends the person's message "Write up the feedback about “<line>”" to the space's Assistant; it
+  shapes it, and File it appears. Nothing is posted.
+- **Not now** opens a menu: Tomorrow, Next week, When it happens again. Undo in the toast.
+- **Filed** rows show one status in plain words, each only from its evidence: Waiting to file, Posting, Couldn't
+  post, Open, Closed as fixed, Declined there, Fixed in 3.2.23 · update to get it, On this machine, Works, Came back.
+- **On this machine** shows "Try it: <how>" (the shipped evidence's words, else the draft's Expected) with Works and
+  Still broken. Works folds the row into a Fixed history after a day. Still broken makes it "came back" under Found;
+  a comment on the issue is a new draft to approve.
+- **Not now** and **Said no** fold, with counts; each row says when it comes back, with Restore or Undo.
 - **Empty:** "Nothing found. When something in Shepherdr doesn't work as it should, your agents note it here."
-- **Feedback offers off:** a line at the top says so, with a link to the setting; nothing new is recorded, and what
-  is there still shows.
-- **Design:** the frontend-design skill, within `web/src/ds.css` (the existing list rows, `Btn`, `Cnt`, menus); the
-  better-layout, better-typography and better-accessibility passes; screenshots at phone and desktop width, light and
-  dark. A row that leaves (filed, snoozed) collapses in about 150 ms, off under Shepherdr's Motion setting and the
-  system's reduced motion. Buttons are 44 px tall on a phone. No new shortcuts; Esc closes the sheet, as everywhere.
-  Apps followed: Linear (Triage, Inbox), GitHub (notifications, issue forms), Sentry (feedback, resolved in release),
-  iOS (sheets).
+- **Feedback offers off** (in the space a problem came from): nothing new is recorded or checked there and nothing
+  files; what is there still shows, and a line at the top says so with a link to the setting. With the plugin
+  switched off (`service/next.ts`), the row opens upstream's old Feedback box.
+- **Design:** the frontend-design skill, within `web/src/ds.css` (the list's rows, `Btn`, `Cnt`, menus); the
+  better-layout, better-typography and better-accessibility passes; phone and desktop, light and dark. A row that
+  leaves collapses in about 150 ms, off under Shepherdr's Motion setting and the system's reduced motion. 44 px
+  buttons on a phone. No new shortcuts; Esc closes the sheet. Words checked for "Assistant", "worker" and keys,
+  including error and fallback words. Apps followed: Linear (Triage, Inbox), GitHub (notifications, issue forms),
+  Sentry (feedback, resolved in release), iOS (sheets).
 
 ### Follow it to live
 
-- **Reading the issue.** Once filed, the service asks herdr-task to follow it: `herdr-task feedback --track` at most
-  once an hour while any filed problem isn't done (a job in `service/jobs.ts`; herdr-task does the `gh issue view`
-  and `gh release list` reads). Closed as completed is **fixed**; closed as not planned is **declined there**.
-- **Released.** For a fixed issue in a repo with releases, the first release published after it closed is its
-  `fixed_in`, shown as "In 3.2.23". The installed version at or past it is **live** ("On this machine").
-- **A pipeline can say so itself:** `herdr-task feedback --issue <url> --shipped <version> [--try "<how>"]` marks it
-  live at once. For anyone who installs from their own fork, where issues stay open while a fix is carried (ours:
-  `Part of`, never `Closes`), this is the only true signal. Our upstream-sync skill's step 7 calls it for each issue
-  it labels `live`, passing the issue's Device check line (#83) as `--try`.
-- **Works / Still broken** are the person's taps (or words in chat: `--works`, `--broken`). Still broken on a filed
-  issue offers, on File it, one comment on that issue ("Still happens in <version>: <what they saw>"), never a second
-  issue.
-- **No push alerts.** A fix reaching the machine adds to the Feedback count only. Nothing about feedback is urgent.
+- **The issue's state.** While a problem is filed or followed and not done, `herdr-task feedback --track` reads its
+  issue at most once an hour (`gh issue view`: state, reason, and the issue a duplicate points to). The service's job
+  runner (`service/jobs.ts`) starts it only when something is followed.
+- **In a release, only with evidence.** A closed issue is "Closed as fixed" until a release is shown to contain its
+  fix: the commit that closed it (GitHub's timeline: the closing pull request's merge commit, or the closing commit)
+  is in the release tag (`gh api repos/<repo>/compare/<tag>...<sha>`: status `behind` or `identical`). The first
+  such stable release is "Fixed in". No closing commit, or a repo with no releases: it stays "Closed as fixed". A
+  closing date before a release proves nothing and isn't used.
+- **On this machine, only with evidence.** The installed build (`installed.json`'s version and commit on the serving
+  machine) contains the fix commit, or an install says so itself: `herdr-task feedback --installed <build> --issues
+  <url>…` replaces the list of issues that build carries; an issue not in the newest list loses "On this machine"
+  (a rollback, a dropped patch). For a fork whose issues stay open while a fix is carried (ours: `Part of`, never
+  `Closes`), this is the only signal. Our upstream-sync skill's step 7 runs it after each healthy install, from the
+  installed `fork/patches.json`, with each issue's Device check line (#83) as its Try it words.
+- **Works / Still broken** are recorded for the build the person has (`tried.build`). A newer build doesn't undo
+  Works; a report after it makes it "came back".
+- **No push alerts.** A fix reaching the machine adds to the Feedback count only.
 
-### The upstream decision (fork)
+### Instructions
 
-Ours stays as the upstream-issue skill has it: a fix that is live and works is `not-filed` until the person says file
-it, keep it ours or undo it, and the daily list shows what waits. The page helps by making "Works" visible first; a
-later, optional slice ([slice 8](#slice-8-optional-offer-it-to-shepherdrs-makers)) puts "Offer it to Shepherdr's makers"
-on a row that works, for anyone who files to a fork.
+One place holds the words for when to capture, shape and ask: the Feedback offers line of the Assistant's "Your
+settings" block (`assistant_settings.py`), which upstream already uses to tell Assistants about this setting. It says
+that capture now records without asking, the Feedback page holds what waits, the question card is for between things,
+and that the template's "offer once" is done through the page. Upstream's template section stays as it is (the
+fork-patch skill: templates are upstream's); if upstream takes this, the words belong in its template instead.
+
+For us, FORK.md's "Every friction is a candidate fix" is brought in line: the Assistant records the friction (`herdr-task
+feedback`), says in the same reply what went wrong and the fix in one or two lines, and the person's yes comes on the
+page or in chat.
+
+### The fork's parts
+
+- **A yes means "file it and fix it".** Fork-only: our feedback repo is our fork, and our FORK.md says a yes to file is
+  also the yes to build it. Built in our skills and one small fork script, not in Shepherdr: when a problem is posted
+  to our repo with the person's approval, the filing Assistant runs `fork/bin/found claim <issue>` once; it records
+  the issue as claimed and sends this repo's space's Assistant the issue's link (`herdr-task tell-assistant`). That
+  Assistant shapes it (check upstream first, #83), adds it to a running task when it fits (FORK.md), else adds a task.
+  A claim is used once; a comment on an existing issue claims nothing.
+- **The upstream decision** stays as the upstream-issue skill has it: a live fix that works is `not-filed` until the
+  person says file it, keep it ours or undo it. The page makes "Works" visible first. An "Offer it to Shepherdr's
+  makers" button on a working row is left for later.
 
 ## Shepherdr or our fork
 
 | Part | Where | Why |
 |---|---|---|
-| The record's new fields and states, `--fix`, `--later`, `--shape`, `--check`, `--track`, `--shipped`, `--works`, `--broken` | Shepherdr (`feedback.py`, a patch) | Every user loses reports today; upstream's own file and command |
-| The Feedback page, its count, the Report button | Shepherdr (a plugin `feedback`, two one-line hooks) | Every user |
-| The settings-block words (record without asking; confusion and workarounds too) | Shepherdr (`assistant_settings.py`'s Feedback offers line) | Upstream's way to tell Assistants about a setting; templates stay as they are |
-| `feedback-filed` news to the space that works on the feedback repo | Shepherdr | Anyone filing to a repo they develop with Shepherdr, upstream's maintainer too |
-| A yes means "file it and fix it"; that news becomes a shaped task | Our FORK.md and shaping-a-request skill | Only a fork builds its own fixes |
-| Check upstream's main, read the maintainer's words (#83) | Our skills | Deeper than a release check; agents' words |
-| `--shipped` from the install step; Device check as Try it | Our upstream-sync skill | Our pipeline |
-| File it / keep it ours / undo it upstream | Our upstream-issue skill (slice 8 optional) | Our decision process |
+| Save before telling, read-only lists, nothing expires undecided | Shepherdr (`feedback.py`) | Every user loses reports today |
+| The Feedback page, its count, Not now, Never, Follow | Shepherdr (plugin `feedback`, a hook in `list.tsx`) | Every user |
+| Drafts, approvals, safe filing, the checks | Shepherdr (`feedback.py`, the plugin) | Every user, and safer than today's filing |
+| Following the issue, release and install evidence, Works | Shepherdr (`feedback.py`, `service/jobs.ts`, the plugin) | Every user |
+| The settings-block words | Shepherdr (`assistant_settings.py`'s Feedback offers line) | Upstream's way to tell Assistants about a setting |
+| "File it and fix it", the claim, the task | Our FORK.md, skills, `fork/bin/found` | Only a fork builds its own fixes |
+| `--installed` from the install step; Device check as Try it | Our upstream-sync skill | Our pipeline |
+| Check upstream's main, the maintainer's words (#83) | Our skills | Deeper than a release check |
+| File it, keep it ours or undo it upstream | Our upstream-issue skill | Our decision process |
 
 ## Ban rules and privacy
 
-- **Nothing posts without the person's yes.** Every GitHub write (issue, comment) happens only from an Assistant
-  acting on the person's own message or tap, through upstream's `--file`. The service and herdr-task's following only
-  read (`gh issue view`, `gh search`, `gh release list`), with the person's own `gh` sign-in. Not now, Never, Works
-  and Still broken write only the local record.
-- **The tap is the person's message.** File it sends a message the person chose to send, as a suggested-reply bubble
-  does; nothing types into an agent's terminal that didn't come from the person, no slash commands, no keys, no
-  menus. News reaches Assistants the way it does today (herdr-task's held news).
+- **Nothing posts without the person's yes, for that exact text.** Every GitHub write (issue, comment) is a stored
+  draft revision the person approved, posted once by an Assistant through `--file`. The service and the following
+  only read (`gh issue view`, `gh search`, `gh release list`, `gh api …/compare`), with the person's own `gh`.
+- **The tap is the person's message.** File it and Write it up send a message the person chose to send, as a
+  suggested-reply bubble does. Nothing types keys, slash commands or menu choices into an agent; no agent prompt is
+  answered for the person. News reaches Assistants the way it does today (herdr-task's held news, sent only while the
+  person isn't writing).
 - **No agent internals.** Nothing reads an agent's sign-in, tokens, usage, limits or settings files, or drives its
-  interface. The only outside tool is `gh`, GitHub's official CLI, with its documented commands. No agent account is
-  touched, so docs/agents-and-terms.md needs no new row; the slices say so in their pull requests.
-- **The repo may be public.** What goes out passes upstream's `redact()` (secrets, tokens, emails, home paths, tailnet
-  names, IP addresses, the machine's and account's names), plus, new: the names of the person's spaces and folders
-  and their repos other than the feedback repo and Shepherdr's repo (a private project's name must never reach a
-  public issue). The page shows the redacted draft before File it.
-- **Never in an issue:** analytics, logs pasted whole, the person's project code, private repo content, settings
-  values. Upstream's rule stays.
-- **Search terms leave the machine too:** they are redacted first (`search_terms` does this today) and are only the
-  line's telling words.
-- **Off means off:** Feedback offers off records nothing new, files nothing, offers nothing.
+  interface. The only outside tool is `gh`, GitHub's official CLI, with documented commands and the documented REST
+  API. No agent account is touched, so docs/agents-and-terms.md needs no new row; each slice's pull request says so.
+- **The repo may be public.** Agents write reports and drafts in public-safe words first. Then upstream's `redact()`
+  (secrets, tokens, emails, home paths, tailnet names, IP addresses, the machine's and account's names), plus, new:
+  a whole home path is removed, not shortened to `~/…` with the rest left; and the names of the person's spaces,
+  folders and repos other than the feedback repo and Shepherdr's repo. The person reads the redacted draft before
+  File it. A problem whose words can't be made public stays on the page; Never or Not now keeps it local.
+- **Searches leave the machine too:** only the `search` words an agent wrote, redacted again; never the raw line or
+  details.
+- **Never in a report or a post:** analytics, logs pasted whole, raw error text from the app, the person's project
+  code or private repo content, settings values. Upstream's rule stays.
+- **Off means off** in a space: nothing new recorded, checked or filed from it.
 
 ## Edge and failure cases
 
 | Case | What happens |
 |---|---|
-| `gh` not signed in, or offline | Check and follow say "GitHub isn't reachable here" on the row; nothing else changes. Filing fails as today, with its words. |
-| The space has no Assistant running | File it goes to Everything's; its row says so. |
-| Two devices tap at once | The record's lock; the second sees the new state (the snapshot), its action refused with "Already filed" or similar. |
-| The Assistant never files after File it | The row says Filing… with when it was asked; after 10 minutes (`FILING_MS`) it shows File it again. |
-| A problem reported in another space | It shows on the page with its space named. The yes goes to that space's Assistant. |
-| Another machine's tasks | They report to their space's Assistant on their machine, into that machine's record. Slice 7 reads every machine's records into the page. Until then the page shows the serving machine's, and says so. |
-| The feedback repo changed | Filed problems keep their own repo. New checks and filings use the new one. |
-| An old record (upstream's shape) | Reads as before; `told` and `offered` show as found. Nothing is rewritten until a problem changes. |
-| An issue closed as duplicate | Followed through the issue it points to, when GitHub says. Else shown as "Closed as duplicate". |
-| A repo with no releases | Fixed stays the last state until `--shipped` or the person's Works. |
-| A fork's issue that stays open while carried | Only `--shipped` makes it live (ours: the install step). |
+| `gh` not signed in, or offline | Check and follow say "GitHub isn't reachable here" on the row. Filing ends `failed` with gh's words; File it shows again. |
+| The post went through but its answer was lost | `unsure`; the marker search finds it: `posted`. Never posted twice. |
+| The space has no Assistant running | The report is saved and shown. File it and Write it up go to Everything's Assistant; the row says so. |
+| Two devices tap at once | The record's lock; the second action finds the state changed and says so ("Already approved"). |
+| File it, then Never before the Assistant filed | The approval is cleared; the late message's `--file` is refused; the Assistant says it in one line. |
+| The draft changes after File it | A new revision: the old approval no longer matches; File it shows again for the new text. |
+| The feedback repo changes after File it | The approval names its repo: `--file` refuses; File it shows again. |
+| A problem reported in another space | Shown with its space named; File it goes to that space's Assistant. |
+| Another machine's tasks | They report into their own machine's record. The page shows the serving machine's, and says so. A view of every machine is left for later (it needs a read that never installs anything on the other machine). |
+| An old record (upstream's shape) | Reads as before; `told` and `offered` show as found; nothing is rewritten until a problem changes. |
+| An issue closed as duplicate | Followed through its canonical issue when GitHub names one; else "Closed as duplicate". |
+| Reopened upstream after "Fixed in" | `outcome` goes back to open; `shipped` and `tried` stay as they were, for their build. |
+| A rollback or a dropped patch | The next `--installed` list leaves the issue out: "On this machine" goes away. |
 
 ## Build plan
 
 Each slice is one task, added `--after` this spec, small enough to review in one sitting. Each is a patch (fork-patch
-skill): its own issue labelled `patch`, `Part of #94` and its own number, a `fork/patches.json` line, tests pinning the
-upstream seams it relies on, and upstream's style throughout. UI slices use the frontend-design skill plus
-better-layout, better-typography and better-accessibility, follow the Motion setting, and screenshot phone and desktop,
-light and dark. Each starts with the "check upstream first" rule (#83).
+skill): its own issue labelled `patch` that links #94, a `fork/patches.json` line, tests pinning the upstream seams it
+relies on, and upstream's style. UI slices use the frontend-design skill plus better-layout, better-typography and
+better-accessibility, follow the Motion setting, and screenshot phone and desktop, light and dark. Each starts with
+the "check upstream first" rule (#83). Slices 1 and 2 alone fix the loss in the evidence.
 
-### Slice 1: the record keeps everything
+### Slice 1: every report is kept
 
-Every report is kept and listable, nothing silently dropped; Not now exists.
-- **Files:** `mods/tasks/bin/herdr_task/feedback.py` (fields, states, `--list --all --json`, `--fix`, `--kind`,
-  `--later`, `--shape`, `--same-as`, `seen` counting, word-overlap merging), `cli.py` (flags), `launch.py` (the
-  brief's feedback line mentions `--fix`), `fork/patches.json`.
-- **Tests:** a new `test/test_feedback_found.py`: a repeat report counts up and sends news once; a near-duplicate in
-  other words merges; `told`/`offered` list as found; `--later tomorrow` comes back at its time and on a new report;
-  `--no` after later; `--shape` writes a redacted draft and files nothing; an upstream-shaped record reads unchanged.
-  Pin: `key_of`, `problems()`, `redact`, `--list` and `--file` still exist with their arguments.
-- **Demo:** with a throwaway `HERDR_TASK_STORE`, a fake hc and a fake gh: report the same problem three times in two
-  wordings, `feedback --list --all --json` shows one problem, seen 3; `--later tomorrow` hides it from found.
+- **What the person gets:** nothing visible yet; no report is ever dropped, and the next slice can show them all.
+- **Files:** `mods/tasks/bin/herdr_task/feedback.py` (save the report before telling; keep it with no Assistant
+  running; `reports`, `id`, `fix`, `kind`; `--list --all --json` read-only, no pruning on read; an unreadable record
+  kept aside; nothing undecided expires), `cli.py` (flags), `launch.py` (the brief's feedback line mentions `--fix`),
+  `fork/patches.json`.
+- **Tests:** a new `test/test_feedback_found.py`: a report with no Assistant is kept; a repeat adds a report and sends
+  news once; `--list --all` changes nothing on disk; a corrupt record is kept aside, not overwritten; an undecided
+  problem older than 90 days is still listed; an upstream-shaped record reads unchanged. Pins: the key function, the
+  record's lock, `redact`, `--list`, `--file` and `--no` keep their names and arguments.
+- **Demo:** a throwaway `HERDR_TASK_STORE`, a fake hc with no Assistant: report twice; `feedback --list --all --json`
+  shows one problem with two reports.
 
-### Slice 2: the Feedback page
+### Slice 2: the Feedback page, decisions that stay local
 
-The person sees what was found and decides with one tap.
-- **Files:** `web/plugins/feedback/` (`client.tsx`, `rows.tsx`, `words.ts`, `feedback.css`), `web/plugins.json`,
-  `service/feedback.ts` (reads `feedback --list --all --json` on the service's tick, cached; the Not now / Never /
-  Undo actions run herdr-task), one case in `service/actions.ts`, `web/shared/types.ts` (`FoundItem` in the
-  snapshot), `web/src/kernel.ts` (`views.feedback`), `web/src/list.tsx` (the Feedback row's count and opening the
-  view; the old dialog when the plugin is off), `web/demo/data.ts` (found, filed, later rows), `docs/plugins.md`.
-- **Tests:** `service/feedback.test.ts` (list read, actions, a failed read keeps the last list);
-  `web/plugins/feedback/feedback.test.tsx` (sections, counts, File it sends the person's message with the hidden key
-  line, Not now's menu, Undo, the empty and off states, no "Assistant" in any words).
-- **Demo:** `bun run build`, `bun web/demo/serve.ts`, open the Feedback row: three found, one filed, the folds;
-  screenshots at 390 and 1280 width, light and dark.
+- **What the person gets:** the Feedback row's count; the page with Found, Filed (upstream's filed ones), Not now,
+  Said no; Not now, Never, Undo; Write it up and File it as messages to the Assistant (upstream's card and dry-run
+  flow does the filing until slice 4).
+- **Files:** `feedback.py` (`--later`, the person's `--no`, `--undo`, refused in an agent's terminal), `web/plugins/feedback/`
+  (`client.tsx`, `rows.tsx`, `words.ts`, `feedback.css`), `web/plugins.json`, `service/next.ts` (its switch),
+  `service/feedback.ts` (reads the list on the service's tick; the actions), one case in `service/actions.ts`,
+  `web/shared/types.ts`, `web/src/list.tsx` (the row's count and opening the page; upstream's box when the plugin
+  is off), the Feedback box saving before it sends, `web/demo/data.ts`, `docs/plugins.md`.
+- **Tests:** `service/feedback.test.ts` (list read, a failed read keeps the last list, actions, refused from a
+  terminal); `web/plugins/feedback/feedback.test.tsx` (sections and counts, Not now's menu, Undo, empty and off,
+  the plugin off opens the old box, no "Assistant" or keys in any words, the box keeps text when saving fails).
+- **Demo:** `bun run build`, `bun web/demo/serve.ts`: the Feedback row, three found, the folds, Not now; screenshots
+  at 390 and 1280, light and dark.
 
 ### Slice 3: check before filing
 
-A problem shows what GitHub already knows before the person taps File it.
-- **Files:** `feedback.py` (`--check`: the feedback repo open and closed, Shepherdr's repo when different, the newest
-  release against the installed version; stored as `checked`; run in the background on a new problem and before
-  filing; `--file` uses closed matches too), `web/plugins/feedback/rows.tsx` (the check's line; File it's "Add to …"
-  choice).
-- **Tests:** in `test/test_feedback_found.py` with a fake gh (`HERDR_TASK_GH`): a closed-completed match gives
-  "Fixed before"; a not-planned one "Declined before"; a fork feedback repo also searches Shepherdr's repo; a newer
-  release with a closed match says "Maybe fixed in"; gh failing leaves the problem as it was; search terms are
-  redacted.
-- **Demo:** a fake gh with one closed issue and a newer release; the row shows both lines.
+- **What the person gets:** each row says whether it was fixed or declined before, whether Shepherdr's makers
+  already have it, and whether a newer version is out; Follow this one.
+- **Files:** `feedback.py` (`--check`; `search` words; open and closed; Shepherdr's repo when different; the newest
+  release; Follow), `web/plugins/feedback/rows.tsx`.
+- **Tests:** with a fake gh (`HERDR_TASK_GH`): a closed completed match says "Fixed before", a not-planned one
+  "Declined before"; a fork feedback repo also searches Shepherdr's repo; a newer release is named; no check runs
+  without `search` words; the search sends only those words, redacted; gh failing leaves the row as it was; Follow
+  posts nothing.
+- **Demo:** a fake gh with a closed issue and a newer release; the row shows both and Follow.
 
-### Slice 4: a filed problem reaches its repo's space
+### Slice 4: the yes for the exact text, filed once
 
-For anyone who files to a repo they work on in Shepherdr; for us, every yes becomes a task.
-- **Files:** `feedback.py` (after filing, the space whose folder's `origin` is the feedback repo gets
-  `<herdr-news event="feedback-filed">` with the issue's link and words; not the filing space's own Assistant twice),
-  `FORK.md` (that line is the person's yes to fix it: shape it, check upstream first, add the task), the
-  shaping-a-request skill (one line).
-- **Tests:** a space on a scratch repo with that origin gets the news; no space on it, nothing sent; the filing
-  space is that space, one message only.
-- **Demo:** two throwaway spaces, one on a scratch clone whose origin is the feedback repo; file from the other; the
-  first one's Assistant gets the line.
+- **What the person gets:** What will be posted, File it for that text, and filing that never posts twice, with
+  its states on the row.
+- **Files:** `feedback.py` (`--shape` drafts with revisions; `--approve`; `--file --rev` posts the stored draft with
+  its marker; `posting`, `unsure`, the marker search; Not now and Never clear approvals),
+  `mods/tasks/bin/herdr_task/assistant_settings.py` (the Feedback offers line's words), `core/send.js` and
+  `core/chat-log.js` (the hidden `<hc feedback>` line), `web/plugins/feedback/rows.tsx`.
+- **Tests:** `--file` without a matching approval is refused; a changed draft needs a new approval; a changed repo
+  is refused; a lost answer after a successful post ends `posted` through the marker, with one post; a refusal ends
+  `failed`; Never after File it makes the late `--file` refuse; the body posted is byte for byte the approved
+  draft; the hidden line never shows in the chat.
+- **Demo:** a fake gh that posts and then drops its answer: one issue, the row says Filed.
 
-### Slice 5: follow it to live
+### Slice 5: follow the issue
 
-The person sees where each fix is and confirms it on their device.
-- **Files:** `feedback.py` (`--track`, `--shipped`, `--works`, `--broken`, came back on a new report), `service/jobs.ts`
-  (hourly `--track` while something is followed), `web/plugins/feedback/rows.tsx` (Filed statuses, Try it, Works,
-  Still broken), `.agents/skills/upstream-sync/SKILL.md` (step 7 calls `--shipped` with the Device check line).
-- **Tests:** a fake gh: closed completed → fixed; a release after it, installed version older → "In 3.2.23 · update";
-  installed at it → live; `--shipped` → live at once on an open issue; Still broken → found, linked, and its File it
-  comments on the same issue; reported again after live → came back; the job doesn't run with nothing followed.
-- **Demo:** demo data with one row in each state; on a throwaway store, `--shipped` then the page shows Try it.
+- **What the person gets:** Filed rows say Open, Closed as fixed, Declined there, or Closed as duplicate.
+- **Files:** `feedback.py` (`--track`: state, reason, the canonical issue), `service/jobs.ts` (hourly, only while
+  something is followed), `web/plugins/feedback/rows.tsx`.
+- **Tests:** a fake gh's closed completed, not planned and duplicate; reopened goes back to open; the job doesn't run
+  with nothing followed; gh failing keeps the last outcome.
+- **Demo:** demo data with one row in each outcome.
 
-### Slice 6: report from a failed action
+### Slice 6: on this machine, and works
 
-A failed tap in the app can become feedback in two taps.
-- **Files:** `web/src/kernel.ts` (one hook: `tryAct`'s error toast takes `act` from `registry.reportError`),
-  `web/plugins/feedback/report.ts` (Report opens the Feedback box prefilled with the action's words and the error).
-- **Tests:** an error toast has Report when the plugin is on and none when it's off; the box holds the prefill and
-  sends nothing by itself; a sent one is recorded `from: action`.
-- **Demo:** the demo's `?case=down`, tap an action, Report, see the box.
+- **What the person gets:** "Fixed in 3.2.23 · update to get it", "On this machine", Try it, Works and Still broken;
+  "came back".
+- **Files:** `feedback.py` (the closing commit, the compare against release tags, the installed build;
+  `--installed`; `--works`, `--broken`; came back), `web/plugins/feedback/rows.tsx`.
+- **Tests:** a fake gh: a closed issue with no closing commit stays "Closed as fixed"; a release whose tag contains
+  the commit gives "Fixed in"; the installed build at it gives "On this machine"; an older one says update; an
+  `--installed` list without the issue takes "On this machine" away; Still broken is found again, linked, and a
+  comment is a draft to approve; a report after Works is "came back".
+- **Demo:** demo data with each state; on a throwaway store, `--installed` then the page shows Try it.
 
-### Slice 7: every machine's problems
+### Slice 7 (fork): file it and fix it
 
-The page shows problems recorded on every machine, each with its machine named.
-- **Files:** `service/feedback.ts` (each reachable machine's list, as the service reads other machines' tasks), the
-  row's machine line, the actions routed `--on <machine>`.
-- **Tests:** two machines' lists merge; a machine that can't be reached keeps its last list and says so; an action
-  goes to the row's machine.
-- **Demo:** two throwaway cores (AGENTS.md: "Two throwaway cores on one VM"), a report on each, both on the page.
+- **What the person gets:** in this fork, every yes to file becomes work in this repo's space, once, and each install
+  tells the page what it carries.
+- **Files:** `fork/bin/found` (`claim`), `fork/tests/test_found.py`, FORK.md ("Every friction is a candidate fix" in
+  line with the page), the shaping-a-request and upstream-sync skills (step 7 runs `--installed`).
+- **Tests:** a claim is used once; a comment claims nothing; a second claim of one issue is refused; the message to
+  this space's Assistant holds the issue's link and no private words; `--installed` gets the installed
+  `fork/patches.json` issues.
+- **Demo:** a scratch store: approve and file a problem to a fake repo, claim it, see one message; claim again,
+  refused.
 
-### Slice 8 (optional): offer it to Shepherdr's makers
+### Later, not planned yet
 
-For anyone who files to a fork: once a fix works, one tap offers it upstream.
-- **Files:** `web/plugins/feedback/rows.tsx` ("Offer it to Shepherdr's makers" on a Works row when the feedback repo
-  isn't Shepherdr's: sends "File it upstream: “<line>”" as the person's message), our upstream-issue skill (that
-  message is the "file it").
-- **Tests:** shown only for a fork feedback repo and a works row; sends the person's message; never posts by itself.
-- **Demo:** demo data with a fork feedback repo.
+- **Report on an error toast** (Sentry's crash-report pattern): the person's words prefilled with the action, never
+  the raw error text.
+- **Every machine's problems on one page:** needs a read-only way to list another machine's record that never
+  installs or updates anything there, rows keyed by machine and id, and stale rows read-only until checked again.
+- **Offer it to Shepherdr's makers** on a working row, for anyone who files to a fork.
 
 ## Second opinion
 
-Codex (gpt-6.2-sol, high) read the draft read-only. What changed: see the pull request, which lists each point and
-what this spec did with it.
+Codex (gpt-6.2-sol, high, read-only) read the first draft against `feedback.py`, the Assistant's template, FORK.md and
+AGENTS.md. Its verdict: approve a narrower spec for durable capture and a quiet inbox; hold public writes and live
+status until the yes survives retries and every status has evidence. What changed:
+
+| Its point | What the spec does now |
+|---|---|
+| The yes wasn't tied to the posted text; `--file` rebuilds the body | Drafts with revisions; an approval for one revision, destination and action, used once; `--file` posts the stored draft byte for byte |
+| Text left the machine before anyone reviewed it (background search, raw error text) | Searches use only `search` words an agent wrote, redacted; no raw error text anywhere; public-safe words first, redaction second; whole home paths removed |
+| A lock and a 10-minute timer don't make filing safe to retry | Persisted post states, a hidden marker in the body, a marker search before any retry; Never after File it makes the late filing refuse |
+| A filed issue isn't permission to build; several spaces may match | The generic "news to the repo's space" is gone; the fork claims an issue once through its own script, a comment claims nothing |
+| Closing date plus a later release doesn't prove a release has the fix | "Fixed in" only when the release tag contains the closing commit; "On this machine" only from the installed build or an install's own list, cleared on rollback |
+| Word-overlap merging could join opposite reports | Dropped: identical keys count; linking is an agent's or the person's choice; every report kept |
+| Save before telling; reads rewrite the file; undecided rows expire | Saved first, kept with no Assistant; reads never write; a corrupt file kept aside; nothing undecided expires |
+| No way to follow an existing issue without posting | Follow this one; decision, GitHub outcome and this machine's evidence kept apart |
+| Three sets of words about when to ask | One place: the Feedback offers line; FORK.md brought in line |
+| Off per space vs a global page; `--no` needs an agent | Off is the originating space's; person-only commands for Not now and Never, refused in an agent's terminal |
+| The fleet view's `--on` can install on the other machine | Moved to Later, with what it needs |
+| Slices too big; fuzzy merging, emoji and the toast up front | Re-sliced: keep, show, check, approve and file, follow, ship and works, then the fork; the toast and fleet view later |
+
+Where we didn't follow it: it suggested editing upstream's template alongside the settings line. Our fork-patch
+rule keeps templates as upstream's, so the words go in the settings line only, with a note that they belong in the
+template if upstream takes it.
 
 ## Not in this spec
 
 - Automatic capture from agents' terminals, logs or crash dumps: judging work in code, and logs must never leave.
 - Push alerts for found or fixed problems: nothing here is urgent.
 - Voting, priorities or assignees: one person, one list.
-- Changing upstream's templates: the words go through the settings block.
+- Changing upstream's templates.
