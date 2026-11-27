@@ -1,7 +1,7 @@
 // A fictional day for the demo (bun web/demo/serve.ts): Sam, the machines mac-mini, vm, studio and pi, the spaces
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
-import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task } from '../shared/types.ts'
+import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem } from '../shared/types.ts'
 
 const NOW = Date.now()
 const min = 60_000
@@ -19,6 +19,20 @@ const P = { shop: 'p:mac-mini:shop', blog: 'p:mac-mini:blog', notes: 'p:mac-mini
 const FOLDER: Record<string, [string, string]> = { [EV]: ['/Users/sam', '~'], [P.shop]: ['/Users/sam/dev/shop', 'shop'], [P.blog]: ['/Users/sam/dev/blog', 'blog'], [P.notes]: ['/Users/sam/notes', 'notes'], [P.garden]: ['/home/sam/dev/garden-app', 'garden-app'], [P.vmShop]: ['/home/sam/clients/acme/shop', 'shop'], [P.vmRoot]: ['/home/sam/clients/acme/shop', 'shop'] }
 const work = (folder: string, name: string): Task['work'] => ({ name, folder, short: folder.replace(/^\/(Users|home)\/[^/]+/, '~'), repo: !['~', 'notes'].includes(name) })
 const task = (id: string, name: string, pl: string, status: Task['status'], x: Partial<Task> = {}): Task => ({ id, name, place: pl, asked: pl, status, state: status, on: pl === P.garden || pl === P.vmShop || pl === P.vmRoot ? 'vm' : 'mac-mini', created: '', age: '', work: FOLDER[pl] && work(...FOLDER[pl]), ...(FOLDER[pl] ? { taskFolder: FOLDER[pl][0] } : {}), agent: { chat: `${id}/worker`, role: 'worker', cli: pl === P.garden ? 'codex' : 'claude', status: status === 'need' ? 'need' : 'work', running: true, age: '', note: '' }, ...x })
+
+/** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
+const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
+export const inbox: InboxItem[] = [
+  alertIn('need:vm:GARDEN-4/worker:p1', 5 * min, 'Photo upload · Needs you', 'Wants to run a command: npm install sharp', 'needs', P.garden, { task: 'vm:GARDEN-4', waits: true }),
+  alertIn('alert:a7', 40 * min, 'Bigger checkout button · Approval code', 'The payment sandbox sent a code to your phone: enter it in the browser', 'needs', P.shop, { task: 'SHOP-17' }),
+  alertIn('ready:BLOG-10', hour, 'Fix typo on the About page · Ready for review', 'Fixed the typo and two more I found on the same page.', 'ready', P.blog, { task: 'BLOG-10', waits: true }),
+  alertIn('need:SHOP-14/worker:q2', 2 * hour, 'Switch payment provider · Needs you', 'Which provider, Stripe or Adyen?', 'needs', P.shop, { task: 'SHOP-14', waits: true, read: true }),
+  alertIn('need:p:mac-mini:shop:q9', 3 * hour, '#shop Assistant · Needs you', 'Start the three tasks for the spring sale?', 'needs', P.shop, { waits: true, closed: NOW - 2.5 * hour, read: true }),
+  alertIn('ready:NOTES-4', 3 * hour + 10 * min, 'Compare supplier quotes · Ready for review', 'Brightpack is cheapest at your volume. Norbox ships fastest.', 'ready', P.notes, { task: 'NOTES-4', waits: true, read: true }),
+  alertIn('done:SHOP-11', 26 * hour, 'Sale banner · Done and merged', 'The banner shows on every page until Sunday.', 'done', P.shop, { task: 'SHOP-11', read: true }),
+  alertIn('need:vm:GARDEN-3/worker:q4', 27 * hour, 'Watering schedule · Needs you', 'Keep the old reminders, or start fresh?', 'needs', P.garden, { task: 'vm:GARDEN-3', waits: true, closed: NOW - 26 * hour, read: true }),
+  alertIn('msg:p:mac-mini:blog:9', 3 * 24 * hour, '#blog Assistant · New message', 'The draft for Thursday is in the drafts folder.', 'assistant', P.blog, { read: true }),
+]
 
 export const tasks: Task[] = [
   // SHEP-348's six states on the repo line: own branch, no PR (SHOP-19); PR checks passed (SHOP-12), failed (SHOP-15),
@@ -209,6 +223,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
         { name: 'STRIPE_KEY', at: NOW - 2 * day, scope: 'space', machine: null, space: P.shop, where: 'Space shop' },
       ] }],
     config,
+    // the bell's list (fork #37): what the push alerts said this week, some read, some still waiting
+    inbox: empty ? [] : inbox,
     warnings: empty ? [] : down ? [{ id: 'm:vm', kind: 'machine', text: "Can't reach vm · last seen 14:02" }] : [{ id: 'u:elevenlabs', kind: 'usage', text: "You've used 76% of your ElevenLabs plan" }, { id: 'm:vm', kind: 'machine', text: 'vm: disk nearly full' }, ...(mode === 'more' ? [{ id: 'm:mini', kind: 'machine' as const, text: 'mac-mini: memory nearly full' }] : [])],
     screens: empty ? {} : {
       'task:SHOP-17': { b: { url: 'https://billing.example.com/login' }, d: { of: 'mac-mini', own: false, busy: 'Bigger checkout button on phones' }, active: true, driver: 'agent', hands: { what: 'Enter the sign-in code' } },
