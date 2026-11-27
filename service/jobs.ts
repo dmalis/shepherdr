@@ -1,6 +1,6 @@
 // Shepherdr's background work that doesn't hang on what a window shows, run here once for every client:
 // - the task tick (herdr-task tick: queued tasks start, merged ones are done) every 15 s and 2 s after a task's agent
-//   changes, and about once a minute the automations scheduler's check, here and on other machines with tasks: every
+//   changes (one that comes while a tick runs: right after it), and about once a minute the automations scheduler's check, here and on other machines with tasks: every
 //   service ticks its own machine; the machine that serves the web app (Serve from, service/host.ts tickOn) ticks the
 //   others that have no service of their own (and those running an Assistant: their tick brings agents back after a
 //   crash), and another service does that only while the host can't be reached (herdr-task's own lock keeps two ticks
@@ -50,6 +50,8 @@ export function agentMachines(terminals: Iterable<any>): string[] {
 export class Jobs {
   readonly on = jobsOn();
   private ticking = false;
+  /** a change's tick that came while one ran: it runs right after that one ends */
+  private again = false;
   private rounds = 0;
   private soon: ReturnType<typeof setTimeout> | null = null;
   private seen = "";
@@ -70,8 +72,8 @@ export class Jobs {
     setInterval(() => this.flags(), 4000);
   }
 
-  private async tick() {
-    if (this.ticking) return;
+  private async tick(change = false) {
+    if (this.ticking) { if (change) this.again = true; return; }
     this.ticking = true;
     try {
       const cli = tool("herdr-task", "mods/tasks/bin/herdr-task");
@@ -93,6 +95,7 @@ export class Jobs {
       }
     } finally {
       this.ticking = false;
+      if (this.again) { this.again = false; void this.tick(); }
     }
   }
 
@@ -104,7 +107,7 @@ export class Jobs {
     const first = !this.seen;
     this.seen = now;
     if (first || this.soon) return;
-    this.soon = setTimeout(() => { this.soon = null; void this.tick(); }, 2000);
+    this.soon = setTimeout(() => { this.soon = null; void this.tick(true); }, 2000);
   }
 
   /** The hook asks a chat only while its flag is fresh (ask-hook.sh: 15 s): a page showing a local Claude agent's chat
