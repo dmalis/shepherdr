@@ -9,19 +9,21 @@ import { join } from "node:path";
 import { DATA, appHome, writable } from "./paths.ts";
 import * as A from "../core/asks.js";
 import type { Hub } from "./hub.ts";
+import { SEEN, MACHINE, parseList, connected, run } from "./asks-there.ts";
 
 const { words, allow, deny, answers, annotationsOf, howAnswered, release, chatAbout, dismiss, stepWords } = A as any;
 const dir = () => join(appHome(), "data", "chat-asks");
 const ID = /^[\w.-]+$/;
-const MACHINE = /^[\w.-]+$/;
 // On another machine (its folder by its own home): each request still waiting, one line each ("req", its id, its JSON;
-// marked seen/<id>, so its hook knows a card shows it), then how each id given has ended ("end", its id, the hook's or a card's words).
+// marked seen/<id> only once a card here shows it: asks-there.ts SEEN), then how each id given has ended ("end", its
+// id, the hook's or a card's words), then "done": a read without it (cut off, or a folder it can't read or look into)
+// closes nothing.
 const THERE = 'd="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/data/chat-asks"';
-const LIST = `${THERE}
-mkdir -p "$d/seen" 2>/dev/null
+export const LIST = `${THERE}
+{ [ -d "$d/req" ] && [ -r "$d/req" ] && [ -x "$d/req" ]; } || { [ ! -e "$d/req" ] && [ -d "$d" ] && [ -x "$d" ]; } || exit 4
 for f in "$d"/req/*.json; do [ -f "$f" ] || continue; n=\${f##*/}; n=\${n%.json}; [ -f "$d/ans/$n.json" ] && continue
-  : > "$d/seen/$n" 2>/dev/null; printf 'req\\t%s\\t' "$n"; tr '\\n\\t' '  ' < "$f"; echo; done
-for n in "$@"; do [ -f "$d/end/$n" ] && printf 'end\\t%s\\t%s\\n' "$n" "$(head -n 1 "$d/end/$n")"; done; exit 0`;
+  printf 'req\\t%s\\t' "$n"; tr '\\n\\t' '  ' < "$f"; echo; done
+for n in "$@"; do [ -f "$d/end/$n" ] && printf 'end\\t%s\\t%s\\n' "$n" "$(head -n 1 "$d/end/$n")"; done; echo done; exit 0`;
 // An answer there, as answer() writes one here: how it went (end/<id>), then the answer (stdin) in place at once.
 const ANSWER = `${THERE}; mkdir -p "$d/ans" "$d/end"; [ -f "$d/req/$1.json" ] || exit 3
 [ -z "$2" ] || printf '%s\\n' "$2" > "$d/end/$1"
@@ -45,6 +47,20 @@ export class Asks {
   private hub: Hub | null = null;
   private watched: () => string[] = () => [];
   private polling = false;
+  /** dmalis/shepherdr#108: whether an agent's ask has somewhere to show (its chat here: Compat's), set by main. Its
+   *  seen/<id> waits for one, so a Codex ask no card shows goes back to Codex's terminal; unset, every ask has one. */
+  destination: ((terminal: string) => boolean) | null = null;
+  /** the asks marked seen/<id>, here or there */
+  private marked = new Set<string>();
+  /** every connected machine (machine.list), read with no page open: as last known */
+  private linked: string[] = [];
+  private ticks = 0;
+  /** the machines being read now */
+  private reading = new Set<string>();
+  /** an ask there with no chat yet: main has that machine's task lists read again (when, by machine) */
+  unrouted: ((machine: string) => void) | null = null;
+  private rerouted = new Set<string>();
+  private shown = (a: Ask) => !this.destination || this.destination(a.terminal);
 
   /** The closed asks of an agent, for its chat's quiet lines. */
   endsOf(terminal: string) { return this.ends.filter((e) => e.terminal === terminal); }
@@ -66,7 +82,8 @@ export class Asks {
     this.read();
   }
 
-  /** Also another machine's asks: of the agents whose chats pages show (watched: their addresses), every 3 s. */
+  /** Also another machine's asks: of the agents whose chats pages show (watched: their addresses) and the machines with
+   *  one open, every 3 s; of every connected machine, page or not, every 6 s (dmalis/shepherdr#108). */
   remote(hub: Hub, watched: () => string[]) {
     this.hub = hub;
     this.watched = watched;
@@ -74,51 +91,78 @@ export class Asks {
   }
 
   private async poll() {
-    if (!this.hub || this.polling) return;
-    this.polling = true;
-    try {
-      const recent = (e: AskEnd) => e.how === "No longer waiting" && e.id.includes("/") && Date.now() - e.at < 120_000;
-      const machines = new Set(this.watched().filter((a) => a.includes("/")).map((a) => a.split("/")[0]));
-      // one open from a machine no page shows any more still closes once it says so
-      for (const a of this.open.values()) if (a.machine) machines.add(a.machine);
-      for (const e of this.ends) if (recent(e)) machines.add(e.id.split("/")[0]);
-      let changed = false;
-      for (const m of machines) {
-        if (!MACHINE.test(m)) continue;
-        const asked = [...this.open.values()].filter((a) => a.machine === m).map((a) => a.local!);
-        const late = this.ends.filter((e) => recent(e) && e.id.startsWith(`${m}/`)).map((e) => e.id.slice(m.length + 1));
-        const r = await this.hub.call<{ code: number; stdout: string }>("machine.exec", { on: m, argv: ["sh", "-c", LIST, "sh", ...asked, ...late], timeout: 10 }, 15_000).catch(() => null);
-        // out of reach: what is open stays as it was
-        if (r?.code !== 0) continue;
-        const reqs = new Map<string, string>(), ends = new Map<string, string>();
-        for (const line of Buffer.from(r.stdout, "base64").toString("utf8").split("\n")) {
-          const [kind, id, ...rest] = line.split("\t");
-          if (!id || !ID.test(id)) continue;
-          if (kind === "req") reqs.set(id, rest.join("\t"));
-          else if (kind === "end" && rest.join("\t").trim()) ends.set(id, rest.join("\t").trim());
-        }
-        for (const [local, body] of reqs) {
-          const id = `${m}/${local}`;
-          if (this.open.has(id)) continue;
-          try {
-            const req = JSON.parse(body);
-            this.open.set(id, { id, terminal: `${m}/${local.split(".")[0]}`, at: askAt(local), req, words: words(req), machine: m, local });
-            changed = true;
-          } catch {}
-        }
-        for (const local of asked) if (!reqs.has(local)) {
-          const a = this.open.get(`${m}/${local}`);
-          if (!a) continue;
-          this.open.delete(a.id);
-          this.ended(a, ends.get(local));
-          changed = true;
-        }
-        for (const e of this.ends) if (recent(e) && e.id.startsWith(`${m}/`) && ends.get(e.id.slice(m.length + 1))) { e.how = ends.get(e.id.slice(m.length + 1))!; changed = true; }
-      }
-      if (changed) for (const fn of this.listeners) fn();
-    } finally {
-      this.polling = false;
+    if (!this.hub) return;
+    const recent = (e: AskEnd) => e.how === "No longer waiting" && e.id.includes("/") && Date.now() - e.at < 120_000;
+    const machines = new Set(this.watched().filter((a) => a.includes("/")).map((a) => a.split("/")[0]));
+    // one open from a machine no page shows any more still closes once it says so
+    for (const a of this.open.values()) if (a.machine) machines.add(a.machine);
+    for (const e of this.ends) if (recent(e)) machines.add(e.id.split("/")[0]);
+    // dmalis/shepherdr#108: and every machine herdr-core reaches, so an ask there shows with no page open
+    if (this.ticks++ % 2 === 0 && !this.polling) {
+      this.polling = true;
+      try { this.linked = (await connected(this.hub)) ?? this.linked; } finally { this.polling = false; }
     }
+    for (const m of this.linked) machines.add(m);
+    // each machine on its own, one read at a time, at most four reads at once across polls: one whose read hangs is
+    // skipped until it ends, never holding up the rest
+    const todo = [...machines].filter((m) => MACHINE.test(m) && !this.reading.has(m));
+    for (const m of todo) this.reading.add(m);
+    await Promise.all(todo.map(async (m) => {
+      await this.slot();
+      try { await this.scan(m, recent); } catch {} finally { this.free(); this.reading.delete(m); }
+    }));
+  }
+
+  private slots = 4;
+  private waiting: (() => void)[] = [];
+  private async slot() { if (this.slots > 0) this.slots--; else await new Promise<void>((r) => this.waiting.push(r)); }
+  private free() { const next = this.waiting.shift(); if (next) next(); else this.slots++; }
+
+  /** One machine's read: its new asks open, its gone ones close with how, at once (not after the slowest machine). */
+  private async scan(m: string, recent: (e: AskEnd) => boolean) {
+    const asked = [...this.open.values()].filter((a) => a.machine === m).map((a) => a.local!);
+    const late = this.ends.filter((e) => recent(e) && e.id.startsWith(`${m}/`)).map((e) => e.id.slice(m.length + 1));
+    const out = await run(this.hub!, m, LIST, [...asked, ...late]);
+    // out of reach, a failed or cut-off read: what is open stays as it was
+    const list = out === null ? null : parseList(out);
+    if (!list?.complete) return;
+    const { reqs, ends } = list;
+    let changed = false;
+    for (const [local, body] of reqs) {
+      const id = `${m}/${local}`;
+      if (this.open.has(id)) continue;
+      try {
+        const req = JSON.parse(body);
+        this.open.set(id, { id, terminal: `${m}/${local.split(".")[0]}`, at: askAt(local), req, words: words(req), machine: m, local });
+        changed = true;
+      } catch {}
+    }
+    for (const local of asked) if (!reqs.has(local)) {
+      const a = this.open.get(`${m}/${local}`);
+      if (!a) continue;
+      this.open.delete(a.id);
+      this.ended(a, ends.get(local));
+      changed = true;
+    }
+    for (const e of this.ends) if (recent(e) && e.id.startsWith(`${m}/`) && ends.get(e.id.slice(m.length + 1))) { e.how = ends.get(e.id.slice(m.length + 1))!; changed = true; }
+    if (changed) for (const fn of this.listeners) fn();
+    await this.markOn(m);
+  }
+
+  /** seen/<id> on that machine for each of its asks a card here shows now (dmalis/shepherdr#108); a mark that didn't
+   *  reach it is tried again on the next read. Each ask found with no chat yet has that machine's task lists read
+   *  again, once (unrouted): a task started there since they were last read has its chat once they are. */
+  private async markOn(m: string) {
+    const mine = [...this.open.values()].filter((a) => a.machine === m);
+    for (const id of this.marked) if (id.startsWith(`${m}/`) && !this.open.has(id)) this.marked.delete(id);
+    for (const id of this.rerouted) if (id.startsWith(`${m}/`) && !this.open.has(id)) this.rerouted.delete(id);
+    const due = mine.filter((a) => !this.marked.has(a.id) && this.shown(a)).map((a) => a.local!);
+    const lost = mine.filter((a) => !this.shown(a) && !this.rerouted.has(a.id));
+    if (lost.length) {
+      for (const a of lost) this.rerouted.add(a.id);
+      try { this.unrouted?.(m); } catch {}
+    }
+    if (due.length && await run(this.hub!, m, SEEN, due) !== null) for (const l of due) this.marked.add(`${m}/${l}`);
   }
 
   /** What waits now. The id is <terminal>.<seconds>.<pid> (ask-hook.sh). */
@@ -134,10 +178,13 @@ export class Asks {
       if (old) { next.set(id, old); continue; }
       try {
         const req = JSON.parse(readFileSync(join(dir(), "req", n), "utf8"));
-        // seen/<id>: a card shows it, so a Codex hook keeps waiting for its answer (else Codex asks in its terminal)
-        try { mkdirSync(join(dir(), "seen"), { recursive: true }); writeFileSync(writable(join(dir(), "seen", id)), ""); } catch {}
         next.set(id, { id, terminal: id.split(".")[0], at: statSync(join(dir(), "req", n)).mtimeMs, req, words: words(req) });
       } catch {}
+    }
+    // seen/<id>: a card shows it, so a Codex hook keeps waiting for its answer (else Codex asks in its terminal); only
+    // once it has a chat to show in (dmalis/shepherdr#108), never a 30-minute wait on a card nobody can see
+    for (const a of next.values()) if (!a.machine && !this.marked.has(a.id) && this.shown(a)) {
+      try { mkdirSync(join(dir(), "seen"), { recursive: true }); writeFileSync(writable(join(dir(), "seen", a.id)), ""); this.marked.add(a.id); } catch {}
     }
     const changed = next.size !== this.open.size || [...next.keys()].some((k) => !this.open.has(k));
     // gone: its quiet line, with how it went
@@ -147,6 +194,7 @@ export class Asks {
       try { const how = readFileSync(join(dir(), "end", e.id), "utf8").trim(); if (how) e.how = how; } catch {}
     }
     this.open = next;
+    for (const id of this.marked) if (!next.has(id)) this.marked.delete(id);
     if (changed) for (const fn of this.listeners) fn();
   }
 

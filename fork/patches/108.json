@@ -1,0 +1,17 @@
+{
+  "issue": 108,
+  "name": "Needs you 2/6: your other machine's permission prompts",
+  "files": [
+    "service/asks-there.ts",
+    "service/asks.ts",
+    "service/compat.ts",
+    "service/main.ts",
+    "docs/agents-and-terms.md",
+    "web/demo/data.ts",
+    "web/src/needs-count.test.tsx"
+  ],
+  "tests": [
+    "service/asks-there.test.ts",
+    "service/asks.test.ts"
+  ]
+}

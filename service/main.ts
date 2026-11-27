@@ -376,6 +376,10 @@ compat.promptOf = (k) => model.prompts.get(k) ?? null;
 artifacts.start();
 const asks = new Asks();
 compat.asks = asks;
+// dmalis/shepherdr#108: seen only once a card shows it; an ask there with no chat yet has that machine's lists read again
+asks.destination = (t) => !!compat.chatOf(t);
+// (a machine the model still has as offline: everything again, so it is known connected)
+asks.unrouted = (m) => void ((model as any).machines?.includes(m) ? model.reread(m) : model.refresh()).catch(() => {});
 asks.on(() => { model.rebuild(); live.chats?.refreshAll(); });
 whenWhyFound(() => { model.rebuild(); live.chats?.refreshAll(); }); // dmalis/shepherdr#45: a guard's reason, read off its screen
 asks.start();

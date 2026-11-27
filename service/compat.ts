@@ -407,6 +407,8 @@ export class Compat {
   }
 
   addrOf(key: string) { return this.chats.get(key) ?? null; }
+  /** The chat an agent's address shows in (dmalis/shepherdr#108: where its ask's card goes), else null. */
+  chatOf(addr: string) { for (const [k, a] of this.chats) if (a === addr) return k; return null; }
 
   /** Whether this agent is a task's worker whose task has finished (Ready, merging, done or archived): what it asked
    *  for no longer waits (Secrets.sweep). */

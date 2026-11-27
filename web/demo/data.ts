@@ -57,6 +57,9 @@ export const tasks: Task[] = [
   // Needs you 1/6 (red counts and taps): docs has one question (a tap on its count opens the card), site has two things
   // (a tap lists them), and / on vm has a task whose checks failed plus a message you haven't read (no red there)
   task('DOCS-3', 'Rewrite the setup guide', P.docs, 'need', { needsAt: NOW - 4 * min, blocked: 'question', repo: 'branch', report: { msg: 'Which install command should the guide show first?', progress: 40, paused: true } }),
+  // Needs you 2/6 (dmalis/shepherdr#108): a Codex permission on vm whose chat nobody has opened still shows here and
+  // in vm's shop count
+  task('vm:ACME-10', 'Print the shipping labels', P.vmShop, 'need', { needsAt: NOW - 2 * min, blocked: 'permission', repo: 'branch', agent: { chat: 'vm:ACME-10/worker', role: 'worker', cli: 'codex', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Wants to run a command', progress: 60, paused: true } }),
   task('studio:SITE-5', 'Contact form spam filter', P.studioSite, 'need', { on: 'studio', needsAt: NOW - 7 * min, blocked: 'permission', repo: 'branch', work: work('/Users/sam/dev/site', 'site'), report: { msg: 'Wants to run a command', progress: 70, paused: true } }),
   task('studio:SITE-6', 'Shorter cookie banner', P.studioSite, 'ready', { on: 'studio', needsAt: NOW - 50 * min, work: work('/Users/sam/dev/site', 'site'), summary: 'One short line, with Accept and Refuse side by side.', waitsWhy: 'Waits for you: Merge in this repo is When I mark it as done.' }),
   task('vm:ROOT-3', 'Order export as CSV', P.vmRoot, 'work', { started: NOW - 25 * min, repo: 'branch', worktree: true, branch: 'task/order-export', base: 'main', pr: { number: 58, url: 'https://github.com/example/shop/pull/58', checks: 'failed' }, report: { msg: 'Fixing the test that failed', progress: 60, eta: 12 } }),
@@ -239,6 +242,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     needs: empty ? [] : [
       { id: 'q-docs', chat: 'DOCS-3/worker', place: P.docs, task: 'DOCS-3', at: NOW - 4 * min, question: docsQ().at(-1)!.question! },
       { id: 'q-spam', chat: 'studio:SITE-5/worker', place: P.studioSite, task: 'studio:SITE-5', at: NOW - 7 * min, question: spamQ().at(-1)!.question! },
+      { id: 'q-labels', chat: 'vm:ACME-10/worker', place: P.vmShop, task: 'vm:ACME-10', at: NOW - 2 * min, question: labelsQ().at(-1)!.question! },
     ],
     // #1547: each machine's start limits, as the service's Machines section keeps them
     settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' })) },
@@ -303,6 +307,7 @@ const gpt = { kind: 'codex', model: 'gpt-6.2-sol', modelLabel: 'GPT-6.2 Sol', ef
 const payQ = () => [a("Which provider should I switch to, Stripe or Adyen? I'd go with Stripe."), ask('q-pay', '', undefined, ['Stripe', 'Adyen'])]
 const docsQ = () => [a('The install steps are rewritten for the new installer. Which install command should the guide show first?'), ask('q-docs', '', undefined, ['The one-line script', 'Homebrew'])]
 const spamQ = () => [a('The filter needs a library that scores messages for spam.'), ask('q-spam', 'Run a command', undefined, ['Allow once', 'Decline'], { command: 'npm install spamscore' })]
+const labelsQ = () => [a('Printing needs the label script to reach the printer.'), ask('q-labels', 'Run a command', undefined, ['Allow once', 'Decline'], { command: 'npm run labels:print' })]
 const permQ = (by?: typeof byPhoto) => [a('I need an image library to resize the photos.'), ask('q-pil', 'Run a command', by, ['Allow once', 'Decline'], { command: 'pip install pillow' })]
 
 export const chats: Record<string, Chat> = Object.fromEntries(
@@ -376,6 +381,7 @@ export const chats: Record<string, Chat> = Object.fromEntries(
     chat('NOTES-4/worker', [a('I read the three quotes in your notes folder and wrote up a comparison.')], opus),
     chat('DOCS-3/worker', docsQ(), opus),
     chat('studio:SITE-5/worker', spamQ(), opus),
+    chat('vm:ACME-10/worker', labelsQ(), gpt),
     chat('studio:SITE-6/worker', [a('The banner is one short line now, with Accept and Refuse side by side.')], opus),
     chat('vm:ROOT-3/worker', [a('The export writes a CSV per day. One test failed on the date format; fixing it.')], opus),
     chat(P.vmRoot, [a('Started Order export as CSV.'), a('Its checks failed on one test. It is fixing it, nothing for you yet.')], sonnet),
