@@ -7,6 +7,10 @@ when its step passed.
   select --run <key> --folder <space>      the newest stable release, and the run's path: nothing, install-main, take
   review-inputs --run <key> --folder <space>   the reviewer's three diffs for the pushed sync branch, as files
   merge <pr> --run <key> --folder <space>  the one merge route for a sync PR: its gates, the merge, main's checks
+  baseline --run <key> --folder <space> [--capture]   what is installed, proven to match the install folder
+  install <sha> --run <key> --folder <space>   the checks, the install folder moved, the update asked for and read
+  health <sha> --run <key> --folder <space>    the health check; a pass makes the candidate the baseline
+  rollback --run <key> --folder <space>    back to the baseline, verified by health on it
   public-check <file>                      refuses text with paths, hosts, emails or raw output before GitHub
   finish --run <key> --folder <space> [--says "<what's new>"]   the exact completion command for the outcome
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
@@ -24,7 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import gate, public, release, state  # noqa: E402
+from sync import gate, install, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -207,6 +211,37 @@ def public_check_args(c):
     c.add_argument("file", help="the text bound for GitHub (- reads it from stdin)")
 
 
+def live(a):
+    """The real home: no --root (the rehearsal and tests name a scratch one)."""
+    return a.root is None
+
+
+def baseline(a, p):
+    return install.baseline(p, a.run, a.folder, capture=a.capture, live=live(a))
+
+
+def baseline_args(c):
+    preflight_args(c)
+    c.add_argument("--capture", action="store_true", help="the first run: record what is installed as the baseline")
+
+
+def install_step(a, p):
+    return install.install(p, a.run, a.folder, os.path.abspath(a.repo), a.sha, live=live(a))
+
+
+def health(a, p):
+    return install.health(p, a.run, a.folder, os.path.abspath(a.repo), a.sha, live=live(a))
+
+
+def sha_args(c):
+    c.add_argument("sha", help="the candidate's full SHA")
+    run_args(c)
+
+
+def rollback(a, p):
+    return install.rollback(p, a.run, a.folder, live=live(a))
+
+
 def finish(a, p):
     return gate.finish(p, a.run, a.folder, os.path.abspath(a.repo), says=a.says, cfg_hostname=hostname(p))
 
@@ -221,6 +256,10 @@ COMMANDS = [
     ("select", "the newest stable release and the run's path", run_args, select),
     ("review-inputs", "the reviewer's three diffs for the sync branch, as files", run_args, review_inputs),
     ("merge", "the one merge route for a sync PR", merge_args, merge),
+    ("baseline", "reads what is installed and proves it matches the install folder", baseline_args, baseline),
+    ("install", "moves the install folder and asks for the update, then reads its outcome", sha_args, install_step),
+    ("health", "the health check on the installed candidate", sha_args, health),
+    ("rollback", "back to the baseline, verified", run_args, rollback),
     ("public-check", "refuses text with paths, hosts, emails or raw output", public_check_args, public_check),
     ("finish", "the exact completion command for the run's outcome", finish_args, finish),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
