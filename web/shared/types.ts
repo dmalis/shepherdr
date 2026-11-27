@@ -273,6 +273,8 @@ export const GROUPS: [TaskStatus, string][] = [
 export interface TaskAgent {
   /** chat key */
   chat: string
+  /** What the worker runs on, available before its chat is opened. */
+  settings?: ChatAgent
   role: string
   cli: string
   /** Task status, or off when core cannot confirm the agent's machine; workflow remains separate. */
@@ -358,6 +360,7 @@ export interface Task {
   /** its last recorded review round: passed (or the agent's own round on its final commit), or changes asked; none: no
    *  round (Review off) */
   review?: 'passed' | 'changes'
+  reviewerNotice?: string
   /** its worker's own helper agents (SHEP-54: a reviewer it started), newest last */
   subagents?: { chat: string; title: string; status: 'working' | 'needs' | 'done'; at: number; ended?: number }[]
   desc?: string
@@ -477,7 +480,9 @@ export interface Question {
   screen?: string
   login?: SignIn
   terminal?: boolean
-  /** A CLI's own menu: a tap presses that choice at once. */
+  /** The helper's terminal when its menu is shown in another agent's chat. */
+  terminalChat?: string
+  /** A CLI's own menu, answered in the terminal. */
   press?: boolean
   /** #1441: a CLI's folder-trust screen, as its own card: choice 0 trusts the folder and starts, 1 says no. cli: who
    *  asks; folder: the folder it names; waits and allows: its two plain lines */
@@ -891,6 +896,10 @@ export interface Need {
   at: number
   question?: Question
   secret?: SecretAsk
+  /** An inferred task wait the space's Assistant handles first. It stays visible in the app. */
+  assistantFirst?: true
+  /** A step the person needs to take in the agent's browser or desktop. */
+  hands?: true
   /** no card: what the agent last said, or why it waits, answered with a reply */
   text?: string
   /** no card: the message that text is, for the reply to quote */

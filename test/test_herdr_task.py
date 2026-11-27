@@ -970,6 +970,7 @@ class BackToWork(unittest.TestCase):
         views, merges = list(views), list(merges)
         done = []
         patches = [(self.commands, "pr_view", lambda t: views.pop(0)),
+                   (self.commands, "merge_method", lambda repo: "--squash"),
                    (self.commands, "gh", lambda *a, **k: merges.pop(0)),
                    (self.commands, "watch_main", lambda *a: None), (self.commands, "update_main", lambda *a: None),
                    (self.commands, "drop_branch", lambda s, t: None),
@@ -1073,6 +1074,25 @@ class BackToWork(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         return calls, done, dropped
+
+    def test_accept_uses_the_repositorys_allowed_merge_method(self):
+        from contextlib import ExitStack
+        from herdr_task import github
+        options = ("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge")
+        for i, flag in enumerate(("--squash", "--merge", "--rebase")):
+            with self.subTest(flag=flag), ExitStack() as stack:
+                settings = {k: j >= i for j, k in enumerate(options)}
+                policy = stack.enter_context(self.mock.patch.object(github, "gh", return_value=(True, json.dumps(settings), "")))
+                stack.enter_context(self.mock.patch.object(self.commands, "pr_view", side_effect=[
+                    self.FINE, {"state": "MERGED", "mergeCommit": {"oid": "f00"}}]))
+                merge = stack.enter_context(self.mock.patch.object(self.commands, "gh", return_value=(True, "", "")))
+                for name in ("finish", "drop_branch", "watch_main", "update_main"):
+                    stack.enter_context(self.mock.patch.object(self.commands, name))
+                t = self.pr_task()
+                self.assertIsNone(self.commands.merge_now(self.store, t, accept=True))
+                policy.assert_called_once_with("api", "repos/o/r")
+                self.assertIn(flag, merge.call_args.args)
+                self.assertIn("abc", merge.call_args.args)
 
     def test_a_merge_queue_queues_it_and_it_is_not_done(self):
         t = self.pr_task()
@@ -1532,6 +1552,30 @@ class OwnBackgroundWork(unittest.TestCase):
                               "message": {"role": "user", "content": [{"tool_use_id": "toolu_2", "type": "tool_result",
                                                                        "content": "Monitor started (task m1, expires in 15m)"}]}})
         self.assertEqual(self.status(), ("working", None, None))
+
+    def test_monitor_turn_keeps_background_work_and_the_status_line(self):
+        from herdr_task.output import view
+
+        self.background(-300_000)
+        self.say(-40_000, "The evaluation is running.")
+        self.task["progress"] = {"text": "Running the evaluation", "set": self.clock - 35_000}
+        self.stamp(-30_000, {"type": "user", "origin": {"kind": "task-notification"},
+                             "message": {"content": "<task-notification>Monitor event</task-notification>"}})
+        self.say(-29_400, "<hc no-reply/>")
+        live = [dict(self.idle[0], agent="claude", status={"state": "working"})]
+        store = Store([])
+        with self.mock.patch("herdr_task.output.live_helpers", return_value=[]):
+            self.assertTrue(view(store, self.task, live)["own_work"])
+        self.assertEqual(self.agents.own_line(self.task, "t1"), "Running the evaluation")
+        self.assertEqual(self.agents.last_words(self.task, "t1"), "The evaluation is running.")
+        self.assertEqual(self.status(), ("working", None, None))
+        self.stamp(-1_000, {"type": "user", "message": {"content": [
+            {"type": "text", "text": "<task-notification><task-id>b1</task-id><status>completed</status></task-notification>"},
+        ]}})
+        self.assertFalse(self.agents.background_jobs(self.log)[0])
+        self.assertEqual(self.agents.own_line(self.task, "t1"), "Running the evaluation")
+        with self.mock.patch("herdr_task.output.live_helpers", return_value=[]):
+            self.assertFalse(view(store, self.task, live)["own_work"])
 
     def test_a_plain_question_needs_you_once_nothing_runs(self):
         """SHEP-148: a plain question with its own work still running is no ask yet (asking for real
@@ -3182,21 +3226,21 @@ class ReviewerLine(unittest.TestCase):
         self.assertIn('service_tier="default"', shlex.split(self.settings.reviewer_command("codex", fast=False)))
 
     def test_codex_asked_now_for_a_brief(self):
-        """#947: an unreadable Codex auth file answers `codex login status` with an error, which the periodic check
-        can't read (unknown), and the reviewer sat on Codex's sign-in screen. A brief asks Codex now: not signed in,
-        the task's own CLI reviews and the line says what Codex said."""
+        """The brief checks now and show repeats the fallback without calling Codex again."""
         from unittest import mock
         with open(self.checks, "w") as f:
             json.dump({"machines": {"": {"claude": "ready", "codex": None}}}, f)
         t = {"id": 1, "title": "x", "mode": "worktree"}
         said = "Error: premature end of input at line 10 column 46"
-        with mock.patch.object(self.settings, "codex_login_now", lambda: (False, said)):
-            r = next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"], live=True) if x["label"] == "Reviewer")
+        with mock.patch.object(self.settings, "codex_login_now", lambda: (False, said)), \
+                mock.patch.object(__import__("herdr_task.sandbox", fromlist=["check"]), "check", return_value=None):
+            block = self.settings.settings_block(Store([t]), t, argv=["claude"], live=True)
             shown = next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"]) if x["label"] == "Reviewer")
-        self.assertEqual(r["value"]["agent"], "claude")
-        self.assertIn("Codex isn't signed in here", r["text"])
-        self.assertIn(said, r["text"])
-        self.assertEqual(shown["value"]["agent"], "codex", "show never runs Codex: only a brief asks it now")
+        self.assertIn("Codex sign-in could not be confirmed", block)
+        self.assertNotIn(said, block)
+        self.assertEqual(shown["value"]["agent"], "claude")
+        self.assertIn("Review uses Claude Code", shown["notice"])
+        self.line("signed-out")
         with mock.patch.object(self.settings, "codex_login_now", lambda: (True, "")):
             r = next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"], live=True) if x["label"] == "Reviewer")
         self.assertEqual(r["value"]["agent"], "codex")
@@ -3206,7 +3250,7 @@ class ReviewerLine(unittest.TestCase):
         from unittest import mock
         d = tempfile.mkdtemp()
         codex = os.path.join(d, "codex")
-        for out, want in (("Logged in using ChatGPT", True), ("Not logged in", False),
+        for out, want in (("Logged in using ChatGPT", True), ("API key configured - example", True), ("Not logged in", False),
                           ("Error: premature end of input at line 10 column 46", False)):
             with open(codex, "w") as f:
                 f.write(f"#!/bin/sh\necho '{out}' >&2\nexit 1\n" if want is False else f"#!/bin/sh\necho '{out}'\n")
@@ -3215,7 +3259,20 @@ class ReviewerLine(unittest.TestCase):
                     mock.patch.object(self.settings.shutil, "which", lambda name: codex):
                 ok, said = self.settings.codex_login_now()
             self.assertEqual(ok, want, out)
-            self.assertEqual(said, "" if want else out)
+            self.assertEqual(said, "Sign-in status could not be confirmed." if out.startswith("Error") else "")
+
+    def test_periodic_check_only_keeps_the_status_words(self):
+        import subprocess
+        from herdr_task import takeover
+        with tempfile.TemporaryDirectory() as path:
+            codex = os.path.join(path, "codex")
+            with open(codex, "w") as f:
+                f.write("#!/bin/sh\n[ \"$*\" = 'login status' ] && echo 'API key configured - example' >&2\n")
+            os.chmod(codex, 0o755)
+            out = subprocess.check_output(["sh", "-c", takeover.CHECK], text=True, env={**os.environ, "PATH": path + ":/usr/bin:/bin"})
+        self.assertIn("codex=API key configured\n", out.replace(" \n", "\n"))
+        self.assertNotIn("example", out)
+        self.assertEqual(takeover.cli_state("API key configured"), "ready")
 
     def test_a_codex_reviewer_model_is_passed_as_picked(self):
         """Shepherdr no longer asks Codex's App Server which models an account has: a picked reviewer model goes to
@@ -3480,6 +3537,7 @@ class RequiredChecksOnly(PrLooks):
                 f"    print(open({os.path.join(self.dir, 'view.json')!r}).read())\n"
                 "elif sys.argv[1:3] == ['api', 'graphql'] and 'isRequired' in ' '.join(sys.argv):\n"
                 f"    print(open({required!r}).read())\n"
+                "elif sys.argv[1:3] == ['api', 'repos/o/r']:\n    print(json.dumps({'allow_squash_merge': True}))\n"
                 "elif sys.argv[1] == 'api':\n    print('[]')\n")
 
     def requires(self, *names, rows=("build", "lint")):
@@ -3636,6 +3694,7 @@ class ChecksUnreadable(PrLooks):
                 "elif a[0] == 'api' and a[1].endswith('/status'):\n"
                 "    print(file('status.json') or json.dumps({'state': 'pending', 'statuses': []}))\n"
                 "elif a[0] == 'api' and '/check-runs' in a[1] and file('runs.json'):\n    print(file('runs.json'))\n"
+                "elif a[:2] == ['api', 'repos/o/r']:\n    print(json.dumps({'allow_squash_merge': True}))\n"
                 "elif a[0] == 'api':\n"
                 f"    print({self.DENIED!r}); sys.stderr.write('gh: Resource not accessible by personal access token (HTTP 403)'); sys.exit(1)\n")
 
@@ -3811,6 +3870,18 @@ class Scheduled(unittest.TestCase):
     def task(self, n):
         with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
             return dict(s.find(n))
+
+    def test_start_keeps_a_scheduled_time_and_records_the_plan(self):
+        v = self.add("Later", here=True, in_="1h")
+        at = self.task(v["ref"])["scheduled_for"]
+        self.run_cmd(self.commands.cmd_start, id=v["ref"], parent="t8", space="sp2")
+        t = self.task(v["ref"])
+        self.assertEqual((t["state"], t["scheduled_for"], t["queue"]["space"], t["queue"]["parent"]),
+                         ("scheduled", at, "sp2", "t8"))
+        self.assertEqual(self.started, [])
+        self.run_cmd(self.commands.cmd_start, id=v["ref"], now=True)
+        self.assertEqual(self.started[-1][2:], ("sp2", "t8"))
+        self.assertNotIn("scheduled_for", self.task(v["ref"]))
 
     def test_parsing_absolute_relative_and_refused(self):
         import datetime
@@ -4022,11 +4093,11 @@ class ProofFromAnotherFolder(unittest.TestCase):
     def found(self, given=None):
         from unittest import mock
         sys.path.insert(0, BIN)
-        import herdr_task.proof as proof
+        from herdr_task import proof, store
         s = Store([{"id": 1, "title": "Reactions", "state": "doing", "started": 0, "agents": []}])
         s.loc["folder"] = self.task_folder
         with mock.patch.object(proof, "ARTIFACTS", os.path.join(self.home, ".herdr", "artifacts")), \
-                mock.patch.object(proof, "HOME", self.home):
+                mock.patch.object(store, "HOME", self.home):
             return proof.find_proof(s, s.data["tasks"][0], given)
 
     def test_published_from_a_scratch_folder_ready_finds_it(self):
@@ -5915,10 +5986,12 @@ class CodexAsksOnTheCard(unittest.TestCase):
         from herdr_task import launch, settings, flags
         argv = launch.own_argv(settings.argv_for({"agent": "codex", "perm": "approve"}))
         hook = next(a for a in argv if a.startswith("hooks.PermissionRequest="))
-        self.assertIn(" --auto-review", hook)
         self.assertIn("--approve-for-me", argv)
         self.assertNotIn("workspace-write", argv)
-        self.assertNotIn("--auto-review", next(a for a in launch.own_argv(["codex", "-s", "workspace-write"]) if a.startswith("hooks.PermissionRequest=")))
+        standard = launch.own_argv(["codex", "-s", "workspace-write"])
+        self.assertEqual(hook, next(a for a in standard if a.startswith("hooks.PermissionRequest=")))
+        self.assertTrue(launch.codex_auto_review(argv))
+        self.assertFalse(launch.codex_auto_review(standard))
         # read back, and carried across: Claude's nearest is its auto mode
         self.assertEqual(settings.argv_perm(argv), "approve")
         self.assertEqual(settings.perm_across("approve", "claude"), "auto")
@@ -5929,9 +6002,9 @@ class CodexAsksOnTheCard(unittest.TestCase):
                 flags.parse("codex", bad)
             self.assertIn("Approve for me", str(e.exception))
         # the command Codex runs, as written: no decision, no card
-        env = {**os.environ, "SHEPHERDR_SHARE": tempfile.mkdtemp(), "HOME": tempfile.mkdtemp()}
+        env = {**os.environ, "SHEPHERDR_SHARE": tempfile.mkdtemp(), "HOME": tempfile.mkdtemp(), "HERDR_TASK_CODEX_AUTO_REVIEW": "1"}
         import shlex
-        r = subprocess.run(shlex.split(launch.ask_command("/x/herdr-task", sandboxed=True, auto_review=True)),
+        r = subprocess.run(shlex.split(launch.codex_ask_command()),
                            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "curl x"}}), capture_output=True, text=True, env=env)
         self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
 
@@ -6217,6 +6290,33 @@ class TaskFlow(unittest.TestCase):
     def args(self, **kw):
         import argparse
         return argparse.Namespace(**{"id": "SHEP-1", "json": True, "folder": None, **kw})
+
+    def test_delete_removes_a_clean_worktree_but_keeps_local_files(self):
+        wt = self.task["worktree"]
+        self.commit(wt, "committed work", "tracked.txt")
+        path = os.path.join(wt, "untracked.txt")
+        with open(path, "w") as f:
+            f.write("keep this")
+        task = self.task
+        self.commands.cmd_rm(self.args())
+        self.assertTrue(os.path.isfile(path))
+        self.assertEqual(self.git(self.main, "branch", "--list", "task/1").strip("* "), "+ task/1")
+        self.store.data["tasks"].append(task)
+        os.remove(path)
+        self.commands.cmd_rm(self.args())
+        self.assertFalse(os.path.exists(wt))
+        self.assertEqual(self.git(self.main, "branch", "--list", "task/1"), "")
+
+    def test_unknown_agent_and_reviewer_settings_say_how_to_fix_them(self):
+        from herdr_task import settings
+        for key in ("agent", "reviewer"):
+            with self.subTest(key=key), self.assertRaisesRegex(settings.Fail, f"Settings › Tasks.*{key}=claude"):
+                settings.set_task({}, key, "sleep")
+        for role in ("agent", "reviewer"):
+            with self.subTest(role=role):
+                task = {**self.task, role: "sleep", "set": {"review": "on"}}
+                with self.assertRaisesRegex(settings.Fail, f"Unknown {role.title()} 'sleep'"):
+                    settings.task_settings(self.store, task)
 
     def test_switch_moves_the_task_to_the_given_space(self):
         """#837: an explicit --space wins over the old agent's herdr.task.space label."""
@@ -6630,33 +6730,6 @@ class TaskFlow(unittest.TestCase):
         # An older title that starts with its key keeps only the rest.
         self.assertEqual(github.pr_title(self.store, {**self.task, "title": f"{ref} Flow"}), "Flow")
 
-    def test_ready_keeps_the_pull_request_the_task_continues(self):
-        """#828: the work pushed to an open pull request's own branch: ready takes that one, never a second."""
-        import herdr_task.github as github
-        wt, remote = self.task["worktree"], os.path.join(self.root, "remote.git")
-        self.git(self.root, "init", "-q", "--bare", remote)
-        self.git(self.main, "remote", "add", "origin", remote)
-        tip = self.commit(wt, "finish it", "a.txt")
-        self.git(wt, "push", "-q", "origin", "task/1:refs/heads/feature")  # by the agent
-        asked = []
-
-        def gh(*a, **k):
-            asked.append(a)
-            if a[:2] == ("pr", "list") and "--search" in a:
-                return True, json.dumps([{"number": 2918, "url": "https://github.com/o/r/pull/2918", "isCrossRepository": False,
-                                          "baseRefName": "main", "headRefName": "feature", "headRefOid": tip}]), ""
-            if a[:2] == ("pr", "view"):
-                return True, "OPEN", ""
-            return (False, "", "no") if a[:2] == ("pr", "create") else (True, "[]", "")
-        self.patch(github, "gh", gh)
-        self.assertEqual(github.pr_open(self.store, self.task, "o/r", "Done")["number"], 2918)
-        self.assertNotIn("create", [a[1] for a in asked])
-        self.assertEqual(self.git(self.root, "--git-dir", remote, "branch", "--list", "task/1"), "")  # no branch of its own
-        # A later commit goes to that pull request's branch.
-        tip = self.commit(wt, "a fix", "a.txt")
-        self.assertEqual(github.pr_open(self.store, self.task, "o/r")["number"], 2918)
-        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "feature"), tip)
-
     def test_ready_takes_its_pull_request_out_of_the_merge_queue_to_push(self):
         """#1215: GitHub locks a branch while its pull request sits in the merge queue (here: the remote refuses pushes
         while it is queued). Ready takes it out first, pushes, and it goes back in once its checks pass."""
@@ -6786,7 +6859,7 @@ class TaskFlow(unittest.TestCase):
         self.task["pr"] = {"number": 30, "url": "https://github.com/o/r/pull/30", "repo": "o/r"}  # the closed one
         self.commands.take_pr(self.store, self.task, "#31")
         self.assertEqual(self.task["pr"], {"number": 31, "url": "https://github.com/o/r/pull/31", "repo": "o/r", "taken": True,
-                                           "branch": "fix/thing"})
+                                           "branch": "fix/thing", "lease": tip})
         self.assertEqual(github.pr_open(self.store, self.task, "o/r", "Fixed")["number"], 31)
         self.assertNotIn(("pr", "create"), [a[:2] for a in asked])
         self.assertNotIn(("pr", "edit"), [a[:2] for a in asked])  # its description is its author's
@@ -6956,16 +7029,27 @@ class TaskFlow(unittest.TestCase):
         from herdr_task import agents, base
         screen = "Accessing workspace:\\n\\n Quick safety check: Is this a project you created or one you trust?\\n ❯ No, exit\\n   Yes, I trust this folder\\n"
         shown = [screen]
-        self.patch(agents, "_trust_seen", {})
+        self.patch(agents, "_startup_seen", {})
         self.patch(base, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, shown[0], ""))
         self.task.update(started=base.now() - 10000, agents=[{"address": "t1", "at": base.now() - 10000}])
         live = [{"address": "t1", "status": None, "turn": 0}]
         self.assertEqual(agents.task_status(self.task, live), ("needs", "asks", agents.REASONS["trust"]))
-        agents._trust_seen.clear()
+        agents._startup_seen.clear()
         shown[0] = "❯ "
         self.assertEqual(agents.task_status(self.task, live)[0], "working")  # just started, no dialog
         live[0]["status"] = "working"
         shown[0] = screen  # never read once it reports
+        self.assertEqual(agents.task_status(self.task, live)[0], "working")
+
+    def test_codex_hooks_wait_for_the_person_before_the_first_turn(self):
+        from herdr_task import agents, base
+        screen = "  Hooks need review\n  1 hook is new or changed.\n\n› 1. Review hooks\n  2. Trust all and continue"
+        self.patch(agents, "_startup_seen", {})
+        self.patch(base, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, screen, ""))
+        self.task.update(started=base.now() - 10000)
+        live = [{"address": "t2", "status": None, "turn": 0, "labels": {"herdr.agent": "codex"}}]
+        self.assertEqual(agents.task_status(self.task, live), ("needs", "asks", "Hooks need review"))
+        live[0]["status"] = "working"
         self.assertEqual(agents.task_status(self.task, live)[0], "working")
 
     def test_low_priority_says_nothing_without_proc(self):
@@ -7393,7 +7477,7 @@ class ReadyMergeGit(unittest.TestCase):
         self.patch(self.commands, "review_limits", lambda s, t: (True, rounds + int(t.get("review_rounds_added") or 0)))
         self.patch(self.commands, "caller_labels", lambda: {})
         self.patch(self.commands, "workers", lambda s, t: [])
-        for name in ("base_pr", "pr_words", "refresh_sessions", "watch_main", "update_main"):
+        for name in ("pr_words", "refresh_sessions", "watch_main", "update_main"):
             self.patch(self.commands, name, lambda *a, **k: None)
         self.patch(self.commands, "finalize", lambda s, t: (t.update(state="ready"), setattr(s, "dirty", True), "ready")[2])
         self.patch(self.commands, "already_merged", lambda s, t: None)
@@ -7663,7 +7747,6 @@ class ReadyMergeGit(unittest.TestCase):
         t["base"] = self.git(self.main, "rev-parse", "HEAD")
         self.patch(github, "gh", lambda *a, cwd=None: (True, "[]", ""))
         self.patch(github, "pr_push", lambda s, task, repo: None)
-        self.patch(github, "pr_at_tip", lambda task, repo: None)
         self.patch(github, "pr_merged", lambda task, repo: None)
         with self.assertRaises(github.Fail) as e:
             github.pr_open(self.store, t, "o/r")
@@ -8369,6 +8452,7 @@ class Systemic(unittest.TestCase):
         self.patch(self.commands, "pr_view", lambda t: v)
         self.patch(self.commands, "gh", lambda *a, **k: (calls.append(a), (True, "", ""))[1])
         self.patch(self.commands, "note_checks", lambda *a: None)
+        self.patch(self.commands, "merge_method", lambda repo: "--squash")
         why = self.commands.merge_now(self.store, self.task)
         self.assertIn("dropped it at this same commit", why)
         self.assertEqual((calls, self.task["attention"]), ([], why))
@@ -8549,7 +8633,7 @@ class AcceptCommandNews(unittest.TestCase):
         import herdr_task.assistant_settings as assistant_settings
         import herdr_task.news as news
         import herdr_task.reactions as reactions
-        self.news = news
+        self.news, self.mock = news, mock
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.store = Store([{"id": 4, "title": "Test databases", "state": "done", "space": "sp1", "merged": True}])
@@ -8578,6 +8662,23 @@ class AcceptCommandNews(unittest.TestCase):
         self.assertTrue(self.task["after_accept"]["told"])
         self.news.news_pass({})
         self.assertEqual(len(self.sent), 1)
+
+    def test_working_again_after_a_question_or_waited_reply(self):
+        for need in ("asks", "reply"):
+            with self.subTest(need=need):
+                self.sent.clear()
+                self.task["state"] = "running"
+                current = {"status": "needs", "needs": need, "why": "Which branch?"}
+                with self.mock.patch.object(self.news, "live_agents", return_value=[]), \
+                     self.mock.patch.object(self.news, "news_state", side_effect=lambda *a: (
+                         current.copy(), "needs-you" if current["needs"] else None, None)):
+                    self.news.news_pass({})
+                    current.update(status="working", needs=None, why=None)
+                    self.news.news_pass({})
+                    self.news.news_pass({})
+                resumed = [line for _, line in self.sent if 'event="working-again"' in line]
+                self.assertEqual(len(resumed), 1)
+                self.assertIn("its earlier question or wait has cleared", resumed[0])
 
 
 class TildeNewsGoesToEverything(AcceptCommandNews):
@@ -9349,6 +9450,7 @@ class ReadyAndPrFlow(unittest.TestCase):
     repo and store; hc and gh are never run."""
     setUp, patch, git, commit, args = TaskFlow.setUp, TaskFlow.patch, TaskFlow.git, TaskFlow.commit, TaskFlow.args
     patch_new, remote = ReadyMergeGit.patch_new, ReadyMergeGit.remote
+    taking = TaskFlow.taking
 
     # ---- #1207: an agent's own suggested next message in its input is nobody typing ----------------------------
     def typing_with(self, screen, lines):
@@ -9467,6 +9569,7 @@ class ReadyAndPrFlow(unittest.TestCase):
         views = [{"state": "OPEN", "mergeable": "MERGEABLE", "mergeStateStatus": "DRAFT", "statusCheckRollup": [],
                   "headRefOid": "abc"}, {"state": "MERGED", "mergeCommit": {"oid": "f00"}}]
         asked = []
+        self.patch(self.commands, "merge_method", lambda repo: "--squash")
         for name, value in (("pr_view", lambda t: views.pop(0)), ("gh", lambda *a, **k: (asked.append(a[:2]), (True, "", ""))[1]),
                             ("watch_main", lambda *a: None), ("update_main", lambda *a: None),
                             ("drop_branch", lambda s, t: None), ("finish", lambda s, t, even_if_busy=False: t.update(state="done")),
@@ -9494,51 +9597,71 @@ class ReadyAndPrFlow(unittest.TestCase):
         with self.assertRaises(Fail):
             self.commands.on_branch(self.task, wt)
 
-    # ---- #1204: a task started on an open pull request's branch goes on that pull request --------------------
-    def base_pr_with(self, prs, **task):
-        self.task.update(task)
-        self.patch(self.commands, "github", lambda s: "o/r")
-        self.patch(self.commands, "gh", lambda *a, **k: (True, json.dumps(prs), "") if a[:2] == ("pr", "list") else (True, "", ""))
-        self.commands.base_pr(self.store, self.task)
-        return self.task.get("pr")
-
-    PR = {"number": 41, "url": "https://github.com/o/r/pull/41", "isCrossRepository": False, "headRefName": "feature",
-          "baseRefName": "main", "headRefOid": "abc", "state": "OPEN"}
-
-    def test_ready_takes_the_pull_request_open_from_its_base_branch(self):
-        pr = self.base_pr_with([self.PR], base="feature", base_set=True)
-        self.assertEqual((pr["number"], pr["branch"], pr["taken"], pr["from_base"]), (41, "feature", True, True))
-
-    def test_a_space_base_branch_or_a_task_with_a_pull_request_takes_none(self):
-        self.assertIsNone(self.base_pr_with([self.PR], base="feature", base_set=True, base_by="space"))
-        self.task.pop("base_by")
-        mine = {"number": 5, "url": "u", "repo": "o/r"}
-        self.assertEqual(self.base_pr_with([self.PR], base="feature", base_set=True, pr=mine), mine)
-        self.task.pop("pr")
-        self.assertIsNone(self.base_pr_with([dict(self.PR, isCrossRepository=True)], base="feature", base_set=True))
-        self.assertIsNone(self.base_pr_with([self.PR], base="main"))  # no base of its own
-
-    def test_on_its_base_branchs_pull_request_it_is_never_nothing_to_merge(self):
-        """#1204: its work already pushed to the pull request's branch (its base): ready keeps it on that pull request,
-        never Ready with nothing to merge, nor done because its base holds it."""
-        import argparse
+    def test_ready_keeps_a_stacked_task_off_its_base_pull_request(self):
         wt = self.task["worktree"]
         self.git(self.main, "branch", "feature", "main")
-        self.task.update(base="feature", base_set=True, start=self.git(wt, "rev-parse", "HEAD"))
-        self.patch(self.commands, "github", lambda s: "o/r")
-        self.patch(self.commands, "gh", lambda *a, **k: (True, json.dumps([self.PR]), "") if a[:2] == ("pr", "list") else (True, "", ""))
-        for name in ("review_refusal", "find_proof", "own_work"):
+        base = self.git(self.main, "rev-parse", "feature")
+        tip = self.commit(wt, "stacked change", "stack.txt")
+        pr = {"number": 41, "state": "OPEN", "headRefName": "feature", "baseRefName": "main", "headRefOid": base}
+        remote, asked = self.taking({41: pr})
+        self.git(self.main, "push", "-q", "origin", "feature")
+        self.task.update(base="feature", base_set=True)
+        self.patch(self.commands, "gh", lambda *a, **k: (True, json.dumps([pr]), ""))
+        for name in ("review_refusal", "find_proof", "already_merged"):
             self.patch(self.commands, name, lambda *a, **k: None)
-        self.patch(self.commands, "ready_turns", lambda live: {})
-        self.patch(self.commands, "task_settings", lambda s, t: [])
-        finalized = []
-        self.patch(self.commands, "finalize", lambda s, t: (finalized.append(dict(t)), "ready")[1])
-        self.patch(self.commands, "already_merged", lambda s, t: self.fail("asked whether it merged"))
-        self.commands.cmd_ready(argparse.Namespace(id="SHEP-1", json=True, folder=None, summary="Done.", details=None,
-                                                   proof=None, agents_md=None, pr=None, pr_title=None, pr_body=None,
-                                                   draft=False))
-        self.assertEqual(finalized[0]["pr"]["number"], 41)
-        self.assertNotIn("nothing_to_merge", finalized[0])
+        self.patch(self.commands, "task_settings", lambda *a: [])
+        self.patch(self.commands, "merge_policy", lambda *a: "ask")
+        self.commands.cmd_ready(self.args(summary="Done.", details=None, agents_md=None))
+        self.assertEqual(self.task["pr"]["number"], 99)
+        create = next(a for a in asked if a[:2] == ("pr", "create"))
+        self.assertEqual(create[create.index("--base") + 1], "feature")
+        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "feature"), base)
+        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "task/1"), tip)
+
+    def test_ready_links_a_merged_pr_for_its_branch(self):
+        from herdr_task import github
+        wt = self.task["worktree"]
+        tip = self.commit(wt, "already landed", "landed.txt")
+        self.git(self.main, "merge", "-q", "--ff-only", "task/1")
+        self.taking({12: {"state": "MERGED", "headRefName": "task/1", "headRefOid": tip, "mergeCommit": {"oid": tip}},
+                     13: {"state": "MERGED", "headRefName": "another", "headRefOid": tip}})
+        for name in ("review_refusal", "find_proof", "watch_main", "update_main"):
+            self.patch(self.commands, name, lambda *a, **k: None)
+        self.patch(self.commands, "task_settings", lambda *a: [])
+        self.patch(self.commands, "finish", lambda s, t, **k: t.update(state="done"))
+        self.patch(github, "pr_push", lambda *a: self.fail("a merged PR must not be pushed to"))
+        args = self.args(pr="13", summary="Done.", details=None, agents_md=None)
+        with self.assertRaisesRegex(self.commands.Fail, "is merged"):
+            self.commands.cmd_ready(args)
+        args.pr = "12"
+        self.commands.cmd_ready(args)
+        self.assertEqual((self.task["state"], self.task["merged"], self.task["pr"]["number"]), ("done", True, 12))
+        self.assertIn("pull request #12 is merged", self.said[-1])
+
+    def test_ready_pushes_a_rebased_taken_branch(self):
+        from herdr_task import github, launch
+        wt = self.task["worktree"]
+        original = self.commit(wt, "original change", "taken.txt")
+        remote, _ = self.taking({12: {"state": "OPEN", "headRefName": "taken", "headRefOid": original}})
+        self.git(wt, "push", "-q", "origin", "task/1:refs/heads/taken")
+        t = {"id": 2, "title": "Continue the branch", "mode": "worktree", "agents": []}
+        self.store.data["tasks"].append(t)
+        self.patch(launch, "WORKTREES", os.path.join(self.root, "trees"))
+        self.patch(launch, "settings_for", lambda *a: {"tasks": {}})
+        self.commands.take_pr(self.store, t, "12")
+        taken = launch.folder_for(self.store, t)
+        self.commit(self.main, "main moved", "main.txt")
+        self.git(taken, "rebase", "main")
+        rebased = self.git(taken, "rev-parse", "HEAD")
+        self.assertNotEqual(original, rebased)
+        self.assertEqual(github.pr_open(self.store, t, "o/r")["number"], 12)
+        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "taken"), rebased)
+        outsider = self.commit(wt, "someone else pushed", "other.txt")
+        self.git(wt, "push", "-q", "--force", "origin", "task/1:refs/heads/taken")
+        self.commit(taken, "one more task change", "taken.txt")
+        with self.assertRaisesRegex(self.commands.Fail, "stale info"):
+            github.pr_open(self.store, t, "o/r")
+        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "taken"), outsider)
 
     # ---- #1116: a later round reviews what changed since the last one -------------------------------------------
     def test_the_refusal_names_what_changed_since_the_last_reviewed_commit(self):
@@ -9797,7 +9920,7 @@ class Next32(unittest.TestCase):
             out = json.dumps({"key": "esc", "outcome": "stopped"}) if args[:2] == ["hc", "interrupt"] else ""
             return subprocess.CompletedProcess(args, 0, out, "")
         for mod, name, value in ((self.commands, "live_agents", lambda key: list(self.live)), (self.commands, "detail", lambda k: k),
-                                 (self.commands, "run", run), (agents, "held_ask", lambda a: None), (agents, "trust_asked", lambda live: None),
+                                 (self.commands, "run", run), (agents, "held_ask", lambda a: None), (agents, "startup_asked", lambda live: None),
                                  (output, "subagents", lambda key: []), (self.commands, "refresh_sessions", lambda *a, **k: None),
                                  (self.commands, "task_tabs", lambda s, t: []), (agents, "own_work", lambda *a, **k: False)):
             p = mock.patch.object(mod, name, value)
@@ -10667,7 +10790,7 @@ class ParallelCollisions(unittest.TestCase):
     def test_ready_refuses_a_branch_that_conflicts_with_its_base(self):
         a, b, c = self.task(1, "A"), self.task(2, "B"), self.task(3, "C", name="other.txt")
         self.merge_first(a)
-        for name in ("take_pr", "base_pr", "pr_words"):
+        for name in ("take_pr", "pr_words"):
             self.patch(self.commands, name, lambda *x, **k: None)
         self.patch(self.commands, "review_refusal", lambda s, t, wt: None)
         self.patch(self.commands, "finalize", lambda s, t: f"{s.ref(t)} is ready.")
@@ -11045,6 +11168,35 @@ class NeverTypedIntoAShell(unittest.TestCase):
         self.assertIn("plain shell", str(e.exception))
         self.assertIn("nothing was typed", str(e.exception))
         self.assertEqual(self.typed(), [])
+
+    def test_tell_assistant_task_can_receive_the_reply_at_its_from_address(self):
+        from unittest import mock
+        assistant = {"target": "t3", "route": None, "address": "t3", "space": "sp1", "space_name": "shop"}
+        same_name = {"target": "t9", "route": None, "address": "t9", "space": "sp3", "space_name": "t5"}
+        graph = {"core": {"name": "vm", "id": "c1"}, "assistants": [assistant, same_name],
+                 "spaces": [{"id": "sp2", "name": "ops"}]}
+        self.term("t3", self.CLAUDE, {"herdr.role": "coordinator", "herdr.space": "sp1"})["status"] = "idle"
+        worker = self.term("t5", self.CLAUDE, {"herdr.task": self.WORKER_KEY, "herdr.task.space": "sp2"})
+        worker["status"] = "idle"
+        with mock.patch.object(self.machines, "directory", return_value=({"graph": graph}, [assistant, same_name])), \
+                mock.patch.object(self.machines, "hc_json", self.news.hc_json):
+            sent = self.machines.tell("sp1", "Can you check this?", sender="t5")
+            self.assertTrue(sent["can_reply"])
+            self.assertIn('space="ops" can-reply="yes" task="dev-shop#7"', self.typed()[-1][-1])
+            worker["status"] = "blocked"
+            reply = self.machines.tell(sent["from"], "Yes, checked", sender="t3")
+            self.assertTrue(reply["held"])
+            self.assertEqual([c[2] for c in self.typed()], ["t3"])
+            worker["status"] = "idle"
+            self.news.held_pass({})
+            self.assertEqual(self.typed()[-1][2], "t5")
+            self.assertIn("Yes, checked", self.typed()[-1][-1])
+
+    def test_tell_assistant_does_not_advertise_an_unregistered_sender(self):
+        self.term("t3", self.CLAUDE, {"herdr.role": "coordinator"})
+        result = self.tell({"target": "t3", "route": "", "address": "t3", "space": "sp1", "space_name": "shop"})
+        self.assertFalse(result["can_reply"])
+        self.assertIn('can-reply="no"', self.typed()[-1][-1])
 
     def test_tell_assistant_on_another_machine_types_nothing_into_its_shell(self):
         from unittest import mock

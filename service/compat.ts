@@ -174,13 +174,15 @@ export function unreadMarks(spaces: Space[], keyOf: (id: string) => string) {
   return { last, read };
 }
 
-export function artifactOf(a: any, spaces: Space[], program: (addr: string) => string | null = () => null): Artifact {
-  // its store is a folder: the space it is kept for (its own folder first, then a worktree of its repo), else none
-  // (it shows with All)
-  // (it shows with All). Another machine's (service/artifacts.ts reads them there) belongs to that machine's spaces.
+const artifactTaskKey = (machine: string | null, folder: string, ref: string) =>
+  JSON.stringify([machine, folder, String(ref).toUpperCase()]);
+
+export function artifactOf(a: any, spaces: Space[], program: (addr: string) => string | null = () => null, taskSpace?: string): Artifact {
+  // A task's own space can differ from its store. Otherwise use the store's folder, preferring it to its worktrees.
+  // An artifact with no matching space still shows in Everything.
   const m = a.machine ?? null;
-  const mine = spaces.filter((s) => (s.machine ?? null) === m && artifactStore(s as any).folder === a.folder);
-  const place = (mine.find((s) => s.folder === a.folder) ?? mine[0])?.id ?? "";
+  const mine = taskSpace ? [] : spaces.filter((s) => (s.machine ?? null) === m && artifactStore(s).folder === a.folder);
+  const place = taskSpace ?? (mine.find((s) => s.folder === a.folder) ?? mine[0])?.id ?? "";
   // its row: "v3 · Claude Code · 2h ago": the program of the agent that published it while it runs, else nothing;
   // a note on it goes to that agent ("the agent" when it isn't known)
   const by = (a.publisher && program(m ? `${m}/${a.publisher}` : a.publisher)) || "";
@@ -310,19 +312,22 @@ export class Compat {
     const agents = this.agents as any;
     return liveAgent(kind, t, (addr ? agents?.meta?.(addr, t, meta) : meta) ?? {}, agents?.cached?.(kind, machine) ?? {});
   }
+  terminalAgent(addr: string, machine: string | null): Chat["agent"] {
+    try {
+      const t: any = (this as any).terminalsOf?.(addr);
+      if (!t) return;
+      const kind = kindOfTerm(t) ?? JSON.parse(t.labels?.["herdr.resume"] || "{}").kind;
+      if (kind !== "claude" && kind !== "codex") return;
+      const { flags: _, ...agent } = this.agentNow(kind, t, this.reader?.(addr)?.conv?.meta, machine, addr);
+      return agent;
+    } catch { return undefined; }
+  }
   /** What a space's Assistant runs on, for its place (SHEP-298: the chat's model button said Settings' Assistant until
    *  the chat itself came): the Assistant's own (live, else the one that ended, whose chat it reads), else what its
    *  first message starts (freshChat: the choice kept for it, else Settings'). null: not known. */
   placeAgent(s: Space, key: string): Chat["agent"] | null {
     try {
-      if (s.assistant) {
-        const t: any = (this as any).terminalsOf?.(s.assistant);
-        let kind: string | null = kindOfTerm(t);
-        if (!kind) { try { kind = JSON.parse(t?.labels?.["herdr.resume"] || "{}").kind ?? null; } catch {} }
-        if (!t || (kind !== "claude" && kind !== "codex")) return null;
-        const { flags: _, ...a } = this.agentNow(kind, t, this.reader?.(s.assistant)?.conv?.meta, s.machine ?? null, s.assistant);
-        return a;
-      }
+      if (s.assistant) return this.terminalAgent(s.assistant, s.machine ?? null) ?? null;
       return this.freshChat(key)?.agent ?? null;
     } catch { return null; }
   }
@@ -425,7 +430,15 @@ export class Compat {
     const tildeId = SPc.tildeOf(spaces, HOME)?.id;
     const inFolder = (r: Row) => spaces.find((s) => s.id !== tildeId && (s.machine ?? null) === (r.machine ?? null) && s.folder === r.folder);
     const placeName = (r: Row) => places.find((p) => p.id === inFolder(r)?.id)?.name ?? r.list ?? "";
-    const placeOf = (r: Row) => (r.space && spaces.some((s) => s.id === r.space) ? r.space : inFolder(r)?.id ?? "");
+    const spaceIds = new Set(spaces.map((s) => s.id));
+    const placeOf = (r: Row) => (spaceIds.has(r.space) ? r.space : inFolder(r)?.id ?? "");
+    // Old completed tasks may be off the screen while their artifacts are still kept.
+    const artifactTaskSpaces = new Map<string, string>();
+    for (const r of rows) {
+      if (r.ref && r.folder && spaceIds.has(r.space)) {
+        artifactTaskSpaces.set(artifactTaskKey(r.machine ?? null, r.folder, r.ref), r.space);
+      }
+    }
     // SHEP-325: the spaces working in its folder on its machine: their Tasks list it too (the window's rule, core inSpace)
     const folderSpaces = (r: Row) => (r.folder ? spaces.filter((s) => (s.machine ?? null) === (r.machine ?? null) && s.folder === r.folder).map((s) => s.id) : []);
 
@@ -465,7 +478,7 @@ export class Compat {
         // spaces whose Tasks hold it
         ...(r.folder ? { work: { name: r.list || base(r.folder) || r.folder, folder: r.folder, repo: r.kind === "repo",
           short: r.machine ? SPc.tilde(r.folder) : r.folder === HOME ? "~" : r.folder.startsWith(HOME + "/") ? `~${r.folder.slice(HOME.length)}` : r.folder } } : {}),
-        ...(r.space && spaces.some((s) => s.id === r.space) ? { asked: r.space } : {}),
+        ...(spaceIds.has(r.space) ? { asked: r.space } : {}),
         ...((also) => (also.length ? { also } : {}))(folderSpaces(r).filter((id) => id !== placeOf(r))),
         // its latest news (ms), as Jump orders tasks newest first
         at: Math.max(0, ...[r.done_at, r.ready_at, r.started].filter((x: unknown): x is number => typeof x === "number")),
@@ -486,6 +499,7 @@ export class Compat {
           r.machine ? [] : (r.logs ?? []).flatMap((p: string) => this.taskLogs?.ids(p) ?? []))),
         ...(r.proof ? { proof: r.proof } : {}),
         ...(r.review ? { review: r.review } : {}),
+        ...(r.reviewerNotice ? { reviewerNotice: r.reviewerNotice } : {}),
         // the task's browser (agent-browser), relayed for this machine's tasks
         ...(r.machine ? { browser: { ready: false, hint: `This task runs on ${r.machine}. Its browser can be watched only on that machine for now.` } } : { browser: { ready: true } }),
         ...(r.pinned ? { pinned: 1 } : {}),
@@ -495,14 +509,17 @@ export class Compat {
         ...(r.said ? { report: { msg: r.section === "working" && r.why ? r.why : r.said.text, ...(r.said.done != null ? { progress: r.said.done } : {}),
           ...(r.said.left != null && !r.said.paused ? { eta: r.said.left } : {}), ...(r.said.paused ? { paused: true } : {}) } }
           : r.section === "working" && r.why ? { report: { msg: r.why, ...(r.pct != null ? { progress: r.pct } : {}) } } : {}),
-        ...(r.worker ? { agent: { chat: `${id}/worker`, role: "worker", cli: "claude", status: r.section === "needs" ? "need" : "work", running: true, age: "", note: "" } } : {}),
+        ...(r.worker ? { agent: { chat: `${id}/worker`, role: "worker", cli: "claude", settings: this.terminalAgent(r.worker, r.machine ?? null), status: r.section === "needs" ? "need" : "work", running: true, age: "", note: "" } } : {}),
         ...(!r.worker && r.lastLog ? { agent: { chat: `${id}/worker`, role: "worker", cli: r.lastLog.kind, status: "idle", running: false, age: "", note: "" } } : {}),
       };
       return t;
     });
 
     const needs: Need[] = [
-      ...rows.filter((r) => r.section === "needs" && !r.archived).map((r) => ({ id: "attention", chat: `${taskId(r)}/worker`, place: placeOf(r), task: taskId(r), at: r.started ?? Date.now(), text: r.sub ?? "" })),
+      ...rows.filter((r) => r.section === "needs" && !r.archived).map((r) => ({
+        id: "attention", chat: `${taskId(r)}/worker`, place: placeOf(r), task: taskId(r), at: r.started ?? Date.now(), text: r.sub ?? "",
+        ...(r.needs !== "asks" ? { assistantFirst: true as const } : {}),
+      })),
       ...spaces.filter((s) => ["blocked", "stopped"].includes(s.assistantStatus)).map((s) => ({ id: "attention", chat: placeKey(s.id), place: s.id, at: Date.now(), text: s.assistantStatus === "stopped" ? "Stopped" : "Waits for you" })),
     ];
 
@@ -534,20 +551,36 @@ export class Compat {
       needs.push({ id: a.id, chat: key, place, ...(task ? { task } : {}), at: a.at, secret: this.secretAsk(a) });
     }
 
-    // #1441: an agent at its CLI's folder-trust screen (a task's, its reviewer or helper, an Assistant): Needs you with
-    // its own card, wherever its chat is (service/watch.ts watches every agent before its session)
-    for (const { card } of (this as any).watch?.trustCards?.() ?? []) {
+    const startup = new Map<string, Need & { question: Question }>();
+    for (const card of (this as any).watch?.openCards?.() ?? []) {
       const w = this.trustWho(card.addr, chats);
       if (!w) continue;
       const place = w.task ? tasks.find((x) => x.id === w.task)?.place ?? "" : places.find((p) => p.chat === w.chat)?.id ?? "";
-      needs.push({ id: card.id, chat: w.chat, place, ...(w.task ? { task: w.task } : {}), at: card.opened, question: this.screenQuestion(card, w.chat) });
+      const question = this.screenQuestion(card, w.chat, undefined, chats.get(w.chat) === card.addr ? undefined : `t:${card.addr}`);
+      const need = { id: card.id, chat: w.chat, place, ...(w.task ? { task: w.task } : {}), at: card.opened, question };
+      needs.push(need);
+      if (w.task) startup.set(w.task, need);
     }
 
     for (const card of this.loginWatch()?.needs() ?? []) {
       const w = this.trustWho(card.addr, chats);
       if (!w) continue;
       const place = w.task ? tasks.find((x) => x.id === w.task)?.place ?? "" : places.find((p) => p.chat === w.chat)?.id ?? "";
-      needs.push({ id: card.id, chat: w.chat, place, ...(w.task ? { task: w.task } : {}), at: card.opened, question: this.loginQuestion(card, w.chat) });
+      const need = { id: card.id, chat: w.chat, place, ...(w.task ? { task: w.task } : {}), at: card.opened, question: this.loginQuestion(card, w.chat, undefined, chats.get(w.chat) ?? null) };
+      needs.push(need);
+      if (w.task) startup.set(w.task, need);
+    }
+
+    for (const task of tasks) {
+      const need = startup.get(task.id);
+      if (!need || task.archived || !["working", "ready", "needs"].includes(task.state ?? "")) continue;
+      task.state = "needs";
+      task.status = SECTION.needs;
+      task.sub = need.question.title;
+      task.needsAt = need.at;
+      delete task.left;
+      if (task.report) task.report = { msg: task.sub, progress: task.report.progress, paused: true };
+      if (task.agent) task.agent.status = "need";
     }
 
     // 'attention' is an agent waiting with no card: one whose chat has a card (its question, a secret) needs you once,
@@ -566,7 +599,13 @@ export class Compat {
     this.chats = chats;
     this.last = {
       terminalTransport: "core", name: "Shepherdr", host, user: input.user, places, machines, tasks, automations: automationsBySpace(input.automations ?? [], spaces, (s) => places.find((p) => p.id === s.id)?.name ?? s.name), asks: {}, needs, settings: input.settings ?? [],
-      artifacts: (input.artifacts ?? []).map((a) => artifactOf(a, spaces, (addr) => { const k = kindOfTerm((this as any).terminalsOf?.(addr)); return k ? CLI_NAMES[k] ?? k : null; })),
+      artifacts: this.rawArts.map((a) => {
+        const taskSpace = a.task ? artifactTaskSpaces.get(artifactTaskKey(a.machine ?? null, a.folder, a.task)) : undefined;
+        return artifactOf(a, spaces, (addr) => {
+          const k = kindOfTerm((this as any).terminalsOf?.(addr));
+          return k ? CLI_NAMES[k] ?? k : null;
+        }, taskSpace);
+      }),
       sections, last, read, off: input.offPlugins ?? [],
     };
     return this.last;
@@ -612,25 +651,24 @@ export class Compat {
   loginWatch(): SignInWatch | undefined { return (this as any).watch?.login; }
 
   /** An agent that needs signing in, as a card that says what to run in its own terminal (no taps sign in). */
-  private loginQuestion(card: SignInCard, key: string, by?: Question["by"]): Question {
+  private loginQuestion(card: SignInCard, key: string, by?: Question["by"], address = this.addrOf(key)): Question {
     const { title, how } = signInWords(card.need);
-    const terminal = this.addrOf(key) === card.addr ? key : `t:${card.addr}`;
-    return { id: card.id, to: key, title, kind: "Question", choices: [], ...(by ? { by } : {}),
-      login: { ...card.need, how, terminal } };
+    const terminal = address === card.addr ? key : `t:${card.addr}`;
+    return { id: card.id, to: key, title, kind: "Question", choices: card.choices ?? [], ...(by ? { by } : {}),
+      login: { ...card.need, how: card.choices ? "Choose how to sign in from its terminal." : how, terminal } };
   }
 
-  /** A CLI's start screen (core/screens.js card) as a card that presses a choice on a tap. A folder-trust screen
-   *  (#1441) is its own card in plain words: Trust this folder and start, or No (a task's worker: the task stops). */
-  screenQuestion(c: any, key: string, by?: { ref: string; title: string; chat: string }): Question {
+  /** Show what the CLI asks and open the exact terminal where the person can answer. */
+  screenQuestion(c: any, key: string, by?: Question["by"], terminalChat?: string): Question {
     const trust = trustOf(c);
+    const choices = (c.choices ?? []).map((x: any) => ({ label: x.label, ...(x.description ? { description: x.description } : {}) }));
+    const common = { id: c.id, kind: "Question" as const, to: key, press: true, choices, ...(by ? { by } : {}), ...(terminalChat ? { terminalChat } : {}) };
     if (trust) {
-      const w = this.trustWho(c.addr);
-      return { id: c.id, title: TRUST.title, kind: "Question", to: key, press: true, noNote: true,
-        trust: { cli: c.cli, ...(trust.folder ? { folder: trust.folder } : {}), waits: TRUST.waits(c.cli, trust.folder), allows: TRUST.allows },
-        choices: [{ label: TRUST.yes, short: TRUST.yesShort }, { label: TRUST.no(w?.worker), short: TRUST.noShort(w?.worker) }], ...(by ? { by } : {}) } as Question;
+      return { ...common, title: TRUST.title,
+        trust: { cli: c.cli, ...(trust.folder ? { folder: trust.folder } : {}), waits: TRUST.waits(c.cli, trust.folder), allows: TRUST.allows } };
     }
-    return { id: c.id, title: SCREEN.title(c.cli), kind: "Question", to: key, ...(c.words ? { screen: c.words } : {}), press: true,
-      choices: (c.choices ?? []).map((x: any) => ({ label: x.label, ...(x.description ? { description: x.description } : {}) })), ...(by ? { by } : {}) } as Question;
+    const hooks = c.cli === "Codex" && /^\s*Hooks need review\s*$/m.test(c.all);
+    return { ...common, title: hooks ? "Hooks need review" : c.dialog ? SCREEN.dialog(c.cli) : SCREEN.title(c.cli), ...(c.words ? { screen: c.words } : {}) };
   }
 
   /** A followed conversation (core/chat-reader.js) as 2.1's Chat. A run of tool calls (3.0's tools row) is 2.1's turn
@@ -848,7 +886,7 @@ export class Compat {
     const screens = (who: string, ref: string | null, by?: { ref: string; title: string; chat: string }) => {
       for (const c of watch?.cardsOf?.(who) ?? []) {
         if (c.state === "open") messages.push({ id: `card:${c.id}`, who: "agent", at: c.opened, question: this.screenQuestion(c, key, by) });
-        else messages.push(quiet(`se:${c.id}`, c.opened, `${ref ? `${ref} · ` : ""}${SCREEN.ended(c.cli, c.how)}`));
+        else messages.push(quiet(`se:${c.id}`, c.opened, `${ref ? `${ref} · ` : ""}${SCREEN.ended(c.cli, c.how, c.dialog)}`));
       }
     };
     const signIn = (who: string, by?: Question["by"]) => {
@@ -856,11 +894,11 @@ export class Compat {
       if (card) messages.push({ id: `card:${card.addr}:login`, who: "agent", at: card.opened, question: this.loginQuestion(card, by?.chat ?? key, by) });
     };
     if (addr) { screens(addr, null); signIn(addr); }
-    // its helpers' folder-trust screens (#1441: a reviewer that never started), on its own chat too
+    // A helper's start screen is also visible in its worker's chat.
     if (addr) for (const kid of subagentsOf((this as any).terminalsAll?.() ?? [], addr)) {
       signIn(kid.address);
       const c = watch?.openCard?.(kid.address);
-      if (c && trustOf(c)) messages.push({ id: `card:${c.id}`, who: "agent", at: c.opened, question: this.screenQuestion(c, key) });
+      if (c) messages.push({ id: `card:${c.id}`, who: "agent", at: c.opened, question: this.screenQuestion(c, key, undefined, `t:${kid.address}`) });
     }
     // an Assistant's chat: its tasks' workers' asks on their own cards, headed by their task (one per task, its oldest),
     // their secrets, their start screens, and how each closed
