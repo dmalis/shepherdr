@@ -170,7 +170,12 @@ async function runChecks() {
           await page.setViewportSize({ width, height: 844 })
           await bottom(page, 'keyboard closes')
         }
-        await sc.evaluate((el) => { el.scrollTop -= 2400 })
+        // the reader is up in the messages: 2400px above the last one, whatever task cards wait below it (the
+        // Everything chat holds every waiting card, dmalis/shepherdr#29), or a card would be what stays in place
+        await sc.evaluate((el) => {
+          const last = el.querySelector('[data-msg="code"]')!.getBoundingClientRect().bottom - el.getBoundingClientRect().top + el.scrollTop
+          el.scrollTop -= 2400 + Math.max(0, el.scrollHeight - last)
+        })
         await frames(page)
         const at = await sc.evaluate((el) => el.scrollTop)
         const latest: Message[] = [...messages, media, code, { id: 'new', who: 'agent', text: 'New answer' }]
