@@ -466,7 +466,7 @@ class Trial:
         self.task_id = added.get("id")
         if not self.task_id:
             raise Failed("task", "herdr-task add gave no task id")
-        self.task("start", str(self.task_id), "--argv", json.dumps(["sh", "-c", f"exec sh {os.path.join(self.scratch, 'bin', 'stand-in')}"]), "--space", "trial", "--now", step="task")
+        self.task("start", str(self.task_id), "--argv", json.dumps(["sh", "-c", f"exec sh {self.stand_in_script()}"]), "--space", "trial", "--now", step="task")
         deadline = time.time() + 90
         v, head = None, None
         while time.time() < deadline:
@@ -490,6 +490,11 @@ class Trial:
         self.agent = next((a.get("address") for a in v.get("live") or []), None) or \
             next((a.get("terminal") for a in reversed(v.get("agents") or []) if a.get("terminal")), None)
         self.log(f"task {v.get('ref')} committed {head[:12]}, its tree as expected")
+
+    def stand_in_script(self):
+        """The stand-in agent's script (write_bin wrote it): a file, so the brief herdr-task hands an agent and the
+        shell it starts in never meet its quoting."""
+        return os.path.join(self.scratch, "bin", "stand-in")
 
     def show_screens(self):
         """The throwaway core's terminals and their last lines, on stderr: what a stuck step looked like."""
