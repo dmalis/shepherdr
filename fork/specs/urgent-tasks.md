@@ -55,11 +55,11 @@ The app never says Assistant, worker or coordinator (docs/develop.md, Rules). It
 
 | Product | What urgent changes | What it never changes, or its guard | What we take |
 |---|---|---|---|
-| **Linear** ([issue properties](https://linear.app/docs/issue-property), [notifications](https://linear.app/docs/notifications), [SLAs](https://linear.app/docs/sla)) | Urgent sorts first (no priority sorts last); marking an issue Urgent notifies its assignee; the default SLA rule is "Urgent: 24 hours". | No overuse guard; levels are fixed. | Sorts first. The notification goes to the one who acts: here that is Shepherdr, the one who acts first, not the person who set the mark. |
+| **Linear** ([issue properties](https://linear.app/docs/issue-property), [notifications](https://linear.app/docs/notifications), [SLAs](https://linear.app/docs/sla)) | Urgent sorts first (no priority sorts last); marking an issue Urgent notifies its assignee; when a workspace turns SLAs on (a paid plan), the default rules give Urgent a 24-hour SLA and High a week ([default SLAs](https://linear.app/docs/sla)). | No overuse guard; levels are fixed. | Sorts first. The notification goes to the one who acts: here that is Shepherdr, the one who acts first, not the person who set the mark. |
 | **Jira, Jira Service Management** ([impact × urgency](https://support.atlassian.com/jira-service-management-cloud/docs/how-do-i-create-a-matrix-using-impact-and-urgency-values/), [SLA goals](https://support.atlassian.com/jira-service-management-cloud/docs/use-priority-to-group-sla-goals)) | In plain Jira, priority is only a field. Service Management derives it from impact and urgency and ties SLA goals to it. | Priority is separate from severity. | Five levels with no distinct consequence are colour and sort only. |
 | **Todoist** ([priorities](https://www.todoist.com/help/articles/set-a-priority-in-todoist-Wy82Jp)) | P1 is red, sorts first, filters across projects. | No reminder or notification change. | Same as above: levels that change nothing but colour. |
-| **Asana** ([My tasks](https://help.asana.com/s/article/my-tasks?language=en_US)) | Priority is a custom field a team makes; My tasks can group or sort by it. | Nothing else follows from it. | The same: a field to sort by. |
-| **Gmail** ([importance markers](https://support.google.com/mail/answer/186543)) | Gmail guesses importance from what you open, reply to and star, and shows a marker; a click corrects it. | No notification change. | The opposite of ours: a guess the person corrects. Ours is only ever the person's own mark; Shepherdr never guesses it. Only the wording "Mark as important" is borrowed. |
+| **Asana** ([My tasks](https://help.asana.com/s/article/my-tasks?language=en_US)) | Priority is a custom field a team makes; My tasks can group or sort by it, and a team's own rules can act on the field (assign or move work when it changes). | Nothing follows from it unless a team writes a rule. | The same: on its own, a field to sort by. |
+| **Gmail** ([importance markers](https://support.google.com/mail/answer/186543)) | Gmail guesses importance from what you open, reply to and star, and shows a marker; a click corrects it. The person can choose to be notified only of mail marked important. | The person chooses whether importance decides their notifications. | The opposite of ours: a guess the person corrects. Ours is only ever the person's own mark; Shepherdr never guesses it. Only the wording "Mark as important" is borrowed. |
 | **PagerDuty** ([urgency](https://docs.pagerduty.com/incident-management/services/configurable-service-settings), [alert fatigue](https://www.pagerduty.com/resources/digital-operations/learn/alert-fatigue/)) | Two levels only, high and low. Urgency decides the notification rules and escalation; low never escalates. | Warns that constant alerts make people miss real ones. | Binary is enough to carry real behaviour. The person's notification choices stay theirs. |
 | **Opsgenie** ([alert priorities](https://support.atlassian.com/jira-service-management-cloud/docs/what-are-alert-priorities/), [update priority](https://support.atlassian.com/opsgenie/docs/update-alert-priority-level/), [notification rules](https://docs.opsgenie.com/docs/notification-rule-api)) | Five levels, P1 Critical to P5 Informational (default P3). Priority decides who is notified, how, and how fast; raising it restarts the notification flow. Each person's notification rules can filter on it. | The person's own rules decide what reaches them. | Where levels do carry behaviour, they do it through each person's own notification rules, which Shepherdr leaves to the device's choice. |
 | **Kanban's expedite class of service** ([Kanban University glossary](https://kanban.university/glossary/), [classes of service](https://businessmap.io/kanban-resources/getting-started/kanban-classes-of-service)) | For work where "the impact of delay is both high and immediate": pulled first. In common practice it gets a WIP limit of one and may exceed the board's WIP limit. | The limit of one is the only real guard against "everything is urgent" we found (secondary source). | The meaning. Not the limit-breaking: Shepherdr has no WIP limit since 3.2, and its machine start limits protect the machine (a full disk), not a policy. |
@@ -119,10 +119,14 @@ only once that machine confirms.
    Handle its news before other tasks', and hand it to the person as soon as only they can settle it. Mark or unmark
    one only when the person asks (`herdr-task edit <id> --urgent` / `--urgent off`)." Because it's a row with its
    own key, a Shepherdr chat already running when the update lands gets it once as a settings notice, through the
-   same `settings_pass` that tells running chats a changed setting (its digest gains the new key). Behaviour stays
+   same `settings_pass` that tells running chats a changed setting (its digest gains the new key). Meaning before
+   mark: task news goes before `settings_pass` in a tick (`news.py` ~262), so a message with an urgent line to a
+   chat whose `herdr.settings` label doesn't have the row's key yet starts with the row's settings notice, and the
+   label is updated with it; `settings_pass` then has nothing left to say. Either way it goes only to a running
+   agent (Ban rules, below). Behaviour stays
    words (docs/develop.md): the code carries the mark; Shepherdr decides what to do.
 
-That is all: four changes, no setting, no new message to anyone.
+That is all: four changes, no setting, and no new kind of message: the only new send is the settings notice running chats already get when a setting changes.
 
 ### What it never changes
 
@@ -180,8 +184,10 @@ slice 2 names the skills.
   a task that already waits With Shepherdr, with no news left to come, is seen as urgent only at its next news or
   when Shepherdr lists its tasks. The settings note's line tells Shepherdr to check `urgent` when it does; the
   person can also say so in chat, as today.
-- **Slice 3 closes that gap,** once Needs you's action records and hand-up exist (parts 5, 6a and 6b): urgent then
-  orders Shepherdr's own open waits in the one action list. The person's Needs you list keeps its own order
+- **Slice 3 orders, it doesn't tell.** Once Needs you's action records and hand-up exist (parts 5, 6a and 6b),
+  urgent orders Shepherdr's own open waits in the one action list. That alone tells a running Shepherdr chat
+  nothing new: a wait open before the mark is still found only when Shepherdr next lists its tasks, until the
+  separate re-telling part in slice 3 is built. The person's Needs you list keeps its own order
   (oldest first); nothing in this spec reorders the person's cards, counts or phone feed.
 - The words module (`web/shared/needs-words.ts`) gets nothing new: "Urgent" is a property of the task, shown by its
   mark, not a kind of wait.
@@ -200,10 +206,12 @@ No settings key. Nothing people's state hangs on beyond the task field.
 ### Ban rules and privacy
 
 - Nothing reads or drives an agent: no keys, no slash commands, no prompts answered, no restarts, no config files.
-- Shepherdr hears of urgency only through what it already gets: one more attribute on the news it is sent, and one
-  more line in the settings note its own session hook asks for. No new message, no new channel, so
-  docs/agents-and-terms.md's table needs no change. Any later slice that sends Shepherdr a new kind of message
-  updates that table.
+- Shepherdr hears of urgency only through what it already gets: one more attribute on the news it is sent, one more
+  row in the settings note its own session hook asks for, and that row once as a settings notice to a chat already
+  running. Neither is ever delivered by starting or restarting a chat: only to a Shepherdr whose agent is running
+  now (a terminal showing a shell is not), else it waits for that chat's next start. Slice 1 still adds a dated line
+  to docs/agents-and-terms.md's table for the new row and its one notice, as AGENTS.md asks of any change to what
+  agents are told.
 - Model, effort and speed change only by the person's pick, by restarting with documented flags, as today.
 - No sharing or rotating of accounts, no retry elsewhere.
 - Examples in code, tests and the demo are made up ("Fix checkout", vm-a).
@@ -232,8 +240,8 @@ No settings key. Nothing people's state hangs on beyond the task field.
 Each slice is its own task, branch and pull request, `Part of #119`, and checks upstream first again when it starts
 (the fork-patch skill). They are one patch, carried and dropped together, so they share one patch file,
 `fork/patches/119.json`: slice 1 creates it, and each later slice adds its own files and tests to it. That's safe
-because they run one after the other: slice 2 is added `--after` slice 1, and slice 3 waits for Needs you parts 5,
-6a and 6b.
+because they run one after the other, each branching from main only after the slice before it has merged: slice 2
+is added `--after` slice 1, and slice 3 `--after` slice 2 as well as after Needs you parts 5, 6a and 6b.
 
 ### 1. Urgent: the mark in herdr-task and Shepherdr's news
 
@@ -245,12 +253,12 @@ because they run one after the other: slice 2 is added `--after` slice 1, and sl
   words); one call site each in `cli.py` (the flag on `add` and `edit`, and the caller check before `--on` and
   `--detach` dispatch), `commands.py` (`cmd_add`; `cmd_edit`, its checks before `move_task`; `cmd_show`'s line),
   `news.py` (the attribute in `news_line`'s tag, the outbox entry's note, the batch's order), `output.py` (the JSON
-  field), `assistant_settings.py` (the row in `rows`).
+  field), `assistant_settings.py` (the row in `rows`, and the notice it leads a message with); a dated line in `docs/agents-and-terms.md`.
 - **Tests:** `test/test_herdr_task.py::Urgent` with a real throwaway store and a faked hc: mark, unmark, the
   refusals (also from a fake task terminal, before `--on`, and with `--move-to`: nothing moves), done by each path
   ends it, reopen, resume and switch don't bring it back, `show` and `list --json`, the attribute, a line queued and
   then marked or unmarked before a folder-scoped send, the order in a batch, the settings row and its one notice to a
-  running chat. A pinning test that fails if `news_line`'s tag shape, `browser_env`'s variable, `move_task`'s place
+  running chat, the notice leading the first message with an urgent line, none to a chat whose agent has ended (a shell in front), and no restart for it. A pinning test that fails if `news_line`'s tag shape, `browser_env`'s variable, `move_task`'s place
   in `cmd_edit` or `settings_pass`'s digest compare change. A `core/chat-log.test.js` case: a news tag with an extra
   `urgent` attribute reads the same.
 - **Demo:** none (no UI).
@@ -283,7 +291,8 @@ because they run one after the other: slice 2 is added `--after` slice 1, and sl
 
 - **What:** in the one action list (`service/attention.ts` `projectAttention`), Shepherdr's own open waits (owner
   "Shepherdr") on urgent tasks come first, with ids, owners, counts and deadlines unchanged. The person's Needs you
-  list, counts and phone feed keep their order.
+  list, counts and phone feed keep their order. This orders the list; it reaches Shepherdr only when it next
+  lists its tasks.
 - **Telling Shepherdr about a wait that was already open** is its own part, if it's still wanted after the above is
   tried: a second delivery of the same wait id with `urgent="yes"`, sent only after a fresh check that the wait is
   still open, still Shepherdr's and still the same generation, never to a Shepherdr chat whose agent has ended
@@ -353,3 +362,8 @@ with any re-telling as its own part; a refused mark that `--move-to` could still
 missing research (Opsgenie, Asana, Gmail, Teams from Microsoft's own page, Linear's 24 hours from its SLA page, links
 to upstream's issues); and one shared patch file for the slices. Two minors were taken too: the retired window Tasks
 panel is out of the plan, and the review's base is the merge base.
+
+Round 2 (the last) confirmed findings 1 and 3 to 6 fixed and found four still short; all fixed above without a third
+round: the settings notice goes only to a running agent, never by a restart, and leads the first message with an
+urgent line, with a dated line in the terms table; slice 3 says plainly it orders and doesn't tell; the Gmail, Asana
+and Linear rows say when their behaviour applies; and each slice branches from main after the one before it merged.
