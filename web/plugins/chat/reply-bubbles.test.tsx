@@ -39,6 +39,17 @@ test('bubbles from an older message are gone once a newer agent message comes', 
   expect(suggestionOf(d, true)).toEqual({ id: 'm1', texts: ['Yes, start them'] })
 })
 
+test('never bubbles from before a "New session" line: that session is gone and its message cannot be quoted', () => {
+  const c = { key: 'p:docs', messages: [
+    { id: 'h:m1', who: 'agent', text: ASKS, suggests: ['Do all four'] },
+    { id: 'history-boundary', who: 'agent', newSession: true },
+  ] } as Chat
+  expect(suggestionOf(c, true)).toBeNull()
+  // the new session's own reply still has its bubbles
+  c.messages.push({ id: 'm9', who: 'agent', text: 'Back. Start the docs work?', suggests: ['Start the docs work'] } as Message)
+  expect(suggestionOf(c, true)).toEqual({ id: 'm9', texts: ['Start the docs work'] })
+})
+
 test('"Replying to" over the bubbles quotes that message, and a tap on it goes there', () => {
   const c = chat([{ text: LIST }, { text: ASKS, suggests: ['Do all four'] }])
   const html = renderToStaticMarkup(<ReplyingTo chat={c} id="m1" />)

@@ -643,7 +643,10 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       const text = str(b.text ?? "", 100_000).trim();
       if (!text) throw new Error("Nothing to send.");
       const files = Array.isArray(b.attachments) ? b.attachments.filter((x: unknown) => typeof x === "string").slice(0, 50) : [];
-      const r = await task(["reply", t.ref, [text, ...files].join("\n\n")], t.folder, t.machine);
+      // dmalis/shepherdr#51: a reply (a tapped suggested reply is one) keeps its reply-to line here too
+      const q = quoteOf(b, compat, a ? compat.reader?.(a) : null);
+      const words = messageBody({ text, quote: q.quote, tags: q.tags, task: q.quoteTask });
+      const r = await task(["reply", t.ref, [words, ...files].join("\n\n")], t.folder, t.machine);
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
       if (r.code !== 0 || out?.error) throw new Error(out?.error || r.stderr.trim().split("\n").pop() || "Its agent didn't start.");

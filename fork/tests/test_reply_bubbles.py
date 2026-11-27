@@ -18,7 +18,7 @@ import unittest  # noqa: E402
 sys.path.insert(0, os.path.join(ROOT, "mods", "tasks", "bin"))
 from herdr_task import assistant_settings, settings  # noqa: E402
 
-NAMES = ('Each makes sense alone and names what it is about ("Add the Everything hint", "Yes, merge it"), never only a '
+NAMES = ('Each makes sense alone and names what it is about ("Add the Everything hint", "Merge the zoom patch"), never only a '
          'pointer back to the chat ("Do those three", "Yes, that one").')
 AS_REPLY = "sent with one tap as a reply to that message"
 SETTING = "makes sense alone and names what it is about; shown as bubbles to tap, a tapped one sent as a reply to that message"
