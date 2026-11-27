@@ -577,7 +577,9 @@ def merge_checks(task, v, now_=False):
     if names is None or len(keep) == len(rows) or (not keep and not now_):
         return v
     out = {**v, "statusCheckRollup": keep, "optional_checks": [c.get("name") or c.get("context") for c in rows if c not in keep]}
-    if v.get("mergeStateStatus") == "BLOCKED" and not needs_approval(v):
+    # dmalis/shepherdr#74: a running one, never a red one (that block is merge_wait's to bound, or to say)
+    if v.get("mergeStateStatus") == "BLOCKED" and not needs_approval(v) and any(
+            pr_pending({"statusCheckRollup": [c]}) for c in rows if c not in keep):
         out["runs_pending"] = True
     return out
 

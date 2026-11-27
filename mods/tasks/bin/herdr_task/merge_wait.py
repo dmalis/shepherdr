@@ -107,7 +107,9 @@ def after_refusal(s, task, again, err):
     p = task.get("pushed") or {}
     if "head branch was modified" in (err or "").lower() and p.get("sha") and github.now() - (p.get("at") or 0) < HEAD_WAIT_MS:
         return True
+    since = github.checks_since(s, task, again)
+    if github.checks_missing(again, since) == "waiting":
+        return True  # none listed yet while some will come (an empty BLOCKED: a required one), as before its merge
     if blocked(again):
-        gone = github.now() - github.checks_since(s, task, again)
-        return gone < github.CHECKS_START_MS and bool(missing_required(task, again))
+        return github.now() - since < github.CHECKS_START_MS and bool(missing_required(task, again))
     return False

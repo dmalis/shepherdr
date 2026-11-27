@@ -2067,7 +2067,7 @@ def cmd_merge(args):
             error = merge_now(s, t)
             if error == IN_QUEUE:
                 how, error = "queue", None
-            elif error == CHECKS_RUNNING:
+            elif error in (CHECKS_RUNNING, GITHUB_CATCHING_UP):
                 error += " Merge again when they pass."
             elif error == WAITS_APPROVAL:
                 error += " Merge again once it's approved."
@@ -2160,9 +2160,9 @@ def cmd_accept(args):
             error = merge_now(s, t, accept=True)
             if error == IN_QUEUE:
                 how, error = "queue", None
-            elif error in (CHECKS_RUNNING, WAITS_APPROVAL):
+            elif error in (CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP):
                 # Accepted: it merges by itself once they pass, or once it's approved (Merging).
-                t["auto_merge"], how, error = "checks", "checks" if error == CHECKS_RUNNING else "approval", None
+                t["auto_merge"], how, error = "checks", "approval" if error == WAITS_APPROVAL else "checks", None
             elif error and not merge_waits(error):
                 # 3.2: the merge failed: back to its agent, which fixes it and hands it in again
                 t.pop("accepted_at", None)

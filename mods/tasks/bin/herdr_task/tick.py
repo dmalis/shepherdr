@@ -186,8 +186,12 @@ def facts(s, t, report):
             finish(s, t)
             report["done"].append(t["id"])
             return
-        if t["state"] == "ready" and head_waits(t, v) == GITHUB_CATCHING_UP:
-            pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY  # dmalis/shepherdr#74: the commit before its push, unread
+        said = head_waits(t, v) if t["state"] == "ready" else None
+        if said == GITHUB_CATCHING_UP or (said and t.get("auto_merge")):
+            # dmalis/shepherdr#74: the commit before its push is never read as its own: looked at again soon, and once that
+            # lasts, its merge on its own says so (merge_now()), never held by what GitHub says of the other commit
+            pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY
+            t["_pr_fresh"] = said != GITHUB_CATCHING_UP
             return
         # merging by itself: only the base branch's required checks count (#1221), for its news too (a red optional
         # check sent to its agent would take it out of Ready, and the merge with it)

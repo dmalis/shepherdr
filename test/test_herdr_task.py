@@ -4285,6 +4285,58 @@ class ReadyAfterARebase(PrLooks):
         self.assertEqual(self.merges(), [self.NEW])
         self.assertIn("base branch policy prohibits the merge", report["merge_failed"][0]["why"])
 
+    def test_another_commit_waiting_on_a_review_is_still_said(self):
+        # what GitHub says of the other commit (a review it requires) never holds the merge that says it
+        self.github_says(self.OLD, [self.check(self.BUILD)])
+        with open(os.path.join(self.dir, "view.json")) as f:
+            v = dict(json.load(f), reviewDecision="REVIEW_REQUIRED")
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump(v, f)
+        t, _ = self.ready_again()
+        self.tick_after(t, 60_000)
+        self.assertEqual(t["state"], "ready")
+        report = self.tick_after(t, 5 * 60_000)
+        self.assertEqual(self.merges(), [])
+        self.assertIn("not at new", report["merge_failed"][0]["why"])
+
+    def test_accept_while_github_catches_up_merges_by_itself_after(self):
+        # Merge when I mark it as done: the person's Accept meets a required check not listed yet
+        t, _ = self.ready_again()
+        t["set"], t["state"] = {"merge": "ask"}, "ready"
+        t.pop("auto_merge", None)
+        self.github_says(self.NEW, [self.check("lint")], "BLOCKED")
+        said = []
+        import argparse
+        with unittest.mock.patch.object(self.commands, "open_store", lambda args, write=True, wait=None: self.store), \
+                unittest.mock.patch.object(self.commands, "view", lambda s, t, live=None: dict(t)), \
+                unittest.mock.patch.object(self.commands, "say", lambda args, v, text: said.append(text)):
+            self.commands.cmd_accept(argparse.Namespace(id="9", json=True, folder=None))
+        self.assertEqual((t["auto_merge"], self.merges(), t["state"]), ("checks", [], "ready"))
+        self.assertIn("merges once its checks pass", said[-1])
+        self.github_says(self.NEW, [self.check(self.BUILD), self.check("lint")])
+        self.tick_after(t, 60_000)
+        self.assertEqual((self.merges(), t["state"]), ([self.NEW], "done"))
+
+    def test_a_refusal_with_no_checks_listed_yet_is_a_wait(self):
+        t, _ = self.ready_again()
+        green = {"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": self.NEW, "mergeStateStatus": "CLEAN",
+                 "reviewDecision": "", "statusCheckRollup": [self.check(self.BUILD)]}
+        self.github_says(self.NEW, [], "BLOCKED")  # what GitHub has when its merge is asked
+        with unittest.mock.patch.object(self.commands, "pr_view", side_effect=[green, dict(green, mergeStateStatus="BLOCKED",
+                                                                                         statusCheckRollup=[])]):
+            self.assertEqual(self.commands.merge_now(self.store, t), "Waiting for GitHub's checks.")
+        self.assertEqual(self.merges(), [self.NEW])
+        self.assertNotIn("attention", t)
+
+    def test_a_red_optional_check_never_hides_a_policy_block(self):
+        t, _ = self.ready_again()
+        self.github_says(self.NEW, [self.check(self.BUILD), self.check("lint", conclusion="FAILURE")], "BLOCKED")
+        self.tick_after(t, 60_000)
+        self.assertEqual((t["state"], self.merges()), ("ready", []))
+        report = self.tick_after(t, 5 * 60_000)
+        self.assertEqual(self.merges(), [self.NEW])
+        self.assertIn("base branch policy prohibits the merge", report["merge_failed"][0]["why"])
+
     def test_required_checks_from_branch_protection_and_rulesets(self):
         os.remove(os.path.join(self.dir, "rules.json"))
         with open(os.path.join(self.dir, "branch.json"), "w") as f:
