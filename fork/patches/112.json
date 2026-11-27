@@ -6,7 +6,8 @@
     "web/plugins/chat/attach.css",
     "web/plugins/chat/client.tsx",
     "web/plugins/chat/clip.test.tsx",
-    "web/src/icons.ts"
+    "web/src/icons.ts",
+    "web/plugins/typing/typing.test.ts"
   ],
   "tests": [
     "web/plugins/chat/attach.test.tsx",
