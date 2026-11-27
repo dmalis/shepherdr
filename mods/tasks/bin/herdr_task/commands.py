@@ -36,6 +36,7 @@ from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
 from .proof import evidence, find_proof
 from .waits import closed_words, closes_alone, left_files, waits_why
+from .merge_wait import after_refusal, blocked_waits, head_waits, pinned, WAITING as GITHUB_CATCHING_UP
 from .when import when_from
 
 
@@ -1891,7 +1892,7 @@ def cmd_reply(args):
 
 def merge_waits(err):
     """A merge that only waits (checks running, an approval, GitHub's queue) or couldn't be asked just now: no failure."""
-    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL) or str(err).startswith("Couldn't reach")
+    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP) or str(err).startswith("Couldn't reach")
 
 
 def note_merge_failed(t, why):
@@ -1959,6 +1960,12 @@ def merge_now(s, t, accept=False):
         finish(s, t, even_if_busy=True)
         return None
     if v.get("state") != "MERGED":
+        said = head_waits(t, v)  # dmalis/shepherdr#74: nothing read, nor merged, at another commit than the one pushed
+        if said:
+            if said != GITHUB_CATCHING_UP:
+                said = t["attention"] = f"{MERGE_FAILED}: {said}"
+                t["attention_at"] = now()
+            return said
         # only the base branch's required checks hold a merge (#1221); merge "on its own" (also a merge by hand) none
         # beyond them
         v = merge_checks(t, v, now_=(t.get("auto_merge") or merge_policy(s, t)) == "auto")
@@ -1978,6 +1985,8 @@ def merge_now(s, t, accept=False):
             t["pr"]["needs_approval"] = True
             return WAITS_APPROVAL
         t["pr"].pop("needs_approval", None)
+        if blocked_waits(s, t, v):  # dmalis/shepherdr#74: a required check GitHub doesn't list on its new commit yet
+            return GITHUB_CATCHING_UP
         # #1045: never --delete-branch. gh deletes the branch right after its merge call whenever it
         # doesn't know the base has a merge queue (a ruleset's queue, an older gh): GitHub only queued
         # it, and a pull request whose branch goes is closed and leaves the queue. Its branch on GitHub
@@ -1990,7 +1999,7 @@ def merge_now(s, t, accept=False):
             # #1155: opened as a draft (ready --draft): the person's Accept takes it out of draft first; GitHub
             # merges no draft.
             gh("pr", "ready", n, "--repo", repo)
-        ok, _, err = gh("pr", "merge", n, "--repo", repo, method, "--match-head-commit", v.get("headRefOid") or "")
+        ok, _, err = gh("pr", "merge", n, "--repo", repo, method, "--match-head-commit", pinned(t, v))
         # Merged, or only queued (or set to merge by itself)? Asked again; a one-off GitHub error can
         # also come after the merge went through.
         again = pr_view(t)
@@ -2002,6 +2011,8 @@ def merge_now(s, t, accept=False):
             t.pop("attention", None)
             t["pr"]["checked"] = 0
             return IN_QUEUE
+        elif after_refusal(s, t, again, err):  # dmalis/shepherdr#74: refused only while GitHub catches up
+            return GITHUB_CATCHING_UP
         else:
             t["attention"], t["attention_at"] = f"{MERGE_FAILED}: {err}", now()
             # The next tick reads the pull request at once (merged by hand meanwhile: done).

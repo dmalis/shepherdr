@@ -4120,6 +4120,182 @@ class ChecksUnreadable(PrLooks):
         self.assertTrue(github.denied(self.DENIED))
 
 
+class ReadyAfterARebase(PrLooks):
+    """dmalis/shepherdr#74: a task handed in again right after a rebase, set to merge on its own, merges only at the
+    commit pushed, once GitHub shows it with its required checks passed. GitHub's view still at the commit before the
+    push, or a required check not listed on the new one yet (a green optional one only, BLOCKED), is a wait, never a
+    failed merge back to its agent; a head that stays another one, or a block nothing explains, is still said."""
+
+    OLD, NEW = "0ld" * 13 + "0", "new" * 13 + "n"
+    BUILD = "build"  # the one check the base branch requires
+
+    def gh_script(self):
+        d = self.dir
+        return ("#!/usr/bin/env python3\nimport json, os, sys\n"
+                f"a = sys.argv[1:]\nopen({self.gh_log!r}, 'a').write(json.dumps(a) + '\\n')\n"
+                f"def file(n, empty='[]'):\n    p = os.path.join({d!r}, n)\n    return open(p).read() if os.path.exists(p) else empty\n"
+                "if a[:2] == ['pr', 'view']:\n    print(file('view.json'))\n"
+                "elif a[:2] == ['pr', 'merge']:\n"
+                "    v = json.loads(file('view.json'))\n"
+                "    if a[a.index('--match-head-commit') + 1] != file('head', v['headRefOid']):\n"  # its branch there
+                "        sys.stderr.write('GraphQL: Head branch was modified. Review and try the merge again.'); sys.exit(1)\n"
+                "    if v.get('mergeStateStatus') == 'BLOCKED':\n"
+                "        sys.stderr.write('X Pull request o/r#41 is not mergeable: the base branch policy prohibits the merge.'); sys.exit(1)\n"
+                f"    open(os.path.join({d!r}, 'view.json'), 'w').write(json.dumps({{'state': 'MERGED', 'mergeCommit': {{'oid': 'f00'}}}}))\n"
+                "elif a[:2] == ['api', 'graphql'] and 'isRequired' in ' '.join(a):\n    print(file('required.json'))\n"
+                "elif a[:2] == ['api', 'repos/o/r/rules/branches/main']:\n    print(file('rules.json'))\n"
+                "elif a[:2] == ['api', 'repos/o/r/branches/main']:\n    print(file('branch.json', '{}'))\n"
+                "elif a[:2] == ['api', 'repos/o/r']:\n    print(json.dumps({'allow_squash_merge': True}))\n"
+                "elif a[0] == 'api':\n    print('[]')\n")
+
+    def setUp(self):
+        super().setUp()
+        self.told = []
+        for mod, name, value in ((self.commands, "watch_main", lambda *a, **k: None),
+                                 (self.commands, "update_main", lambda *a, **k: None),
+                                 (self.commands, "drop_branch", lambda s, t: None),
+                                 (self.commands, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.commands, "tell", lambda s, t, msg, args=None: (self.told.append(msg), ("t1", False))[1]),
+                                 (self.tick, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.tick, "due_pass", lambda s, report: None)):
+            p = unittest.mock.patch.object(mod, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        try:
+            import herdr_task.merge_wait as merge_wait
+        except ImportError:  # main before it (the before-check runs these there)
+            merge_wait = None
+        self.merge_wait = merge_wait
+        with open(os.path.join(self.dir, "rules.json"), "w") as f:
+            json.dump([{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": self.BUILD}]}}], f)
+
+    def github_says(self, head, checks, merge_state="CLEAN"):
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump({"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": head, "mergeStateStatus": merge_state,
+                       "reviewDecision": "", "statusCheckRollup": list(checks)}, f)
+        names = [c["name"] for c in checks]
+        nodes = [{"__typename": "CheckRun", "name": n, "isRequired": n == self.BUILD} for n in names]
+        with open(os.path.join(self.dir, "required.json"), "w") as f:
+            json.dump({"data": {"repository": {"pullRequest": {"commits": {"nodes": [
+                {"commit": {"statusCheckRollup": {"contexts": {"nodes": nodes}}}}]}}}}}, f)
+
+    def branch_at(self, sha):
+        """Its branch's head on GitHub, what a merge's --match-head-commit is held to (its view may lag it)."""
+        with open(os.path.join(self.dir, "head"), "w") as f:
+            f.write(sha)
+
+    @staticmethod
+    def check(name, status="COMPLETED", conclusion="SUCCESS"):
+        return {"name": name, "status": status, "conclusion": conclusion}
+
+    def merges(self):
+        """The commits each gh pr merge was pinned to, in order."""
+        with open(self.gh_log) as f:
+            calls = [json.loads(x) for x in f]
+        return [a[a.index("--match-head-commit") + 1] for a in calls if a[:2] == ["pr", "merge"]]
+
+    def ready_again(self):
+        """Its second ready: rebased onto main and pushed (NEW), merge on its own; its pull request was handed in at OLD."""
+        t = {"id": 9, "title": "Login", "state": "running", "space": "sp1", "agents": [], "mode": "worktree",
+             "worktree": self.dir, "branch": "b", "base": "main", "set": {"merge": "auto"}, "head": self.NEW,
+             "pr": {"number": 41, "url": "https://github.com/o/r/pull/41", "repo": "o/r", "head_sha": self.OLD, "head_at": 1}}
+        self.store.data["tasks"] = [t]
+
+        def pushed(s, t, repo, summary=None):
+            t["pushed"] = {"sha": t["head"], "at": self.clock[0]}  # what github.pr_push() keeps (PushedForItsMerge)
+            self.branch_at(t["head"])
+            return t["pr"]
+        with unittest.mock.patch.object(self.commands, "github", lambda s: "o/r"), \
+                unittest.mock.patch.object(self.commands, "pr_open", pushed):
+            return t, self.commands.finalize(self.store, t)
+
+    def tick_after(self, t, after):
+        """One scheduler pass over the task (tick_turn(): its look, then its merge on its own), this long after."""
+        self.clock[0] += after
+        t["pr"]["checked"] = 0
+        report = {"attention": [], "done": []}
+        self.tick.tick_turn(self.store, report)
+        return report
+
+    def test_a_second_ready_waits_for_the_new_commits_required_check_then_merges_there(self):
+        # GitHub's view still at the commit handed in before, its checks green
+        self.github_says(self.OLD, [self.check(self.BUILD), self.check("lint")])
+        t, msg = self.ready_again()
+        self.assertIn("Merging it waits: Waiting for GitHub's checks.", msg)
+        self.assertEqual((t["state"], t["auto_merge"], self.merges()), ("ready", "auto", []))
+        self.assertNotIn("merge_failed", t)
+        self.assertEqual(self.agents.task_status(t, self.live)[2], "Merging")
+        # the new commit: a green optional check, the required one not listed yet (GitHub blocks the merge)
+        self.github_says(self.NEW, [self.check("lint")], "BLOCKED")
+        for after in (20_000, 6 * 60_000):  # past the moment for a block nothing names: build is named, not there
+            report = self.tick_after(t, after)
+            self.assertEqual((t["state"], t["auto_merge"], self.merges(), report.get("merge_failed")), ("ready", "auto", [], None))
+            self.assertNotIn("attention", t)
+        # the required check runs
+        self.github_says(self.NEW, [self.check(self.BUILD, "IN_PROGRESS", ""), self.check("lint")], "BLOCKED")
+        self.tick_after(t, 60_000)
+        self.assertEqual((t["state"], self.merges()), ("ready", []))
+        self.assertEqual(self.told, [])
+        # it passes: merged at the commit pushed, done
+        self.github_says(self.NEW, [self.check(self.BUILD), self.check("lint")])
+        report = self.tick_after(t, 60_000)
+        self.assertEqual((self.merges(), t["state"], report["done"]), ([self.NEW], "done", [9]))
+        self.assertNotIn(self.OLD, self.merges())
+
+    def test_a_refusal_while_github_catches_up_is_a_wait(self):
+        # GitHub shows the new commit, its checks green, but its merge refuses it: not its branch's head there yet
+        t, _ = self.ready_again()
+        self.github_says(self.NEW, [self.check(self.BUILD)])
+        self.branch_at(self.OLD)
+        self.assertEqual(self.commands.merge_now(self.store, t), "Waiting for GitHub's checks.")
+        self.assertEqual(self.merges(), [self.NEW])
+        self.assertNotIn("attention", t)
+        # the same refusal long after its push is said
+        self.clock[0] += 5 * 60_000
+        self.assertIn("Head branch was modified", self.commands.merge_now(self.store, t))
+
+    def test_a_head_that_stays_another_commit_is_still_said(self):
+        self.github_says(self.OLD, [self.check(self.BUILD)])
+        t, _ = self.ready_again()
+        self.tick_after(t, 60_000)
+        self.assertEqual((t["state"], self.merges()), ("ready", []))
+        report = self.tick_after(t, 5 * 60_000)
+        self.assertEqual(self.merges(), [])
+        self.assertIn("not at new", report["merge_failed"][0]["why"])
+        self.assertEqual(t["state"], "running")  # back to its agent, told why
+        self.assertIn("Run ready again", self.told[-1])
+
+    def test_a_block_nothing_explains_is_still_said_after_a_while(self):
+        # another rule blocks it (the required check passed, nothing missing)
+        t, _ = self.ready_again()
+        self.github_says(self.NEW, [self.check(self.BUILD), self.check("lint")], "BLOCKED")
+        self.tick_after(t, 60_000)
+        self.assertEqual((t["state"], self.merges()), ("ready", []))
+        report = self.tick_after(t, 5 * 60_000)
+        self.assertEqual(self.merges(), [self.NEW])  # tried at the commit pushed, GitHub refused
+        self.assertIn("base branch policy prohibits the merge", report["merge_failed"][0]["why"])
+        self.assertEqual(t["state"], "running")
+
+    def test_a_required_check_that_never_comes_is_said_in_the_end(self):
+        t, _ = self.ready_again()
+        self.github_says(self.NEW, [self.check("lint")], "BLOCKED")
+        self.tick_after(t, 60_000)
+        self.assertEqual(self.merges(), [])
+        report = self.tick_after(t, 20 * 60_000)
+        self.assertEqual(self.merges(), [self.NEW])
+        self.assertIn("base branch policy prohibits the merge", report["merge_failed"][0]["why"])
+
+    def test_required_checks_from_branch_protection_and_rulesets(self):
+        os.remove(os.path.join(self.dir, "rules.json"))
+        with open(os.path.join(self.dir, "branch.json"), "w") as f:
+            json.dump({"protection": {"required_status_checks": {"enforcement_level": "non_admins", "contexts": ["ci"],
+                                                                  "checks": [{"context": "e2e"}]}}}, f)
+        self.assertEqual(self.merge_wait.required_names("o/r", "main"), {"ci", "e2e"})
+        with open(os.path.join(self.dir, "branch.json"), "w") as f:
+            json.dump({"protection": {"required_status_checks": {"enforcement_level": "off", "contexts": ["ci"]}}}, f)
+        self.assertEqual(self.merge_wait.required_names("o/r", "main"), set())
+
+
 class Store:
     """Enough of herdr_task.store.Store for the commands, in memory."""
     def __init__(self, tasks):
@@ -9808,6 +9984,32 @@ class WorktreeRemovalStopsItsServers(unittest.TestCase):
         table = [(10, 1, "herdr-core", "/"), (11, 10, "bash", wt), (12, 11, "claude", wt), (13, 12, "bash", wt),
                  (14, 13, "next-server", os.path.join(wt, "apps")), (15, 1, "node", "/elsewhere"), (16, 1, "codex", wt)]
         self.assertEqual(self.github.procs_in(self.wt, table), [(13, "bash"), (14, "next-server")])
+
+
+class PushedForItsMerge(unittest.TestCase):
+    """dmalis/shepherdr#74: pr_push() keeps the commit it pushed (or found already there) for its merge to be pinned
+    to, and when; the same commit again keeps its time."""
+    setUp, patch, git, commit = TaskFlow.setUp, TaskFlow.patch, TaskFlow.git, TaskFlow.commit
+    remote = ReadyMergeGit.remote
+
+    def test_the_commit_pushed_is_kept_with_when(self):
+        import herdr_task.github as github
+        clock = [1000]
+        self.patch(github, "now", lambda: clock[0])
+        self.remote()
+        wt = self.task["worktree"]
+        first = self.commit(wt, "work", "a.txt")
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.task["pushed"], {"sha": first, "at": 1000})
+        clock[0] = 2000
+        github.pr_push(self.store, self.task, "o/r")  # already there: the same push
+        self.assertEqual(self.task["pushed"], {"sha": first, "at": 1000})
+        self.git(wt, "push", "-q", "origin", "task/1:task/1")
+        second = self.commit(wt, "rebased", "b.txt")
+        self.git(wt, "push", "-q", "origin", "task/1:task/1")  # its agent pushed it itself, then ready
+        clock[0] = 3000
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.task["pushed"], {"sha": second, "at": 3000})
 
 
 class ReadyAndPrFlow(unittest.TestCase):

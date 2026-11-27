@@ -33,6 +33,7 @@ from .news import news_pass
 from .ghnews import held_by_base, main_pass, pr_deliver, pr_news, PR_NEWS_EVERY, resting
 from .systemic import dropped, systemic_pass
 from .waits import waits_now
+from .merge_wait import head_waits, WAITING as GITHUB_CATCHING_UP
 from .scheduler import SCHEDULER
 from .revive import record_pass
 
@@ -184,6 +185,9 @@ def facts(s, t, report):
                 drop_branch(s, t)
             finish(s, t)
             report["done"].append(t["id"])
+            return
+        if t["state"] == "ready" and head_waits(t, v) == GITHUB_CATCHING_UP:
+            pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY  # dmalis/shepherdr#74: the commit before its push, unread
             return
         # merging by itself: only the base branch's required checks count (#1221), for its news too (a red optional
         # check sent to its agent would take it out of Ready, and the merge with it)

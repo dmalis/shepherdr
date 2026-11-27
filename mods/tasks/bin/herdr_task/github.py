@@ -108,6 +108,8 @@ def pr_push(s, task, repo):
     has, tip, _ = git(wt, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}")
     seen, there, _ = git(wt, "ls-remote", remote, ref)
     if has and tip and seen and there.split()[:1] == [tip]:
+        if (task.get("pushed") or {}).get("sha") != tip:  # dmalis/shepherdr#74: its merge is pinned to it (merge_wait)
+            task["pushed"] = {"sha": tip, "at": now()}
         if to != br:
             pr["lease"] = tip
         return
@@ -136,6 +138,7 @@ def pr_push(s, task, repo):
         ok, out, err = git(wt, "push", *lease, *(["-u"] if to == br else []), remote, f"refs/heads/{br}:{ref}")
     if not ok:
         raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {push_error(out, err)}")
+    task["pushed"] = {"sha": tip, "at": now()}
     current = task.get("pr") or {}
     if to != br and current.get("branch") == to and current.get("number") == pr.get("number"):
         current["lease"] = tip
