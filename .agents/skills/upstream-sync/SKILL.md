@@ -134,6 +134,10 @@ it found: report that, never a guess at why, and never repair `main` by force.
    is: what the fix does and how to try it, what the person decided, upstream links, each pull request's part. A
    `fixed-upstream` issue whose line the candidate no longer has no longer waits on the person: remove `not-filed`,
    its status line says "fixed upstream in `vX.Y.Z`, then dropped", and it is closed now.
+   - **`live` follows the install:** every issue in `fork/patches.json` at the installed commit gets `live`. An
+     issue with `live` that the line no longer has (its fix reverted, or dropped for upstream's) loses it:
+     `gh issue list -R dmalis/shepherdr --label live --state all`, then `gh issue edit <n> -R dmalis/shepherdr
+     --remove-label live`. A rollback changes no labels, since this step runs only after a healthy install.
    - **Find what this install made live:** our merged pull requests (`gh pr list -R dmalis/shepherdr --state merged
      --limit 100 --json number,headRefName,mergeCommit,body`) whose merge commit is in the installed range
      (`git merge-base --is-ancestor <its commit> <candidate>`, and not an ancestor of the last `ours-*` tag). Herdr

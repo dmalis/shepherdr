@@ -97,6 +97,9 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - `sync-blocked`: a release waits on a patch.
   - `fixed-upstream`: upstream shipped it.
   - `later`: not now.
+- **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
+  every issue its installed `fork/patches.json` lists, and takes it off one whose fix left (upstream-sync skill,
+  step 7). No `live`: not installed yet.
 - **What the person decided about a fix:** one of these describes the issue as a whole (the upstream-issue skill:
   "After a fix lands").
   - `not-filed`: the fix is merged and live, and the person hasn't decided yet.

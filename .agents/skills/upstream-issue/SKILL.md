@@ -61,7 +61,9 @@ The person tries each fix they use for a day or two, then decides. So every fix 
   `Part of #n`, never `Closes`.
 
 A fix lands when it is merged and live: the first healthy install that carries it (upstream-sync skill, step 7).
-That install labels its issue `not-filed` and its status line starts "carried since `ours-…`". Then it waits for the
+That install labels its issue `live` and `not-filed`, and its status line starts "carried since `ours-…`". So an
+issue's labels answer two questions: is it on the person's machine (`live`, or not yet), and what about upstream
+(`not-filed`, `upstream-proposed`, `fork-only`, `reverted`). Then it waits for the
 person. Their answer for that fix sets the label:
 
 | They say | Do | Label |
