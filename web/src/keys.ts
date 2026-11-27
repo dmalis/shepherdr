@@ -3,7 +3,9 @@
 // chords clash and which the browser keeps, and the palette's fuzzy match. commands.ts holds the live bindings.
 //
 // A chord is written the same on every computer: "Mod+K" is ⌘K on a Mac and Ctrl+K elsewhere; "Ctrl" is the real
-// Control key on both. Keys are the key's place (e.code), so Shift or Option never changes the letter: "Shift+/" is ?.
+// Control key on both. Letters and digits are the key's place (e.code), so Shift or Option never changes the letter.
+// A sign (/ - = ? +) is the character it types (e.key), as Slack reads it: on a QWERTZ keyboard Cmd+- is Mod+- though
+// its - sits where a US keyboard has /, and Cmd+Shift+7 (its /) is Mod+/. "Shift+/" is ? and "Shift+=" is + anywhere.
 // Two chords with a space between are a sequence: "G T" is G, then T.
 
 export interface KeyLike {
@@ -28,29 +30,49 @@ const CODE: Record<string, string> = {
 }
 const KEYNAME: Record<string, string> = { ' ': 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Esc: 'Escape' }
 
-function keyOf(e: KeyLike): string | null {
+/** a US keyboard's signs, and what Shift types on each of them */
+const SIGNS = '`-=[]\\;\',./'
+const SHIFTED: Record<string, string> = { '~': '`', _: '-', '+': '=', '{': '[', '}': ']', '|': '\\', ':': ';', '"': "'", '<': ',', '>': '.', '?': '/' }
+
+/** the sign a press types, by its character, with whether it counts as Shift ("?" is Shift+/ wherever it sits); null
+ *  for anything else (a letter, Option's own sign, a dead key, another script's letter): then the key's place counts */
+function signOf(e: KeyLike): { k: string; shift: boolean } | null {
+  if (e.key.length !== 1) return null
+  // Shift held over the sign's own US place still counts: a Mac's Cmd can keep the unshifted sign in e.key
+  if (SIGNS.includes(e.key)) return { k: e.key, shift: e.shiftKey && CODE[e.code ?? ''] === e.key }
+  if (SHIFTED[e.key]) return { k: SHIFTED[e.key], shift: true }
+  return null
+}
+
+/** the key a press names, and whether Shift counts (a sign carries its own Shift: "+" is Shift+= even unshifted) */
+function keyOf(e: KeyLike): { k: string; shift: boolean } | null {
   const c = e.code ?? ''
-  let m = /^Key([A-Z])$/.exec(c)
-  if (m) return m[1]
-  m = /^(?:Digit|Numpad)(\d)$/.exec(c)
-  if (m) return m[1]
-  if (/^F\d{1,2}$/.test(c)) return c
-  if (CODE[c]) return CODE[c]
+  const shift = e.shiftKey
+  if (/^F\d{1,2}$/.test(c)) return { k: c, shift }
+  const sign = signOf(e)
+  // a letter or digit key that types a sign is that sign (QWERTZ's Shift+7 is /, Shift+0 is =; AZERTY's 6 is -, its
+  // M place a comma; Ergo-L's C place is -, Dvorak's Q place a quote), except with Option or Alt held: Alt+1–9 pick a
+  // space on every keyboard, and Option over a letter keeps the letter
+  const m = /^Key([A-Z])$|^(?:Digit|Numpad)(\d)$/.exec(c)
+  if (m && !(sign && !e.altKey)) return { k: (m[1] ?? m[2])!, shift }
+  if (sign) return sign
+  if (CODE[c]) return { k: CODE[c], shift }
   // no code (a test, an odd keyboard): the key's own name
   const k = KEYNAME[e.key] ?? e.key
   if (['Shift', 'Control', 'Alt', 'Meta', 'OS', 'CapsLock', 'Dead', 'Unidentified', 'Process'].includes(k)) return null
-  return k.length === 1 ? k.toUpperCase() : k
+  return { k: k.length === 1 ? k.toUpperCase() : k, shift }
 }
 
 /** a key press as a chord ("Mod+Shift+K"), or null for a modifier alone */
 export function chordOf(e: KeyLike, mac = isMac()): string | null {
-  const k = keyOf(e)
-  if (!k) return null
+  const key = keyOf(e)
+  if (!key) return null
+  const { k } = key
   const mods: Mod[] = []
   if (mac ? e.metaKey : e.ctrlKey) mods.push('Mod')
   if (mac && e.ctrlKey) mods.push('Ctrl')
   if (e.altKey) mods.push('Alt')
-  if (e.shiftKey) mods.push('Shift')
+  if (key.shift) mods.push('Shift')
   if (!mac && e.metaKey) mods.push('Meta')
   return [...mods, k].join('+')
 }
@@ -149,8 +171,9 @@ export function mayFire(chord: string, focus: Focus, o: { terminal?: boolean; le
 
 /** chords the browser keeps for itself: a page never gets them (new window, new tab, close, quit, tab switching) */
 const KEPT = ['Mod+N', 'Mod+Shift+N', 'Mod+T', 'Mod+Shift+T', 'Mod+W', 'Mod+Shift+W', 'Mod+Q', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Mod+Tab']
-/** chords a page can take but people expect the browser's (address bar, reload, find, print, bookmark, tabs by number) */
-const EXPECTED = ['Mod+L', 'Mod+R', 'Mod+Shift+R', 'Mod+F', 'Mod+P', 'Mod+D', 'Mod+S', 'Mod+C', 'Mod+V', 'Mod+X', 'Mod+Z', 'Mod+Shift+Z', 'Mod+A', 'Mod+H', 'Mod+M', 'Mod+[', 'Mod+]', 'Mod+=', 'Mod+-', 'Mod+0', ...'123456789'.split('').map((n) => `Mod+${n}`)]
+/** chords a page can take but people expect the browser's (address bar, reload, find, print, bookmark, tabs by number);
+ *  Mod+= Mod+- Mod+0 are the app's own Zoom (Settings › General), not here */
+const EXPECTED = ['Mod+L', 'Mod+R', 'Mod+Shift+R', 'Mod+F', 'Mod+P', 'Mod+D', 'Mod+S', 'Mod+C', 'Mod+V', 'Mod+X', 'Mod+Z', 'Mod+Shift+Z', 'Mod+A', 'Mod+H', 'Mod+M', 'Mod+[', 'Mod+]', ...'123456789'.split('').map((n) => `Mod+${n}`)]
 
 /** what the browser says about a chord: it keeps it (never reaches the page), or people expect its own */
 export function browserOwns(chord: string, mac = isMac()): 'kept' | 'expected' | null {

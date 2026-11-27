@@ -21,6 +21,7 @@
         "@vitejs/plugin-react": "6.1.2",
         "emojibase-data": "17.0.0",
         "playwright-core": "1.63.0",
+        "postcss": "8.5.32",
         "typescript": "5.9.3",
         "vite": "8.3.5",
       },

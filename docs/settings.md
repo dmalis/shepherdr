@@ -6,7 +6,7 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 
 | Section | What is in it |
 |---|---|
-| General | Theme, Chat width, Motion, and "Alerts on this device": Needs me, Everything or Off. Kept in that browser |
+| General | Theme, Zoom (the whole app, 67%–200%; ⌘= ⌘− ⌘0), Chat text size (Small, Default, Large, Larger: the messages only), Chat width, Motion, and "Alerts on this device": Needs me, Everything or Off. Kept in that browser |
 | Agents | What Chats, Tasks and Reviews run on. Each row opens the picker with Agent, Model, Effort, Speed and Permissions |
 | Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |

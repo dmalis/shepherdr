@@ -16,6 +16,7 @@ import { setupGuarded } from './guard.tsx'
 import { HttpError, wakeAll } from './uploads.ts'
 import { SHOW_AFTER } from './pending.ts'
 import { dismiss, toast, type ToastOpts } from './toasts.ts'
+import { widthUpTo } from './prefs.ts'
 
 /* ---------- the places plugins fill ---------- */
 
@@ -293,8 +294,9 @@ interface State {
   ui: UI
 }
 
-const MQ = typeof matchMedia === 'function' ? matchMedia('(max-width:767px)') : null
-const MQ2 = typeof matchMedia === 'function' ? matchMedia('(max-width:1023px)') : null
+// the phone and narrow layouts' widths, moved by Zoom as a browser's zoom moves them (prefs.ts)
+const MQ = widthUpTo(767)
+const MQ2 = widthUpTo(1023)
 
 function stored<T>(key: string, or: T): T {
   try {
