@@ -79,7 +79,8 @@ def preflight(a, p):
             if adopted:
                 took["selection"] = adopted     # the selection this run resumes was that run's
         return {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
-                "held": len(st.get("held") or []), "resuming": resuming(st)}
+                "held": len(st.get("held") or []), "resuming": resuming(st),
+                "issue_cursor": st.get("issue_cursor")}
 
 
 def resuming(st):
@@ -177,7 +178,8 @@ def select(a, p):
             st["release"], st["candidate"], st["sync"] = dict(got["release"]), got["candidate"], None
         held_now = [h.get("blocker") for h in st.get("held") or []
                     if (h.get("release") or {}).get("tag") == got["release"]["tag"]]
-    return {**got, "held": held_now}
+        cursor = st.get("issue_cursor")      # the person's upstream issues are searched from here (finish moves it)
+    return {**got, "held": held_now, "issue_cursor": cursor}
 
 
 def review_inputs(a, p):

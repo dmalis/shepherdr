@@ -555,7 +555,7 @@ class SyncCommand(Base):
         """A run that picks up an unfinished phase learns, from preflight alone, the commit and the sync PR its next
         call names (install <sha>, health <sha>, merge <pr>); nothing to resume says None."""
         code, out = self.sync("preflight")
-        self.assertEqual((code, out["resuming"]), (0, None))
+        self.assertEqual((code, out["resuming"], out["issue_cursor"]), (0, None, None))
         rel = {"tag": "v3.2.22", "sha": A_SHA}
         sync = {"branch": "sync/v3.2.22", "head": "b" * 40, "merge": "c" * 40, "run": "RUN-A", "folder": self.space,
                 "at": state.stamp(), "pr": 12, "main_before": "d" * 40, "merge_commit": "e" * 40}

@@ -44,7 +44,7 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 | `resume` | Carry on with |
 |---|---|
 | `selected`, `branch-pushed` | Step 2 (select again). If `sync/<tag>` is already on origin, reset this worktree to it in step 3 instead of merging again; its review starts over in this run. |
-| `tried` | Path `take`: step 5, with the pull request from `gh pr list -R dmalis/shepherdr --head <sync branch> --json number`. Path `install-main`: step 6. |
+| `tried` | Path `take`: step 5 with the sync's `pr`. When it is null, find it with `gh pr list -R dmalis/shepherdr --head <sync branch> --state all --json number,state` (a merge that died before it was recorded leaves it merged: `merge` verifies that). Path `install-main`: step 6. |
 | `merged` | Step 5: `merge <sync's pr>` again reads main's checks. Then step 6. |
 | `installing` | Step 6's `install <candidate>`: it reads the outcome of the update already asked for, and never asks twice. |
 | `installed` | Step 6's `health <candidate>`. |
@@ -90,8 +90,9 @@ on from their records ([Held](#held)).
    main --head sync/<tag> --title "Take upstream <tag>" --body-file <file>`. Its body:
    - the new versions' CHANGELOG lines, shortened;
    - each patch: kept as is, adapted (how), or dropped (why);
-   - the person's upstream issues closed or answered since the last sync PR merged: `gh search issues -R
-     eliasstravik/shepherdr --author @me --updated ">=<that date>"` (no `--state`, so both come). A closed one counts as
+   - the person's upstream issues closed or answered since the `issue_cursor` in `preflight`'s and `select`'s lines: `gh search issues -R
+     eliasstravik/shepherdr --author @me --updated ">=<issue_cursor>"` (no `--state`, so both come; a null cursor,
+     the first run, leaves `--updated` out). A closed one counts as
      fixed only when its closing pull request's merge commit is an ancestor of the release SHA. Write them "upstream
      issue 1556": no `#`, no link.
 
@@ -130,7 +131,8 @@ it found: report that, never a guess at why, and never repair `main` by force.
 
 1. After a healthy install: each issue in `fork/patches.json` at the candidate gets the status line "carried since
    `<tag>`"; a `fixed-upstream` issue whose line the candidate no longer has is closed now.
-2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`). It checks the worktree, fetches
+2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
+   or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
 3. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.

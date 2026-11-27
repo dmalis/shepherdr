@@ -518,7 +518,8 @@ state's `issue_cursor`:
 - A closed one counts as fixed only when its closing pull request's merge commit is an ancestor of the release taken.
 - Upstream issues are written "upstream issue 1556": no `#`, no link (the upstream-issue skill).
 - A rethink question is keyed by the upstream issue's URL in state, so it is asked once.
-- The cursor moves to the run's start time only when the run ends.
+- The cursor moves to the run's start time (its `select`) only when the run ends installed: that report lists the
+  issues, so a run that tells nothing never skips a reply. `preflight` and `select` print it.
 
 ## GitHub destinations and public text (Codex points 7 and 8)
 
