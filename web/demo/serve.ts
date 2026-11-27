@@ -23,13 +23,28 @@ let gone: NonNullable<Snapshot['sections']>[number] | null = null
 const held = new Map<string, any>()
 // the devices taken off Settings › Notifications' list (fork #96), until the page loads again
 const removedDevices = new Set<string>()
+// dmalis/shepherdr#59: a message sent while its chat's own agent waits on a card (a question, a permission) waits for
+// the answer and then goes, as the service does. DEMO_BEFORE=1 refuses it instead, as before that fix; DEMO_RACE=1 holds
+// GARDEN-4's permission card back until a message is sent there, as when the card and a send cross.
+const BEFORE = process.env.DEMO_BEFORE === '1', RACE = 'vm:GARDEN-4/worker'
+const raced = new Map<string, Message>()
+const coming = new Set<string>()
+const holdRace = () => {
+  if (process.env.DEMO_RACE !== '1') return
+  const c = chats[RACE], i = c?.messages.findIndex((m) => m.question) ?? -1
+  if (i >= 0) raced.set(RACE, c!.messages.splice(i, 1)[0]!)
+}
+const ownCard = (key: string) => chats[key]?.messages.some((m) => m.question && !m.question.by && m.question.sent === undefined && !m.question.closed)
 function resetDemo() {
   for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   n = 1000
   removedDevices.clear()
+  for (const [cid, h] of held) if (h.answer) held.delete(cid)
+  holdRace()
 }
+holdRace()
 
 const push = () => socks.forEach((s) => s.send(JSON.stringify({ type: 'snapshot', snapshot: state[s.data.mode] })))
 /** your reaction toggles, as the real service's: the agent's own stays (the same emoji from both: 'both') */
@@ -130,6 +145,17 @@ function action(a: Record<string, any>): unknown {
     held.set(a.cid, a)
     return { ok: true, waiting: true, waitsFor: 'turn' }
   }
+  if (a.type === 'send' && (ownCard(a.chat) || raced.has(a.chat))) {
+    const late = raced.get(a.chat)
+    if (late && !coming.has(a.chat)) {
+      // (marked until the card is in, so a second send meanwhile waits too)
+      coming.add(a.chat)
+      setTimeout(() => (raced.delete(a.chat), coming.delete(a.chat), chats[a.chat]!.messages.push(late), pushChat(a.chat)), 600)
+    }
+    if (BEFORE) return { status: 400, text: "It's asking you something. Answer that in its terminal first." }
+    held.set(a.cid, { ...a, answer: true })
+    return { ok: true, waiting: true, waitsFor: 'answer' }
+  }
   if (a.type === 'held-now' || a.type === 'held-drop') {
     const h = held.get(a.cid)
     if (!h) return { ok: false, error: 'That message has gone in already.' }
@@ -186,6 +212,8 @@ function action(a: Record<string, any>): unknown {
     for (const c of Object.values(chats)) for (const m of c.messages) if (m.question?.id === a.question) { m.question = a.talk ? { ...m.question, closed: 'Left to talk over in the chat' } : { ...m.question, sent: a.other ? -1 : a.choice ?? 0, said: a.other || m.question.choices[a.choice ?? 0]?.label, ...(a.byVoice ? { via: 'voice' as const } : {}) }; pushChat(c.key) }
     const t = a.question === 'q-pay' ? 'SHOP-14' : 'vm:GARDEN-4'
     patchTask(t, { status: 'work', blocked: undefined, report: { msg: 'Carrying on' } })
+    // what waited for this answer goes now
+    for (const [cid, h] of held) if (h.answer && !ownCard(h.chat)) held.delete(cid), setTimeout(() => say(h.chat, { who: 'you', text: h.text, cid }), 400)
     if (a.byVoice && a.question === 'q-pay') setTimeout(() => say('SHOP-14/worker', { text: "Going with Stripe. I'll tell you when it's ready." }), 500)
     return { ok: true }
   }
@@ -352,7 +380,11 @@ Bun.serve<Sock['data'], never>({
       const repo = /^~\/dev\/(shop|blog|garden|portfolio)(\/|$)/.exec(p)
       return Response.json({ path: p, exists: !!repo || p === '~/notes', dir: true, repo: repo ? `~/dev/${repo[1]}` : null, entries: [] })
     }
-    if (path === '/api/action') return Response.json(action((await req.json()) as Record<string, any>) ?? { ok: true })
+    if (path === '/api/action') {
+      const out = (action((await req.json()) as Record<string, any>) ?? { ok: true }) as Record<string, unknown>
+      // a refusal as the service gives it: its words, plain, with its status
+      return typeof out.status === 'number' && typeof out.text === 'string' ? new Response(out.text, { status: out.status }) : Response.json(out)
+    }
     if (path === '/api/upload') {
       const f = (await req.formData()).get('file') as File | null
       const name = (f?.name || 'file').replace(/[^\w.-]/g, '_')

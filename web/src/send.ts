@@ -4,7 +4,7 @@
 import type { ReplyQuote } from '@shared/types.ts'
 import { act, getState, holdReload, notice, setOutbox, setUI, type Outgoing } from './kernel.ts'
 import { anchorOf, priorOf, reasonOf, SEND_TIMEOUT } from './outbox.ts'
-import { postFile, retrying } from './uploads.ts'
+import { HttpError, postFile, retrying } from './uploads.ts'
 
 /** an id of the screen's own (randomUUID needs https, and a tailnet link may be plain http) */
 const newCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -89,6 +89,9 @@ export function detach(key: string, index: number) {
   setBox(key, (fs) => fs.filter((_, i) => i !== index))
 }
 
+/** what the server is asked: the message, by its id (asked again, the same id gets the same answer) */
+const sendOf = (o: Outgoing) => ({ type: 'send', chat: o.chat, text: o.text, attachments: o.files.map((f) => f.path), cid: o.cid, ...(o.reply?.task ? { replyTask: o.reply.task } : { reply: o.reply?.id }), human: true, ...(o.hold ? { hold: true } : {}), ...(o.was ? { was: o.was } : {}), ...(o.how ? { how: o.how } : {}) })
+
 async function deliver(cid: string, pending: Promise<string>[]) {
   const first = getState().outbox.find((x) => x.cid === cid)
   if (!first || first.state !== 'sending') return
@@ -112,7 +115,7 @@ async function deliver(cid: string, pending: Promise<string>[]) {
     let r: { waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }
     try {
       r = await retrying(
-        () => act<typeof r>({ type: 'send', chat: o.chat, text: o.text, attachments: files.map((f) => f.path), cid, ...(o.reply?.task ? { replyTask: o.reply.task } : { reply: o.reply?.id }), human: true, ...(o.hold ? { hold: true } : {}), ...(o.was ? { was: o.was } : {}), ...(o.how ? { how: o.how } : {}) }, AbortSignal.timeout(SEND_TIMEOUT)),
+        () => act<typeof r>(sendOf({ ...o, files }), AbortSignal.timeout(SEND_TIMEOUT)),
         first.at,
         { onWait: (offline) => patch((x) => (!!x.offline === offline ? {} : { offline: offline || undefined })) },
       )
@@ -186,3 +189,28 @@ export function resumeSending() {
   for (const o of getState().outbox) if (o.state === 'sending' && !gates.has(o.cid) && o.files.every((f) => f.path)) void deliver(o.cid, [])
 }
 if (typeof window !== 'undefined') setTimeout(resumeSending, 0)
+
+/** dmalis/shepherdr#59: ones waiting for their agent's answer are asked about now and then, by their id: still waiting,
+ *  went in (it then shows in the chat like any sent message, timed from now), failed (Retry is the person's), or
+ *  unknown to the server (a restart lost it): only then is it sent again, by its id, so never twice. Asking never sends
+ *  anything itself. A failed ask changes nothing; the next one tries again. */
+export async function recheckWaiting() {
+  for (const o of getState().outbox) {
+    if (o.state !== 'sent' || !o.waiting || o.waitsFor !== 'answer' || gates.has(o.cid)) continue
+    const set = (p: Partial<Outgoing>) => setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sent' && x.waitsFor === 'answer' ? { ...x, ...p } : x)))
+    try {
+      const s = await act<{ state?: string; at?: number; error?: string }>({ type: 'send-state', cid: o.cid }, AbortSignal.timeout(SEND_TIMEOUT))
+      if (s?.state === 'went') set({ waiting: undefined, waitsFor: undefined, wentAt: Date.now(), serverAt: typeof s.at === 'number' ? s.at : o.serverAt })
+      else if (s?.state === 'failed') set({ state: 'failed', error: s.error || 'It did not go in.', waiting: undefined })
+      else if (s?.state === 'unknown') {
+        const r = await act<{ waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }>(sendOf(o), AbortSignal.timeout(SEND_TIMEOUT))
+        set({ waiting: r?.waiting || undefined, waitsFor: (r?.waiting && r.waitsFor) || undefined, ...(r?.waiting ? {} : { wentAt: Date.now() }), serverAt: typeof r?.at === 'number' ? r.at : o.serverAt })
+      }
+    } catch (e) {
+      // the server's own no (its agent is gone): Retry is the person's; out of reach: asked again next time
+      if (e instanceof HttpError && e.status >= 400 && e.status < 500) set({ state: 'failed', error: reasonOf(e), waiting: undefined })
+    }
+  }
+}
+export const RECHECK = 30_000
+if (typeof window !== 'undefined') setInterval(() => void recheckWaiting(), RECHECK)

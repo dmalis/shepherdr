@@ -263,7 +263,8 @@ export function expire(out: Outgoing[], now: number, working: (chat: string) => 
       return { ...o, busyAt: now }
     }
     if (o.state === 'sent' && !o.waiting && now - Math.max(o.wentAt ?? o.at, o.busyAt ?? 0) > KEEP_SENT) return fail("It didn't show up in the chat.", true)
-    if (o.state === 'sent' && o.waiting && !o.queued && now - o.at > KEEP_WAITING) return fail('Still waiting after 30 minutes.')
+    // (one waiting for its agent's answer waits as long as the question does: the page asks the server about it)
+    if (o.state === 'sent' && o.waiting && !o.queued && o.waitsFor !== 'answer' && now - o.at > KEEP_WAITING) return fail('Still waiting after 30 minutes.')
     return o
   })
   return changed ? next : out
