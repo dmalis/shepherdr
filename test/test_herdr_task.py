@@ -9161,6 +9161,94 @@ class HeldWhileOnAQuestion(unittest.TestCase):
             self.assertEqual([x["text"] for x in json.load(f)["t7"]], ["a note"])
 
 
+class HeldForTheTrueReason(unittest.TestCase):
+    """#12: a message to an Assistant with a question open (and nothing typed) was held as "the person is writing to
+    it": the dialog's highlighted option (❯ 1. …) was read as its input line. It still waits, as hc send would answer
+    the dialog, but says why, and goes once the question is answered or declined. hc is never run."""
+    RULE = "─" * 40 + "\n"
+    QUESTION = (RULE + " ☐ Colour\n\nWhich colour do you prefer?\n\n❯ 1. Red\n     Red\n  2. Green\n     Green\n"
+                "  3. Type something.\n" + RULE + "  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n")
+    EMPTY = RULE + "❯ \x1b[2mTry \"refactor <filepath>\"\x1b[22m\n" + RULE
+
+    def setUp(self):
+        import shutil
+        from unittest import mock
+        sys.path.insert(0, BIN)
+        import herdr_task.machines as machines
+        import herdr_task.news as news
+        self.news, self.machines, self.mock = news, machines, mock
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.k = {"state": "live", "status": {"app": "claude-code", "state": "idle"}, "labels": {}, "foreground": {"name": "claude"}}
+        self.screen = self.EMPTY
+        for obj, name, value in ((news, "screen_raw", lambda address, there=None: self.screen), (news, "HELD", os.path.join(self.tmp, "held.json")),
+                                 (news, "hc_json", lambda *a: self.k), (machines, "hc_json", lambda *a: self.k)):
+            p = mock.patch.object(obj, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_a_question_with_an_empty_line_is_not_input(self):
+        self.k["status"]["state"] = "blocked"
+        self.screen = self.QUESTION
+        self.assertEqual(self.news.typing("t3", self.k), "asking")
+        self.assertEqual(self.news.typing("t3", {**self.k, "status": "blocked"}), "asking")
+
+    def test_numbered_words_typed_in_the_input_line_are_still_input(self):
+        self.screen = self.RULE + "❯ 1. fix the failing test\n" + self.RULE
+        self.assertEqual(self.news.typing("t3", self.k), "input")
+        with self.mock.patch.object(self.news, "suggested", lambda k: ["1. fix the failing test"]):
+            self.assertIsNone(self.news.typing("t3", self.k), "one of its own suggested replies is no one typing (#1207)")
+
+    def test_an_empty_input_line_holds_nothing_and_typed_words_still_do(self):
+        self.assertIsNone(self.news.typing("t3", self.k), "the CLI's dim placeholder is no one's words")
+        self.screen = self.RULE + "❯ hello there\n" + self.RULE
+        self.assertEqual(self.news.typing("t3", self.k), "input")
+        self.k["labels"]["herdr.typing"] = "1"  # long gone: nothing sets it since 3.2, so an emptied chat box holds nothing
+        self.screen = self.EMPTY
+        self.assertIsNone(self.news.typing("t3", self.k))
+
+    def test_tell_assistant_says_it_is_asking_and_why_otherwise(self):
+        self.k["status"]["state"] = "blocked"
+        self.assertEqual(self.machines._held_why("t3"), "it's asking the person something; it goes once they've answered or declined it")
+        self.k["status"]["state"] = "working"
+        self.assertEqual(self.machines._held_why("t3"), "it's in the middle of a turn; it goes once that ends")
+        self.screen = self.RULE + "❯ hello there\n" + self.RULE
+        self.assertEqual(self.machines._held_why("t3"), "the person is writing to it; it goes once they've sent or cleared that")
+        import argparse
+        import io
+        from contextlib import redirect_stdout
+        ok = subprocess.CompletedProcess([], 0, "{}", "")
+        r = {"to": "t3", "space": "shop", "can_reply": True, "held": True, "why": self.machines.HELD_WHY["asking"]}
+        out = io.StringIO()
+        with self.mock.patch.object(self.machines.subprocess, "run", return_value=ok), \
+                self.mock.patch.object(self.machines, "tell", return_value=r), redirect_stdout(out):
+            self.machines.cmd_tell(argparse.Namespace(target="t3", text="hi", json=False))
+        self.assertEqual(out.getvalue().strip(), "Not delivered yet, held for t3 (shop): it's asking the person something; it goes once "
+                                                 "they've answered or declined it.")
+
+    def test_on_another_machine_it_says_it_is_asking(self):
+        with self.mock.patch.object(self.machines, "typing", lambda *a, **k: "asking"), \
+                self.mock.patch.object(self.machines, "guard", lambda a: None), \
+                self.mock.patch.object(self.machines.time, "sleep", lambda s: None):
+            with self.assertRaises(self.machines.Fail) as e:
+                self.machines._deliver(["vm-b"], ["herdr-core"], "t3", "hello")
+        self.assertIn("asking the person something", str(e.exception))
+        self.assertNotIn("writing", str(e.exception))
+
+    def test_held_while_it_asks_then_sent_once_answered(self):
+        sent = []
+        self.k["status"]["state"] = "blocked"
+        self.screen = self.QUESTION
+        with self.mock.patch.object(self.news, "news_send", lambda to, text, check=True: sent.append((to, text)) or True):
+            self.assertEqual(self.news.send_or_hold("t3", "from another Assistant", "news"), "held")
+            self.news.held_pass({})
+            self.assertEqual(sent, [], "never typed into its question")
+            self.k["status"]["state"] = "idle"
+            self.screen = self.EMPTY
+            self.news.held_pass({})
+        self.assertEqual(sent, [("t3", "from another Assistant")])
+
+
 class WorktreeRemovalStopsItsServers(unittest.TestCase):
     """#1127: a done task's dev server still running in its worktree kept writing there, so the removal left part of
     the folder behind (git's record gone) and the server ran on. Now it is stopped first, the folder is really gone,

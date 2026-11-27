@@ -500,7 +500,9 @@ def typed_input(raw):
 
 def typing(address, k=None, there=None):
     """Why the person is writing to this agent now, else None: "chat" (its chat box holds unsent
-    words) or "input" (its CLI's input line holds text they typed). k: its hc get, when at hand."""
+    words), "input" (its CLI's input line holds text they typed) or "asking" (#12: its status says a question or
+    permission dialog is open: no one writes, yet what's sent waits, as hc send would answer it). k: its hc get, when
+    at hand."""
     if k is None:
         if there:
             try:
@@ -517,6 +519,8 @@ def typing(address, k=None, there=None):
         at = 0
     if at and now() - at < TYPING_KEEP_MS:
         return "chat"
+    if status_word(k) == "blocked":
+        return "asking"  # #12: its dialog's highlighted option (❯ 1. Red) read as the input line
     typed = typed_input(screen_raw(address, there))
     if not typed:
         return None
