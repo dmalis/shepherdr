@@ -632,10 +632,13 @@ class Rehearsal:
         problems = []
         if self.scratch:
             try:
-                if self.stop_runners():
-                    problems.append("an update the rehearsal started wouldn't stop")
+                left = self.stop_runners()
             except OSError as e:
-                problems.append(f"stopping the update: {one_line(e)}")
+                left = [f"({one_line(e)})"]
+            if left:
+                # never pulled from under an update still running: the folder stays for the person to look at
+                problems.append("an update the rehearsal started wouldn't stop, so its scratch folder was kept")
+                return problems
             shutil.rmtree(self.scratch, ignore_errors=True)
             if os.path.exists(self.scratch):
                 time.sleep(1)

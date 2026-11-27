@@ -161,31 +161,52 @@ class Run(unittest.TestCase):
         p = subprocess.Popen([sys.executable, REHEARSE, space.cand, "--repo", space.folder, "--no-build",
                               "--root", self.state_root], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                              env=env, stdin=subprocess.DEVNULL)
+        self.addCleanup(self.stop_strays)      # a failed assertion still stops what the rehearsal started
+        out = err = ""
         try:
             deadline = time.time() + 180
             while not os.path.exists(mark) and time.time() < deadline and p.poll() is None:
                 time.sleep(0.2)
             self.assertTrue(os.path.exists(mark), "the candidate's update never began")
             self.assertTrue(self.procs(), "the update runs under the scratch folder")
-            p.send_signal(signal.SIGINT)
-            out, err = p.communicate(timeout=120)
         finally:
             if p.poll() is None:
-                p.kill()
+                p.send_signal(signal.SIGINT)   # the rehearsal's own cleanup, also when the test failed above
+                try:
+                    out, err = p.communicate(timeout=120)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    out, err = p.communicate()
         self.assertEqual(out.strip().splitlines()[-1], "FAIL: interrupted: SIGINT", out + err)
         self.assertEqual(os.listdir(self.scratch_tmp), [], "the scratch folder is gone")
         self.assertEqual(self.procs(), [], "nothing the rehearsal started still runs")
         self.assertEqual(self.st()["rehearsals"], [])
 
     def procs(self):
-        """Processes whose command line names this test's scratch folder."""
+        """Processes whose command line names this test's scratch folder, from `ps` (Linux and macOS alike)."""
+        r = subprocess.run(["ps", "-A", "-o", "pid=,command="], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
         out = []
-        for d in os.listdir("/proc") if os.path.isdir("/proc") else []:
-            if d.isdigit():
-                line = rehearse.cmdline(int(d)) or ""
-                if self.scratch_tmp in line:
-                    out.append((int(d), line[:120]))
+        for line in r.stdout.splitlines():
+            pid, _, cmd = line.strip().partition(" ")
+            if self.scratch_tmp in cmd and pid.isdigit() and int(pid) != os.getpid():
+                out.append((int(pid), cmd[:120]))
         return out
+
+    def stop_strays(self):
+        for pid, _ in self.procs():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    def test_cleanup_keeps_the_scratch_folder_while_an_update_still_runs(self):
+        r = rehearse.Rehearsal("HEAD", ROOT, state_root=self.state_root)
+        r.scratch = tempfile.mkdtemp(prefix="fork-rehearse-kept-", dir=self.scratch_tmp)
+        with mock.patch.object(rehearse.Rehearsal, "stop_runners", return_value=[4242]):
+            problems = r.cleanup()
+        self.assertEqual(problems, ["an update the rehearsal started wouldn't stop, so its scratch folder was kept"])
+        self.assertTrue(os.path.isdir(r.scratch))
 
     def test_a_baseline_that_is_the_commit_is_refused(self):
         space = Space(self.tmp)
