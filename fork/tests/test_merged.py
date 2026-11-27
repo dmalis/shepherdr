@@ -146,6 +146,13 @@ class Settle(syncworld.World):
         self.assertEqual(out["path"], "nothing")
         self.assertIn("held already", out["why"])
 
+    def test_a_settled_run_that_stopped_settles_again(self):
+        self.assertEqual(self.settle()["path"], "install-merged")
+        tip = self.our_merge("b.txt", "b, later\n")
+        out = self.settle()
+        self.assertEqual((out["path"], out["candidate"]), ("install-merged", tip), "the newer tip, pinned again")
+        self.assertNotIn("rounds", self.st()["run"], "nothing ended: no round")
+
     def test_no_baseline_stops(self):
         self.edit(baseline=None)
         with self.assertRaises(Refused) as e:

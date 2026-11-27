@@ -272,9 +272,10 @@ def ci_words(v, sha, rec):
     back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
     if v.get("verdict") == "missed":
         return f"CI on main never reported on {what} within {CI_MISSED_AFTER_S // 3600} hours.{back}"
-    red = [f"{n} on {str(g.get('by'))[:12]}" for n, g in (v.get("names") or {}).items() if g.get("state") == "red"]
-    return (f"CI on main failed after {what}: {', '.join(red) or 'a check'}. Nothing was rolled back: open a task to "
-            f"fix it.{back}")
+    red = [f"{n} failed on {str(g.get('by'))[:12]}" for n, g in (v.get("names") or {}).items()
+           if g.get("state") == "red"]
+    return (f"CI on main failed after {what}: {', '.join(red) or 'a check failed'}. Nothing was rolled back: open a "
+            f"task to fix it.{back}")
 
 
 
