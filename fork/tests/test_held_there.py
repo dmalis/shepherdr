@@ -37,6 +37,8 @@ elif a[:1] in (["send"], ["run"]):
     with open(os.path.join(d, a[0] + ".jsonl"), "a") as f:
         f.write(json.dumps(a[1:]) + "\n")
     if a[:1] == ["run"]:
+        if os.path.exists(os.path.join(d, "run-fails")):
+            sys.exit(1)
         print(json.dumps({"address": "t9", "state": "live"}))
 else:
     sys.exit(1)
@@ -155,9 +157,34 @@ class HeldOnAnotherMachine(unittest.TestCase):
         out = io.StringIO()
         with mock.patch.object(news, "send_or_hold", lambda a, t, how: "held"), \
                 mock.patch.object(machines, "_held_why", side_effect=OSError("Resource temporarily unavailable")), \
-                mock.patch.object(held_there, "ensure_runner", side_effect=OSError("no hc")), redirect_stdout(out):
+                mock.patch.object(held_there, "ensure_runner", lambda: True), redirect_stdout(out):
             held_there.cmd_receive(argparse.Namespace(address="t3", text="hi"))
         self.assertEqual(json.loads(out.getvalue()), {"got": "held", "why": None})
+
+    def test_a_hold_with_no_scheduler_to_send_it_is_taken_back_and_said_not_kept(self):
+        open(os.path.join(self.bin, "run-fails"), "w").close()
+        with self.assertRaises(machines.Fail) as e:
+            self.tell()
+        self.assertEqual(str(e.exception), held_there.NO_RUNNER)
+        self.assertEqual(len(self.sent("run")), 1, "it tried to start one")
+        with open(os.path.join(self.store, ".held.json")) as f:
+            self.assertEqual(json.load(f), {}, "nothing left held there")
+        self.state("idle")
+        self.held_pass()
+        self.assertEqual(self.sent(), [], "never sent later")
+
+    def test_the_cli_says_not_known_when_there_is_no_answer_in_time(self):
+        import argparse
+        with mock.patch.object(machines, "sandbox_blocks_hc", lambda: None), \
+                mock.patch.object(machines, "tell", side_effect=held_there.Unknown(held_there.UNKNOWN.format("in 30 s"))):
+            with self.assertRaises(machines.Fail) as e:
+                machines.cmd_tell(argparse.Namespace(target="vmb/t3", text="hi", json=False))
+        self.assertTrue(str(e.exception).startswith("Not known whether it reached vmb/t3: no answer"), str(e.exception))
+        with mock.patch.object(machines, "sandbox_blocks_hc", lambda: None), \
+                mock.patch.object(machines, "tell", side_effect=machines.Fail("couldn't deliver to vmb/t3")):
+            with self.assertRaises(machines.Fail) as e:
+                machines.cmd_tell(argparse.Namespace(target="vmb/t3", text="hi", json=False))
+        self.assertTrue(str(e.exception).startswith("Not delivered to vmb/t3: "), "a sure failure still says so")
 
     def test_no_answer_in_time_is_never_said_not_delivered(self):
         with mock.patch.object(held_there, "guard", lambda a: None), \
@@ -203,6 +230,9 @@ class Seams(unittest.TestCase):
         self.assertIn("from .held_there import deliver", src)
         self.assertIn('ok, held, why = deliver(to["route"].split(">"), to["how"], to["address"], msg)', src)
         self.assertIn('"why": held and (why or _held_why(to["address"]))', src)
+
+    def test_the_cli_leads_with_its_words(self):
+        self.assertIn("getattr(e, 'lead', 'Not delivered to')", inspect.getsource(machines.cmd_tell))
 
     def test_the_cli_has_receive(self):
         self.assertIn('sub.add_parser("_receive")', inspect.getsource(cli.main))

@@ -1738,8 +1738,8 @@ def cmd_tell(args):
         wait = TELL_WAIT
     try:
         r = _timed(lambda: tell(args.target, args.text), wait)
-    except Fail as e:
-        raise Fail(f"Not delivered to {args.target}: {e}") from None
+    except Fail as e:  # dmalis/shepherdr#80: an unknown outcome (held_there.Unknown) is never said not delivered
+        raise Fail(f"{getattr(e, 'lead', 'Not delivered to')} {args.target}: {e}") from None
     if r.get("left"):
         say(args, r, f"Not delivered yet, left for {r['to']} to fetch: {r['machine']} can't be reached from here, so it picks "
                      "this up itself the next time it checks (within a minute while it waits on an answer).")
