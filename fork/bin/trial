@@ -837,6 +837,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fork/bin/trial", description="A throwaway Shepherdr built from one commit.")
     ap.add_argument("sha", help="the commit to try")
     ap.add_argument("--repo", default=".", help="the git repo that has it (default: here)")
+    ap.add_argument("--root", help=argparse.SUPPRESS)   # the sync state's root (tests: a scratch one)
     a = ap.parse_args(argv)
 
     def stop(sig, frame):
@@ -863,8 +864,25 @@ def main(argv=None):
     elif problems:
         for p in problems:
             t.log(f"cleanup: {p}")
+    if result is None:
+        record_pass(t, a.root)
     print(result or "PASS", flush=True)
     return 0 if result is None else 1
+
+
+def record_pass(t, root=None):
+    """A PASS goes into the sync state with the commit's tree: the merge gate reads it for the sync PR's head, the
+    install for its candidate's tree. Only the trial writes it. A state that can't be written is said, and the
+    trial still passed: a gate that finds no record holds the run."""
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
+    try:
+        from sync import state
+        r = subprocess.run(["git", "-C", t.repo, "rev-parse", f"{t.sha}^{{tree}}"], capture_output=True, text=True)
+        with state.locked(state.Paths(root)) as st:
+            state.record_trial(st, t.sha, r.stdout.strip())
+        t.log(f"recorded the pass on {t.sha[:12]} in the sync state")
+    except Exception as e:  # noqa: BLE001 - the trial's result stands either way
+        t.log(f"the pass couldn't be recorded in the sync state: {getattr(e, 'why', None) or type(e).__name__}")
 
 
 if __name__ == "__main__":

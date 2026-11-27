@@ -664,5 +664,41 @@ class Pins(unittest.TestCase):
         self.assertIn('"none of the git remotes"', gh)
 
 
+class RecordedPass(Base):
+    """A PASS goes into the sync state with its tree (build task 3): the merge gate reads it for the sync PR's head."""
+
+    def test_a_pass_is_recorded_and_moves_the_runs_phase(self):
+        sys.path.insert(0, os.path.join(ROOT, "fork"))
+        from sync import state
+        root = os.path.join(self.tmp, "root")
+        p = state.Paths(root)
+        t = self.make()
+        t.sha = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        tree = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True,
+                              text=True).stdout.strip()
+        with state.locked(p) as st:
+            st.update(phase="branch-pushed", sync={"head": t.sha})
+        trial.record_pass(t, root)
+        st = state.load(p)
+        self.assertEqual(state.trial_passed(st, t.sha)["tree"], tree)
+        self.assertEqual(st["phase"], "tried")
+        # another commit's pass is kept and moves nothing
+        with state.locked(p) as st:
+            st.update(phase="branch-pushed", sync={"head": "f" * 40})
+        trial.record_pass(t, root)
+        self.assertEqual(state.load(p)["phase"], "branch-pushed")
+
+    def test_a_state_that_cant_be_written_is_said_not_raised(self):
+        said = []
+        t = self.make()
+        t.log, t.sha = said.append, "0" * 40
+        root = os.path.join(self.tmp, "root")
+        os.makedirs(os.path.join(root, ".local", "state", "shepherdr-fork", "sync"))
+        with open(os.path.join(root, ".local", "state", "shepherdr-fork", "sync", "state.json"), "w") as f:
+            f.write("{not json")
+        trial.record_pass(t, root)
+        self.assertIn("couldn't be recorded", said[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

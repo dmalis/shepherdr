@@ -102,6 +102,14 @@ def fresh():
         "rehearsals": [],
         "pending": None,
         "installs": [],
+        # build task 3 (fork/sync/release.py, gate.py):
+        "run": None,              # this run's own record: {key, folder, path, start, at, merged, held, finished}
+        "main": None,             # origin/main's SHA, pinned when the run selected
+        "in_main": None,          # {tag, sha}: the newest release origin/main holds, proven its ancestor
+        "sync": None,             # the sync branch: {branch, head, merge, at, main_before, pr}
+        "trials": [],             # [{sha, tree, at}]: fork/bin/trial passed on that commit
+        "checks": [],             # [{sha, at}]: main's checks passed on that commit (fork/sync/gate.py)
+        "waits": {},              # {what: stamp}: when a gate first waited on checks still running
     }
 
 
@@ -280,6 +288,36 @@ def quarantine(st, sha, step, now=None):
         raise Refused("a quarantined commit is named by its full SHA", outcome="stop")
     if not quarantined(st, sha):
         st.setdefault("quarantine", []).append({"sha": sha, "step": step, "at": stamp(now)})
+
+
+# --- what passed on which commit ---
+
+KEEP = 50   # the newest records of each kind
+
+
+def record_trial(st, sha, tree, now=None):
+    """fork/bin/trial passed on this commit, whose tree is `tree`. Only the trial writes this. When the commit is
+    the one the run is trying (its sync head, or its candidate), the run's phase moves on to `tried`."""
+    if not SHA.match(sha or "") or not SHA.match(tree or ""):
+        raise Refused("a trial is recorded by its commit's and tree's full SHAs", outcome="stop")
+    st["trials"] = [t for t in st.get("trials") or [] if t.get("sha") != sha][-(KEEP - 1):] + [
+        {"sha": sha, "tree": tree, "at": stamp(now)}]
+    sync = st.get("sync") or {}
+    if st.get("phase") in ("selected", "branch-pushed") and sha in (sync.get("head"), st.get("candidate")):
+        set_phase(st, "tried", now)
+
+
+def trial_passed(st, sha):
+    return next((t for t in st.get("trials") or [] if t.get("sha") == sha), None)
+
+
+def record_checks(st, sha, now=None):
+    if not checks_passed(st, sha):
+        st["checks"] = (st.get("checks") or [])[-(KEEP - 1):] + [{"sha": sha, "at": stamp(now)}]
+
+
+def checks_passed(st, sha):
+    return next((c for c in st.get("checks") or [] if c.get("sha") == sha), None)
 
 
 # --- held records ---

@@ -4,22 +4,27 @@ decides and the code checks (fork/specs/sync-pipeline.md). Each subcommand print
 when its step passed.
 
   preflight --run <key> --folder <space>   checks the repo, takes the run's lease, reads state, says where to resume
+  select --run <key> --folder <space>      the newest stable release, and the run's path: nothing, install-main, take
+  review-inputs --run <key> --folder <space>   the reviewer's three diffs for the pushed sync branch, as files
+  merge <pr> --run <key> --folder <space>  the one merge route for a sync PR: its gates, the merge, main's checks
+  public-check <file>                      refuses text with paths, hosts, emails or raw output before GitHub
+  finish --run <key> --folder <space> [--says "<what's new>"]   the exact completion command for the outcome
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
   held                                     reads the held records, and whether each one's question is due
   clear-broken                             the person's only: clears a broken phase (refused in a task's terminal)
 
-Every subcommand takes --root <dir> (the home unless named: the rehearsal and tests use a scratch one). A new step
-is one more entry in COMMANDS."""
+The git steps work in the current folder, the run's worktree (--repo names another). Every subcommand takes
+--root <dir> (the home unless named: the rehearsal and tests use a scratch one). A new step is one more entry in
+COMMANDS."""
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import state  # noqa: E402
+from sync import gate, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -28,7 +33,7 @@ def git(folder, *args):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-ORIGIN = re.compile(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$")
+ORIGIN = release.GITHUB
 
 
 def check_repo(folder):
@@ -86,6 +91,11 @@ def hold(a, p):
         state.set_phase(st, "held")
         rec, new = state.hold(st, a.tag, a.sha, a.kind, a.blocker, a.line, branch=a.branch, pr=a.pr,
                               head=a.head, files=a.files, issue=a.issue)
+        # finish reads which record held this run, and whether the person hears of it now (only the first time)
+        r = st.get("run") if (st.get("run") or {}).get("key") == a.run else {"key": a.run, "folder": a.folder}
+        was = r.get("held") or {}
+        told = new or (was.get("blocker") == a.blocker and bool(was.get("new")))
+        st["run"] = dict(r, held={"blocker": a.blocker, "new": told})
         return {"held": rec, "new": new}
 
 
@@ -121,8 +131,93 @@ def clear_broken(a, p):
     return {"phase": None}
 
 
+def run_args(c):
+    preflight_args(c)
+    c.add_argument("--repo", default=".", help="the run's worktree (default: here)")
+
+
+def select(a, p):
+    repo = os.path.abspath(a.repo)
+    with state.locked(p) as st:
+        state.owns_lease(st, a.run, a.folder)
+        if st.get("phase") in state.MOVING:
+            raise Refused(f"the phase is {st['phase']}: finish that first (preflight says where to resume)",
+                          outcome="stop")
+        baseline = (st.get("baseline") or {}).get("sha")
+        bad = {q.get("sha") for q in st.get("quarantine") or []}
+    got = release.select(repo, baseline, quarantined=lambda sha: sha in bad)
+    start = release.rev(repo, "HEAD")
+    with state.locked(p) as st:
+        state.owns_lease(st, a.run, a.folder)
+        st["run"] = {"key": a.run, "folder": a.folder, "path": got["path"], "start": start, "at": state.stamp()}
+        st["main"], st["in_main"] = got["main"], got["in_main"]
+        if got["path"] != "nothing":
+            state.set_phase(st, "selected")
+            st["release"], st["candidate"], st["sync"] = dict(got["release"]), got["candidate"], None
+        held_now = [h.get("blocker") for h in st.get("held") or []
+                    if (h.get("release") or {}).get("tag") == got["release"]["tag"]]
+    return {**got, "held": held_now}
+
+
+def review_inputs(a, p):
+    return gate.review_inputs(p, a.run, a.folder, os.path.abspath(a.repo))
+
+
+def merge(a, p):
+    out = gate.merge(p, a.run, a.folder, os.path.abspath(a.repo), a.pr)
+    if out.get("wait"):
+        raise Refused(out["wait"], outcome="wait", **{k: v for k, v in out.items() if k != "wait"})
+    return out
+
+
+def merge_args(c):
+    c.add_argument("pr", type=int, help="the sync PR's number")
+    run_args(c)
+
+
+def hostname(p):
+    """The config's hostname, for the public check, when there is a config here."""
+    try:
+        return state.config(p)["hostname"]
+    except Refused:
+        return None
+
+
+def public_check(a, p):
+    try:
+        if a.file == "-":
+            text = sys.stdin.read()
+        else:
+            with open(a.file, encoding="utf-8") as f:
+                text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise Refused(f"the text can't be read ({type(e).__name__})", outcome="stop")
+    found = public.problems(text, hostname(p))
+    if found:
+        raise Refused(f"not for GitHub: {public.words(found)}", outcome="refused", problems=found)
+    return {"lines": len(text.splitlines())}
+
+
+def public_check_args(c):
+    c.add_argument("file", help="the text bound for GitHub (- reads it from stdin)")
+
+
+def finish(a, p):
+    return gate.finish(p, a.run, a.folder, os.path.abspath(a.repo), says=a.says, cfg_hostname=hostname(p))
+
+
+def finish_args(c):
+    run_args(c)
+    c.add_argument("--says", help="what's new, for an install's --told (the rest of the words are the state's)")
+
+
 COMMANDS = [
     ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", preflight_args, preflight),
+    ("select", "the newest stable release and the run's path", run_args, select),
+    ("review-inputs", "the reviewer's three diffs for the sync branch, as files", run_args, review_inputs),
+    ("merge", "the one merge route for a sync PR", merge_args, merge),
+    ("public-check", "refuses text with paths, hosts, emails or raw output", public_check_args, public_check),
+    ("finish", "the exact completion command for the run's outcome", finish_args, finish),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),
     ("clear-broken", "the person's only: clears a broken phase", None, clear_broken),
