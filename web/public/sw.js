@@ -76,23 +76,30 @@ const appPage = (url) => {
   return p === s || p === s + 'index.html'
 }
 
+/* its look is the app's own (ds.css): the theme's canvas and text, an empty state's type, the primary button. The
+   app's icon wears an amber dot while Shepherdr can't be reached, and a quiet line says when it tries next. */
 const downPage = () =>
   new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Shepherdr</title><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff">
+<title>Can't reach Shepherdr</title><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff">
 <style>
-:root{color-scheme:light;--bg:#fff;--fg:#0a0a0a;--sub:#525252;--btn:#0a0a0a;--btnfg:#fff}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#121212;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#121212;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}
-:root[data-theme="night"]{color-scheme:dark;--bg:#000;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}
-html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overscroll-behavior:none}
-body{display:grid;place-items:center;padding:env(safe-area-inset-top) 24px env(safe-area-inset-bottom);box-sizing:border-box;font:16px/24px ui-sans-serif,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;app-region:drag;-webkit-app-region:drag}
-main{display:grid;justify-items:center;gap:12px;max-width:340px;text-align:center}
-svg{width:56px;height:56px;margin-bottom:4px}
-h1{margin:0;font-size:20px;line-height:28px;font-weight:600}
-p{margin:0;color:var(--sub);font-size:15px;line-height:22px}
-button{margin-top:8px;height:40px;padding:0 20px;border:0;border-radius:999px;background:var(--btn);color:var(--btnfg);font:inherit;font-size:15px;font-weight:600;line-height:40px;cursor:pointer;app-region:no-drag;-webkit-app-region:no-drag;-webkit-user-select:none;user-select:none}
-button:disabled{opacity:.6;cursor:default}
+:root{color-scheme:light;--canvas:#fff;--fg:#0a0a0a;--sub:#404040;--muted:#737373;--amber:#b45309;--line:rgb(0 0 0/.08)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--canvas:#121212;--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--amber:#fbbf24;--line:rgb(255 255 255/.12)}}
+:root[data-theme="dark"]{color-scheme:dark;--canvas:#121212;--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--amber:#fbbf24;--line:rgb(255 255 255/.12)}
+:root[data-theme="night"]{color-scheme:dark;--canvas:#000;--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--amber:#fbbf24;--line:rgb(255 255 255/.12)}
+html,body{height:100%;margin:0;background:var(--canvas);color:var(--fg);overscroll-behavior:none}
+body{display:grid;place-items:center;box-sizing:border-box;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));font:16px/24px InterVariable,ui-sans-serif,system-ui,-apple-system,sans-serif;font-feature-settings:"cv02","cv03","cv04","cv11";-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;app-region:drag;-webkit-app-region:drag}
+main{display:grid;justify-items:center;max-width:320px;text-align:center}
+.mark{position:relative;width:48px;height:48px;margin-bottom:20px}
+.mark svg{display:block;width:48px;height:48px;border-radius:11px;box-shadow:0 0 0 1px var(--line)}
+.mark i{position:absolute;right:-3px;top:-3px;width:14px;height:14px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px var(--canvas)}
+h1{margin:0 0 4px;font-size:18px;line-height:24px;font-weight:600}
+p{margin:0;color:var(--sub);font-size:14px;line-height:20px;text-wrap:pretty}
+button{margin-top:20px;height:36px;padding:0 16px;border:0;border-radius:8px;background:var(--fg);color:var(--canvas);font:inherit;font-size:14px;line-height:20px;font-weight:500;cursor:pointer;app-region:no-drag;-webkit-app-region:no-drag;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+button:active:not(:disabled){opacity:.8}
+button:disabled{opacity:.6;cursor:progress}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+#next{min-height:18px;margin-top:10px;color:var(--muted);font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
 </style>
 <script>
 (function(){var t='System';try{t=(JSON.parse(localStorage.getItem('shepherdr.prefs')||'{}')||{}).theme||'System'}catch(e){}
@@ -100,20 +107,23 @@ if(t!=='System')document.documentElement.dataset.theme=t.toLowerCase()
 var dark=t==='Night'||t==='Dark'||(t==='System'&&matchMedia('(prefers-color-scheme: dark)').matches)
 document.querySelector('meta[name=theme-color]').content=t==='Night'?'#000000':dark?'#121212':'#ffffff'})()
 </script></head><body><main>
-<svg viewBox="0 0 44 44" aria-hidden="true"><rect width="44" height="44" rx="10" fill="#09090b"/><g transform="translate(4.5 3) scale(1.125)"><path transform="rotate(12 16 16)" d="M21 60V12a7 7 0 0 0-14 0v2.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></g></svg>
+<div class="mark"><svg viewBox="0 0 44 44" aria-hidden="true"><rect width="44" height="44" rx="10" fill="#09090b"/><g transform="translate(4.5 3) scale(1.125)"><path transform="rotate(12 16 16)" d="M21 60V12a7 7 0 0 0-14 0v2.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></g></svg><i></i></div>
 <h1>Can't reach Shepherdr</h1>
-<p id="why">It may be restarting or updating. This page tries again by itself and opens Shepherdr once it answers.</p>
-<button id="again" type="button">Try again</button>
+<p id="why"></p>
+<button id="again" type="button">Try now</button>
+<div id="next" role="status" aria-live="polite"></div>
 </main><script>
-(function(){var wait=2000,timer=0,busy=false,btn=document.getElementById('again'),why=document.getElementById('why')
-function say(){why.textContent=navigator.onLine===false?'This device is offline. Shepherdr opens once it is back online.':'It may be restarting or updating. This page tries again by itself and opens Shepherdr once it answers.'}
-function later(){clearTimeout(timer);timer=setTimeout(go,wait);wait=Math.min(wait*2,15000)}
-function go(){if(busy)return;busy=true;btn.disabled=true;btn.textContent='Trying…';say()
+(function(){var wait=2000,at=0,timer=0,tick=0,busy=false,btn=document.getElementById('again'),why=document.getElementById('why'),next=document.getElementById('next')
+function say(){why.textContent=navigator.onLine===false?"This device is offline. Shepherdr opens as soon as it's back online.":"The Shepherdr service isn't answering. It may be restarting after an update. Shepherdr opens as soon as it answers."}
+function count(){var s=Math.max(1,Math.ceil((at-Date.now())/1000));next.textContent='Next try in '+s+' s'}
+function later(){clearTimeout(timer);clearInterval(tick);at=Date.now()+wait;timer=setTimeout(go,wait);count();tick=setInterval(count,1000);wait=Math.min(wait*2,15000)}
+function go(){if(busy)return;busy=true;clearTimeout(timer);clearInterval(tick);btn.disabled=true;next.textContent='Trying…';say()
 fetch(location.href,{cache:'no-store',credentials:'include',redirect:'manual'}).then(function(r){
-if(r.type==='opaqueredirect'||${JSON.stringify(DOWN)}.indexOf(r.status)<0){location.reload();return}throw 0
-}).catch(function(){busy=false;btn.disabled=false;btn.textContent='Try again';later()})}
+if(r.type==='opaqueredirect'||${JSON.stringify(DOWN)}.indexOf(r.status)<0){next.textContent='Opening Shepherdr…';location.reload();return}throw 0
+}).catch(function(){busy=false;btn.disabled=false;later()})}
 btn.onclick=function(){wait=2000;go()}
 addEventListener('online',function(){wait=2000;go()})
+addEventListener('offline',say)
 document.addEventListener('visibilitychange',function(){if(!document.hidden){wait=2000;go()}})
 say();later()})()
 </script></body></html>`,

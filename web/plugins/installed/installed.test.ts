@@ -99,7 +99,7 @@ test("the app's page with the service down: its own page that tries again, not t
     expect(r.status).toBe(503)
     const html = await r.text()
     expect(html).toContain("Can't reach Shepherdr")
-    expect(html).toContain('Try again')
+    expect(html).toContain('Try now')
   }
 })
 
