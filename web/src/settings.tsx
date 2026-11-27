@@ -4,6 +4,7 @@
 // Everything", or "Set here" with a Reset button beside it. A row is a label and a control: no hint lines under one.
 import { useState, type ReactNode } from 'react'
 import { choose, TELL, turnOn, useDeviceAlerts, WHY, type Tell } from '@plugins/alerts/device.ts'
+import { DeviceCheck } from '@plugins/inbox/device-check.tsx'
 import type { Config, LevelConfig, RepoConfig, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, machineLabel, machineWarn, placeOf, spaceLabel, unreachable } from '@shared/view.ts'
 import { copyText } from './copy.ts'
@@ -195,6 +196,7 @@ function General() {
       <SRow label="Alerts on this device" wrap>
         <Seg<Tell> label="Alerts on this device" values={TELL} value={now?.tell ?? 'Needs me'} onChange={(v) => now && void run(() => choose(v, now))} />
       </SRow>
+      <DeviceCheck now={now} reread={read} />
     </>
   )
 }

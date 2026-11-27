@@ -296,6 +296,21 @@ Bun.serve<Sock['data'], never>({
     // a background shell's last lines (chat/jobs.tsx)
     if (path === '/api/activity' && url.searchParams.get('what') === 'job') return Response.json({ output: `  VITE v6.0.0  ready in 412 ms\n\n  ➜  Local:   http://127.0.0.1:5173/\n  page reload src/checkout.css (${new Date().toLocaleTimeString()})` })
     if (path === '/api/me') return Response.json({ login: 'sam', off: [] })
+    // the bell's list (fork #37): read on one page, read on all; and the devices that get alerts
+    if (path === '/api/inbox/read') {
+      const b = (await req.json().catch(() => ({}))) as { all?: boolean; ids?: string[] }
+      each((snap) => { for (const x of snap.inbox ?? []) if (b.all || b.ids?.includes(x.id)) x.read = true })
+      push()
+      return Response.json({ ok: true, changed: true })
+    }
+    // a page that holds a push subscription (a real browser's, or a stub's) is on: its state, a test, and itself first
+    if (path === '/api/push/state') return Response.json({ on: true, topics: ['needs', 'ready'], muted: [], devices: 3 })
+    if (path === '/api/push/test') return Response.json({ ok: true, said: 'Sent. It should show in a few seconds.' })
+    if (path === '/api/push/devices') return Response.json({ devices: [
+      ...(((await req.clone().json().catch(() => ({}))) as { endpoint?: string }).endpoint ? [{ id: 'd0', device: req.headers.get('user-agent') ?? '', at: Date.now() - 3 * 86400_000, seen: Date.now(), last: { at: Date.now() - 20 * 60_000, status: 201 }, topics: ['needs', 'ready'], mine: true }] : []),
+      { id: 'd1', device: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', at: Date.now() - 20 * 86400_000, seen: Date.now() - 3600_000, last: { at: Date.now() - 5 * 60_000, status: 201 }, topics: ['needs', 'ready'] },
+      { id: 'd2', device: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', at: Date.now() - 9 * 86400_000, seen: Date.now() - 2 * 60_000, last: { at: Date.now() - 2 * 86400_000, status: 201 }, topics: ['needs', 'ready', 'done'] },
+    ] })
     // the # list's spaces (service/main.ts reachOf): every space but Everything, this machine's and the others'
     // the / list's commands (service/main.ts, core/slash.js): Claude Code's, and one of the person's own
     if (path === '/api/commands') return Response.json({ commands: commandList('claude', [{ name: 'ship', about: 'Commit, push and open a pull request' }]) })

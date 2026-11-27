@@ -1,0 +1,34 @@
+/* The alerts list (fork #37), in the design system's tokens: a popover 380 px wide on a computer, the menu sheet on a
+   phone. Each alert a row: its kind's icon, its words (bold until read), where and when, and whether it still waits;
+   an unread one carries the app's blue dot (as Update's), at the row's end, in the rhythm of Slack's Activity. */
+.pop:has(>.inbx){width:min(380px,calc(100vw - 16px));max-width:none;padding:0;display:flex;overflow:hidden}
+.pop.sheet:has(>.inbx){width:auto;padding:8px 0 0;flex-direction:column}
+.pop.sheet:has(>.inbx)::before{flex:none;margin:0 auto}
+.inbx{display:flex;flex-direction:column;width:100%;min-width:0;max-height:min(560px,calc(100vh - 96px))}
+.sheet .inbx{max-height:min(80vh,calc(100dvh - 64px))}
+.inbx-hd{display:flex;align-items:center;gap:8px;min-height:var(--hd);padding:0 8px 0 16px;flex:none}
+.inbx-hd b{flex:1;min-width:0;font-weight:600;font-size:var(--h1)}
+.inbx-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 8px 16px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);flex:none}
+.inbx-list{overflow:auto;overscroll-behavior:contain;padding:0 4px 8px;border-top:1px solid var(--line)}
+.inbx-list .cap{padding:12px 12px 4px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+.inbx-list .empty{padding:40px 24px}
+.inbx-it{display:flex;align-items:flex-start;gap:10px;width:100%;padding:8px 12px 8px 12px;border-radius:8px;color:var(--sub);text-align:left}
+.inbx-it:hover{background:var(--control)}
+.inbx-it>.i{margin-top:calc((var(--uil) - var(--ic)) / 2)}
+.inbx-it .n{flex:1;min-width:0;display:grid}
+.inbx-t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub)}
+.inbx-it.new .inbx-t{color:var(--fg);font-weight:600}
+.inbx-b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.inbx-it:not(.new) .inbx-b{color:var(--muted)}
+.inbx-m{display:flex;flex-wrap:wrap;column-gap:8px;margin-top:2px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums}
+.inbx-st{color:var(--muted)}.inbx-st.wait{color:var(--amber);font-weight:500}
+.inbx-dot{flex:none;width:8px;height:8px;margin-top:calc((var(--uil) - 8px) / 2);border-radius:50%;background:var(--blue)}
+/* the device check under Settings › General › Notifications */
+.dchk{display:grid;gap:8px;margin:8px 0}
+.dchk .note{font-size:var(--sec);line-height:var(--secl)}
+.dchk .note.warn{box-shadow:inset 3px 0 0 var(--amber)}
+.dchk .cap{margin-top:16px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+.dchk .dev{display:flex;align-items:center;gap:12px;min-height:var(--row2);padding:8px 0;border-top:1px solid var(--line)}
+.dchk .dev .n{flex:1;min-width:0}.dchk .dev .l2{white-space:normal}
+.dchk .dev .v{color:var(--muted);font-size:var(--sec);line-height:var(--secl);text-align:right}
+.dchk .me{color:var(--fg);font-weight:500}

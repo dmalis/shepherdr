@@ -38,7 +38,6 @@ NO_WEB_CALLER = {
     "call": "a no-op: a call's audio goes over /api/voice",
     "space-commit": "3.1's Commit in a space's menu",
     "reopen": "reopen a Done task (3.1's voice and window)",
-    "/api/push/test": "3.1's Send a test alert",
     # called from outside this repo
     "/api/voice/wake": "Shepherdr Wake, the Android app",
     "/api/voice/handoff": "Shepherdr Wake, the Android app",

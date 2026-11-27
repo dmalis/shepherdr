@@ -1325,6 +1325,25 @@ export interface PullRequest {
 /** what the side panel asks of a task's worktree */
 export type WorktreeAsk = { task: string } & ({ what: 'dir'; path?: string } | { what: 'marks' } | { what: 'files' } | { what: 'file'; path: string } | { what: 'diff' } | { what: 'patch'; path: string } | { what: 'pr' })
 
+/** one alert in the alerts list (service/inbox.ts, fork #37): what it said, its space and task, and where it opens;
+ *  waits: it waited on you (Needs you, Ready), closed: when it stopped; read on any device, read on all */
+export interface InboxItem {
+  /** the push alert it records (service/push.ts alertsOf's key): what resolves it */
+  key?: string
+  id: string
+  at: number
+  title: string
+  body: string
+  topic: string
+  tag: string
+  place?: string
+  task?: string
+  url?: string
+  waits?: true
+  closed?: number
+  read?: true
+}
+
 export interface Snapshot {
   /** 3.2: each chat's and task's screen where its agent has one open or needs the person's hands, by "chat:<space>",
    *  "task:<id>" or "machine:<key>" (none: idle, and yours to use) */
@@ -1366,6 +1385,8 @@ export interface Snapshot {
   /** the agents' own alerts (herdr-task alert), one per agent, as the window's toasts say them (service/push.ts
    *  agentAlerts): "HERD-4 · <title>" over its body, its chat, and whether it reaches the person (its space's Notify) */
   alerts?: { id: string; at: number; title: string; /** its own words, without who sent it (#1561) */ what?: string; body: string; chat?: string; /** the task it is about (SHEP-255): its row shows it; none: no task's, not in Tasks */ task?: string; place?: string; notify: boolean; ended?: true; machine?: string | null; memory?: true; /** #1545: Restart all (the restart-all action) */ restart?: true }[]
+  /** the alerts list (the bell, web/plugins/inbox, fork #37): every push alert of the last 7 days, newest first */
+  inbox?: InboxItem[]
   /** the sidebar's sections, as Slack's, each with its spaces in the human's order: the top ones first (Pinned, id
    *  'pinned', among them), then each machine's, its machine in order (shared/order.ts) */
   sections?: Section[]

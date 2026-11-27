@@ -17,6 +17,8 @@ type Out = {
   actions?: PushAction[]; answer?: { chat: string; question: string }; accept?: { task: string }; reply?: { chat: string; to?: string };
   /** #1545: Restart all, for the Assistants a restart of their machine left stopped (that alert's id) */
   restart?: { alert: string };
+  /** fork #37: its words before the watch's cut, for the alerts list only (never sent) */
+  full?: { title: string; body: string };
 };
 type Recipient = Pick<Out, "topic" | "place">;
 
@@ -31,14 +33,16 @@ type Recipient = Pick<Out, "topic" | "place">;
 export const needKey = (n: any) => `need:${n.chat}:${n.id}`;
 
 /** what a need's alert says (whether it is sent or not: its space's Notify decides), in words that fit a watch */
-export function needAlert(snap: any, n: any): Out {
+/** whole (fork #37): its words uncut, as alertsOf cuts them at the end and keeps them for the alerts list */
+export function needAlert(snap: any, n: any, whole = false): Out {
   const who = n.task ? taskWho(snap, n.task) : T.assistantWho(snap.places?.find((p: any) => p.id === n.place)?.name);
   const go = alertUrl({ place: n.place, ...(n.task ? { task: n.task } : {}), ...(n.question?.id ? { focus: n.question.id } : {}) });
   // its card's choices as buttons; a question with none a button may send opens the app; no card: a reply
   const buttons = n.question ? choiceButtons(n.question) : [];
   const acts = n.question ? (buttons.length ? { actions: buttons, answer: { chat: n.chat, question: n.question.id } } : {})
     : n.secret || n.hands ? {} : { actions: [REPLY], reply: { chat: n.chat, ...(n.reply ? { to: n.reply } : {}) } };
-  return { title: watchTitle(T.toastTitle(who, n.question?.queued ? "Asked a question" : T.NEEDS_YOU)), body: excerpt(T.needReason(n), WATCH_BODY), tag: n.task ?? n.chat, topic: "needs", place: n.place, waits: true, url: go, ...acts };
+  const title = T.toastTitle(who, n.question?.queued ? "Asked a question" : T.NEEDS_YOU), body = T.needReason(n);
+  return { title: whole ? title : watchTitle(title), body: whole ? body : excerpt(body, WATCH_BODY), tag: n.task ?? n.chat, topic: "needs", place: n.place, waits: true, url: go, ...acts };
 }
 
 export function alertsOf(snap: any, said: (chat: string) => string | undefined = () => undefined): Map<string, Out> {
@@ -46,7 +50,7 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const n of snap.needs ?? []) {
     if (n.assistantFirst) continue;
     if (snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined })) continue;
-    now.set(needKey(n), needAlert(snap, n));
+    now.set(needKey(n), needAlert(snap, n, true));
   }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
   // core/tasks.js readyWait), the same Accept as the Tasks panel's
@@ -72,7 +76,11 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const a of snap.alerts ?? []) if (a.notify) now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
     ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}) });
   // short enough for a watch: its title on one line, its body in two
-  for (const a of now.values()) { a.title = watchTitle(a.title); a.body = excerpt(a.body, WATCH_BODY); }
+  for (const a of now.values()) {
+    const title = watchTitle(a.title), body = excerpt(a.body, WATCH_BODY);
+    if (title !== a.title || body !== a.body) a.full = { title: a.title, body: a.body };
+    a.title = title; a.body = body;
+  }
   return now;
 }
 
@@ -152,7 +160,10 @@ export const PROVIDER_BODY = "Write to it to carry on, or restart it.";
  *  nothing from */
 type Sub = { endpoint: string; keys: { p256dh: string; auth: string }; device?: string; at: number; topics?: PushTopic[]; muted?: string[];
   /** the tailnet device it is on (main.ts deviceFrom): a device whose phone app shows its own alerts gets none (SHEP-246) */
-  node?: string };
+  node?: string;
+  /** fork #37 (Settings › Notifications' device list): when its app was last on screen, and its last alert's answer
+   *  from its push service (0: not reached) */
+  seen?: number; last?: { at: number; status: number } };
 
 /** does a device want this alert: its topic chosen, its space not muted; an alert with no topic (a test) always */
 export function wants(s: Pick<Sub, "topics" | "muted">, a: { topic?: string; place?: string }) {
@@ -282,18 +293,49 @@ export class Push {
         authorization: `vapid t=${await this.jwt(new URL(s.endpoint).origin)}, k=${await this.key()}`,
       } });
       if (r.status === 404 || r.status === 410) this.unsubscribe(s.endpoint);
+      else this.delivered(s, r.status);
       return r.status;
-    } catch { return 0; }
+    } catch { this.delivered(s, 0); return 0; }
+  }
+
+  /** fork #37: how a device's last alert went, kept for its row in Settings › Notifications */
+  private delivered(s: Sub, status: number) {
+    s.last = { at: Date.now(), status };
+    // a note for Settings only: a failed write never fails the delivery or holds up the next one
+    try { this.save(); } catch {}
+  }
+
+  /** fork #37: when each device's last seen was last written (its time on disk), so steady use still saves it */
+  private seenSaved = new Map<string, number>();
+
+  /** fork #37: the devices whose app is on screen now (their pages say so): last seen now, kept every 10 minutes */
+  saw(endpoints: Iterable<string>, now = Date.now()) {
+    let keep = false;
+    for (const e of endpoints) {
+      const s = this.subs.find((x) => x.endpoint === e);
+      if (!s) continue;
+      const saved = this.seenSaved.get(e) ?? s.seen ?? 0;
+      if (now - saved > 10 * 60_000) { keep = true; this.seenSaved.set(e, now); }
+      s.seen = now;
+    }
+    if (keep) try { this.save(); } catch {}
+  }
+
+  /** fork #37: every device that gets alerts, for Settings › Notifications: its browser, when it was turned on and last
+   *  seen, its last alert, and which is the asking one (mine). Never an endpoint: each is named by a short hash. */
+  devices(mine: string) {
+    return this.subs.map((s) => ({ id: new Bun.CryptoHasher("sha256").update(s.endpoint).digest("hex").slice(0, 12), device: s.device ?? "", at: s.at,
+      ...(s.seen ? { seen: s.seen } : {}), ...(s.last ? { last: s.last } : {}), topics: pushTopics(s.topics), ...(s.endpoint === mine ? { mine: true as const } : {}) }));
   }
 
   /** Sends an alert to every subscribed device whose app isn't on screen, whose phone app doesn't show it natively, and
    *  that wants it (its topic, its space). */
-  async send({ replacedBy, ...alert }: Record<string, unknown> & { topic?: string; place?: string; replacedBy?: Recipient[] }) {
+  async send({ replacedBy, full: _full, ...alert }: Record<string, unknown> & { topic?: string; place?: string; replacedBy?: Recipient[] }) {
     const payload = enc(JSON.stringify(alert));
     await Promise.all(this.subs.map(async (s) => {
       if (this.visible.has(s.endpoint) || this.looking(s.node) || this.quiet(s.node) || !wants(s, alert) || replacedBy?.some((a) => wants(s, a))) return;
       // A retraction must reach this device's push service after the alert it replaces.
-      const sent = (this.sending.get(s.endpoint) ?? Promise.resolve()).then(() => this.deliver(s, payload));
+      const sent = (this.sending.get(s.endpoint) ?? Promise.resolve()).then(() => this.deliver(s, payload)).catch(() => 0);
       this.sending.set(s.endpoint, sent);
       await sent;
       if (this.sending.get(s.endpoint) === sent) this.sending.delete(s.endpoint);
@@ -306,7 +348,8 @@ export class Push {
     if (!s) return { ok: false, said: "Alerts are off for this device." };
     const status = await this.deliver(s, enc(JSON.stringify({ title: "Shepherdr · Test", body: "Alerts reach this device.", tag: "test", test: true })));
     if (status >= 200 && status < 300) return { ok: true, said: "Sent. It should show in a few seconds." };
-    if (status === 404 || status === 410) return { ok: false, said: "This device's subscription is gone. Turn alerts on again." };
+    // fork #37: gone tells the page to renew this browser's subscription (Settings › Notifications does, then tests again)
+    if (status === 404 || status === 410) return { ok: false, gone: true, said: "This device's subscription is gone. Turn alerts on again." };
     return { ok: false, said: status ? `The push service refused it (${status}).` : "The push service couldn't be reached." };
   }
 }
