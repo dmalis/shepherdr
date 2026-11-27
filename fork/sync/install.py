@@ -582,7 +582,7 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
             raise Refused(f"the install under way is {str(ins.get('sha'))[:12]}, not {sha[:12]}", outcome="stop")
         if not ins.get("ask"):
             # a run died before its ask: whoever had the folder since, the checks that guard it run again
-            why = resume_checks(s, ins, run_key, folder, env)
+            why = resume_checks(s, ins, repo, run_key, folder, env)
             if why:
                 raise Refused(f"the install stopped before its update was asked for, and now {why}: nothing was "
                               "asked; the person looks", outcome="unknown", gate="resume")
@@ -625,9 +625,10 @@ def folder_at(s, *shas):
     return bool(clean and head and head in [x for x in shas if x])
 
 
-def resume_checks(s, ins, run_key, folder, env=None):
+def resume_checks(s, ins, repo, run_key, folder, env=None):
     """Before a resumed install moves the folder: the updater, the CLI, the source, the folder clean at the
-    baseline (or already at the candidate), and (live) the ask allowed. None, or why not."""
+    baseline (or already at the candidate), the agents' hook files as install found them and still not ones the
+    update would write, and (live) the ask allowed. None, or why not."""
     try:
         updater(s)
         installed_cli(s)
@@ -636,6 +637,15 @@ def resume_checks(s, ins, run_key, folder, env=None):
         return e.why
     if not folder_at(s, ins.get("baseline"), ins.get("sha")):
         return "the install folder is at neither the baseline nor the candidate, or has changes"
+    was = (ins.get("before") or {}).get("hooks")
+    if not was or hook_shas(s) != was:
+        return "an agent's hook file changed since the install's checks"
+    try:
+        changed = hooks_would_change(s, repo, ins.get("sha"))
+    except Refused as e:
+        return e.why
+    if changed:
+        return "the update would write " + " and ".join(HOOK_NAMES[f] for f in changed)
     if s.live:
         return may_ask(run_key, folder, env)
     return None

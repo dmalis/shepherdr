@@ -615,6 +615,23 @@ class Resume(World):
         self.assertEqual(e.exception.fields["gate"], "resume")
         self.assertEqual(self.asks(), [])
 
+    def test_a_resume_before_the_ask_checks_the_hooks_again(self):
+        self.set(plan=["ok"])
+        with mock.patch.object(install, "move_and_ask", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.install()
+        # meanwhile the person takes Shepherdr's hook out of Codex: the update would put it back
+        path = os.path.join(self.root, ".codex", "hooks.json")
+        with open(path, "w") as f:
+            f.write("{}\n")
+        with self.assertRaises(Refused) as e:
+            self.install()
+        self.assertEqual((e.exception.fields["outcome"], e.exception.fields["gate"]), ("unknown", "resume"))
+        self.assertIn("hook file", e.exception.why)
+        self.assertEqual((self.head(), self.asks()), (self.B, []), "nothing moved, nothing asked")
+        with open(path) as f:
+            self.assertEqual(f.read(), "{}\n", "read only")
+
     def test_an_ask_recorded_but_never_made_reads_as_failed(self):
         self.set(plan=["ok", "ok"])
         with mock.patch.object(install, "ask_update"), mock.patch.object(install, "update_status",
