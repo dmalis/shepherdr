@@ -64,9 +64,6 @@ test('tiles are big touch targets, and the press follows the Motion setting and 
   expect(css).toContain('@media(prefers-reduced-motion:reduce)')
   expect(css).toContain(':root[data-motion="reduced"] .addt:active{transform:none}')
   expect(css).toContain('@media(hover:hover){.addt:hover')
-  // the drag back is instant with less motion
-  const src = await Bun.file(new URL('./attach.tsx', import.meta.url)).text()
-  expect(src).toContain("still() || document.documentElement.dataset.motion === 'reduced'")
 })
 
 test('On Android, Files opens the document picker itself where Chrome has one, else the input does', async () => {
@@ -95,16 +92,17 @@ test('at a big zoom the tiles wrap instead of cutting their labels', async () =>
   // a wide phone's popover keeps the three in a row, and scrolls on a short screen
   expect(css).toContain('.pop:not(.sheet)>.addsh{width:328px;max-width:100%')
   expect(css).toMatch(/\.pop:not\(\.sheet\):has\(>\.addsh\)\{[^}]*max-height:calc\(100dvh - 16px\);overflow-y:auto/)
-  // a sheet that stops fitting (split screen, turned phone) scrolls again: touch-action follows its size
+  // the sheet's drag, scroll and reduced motion are every sheet's (fork #109): none of its own to fight them
   const src = await Bun.file(new URL('./attach.tsx', import.meta.url)).text()
-  expect(src).toContain('new ResizeObserver(sync)')
-  expect(src).toContain("addEventListener('resize', sync)")
+  expect(src).not.toMatch(/pointerdown|touchstart|touchAction/)
 })
 
 // the seams this patch stands on: upstream may change them
-test('pinned: a phone\'s menu is a .sheet with role menu, and openMenu takes a drawn body', async () => {
+test('pinned: a phone\'s menu is a .sheet with role menu that drags down to close, and openMenu takes a drawn body', async () => {
   const overlay = await Bun.file(new URL('../../src/overlay.tsx', import.meta.url)).text()
-  expect(overlay).toContain('<div className="pop sheet in" role="menu" aria-label={l.label}>')
+  expect(overlay).toContain("? cx('pop sheet'")
+  expect(overlay).toContain("role={kind === 'menu' ? 'menu' : 'dialog'}")
+  expect(overlay).toMatch(/if \(shape !== 'sheet' \|\| !box\) return\s+const off = sheetDrag\(/)
   expect(overlay).toMatch(/export function openMenu\(anchor: Element \| null, rows: MenuRow\[\] \| \(\(close: \(\) => void\) => ReactNode\)/)
   const { IC } = await import('@client/icons.ts')
   expect(IC.camera).toBeTruthy()

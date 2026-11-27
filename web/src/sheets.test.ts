@@ -3,7 +3,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { closes, rubber, speed } from './sheet-drag.ts'
-import { step } from './layer-focus.ts'
+import { giveBack, step } from './layer-focus.ts'
 import { closeAll, layersNow, openDialog, openMenu, originOf, placeAt } from './overlay.tsx'
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8')
@@ -114,4 +114,15 @@ test('pinned: motion follows Motion: Reduced as well as the device, and nothing 
   // the viewport's keyboard height the layer sits on (an iPhone home-screen app)
   expect(read('web/src/viewport.ts')).toContain('--app-h')
   expect(read('web/src/sheets.css')).toContain('.layer{bottom:auto;height:var(--app-h,100dvh)}')
+})
+
+test('focus going back is a no-op on a page with a document but no DOM classes (a test file may leave one behind)', () => {
+  const g = globalThis as { document?: unknown; HTMLElement?: unknown }
+  const [doc, el] = [g.document, g.HTMLElement]
+  Object.assign(g, { document: { visibilityState: 'visible' }, HTMLElement: undefined })
+  try {
+    expect(() => giveBack({} as Element, null)).not.toThrow()
+  } finally {
+    Object.assign(g, { document: doc, HTMLElement: el })
+  }
 })

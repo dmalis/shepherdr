@@ -13,11 +13,14 @@
     "web/src/warnings.tsx",
     "web/plugins/screens/client.tsx",
     "web/plugins/tasks/client.tsx",
-    "web/plugins/inbox/inbox.css"
+    "web/plugins/inbox/inbox.css",
+    "web/plugins/chat/attach.tsx",
+    "web/plugins/chat/attach.css"
   ],
   "tests": [
     "web/src/sheets.test.ts",
     "web/src/overlay.test.tsx",
-    "web/plugins/installed/installed.test.ts"
+    "web/plugins/installed/installed.test.ts",
+    "web/plugins/chat/attach.test.tsx"
   ]
 }

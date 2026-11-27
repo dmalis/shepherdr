@@ -1,13 +1,11 @@
 /* + on an Android phone: three big tiles, each straight to its picker (attach.tsx). Three in a row; at a big zoom they
-   wrap, so a label is never cut. While the sheet fits on screen, a finger on it drags the sheet (attach.tsx sets
-   touch-action); taller, it scrolls. */
+   wrap, so a label is never cut. The sheet itself (its drag, its scroll) is every sheet's (overlay.tsx, fork #109). */
 .addsh{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,max(96px,5.5em)),1fr));gap:8px;padding:4px 8px 0}
 .addt{display:grid;width:100%;justify-items:center;align-content:center;gap:8px;min-height:88px;padding:12px 4px;border-radius:12px;background:var(--control);color:var(--fg);font-size:var(--ui);line-height:var(--uil);font-weight:500;-webkit-tap-highlight-color:transparent;transition:transform .12s cubic-bezier(.23,1,.32,1),background-color .12s ease}
 .addt .i{width:24px;height:24px}
 .addt>span{max-width:100%;text-align:center}
 .addt:active{background:var(--control2);transform:scale(.97)}
 @media(hover:hover){.addt:hover{background:var(--control2)}}
-.sheet:has(>.addsh){overscroll-behavior:contain}
 /* a phone turned wide or a tablet gets the menu as a popover at +: room for the three in a row, and it scrolls when
    the screen is short */
 .pop:not(.sheet):has(>.addsh){max-width:min(344px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow-y:auto;overscroll-behavior:contain}

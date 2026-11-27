@@ -85,7 +85,8 @@ const coarse = () => typeof matchMedia === 'function' && matchMedia('(pointer: c
 /** Focus goes back to `to` (what had it before the layer opened) once the layer is gone, if focus is lost in nothing
  *  now (the body, or the gone layer), and `to` is still on the page. */
 export function giveBack(to: Element | null, gone: HTMLElement | null) {
-  if (!(to instanceof HTMLElement) || !to.isConnected) return
+  // a page with a document but no DOM classes (a test's stand-in) has nothing to focus
+  if (typeof HTMLElement === 'undefined' || !(to instanceof HTMLElement) || !to.isConnected) return
   const now = document.activeElement
   if (now && now !== document.body && !(gone && gone.contains(now)) && now.isConnected) return
   if (coarse() && to.matches('input, textarea, [contenteditable="true"]')) return

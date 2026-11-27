@@ -2,10 +2,9 @@
 // attach sheet). A desktop opens files at once. An iPhone or iPad opens Apple's own menu at once (Photo Library, Take
 // Photo, Choose File): iOS shows it for every picture or file input, so a sheet of ours before it would be a second
 // menu. An Android phone gets a sheet of three big tiles, each straight to its picker: Camera, Photos, Files.
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { openMenu } from '@client/overlay.tsx'
 import { I, IB } from '@client/ui.tsx'
-import { still } from '@client/motion.ts'
 import type { IconName } from '@client/icons.ts'
 import './attach.css'
 
@@ -67,84 +66,11 @@ export function pickFiles(onFiles: (f: File[]) => void, fallback: () => void, w 
   return true
 }
 
-/** a downward drag this far (or a flick) closes the sheet */
-const CLOSE_AT = 64
-const FLICK = 0.5 // px per ms
-
-/** the three tiles; the sheet drags down to close, as iOS's and Android's sheets do (Escape and the scrim close it too) */
+/** the three tiles. The sheet they sit in drags down to close, as every sheet does (overlay.tsx's sheetDrag, fork
+ *  #109); Escape and the scrim close it too */
 export function AddSheet({ close, pick }: { close: () => void; pick: (id: string) => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  // the overlay may draw the sheet again mid-drag with a new close: the gesture keeps going
-  const shut = useRef(close)
-  shut.current = close
-  useEffect(() => {
-    const sheet = ref.current?.closest<HTMLElement>('.sheet')
-    if (!sheet) return
-    // a sheet taller than the screen (a big zoom) scrolls instead
-    const fits = () => sheet.scrollHeight <= sheet.clientHeight + 1
-    // again whenever the sheet or the screen changes size (a split screen, a turned phone)
-    const sync = () => void (sheet.style.touchAction = fits() ? 'none' : '')
-    sync()
-    const sizes = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null
-    sizes?.observe(sheet)
-    if (ref.current) sizes?.observe(ref.current)
-    addEventListener('resize', sync)
-    // the Motion setting's Reduced, or the system's: the sheet doesn't move with the finger; the drag still closes it
-    const calm = () => still() || document.documentElement.dataset.motion === 'reduced'
-    let from: { id: number; y: number; t: number } | null = null
-    let dy = 0
-    let dragging = false
-    const down = (e: PointerEvent) => {
-      if (from || !e.isPrimary || !fits()) return
-      from = { id: e.pointerId, y: e.clientY, t: e.timeStamp }
-      dy = 0
-      dragging = false
-    }
-    const move = (e: PointerEvent) => {
-      if (!from || e.pointerId !== from.id) return
-      const d = e.clientY - from.y
-      if (!dragging && Math.abs(d) < 6) return
-      if (!dragging) {
-        dragging = true
-        sheet.setPointerCapture(e.pointerId)
-        sheet.style.transition = 'none'
-      }
-      // down follows the finger; up gives a little, with friction
-      dy = d > 0 ? d : -Math.sqrt(-d) * 2
-      if (!calm()) sheet.style.transform = `translateY(${dy}px)`
-    }
-    const up = (e: PointerEvent) => {
-      if (!from || e.pointerId !== from.id) return
-      const speed = dy / Math.max(1, e.timeStamp - from.t)
-      from = null
-      if (!dragging) return
-      // the lifted finger's click would land on a tile: it doesn't count
-      addEventListener('click', swallow, { capture: true, once: true })
-      setTimeout(() => removeEventListener('click', swallow, { capture: true }), 0)
-      if (e.type === 'pointerup' && (dy > CLOSE_AT || speed > FLICK)) return void shut.current()
-      sheet.style.transition = calm() ? 'none' : 'transform .2s cubic-bezier(.32,.72,0,1)'
-      sheet.style.transform = ''
-    }
-    const swallow = (e: Event) => {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-    sheet.addEventListener('pointerdown', down)
-    sheet.addEventListener('pointermove', move)
-    sheet.addEventListener('pointerup', up)
-    sheet.addEventListener('pointercancel', up)
-    return () => {
-      sizes?.disconnect()
-      removeEventListener('resize', sync)
-      sheet.removeEventListener('pointerdown', down)
-      sheet.removeEventListener('pointermove', move)
-      sheet.removeEventListener('pointerup', up)
-      sheet.removeEventListener('pointercancel', up)
-      sheet.style.transform = sheet.style.transition = sheet.style.touchAction = ''
-    }
-  }, [])
   return (
-    <div ref={ref} className="addsh">
+    <div className="addsh">
       {PICKS.map((p) => (
         <button
           key={p.id}
