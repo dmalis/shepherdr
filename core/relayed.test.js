@@ -31,6 +31,14 @@ test("a message wrapped twice is unwrapped: no tags in its words, its sender's a
   // an inner terminal address is the more specific sender; three deep is unwrapped too
   expect(users(await conv([user("u1", '<hc from="t2 assistant-shop"><hc from="t9 shop-4-fix-login">\n<hc from="t9">Done.</hc>\n</hc></hc>')])))
     .toEqual([{ text: "Done.", from: "t9" }]);
+  // a bare inner address is on the outer sender's machine, never a terminal of the same name here
+  expect(users(await conv([user("u1", '<hc from="m3/t9 shop-4-fix-login"><hc from="t9">Ready.</hc></hc>')]))).toEqual([{ text: "Ready.", from: "m3/t9" }]);
+  // a closing tag quoted in code inside it doesn't keep the wrapper
+  expect(users(await conv([user("u1", '<hc from="t1 a"><hc from="SHOP-4 worker">The parser rejects a stray `</hc>` tag.</hc></hc>')])))
+    .toEqual([{ text: "The parser rejects a stray `</hc>` tag.", from: "t1 a", by: "SHOP-4 worker" }]);
+  // a slash command's markers quoted in it don't make it the person's command
+  expect(users(await conv([user("u1", '<hc from="t1 a"><hc from="SHOP-4 worker">It sees `<command-name>/help</command-name>`.</hc></hc>')])))
+    .toEqual([{ text: "It sees `<command-name>/help</command-name>`.", from: "t1 a", by: "SHOP-4 worker" }]);
   // the pasted way the CLI may log it
   expect(users(await conv([user("u1", `<pasted_content id="1">\n${TWICE}\n</pasted_content>`)]))[0].text).toBe("Your hand-in case is ready to try.");
 });

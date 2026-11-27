@@ -309,24 +309,27 @@ function cleanUser(t) {
 // A relayed message's words, without the <hc from="…">…</hc> an agent wrote around them itself (hc send adds its own
 // on top: <hc from="t1 shop-4-fix"><hc from="SHOP-4 worker">words</hc></hc>), at any depth. The most specific sender:
 // an inner terminal address (from), else an inner name ("SHOP-4 worker", by), which names the sender when its address
-// can't (core/chat-view.js fromName). Only a wrapper of the whole text, and only one whose tags pair up (two quoted
-// tags side by side stay as written).
+// can't (core/chat-view.js fromName). A bare inner address is on the outer sender's machine. Only a wrapper of the whole
+// text, and only one whose tags pair up outside code (two quoted tags side by side stay as written).
 const WRAP = /^<hc\b([^>]*)>([\s\S]*)<\/hc>$/;
 function paired(s) {
   let depth = 0;
+  const code = codeRanges(s);
   for (const m of s.matchAll(/<hc\b[^>]*?(\/?)>|<\/hc>/g)) {
+    if (inCode(code, m.index)) continue;
     if (m[0] === "</hc>") { if (--depth < 0) return false; }
     else if (!m[1]) depth++;
   }
   return depth === 0;
 }
-function unwrapped(text) {
+function unwrapped(text, outer) {
   let from = null, by = null;
+  const machine = /^([\w.-]+)\/t\d/.exec(String(outer ?? "").trim())?.[1];
   for (let m; (m = WRAP.exec(text)) && paired(m[2]); ) {
     const f = /\bfrom="([^"]*)"/.exec(m[1])?.[1];
     if (f === undefined) break;
     const v = f.trim();
-    if (/^([\w.-]+\/)?t\d[0-9a-z]*(\s|$)/.test(v)) { from = v; by = null; }
+    if (/^([\w.-]+\/)?t\d[0-9a-z]*(\s|$)/.test(v)) { from = machine && !v.split(/\s/)[0].includes("/") ? `${machine}/${v}` : v; by = null; }
     else if (v && v !== "person" && v !== "artifact") by = v;
     text = m[2].trim();
   }
@@ -339,7 +342,8 @@ function cleanWords(t) {
     const u = r.text ? cleanWords(r.text) : null;
     return { ...(u ?? { text: "" }), reactions: r.reactions };
   }
-  const cmd = /<command-name>([^<]*)<\/command-name>/.exec(t);
+  // a slash command the person ran (not one quoted in another agent's message)
+  const cmd = /^\s*<hc\b[^>]*\bfrom="/.test(t.replace(/<\/?pasted_content\b[^>]*>/g, "")) ? null : /<command-name>([^<]*)<\/command-name>/.exec(t);
   if (cmd) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(t)?.[1] ?? "";
     return { text: `${cmd[1].trim()} ${args.trim()}`.trim() };
@@ -370,7 +374,7 @@ function cleanWords(t) {
     // whole from= ("t7 herd-12-fix"): the chat names the sender from it (main.js sender()).
     const title = from === "artifact" ? /\btitle="([^"]*)"/.exec(hc[1])?.[1] : null;
     if (!from) return null;
-    const inner = unwrapped(hc[2].trim());
+    const inner = unwrapped(hc[2].trim(), from);
     return { text: inner.text, from: title || inner.from || from, ...(inner.by ? { by: inner.by } : {}) };
   }
   // A message that is one tag from end to end was written by a program, not typed.
