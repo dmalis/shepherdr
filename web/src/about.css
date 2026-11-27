@@ -1,0 +1,9 @@
+/* Settings › About (fork patch #44): the commit reads as code, as GitHub and VS Code show one */
+.about-commit{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;font-variant-ligatures:none}
+span.about-commit{color:var(--sub)}
+/* What's in it: this device's build, newest first, on a thin rail like a short history */
+.about-in{padding:0 0 12px}
+.about-in h4{margin:0 0 6px;font-size:var(--sec);line-height:var(--secl);font-weight:500;color:var(--sub)}
+.about-in ul{margin:0;padding:0 0 0 12px;list-style:none;border-left:1px solid var(--line2)}
+.about-in li{color:var(--muted);font-size:var(--sec);line-height:var(--secl);padding:1px 0;overflow-wrap:anywhere}
+.about-in li.more{color:var(--sub)}

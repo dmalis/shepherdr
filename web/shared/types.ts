@@ -2,6 +2,7 @@
 // Plain JSON both ways: the server sends a Snapshot and chat contents; the client sends Actions.
 import type { BrowserNote } from './browser.ts'
 import type { ChatPatch, SnapPatch } from './patch.ts'
+import type { Stamp } from './build-stamp.ts'
 
 /** Status marks: red needs you, green ready, green turning ring merging, amber working, grey ring idle or to do, grey
  * clock queued, grey check done, dashed ring unreachable. */
@@ -1501,7 +1502,7 @@ export type ServerEvent =
   | ({ type: 'terminal'; chat: string } & TermScreen)
   | { type: 'offline'; since: number }
   /** the build of the web app the server serves, and its version: a screen on another build updates (SHEP-337) */
-  | { type: 'build'; id: string; version?: string }
+  | { type: 'build'; id: string; version?: string; stamp?: Stamp | null }
   | { type: 'update'; update: UpdateStatus | null }
   /** the answer to a screen's ping: its link still works */
   | { type: 'pong' }

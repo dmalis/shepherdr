@@ -9,10 +9,11 @@ import type { Chat, Message, Snapshot, Task } from '../shared/types.ts'
 import { withLinks } from '../../service/artifact-links.ts'
 import { commandList } from '../../core/slash.js'
 import { artifacts, catalog, chats as seed, config, EV, snapshot } from './data.ts'
+import { demoBuild, demoBuilds } from './builds.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five'; watch: string[]; app?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
 const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')) }
 const chats: Record<string, Chat> = structuredClone(seed)
@@ -290,7 +291,9 @@ Bun.serve<Sock['data'], never>({
       // which day to show: the page was opened with ?case=empty or ?case=down (kept in a cookie: the app rewrites its address)
       const c = /(?:^|;\s*)demo-case=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       const app = `${req.headers.get('origin') ?? url.origin}${url.pathname.slice(0, -'api/ws'.length)}`
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' ? c : 'normal', watch: [], app } }) ? undefined : new Response('no', { status: 400 })
+      // ?build=release|ahead|older: the build Settings › About names (builds.ts)
+      const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)
@@ -358,7 +361,12 @@ Bun.serve<Sock['data'], never>({
       const f = Bun.file(join(dist, p.endsWith('/') ? `${p}index.html` : p))
       if (!(await f.exists())) continue
       // the page itself says which day the demo shows
-      return p.endsWith('/') ? new Response(f, { headers: { 'set-cookie': `demo-case=${url.searchParams.get('case') ?? 'normal'}; Path=/; SameSite=Lax` } }) : new Response(f)
+      if (!p.endsWith('/')) return new Response(f)
+      const cookies = new Headers([['set-cookie', `demo-case=${url.searchParams.get('case') ?? 'normal'}; Path=/; SameSite=Lax`], ['set-cookie', `demo-build=${demoBuild(url.searchParams.get('build') ?? '') ?? 'none'}; Path=/; SameSite=Lax`]])
+      const build = demoBuild(url.searchParams.get('build') ?? '')
+      if (!build) return new Response(f, { headers: cookies })
+      cookies.set('content-type', 'text/html; charset=utf-8')
+      return new Response(demoBuilds(build, await f.text()).page, { headers: cookies })
     }
     return new Response(Bun.file(join(dist, 'index.html')))
   },
@@ -373,6 +381,8 @@ Bun.serve<Sock['data'], never>({
       }
       socks.add(ws as unknown as Sock)
       ws.send(JSON.stringify({ type: 'snapshot', snapshot: state[ws.data.mode] }))
+      const build = demoBuild(ws.data.build)
+      if (build) ws.send(demoBuilds(build, await Bun.file(join(dist, 'index.html')).text()).served)
     },
     message(ws, raw) {
       if ((ws.data as any).screen !== undefined) return

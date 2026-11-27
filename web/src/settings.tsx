@@ -9,15 +9,15 @@ import type { Config, LevelConfig, RepoConfig, Snapshot } from '@shared/types.ts
 import { everything, isEverything, machineLabel, machineWarn, placeOf, spaceLabel, unreachable } from '@shared/view.ts'
 import { copyText } from './copy.ts'
 import type { IconName } from './icons.ts'
-import { newerServed, notice, openSettings, registry, setUI, tryAct, updateNow, useStore, useUI } from './kernel.ts'
+import { notice, openSettings, registry, setUI, tryAct, useStore, useUI } from './kernel.ts'
 import { confirm, openDialog, openForm } from './overlay.tsx'
 import { openPicker, PickerHead, pickFor, PickSummary, useCatalog, type Role } from './picker.tsx'
 import { MOTIONS, setPref, THEMES, usePrefs, WIDTHS } from './prefs.ts'
 import { SizeRows } from './size-rows.tsx'
 import { canKeepAwake, setAwake, useAwake } from './awake.ts'
 import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
-import { OWN_VERSION } from './update.ts'
 import { ReviewRows } from './review-rows.tsx'
+import { About } from './about.tsx'
 import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
 import { READS } from '@core/machines.js'
 import { IconButton } from './space-icon.tsx'
@@ -515,23 +515,6 @@ function Plugins({ snap }: { snap: Snapshot }) {
       {(snap.config?.plugins ?? []).map((p) => (
         <SRow key={p.id} label={p.name}>{p.always ? <span className="val">Always on</span> : <Tgl label={p.name} on={p.on} onChange={(v) => void set('all', `plugin.${p.id}`, v)} />}</SRow>
       ))}
-    </>
-  )
-}
-
-/** the version this device runs and the one the service serves (SHEP-337) */
-function About() {
-  const served = useStore((s) => s.served)
-  const newer = useStore(newerServed)
-  return (
-    <>
-      <SRow label="This device"><span className="val">{OWN_VERSION || 'Unknown'}</span></SRow>
-      <SRow label="Shepherdr serves"><span className="val">{served?.version || 'Unknown'}{newer && ' · newer'}</span></SRow>
-      {newer && (
-        <div className="acts" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
-          <Btn small onClick={updateNow}>Update this device</Btn>
-        </div>
-      )}
     </>
   )
 }
