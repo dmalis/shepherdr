@@ -28,6 +28,7 @@ const removedDevices = new Set<string>()
 // GARDEN-4's permission card back until a message is sent there, as when the card and a send cross.
 const BEFORE = process.env.DEMO_BEFORE === '1', RACE = 'vm:GARDEN-4/worker'
 const raced = new Map<string, Message>()
+const coming = new Set<string>()
 const holdRace = () => {
   if (process.env.DEMO_RACE !== '1') return
   const c = chats[RACE], i = c?.messages.findIndex((m) => m.question) ?? -1
@@ -146,9 +147,10 @@ function action(a: Record<string, any>): unknown {
   }
   if (a.type === 'send' && (ownCard(a.chat) || raced.has(a.chat))) {
     const late = raced.get(a.chat)
-    if (late) {
-      raced.delete(a.chat)
-      setTimeout(() => (chats[a.chat]!.messages.push(late), pushChat(a.chat)), 600)
+    if (late && !coming.has(a.chat)) {
+      // (marked until the card is in, so a second send meanwhile waits too)
+      coming.add(a.chat)
+      setTimeout(() => (raced.delete(a.chat), coming.delete(a.chat), chats[a.chat]!.messages.push(late), pushChat(a.chat)), 600)
     }
     if (BEFORE) return { status: 400, text: "It's asking you something. Answer that in its terminal first." }
     held.set(a.cid, { ...a, answer: true })

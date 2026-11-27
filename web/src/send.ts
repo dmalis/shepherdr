@@ -4,7 +4,7 @@
 import type { ReplyQuote } from '@shared/types.ts'
 import { act, getState, holdReload, notice, setOutbox, setUI, type Outgoing } from './kernel.ts'
 import { anchorOf, priorOf, reasonOf, SEND_TIMEOUT } from './outbox.ts'
-import { postFile, retrying } from './uploads.ts'
+import { HttpError, postFile, retrying } from './uploads.ts'
 
 /** an id of the screen's own (randomUUID needs https, and a tailnet link may be plain http) */
 const newCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -190,17 +190,25 @@ export function resumeSending() {
 }
 if (typeof window !== 'undefined') setTimeout(resumeSending, 0)
 
-/** dmalis/shepherdr#59: ones waiting for their agent's answer are asked about again now and then, by their own id. The
- *  server answers what it knows (still waiting, or it went in) and, after a restart forgot it, holds it again: never
- *  sent twice (service/send-once.ts). A failed ask changes nothing; the next one tries again. */
+/** dmalis/shepherdr#59: ones waiting for their agent's answer are asked about now and then, by their id: still waiting,
+ *  went in (it then shows in the chat like any sent message, timed from now), failed (Retry is the person's), or
+ *  unknown to the server (a restart lost it): only then is it sent again, by its id, so never twice. Asking never sends
+ *  anything itself. A failed ask changes nothing; the next one tries again. */
 export async function recheckWaiting() {
   for (const o of getState().outbox) {
     if (o.state !== 'sent' || !o.waiting || o.waitsFor !== 'answer' || gates.has(o.cid)) continue
+    const set = (p: Partial<Outgoing>) => setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sent' && x.waitsFor === 'answer' ? { ...x, ...p } : x)))
     try {
-      const r = await act<{ waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }>(sendOf(o), AbortSignal.timeout(SEND_TIMEOUT))
-      setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sent' && x.waitsFor === 'answer' ? { ...x, waiting: r?.waiting || undefined, waitsFor: (r?.waiting && r.waitsFor) || undefined, serverAt: typeof r?.at === 'number' ? r.at : x.serverAt } : x)))
-    } catch {
-      /* out of reach: asked again next time */
+      const s = await act<{ state?: string; at?: number; error?: string }>({ type: 'send-state', cid: o.cid }, AbortSignal.timeout(SEND_TIMEOUT))
+      if (s?.state === 'went') set({ waiting: undefined, waitsFor: undefined, wentAt: Date.now(), serverAt: typeof s.at === 'number' ? s.at : o.serverAt })
+      else if (s?.state === 'failed') set({ state: 'failed', error: s.error || 'It did not go in.', waiting: undefined })
+      else if (s?.state === 'unknown') {
+        const r = await act<{ waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }>(sendOf(o), AbortSignal.timeout(SEND_TIMEOUT))
+        set({ waiting: r?.waiting || undefined, waitsFor: (r?.waiting && r.waitsFor) || undefined, ...(r?.waiting ? {} : { wentAt: Date.now() }), serverAt: typeof r?.at === 'number' ? r.at : o.serverAt })
+      }
+    } catch (e) {
+      // the server's own no (its agent is gone): Retry is the person's; out of reach: asked again next time
+      if (e instanceof HttpError && e.status >= 400 && e.status < 500) set({ state: 'failed', error: reasonOf(e), waiting: undefined })
     }
   }
 }

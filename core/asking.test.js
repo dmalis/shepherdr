@@ -57,6 +57,15 @@ test("it began to ask while the send waited its turn: nothing is sent, marked as
   expect(calls).toEqual([]);
 });
 
+test("it began to ask while Claude Code's box was read: nothing is typed", async () => {
+  const calls = [];
+  let looks = 0;
+  const io = { sleep: async () => {}, status: () => "working", card: () => true, asking: () => looks++ > 0, hc: async (args) => (calls.push(args[0]), { code: 0, stdout: "" }) };
+  const r = await sendBody(io, "tr", "claude", "hello");
+  expect(r.asking).toBe(true);
+  expect(calls.filter((c) => c === "send" || c === "keys")).toEqual([]);
+});
+
 test("a send that went in is not marked asking", async () => {
   const io = { sleep: async () => {}, status: () => "idle", card: () => true, hc: async (args) => (args[0] === "send" ? { code: 0, stdout: '{"started":true}', stderr: "" } : { code: 0, stdout: "" }) };
   const r = await sendBody(io, "tok", "codex", "hello");

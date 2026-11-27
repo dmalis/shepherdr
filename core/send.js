@@ -195,8 +195,11 @@ export async function settleBox(io, addr, body, opts = SETTLE) {
 // words"). After hc send the box is watched until it is clear (settleBox). again: the person's
 // Retry on a send that stayed in the box; if the box holds exactly it still, it gets Enter, never
 // typed twice. -> hc's result; stuck: still in the box.
+const ASKED = { code: 1, stdout: "", stderr: "", asking: true };
+
 export async function sendTyped(io, addr, kind, body, opts = SETTLE, again = false) {
-  if (kind !== "claude") return io.hc(["send", addr, body]);
+  // dmalis/shepherdr#59: its agent began to ask meanwhile (a card, a prompt): nothing is typed into it
+  if (kind !== "claude") return io.asking?.() ? ASKED : io.hc(["send", addr, body]);
   if (again) {
     const box = await boxOf(io, addr);
     if (holds(box, body, true)) {
@@ -211,6 +214,8 @@ export async function sendTyped(io, addr, kind, body, opts = SETTLE, again = fal
   // pastes after it, so the two would go as one, glued ("…thenWhat's…"). A blank line keeps them apart.
   const before = await boxOf(io, addr);
   if (before && heldBefore(addr, before, body)) body = "\n\n" + body;
+  // (checked again after reading the box, right before anything is typed)
+  if (io.asking?.()) return ASKED;
   const r = await io.hc(["send", addr, body]);
   if (r.code !== 0) return r;
   let started = false;
@@ -261,7 +266,7 @@ export function sendBody(io, addr, kind, body, again = false) {
     if (io.asking?.()) return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     let r = await sendTyped(io, addr, kind, body, SETTLE, again);
     // asking: the service holds it until the question is answered, then sends it (dmalis/shepherdr#59)
-    if (r.code !== 0 && refusal(r).kind === "blocked") return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
+    if (r.code !== 0 && (r.asking || refusal(r).kind === "blocked")) return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     if (r.code === 0) noteLately(addr, body);
     return r;
   });

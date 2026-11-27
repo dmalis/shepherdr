@@ -86,17 +86,35 @@ afterEach(() => {
   globalThis.fetch = realFetch
   setOutbox(() => [])
 })
-test('the page asks the server about one waiting, by its id: it went in, or it waits again', async () => {
+test('the page asks about one waiting by its id; it sends it again only when the server lost it', async () => {
   const asked: any[] = []
-  let answer: object = { ok: true, waiting: true, waitsFor: 'answer' }
-  globalThis.fetch = (async (_u: string, init?: RequestInit) => (asked.push(JSON.parse(String(init?.body))), Response.json(answer))) as unknown as typeof fetch
+  let state: object = { ok: true, state: 'waiting' }
+  globalThis.fetch = (async (_u: string, init?: RequestInit) => {
+    const b = JSON.parse(String(init?.body))
+    asked.push(b)
+    return Response.json(b.type === 'send' ? { ok: true, waiting: true, waitsFor: 'answer' } : state)
+  }) as unknown as typeof fetch
   setOutbox(() => [waiting])
   await recheckWaiting()
-  expect(asked).toMatchObject([{ type: 'send', cid: 'w1', text: 'later' }])
-  expect(getState().outbox[0]).toMatchObject({ waiting: true, waitsFor: 'answer' })
-  answer = { ok: true, at: 5 }
+  expect(asked).toEqual([{ type: 'send-state', cid: 'w1' }])
+  expect(getState().outbox[0]).toEqual(waiting)
+  // a restart lost it: sent again by its id, and it waits again
+  state = { ok: true, state: 'unknown' }
   await recheckWaiting()
-  expect(getState().outbox[0]).toMatchObject({ state: 'sent', waiting: undefined, waitsFor: undefined, serverAt: 5 })
+  expect(asked.at(-1)).toMatchObject({ type: 'send', cid: 'w1', text: 'later' })
+  expect(getState().outbox[0]).toMatchObject({ waiting: true, waitsFor: 'answer' })
+  // it went: shows like any sent one, timed from now (never failed at once)
+  state = { ok: true, state: 'went', at: 5 }
+  await recheckWaiting()
+  expect(getState().outbox[0]).toMatchObject({ state: 'sent', waiting: undefined, serverAt: 5, wentAt: expect.any(Number) })
+  expect(expire(getState().outbox, Date.now() + 1000)[0]!.state).toBe('sent')
+  // failed (it stayed in the box): Retry is the person's, never sent by this ask
+  setOutbox(() => [waiting])
+  state = { ok: true, state: 'failed', error: "It stayed in the agent's message box." }
+  const n = asked.length
+  await recheckWaiting()
+  expect(asked.slice(n).map((x) => x.type)).toEqual(['send-state'])
+  expect(getState().outbox[0]).toMatchObject({ state: 'failed' })
   // out of reach: nothing changes
   setOutbox(() => [waiting])
   globalThis.fetch = (async () => { throw new TypeError('offline') }) as unknown as typeof fetch
