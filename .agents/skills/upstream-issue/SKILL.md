@@ -13,11 +13,17 @@ description: Post, follow and learn from the person's issues on upstream Shepher
 
 Upstream is someone else's public project. It hears from the person only what they said yes to.
 
-**Never ask upstream for something it already said no to.** Before you draft anything, search upstream's issues,
-open and closed, the person's and anyone else's. If the maintainer already declined the same need ("not planned",
-"by design", "we keep Shepherdr thin"), we build it in our fork and post nothing upstream. Not a new issue, not a
-comment, and not an issue worded differently. Put the decline's link and the maintainer's reason in our issue's
-status line: "upstream declined: <link>".
+**Never post the same request twice.** Before you draft anything, search upstream's issues: open and closed, the
+person's and anyone else's.
+- **One of the person's issues closed without a fix** ("not planned", "by design", or closed with nothing in a
+  release):
+  - We always build our own solution here. The person decided that once, for every such issue.
+  - Once ours is merged, post one comment on that closed issue linking our pull request, for the maintainer to
+    decide on: "We built this in our fork: <link>. It's there if you want it."
+  - Post no new issue, don't reword the request, and don't argue with the decision.
+- **Someone else's request that the maintainer declined:** if the person needs the same thing, we build it here and
+  post nothing upstream.
+- Either way, our issue's status line says "upstream declined: <link>", with the maintainer's reason.
 
 **Mentioning upstream from our issues and pull requests.** Write upstream issues as plain text: "upstream issue
 1556". A `#1556` would link to our own repo's #1556. A full link or `eliasstravik/shepherdr#1556` would show up on
@@ -28,7 +34,7 @@ upstream's issue as a mention. The only links that may show up there are the one
 | What | When | Yes needed |
 |---|---|---|
 | An issue for a fix or patch of ours | Once its pull request is merged here | The person's yes to your short draft (title and 3–6 lines) |
-| A comment linking our fix, on one of the person's open upstream issues | Once our fix is merged here | No: they asked for these links. One comment per issue, ever |
+| A comment linking our fix, on one of the person's upstream issues: an open one, or one closed without a fix | Once our fix is merged here | No: they asked for these links. One comment per issue, ever |
 | A reply to the maintainer | Only with the person's answer to the maintainer's question (shaping-a-request, step 4) | Their words |
 
 Nothing else goes there. Never open a pull request on upstream unless the person asks for that one.
@@ -43,8 +49,9 @@ own fix:
 
 ## How to write one
 
-1. **Look for a duplicate first:** `gh search issues -R eliasstravik/shepherdr "<words>"` (no `--state`: it searches open and closed).
-   - A closed one may say "by design". Then don't ask again: bring the reasoning to the person (shaping-a-request).
+1. **Look for a duplicate first:** `gh search issues -R eliasstravik/shepherdr "<words>"`. Leave out `--state`:
+   without it, the search covers open and closed issues.
+   - A declined one: see "Never post the same request twice" above.
    - An open one gets one comment linking our fix, instead of a second issue.
 2. **Write it in upstream's own words.**
    - Use its terms (docs/agents-and-terms.md).
@@ -57,7 +64,7 @@ own fix:
    README.
    - Ask for the smallest change that would let us drop our patch.
    - Never argue against a principle.
-   - Never ask twice after a "not planned".
+   - After a "not planned", the only post is the one comment linking our fix.
 5. **File it** with `gh issue create -R eliasstravik/shepherdr`. Then:
    - label our issue `upstream-proposed`;
    - put the upstream link in its status line.
@@ -70,8 +77,14 @@ own fix:
   - the maintainer's words, shortened;
   - the release that has the fix.
 - **When upstream fixes one of ours,** the sync drops our patch (upstream-sync skill, step 3).
-- **When the maintainer declines, proposes another way or asks something,** don't just keep our patch. Rethink it
-  with the shaping-a-request skill (step 4):
+- **When the maintainer closes one of the person's issues without a fix,** build our own solution.
+  - Don't ask the person whether: they decided that for every decline.
+  - Let the maintainer's reasons shape how you build it (shaping-a-request).
+  - Once it is merged, post the one comment linking it, for the maintainer to decide on.
+  - Ask the person only when the current release already meets the need fully and there is nothing to build. Show
+    them how to use what upstream has.
+- **When the maintainer proposes another way or asks something,** rethink it with the shaping-a-request skill
+  (step 4):
   1. Open an issue here labelled `rethink`. Give the person's need, the maintainer's reasoning, both ways tried on
      the current release, the cost of carrying ours, and your recommendation.
   2. Ask the person one question: "Upstream's way", "Ours", or the third way you found.

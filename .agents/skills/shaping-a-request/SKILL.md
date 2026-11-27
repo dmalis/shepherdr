@@ -58,7 +58,8 @@ way. That may be their way, upstream's, or a third.
 - **Record the decision in the issue:** the need, the options, the choice and why.
 - **If they chose our way,** the fork-patch skill builds it.
 - **If they chose upstream's way,** show the person how to use it. There is no patch.
-- **When upstream answers one of their requests,** come back here. That covers a decline, another approach or a
-  question.
+- **When upstream declines one of their requests,** we build our own; the person decided that once, for every
+  decline. Use the maintainer's reasoning to shape how it's built (the upstream-issue skill).
+- **When upstream proposes another approach or asks a question,** come back here.
   1. Weigh the maintainer's reasoning against the need and the research.
   2. Recommend: adopt upstream's way and drop ours, keep ours, or a third way.
