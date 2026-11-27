@@ -11,10 +11,30 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 | Agents | What Chats, Tasks and Reviews run on. Each row opens the picker with Agent, Model, Effort, Speed and Permissions |
 | Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |
-| Machines | Each machine's agents, processor, memory and disk. Add a machine. Open desktop, where a machine has one |
+| Machines | A card per machine: OK, needs attention or can't reach. Health: processor (load on its cores), memory and disk, each with its amounts and its start limit marked. System: OS, uptime, restart needed (Debian and Ubuntu only), the Shepherdr and herdr-core it runs (older than the machine serving the app says so), agents and tasks there. On a phone each card folds to one line. Add a machine. Open desktop, where a machine has one ([Machine facts](#machine-facts)) |
 | Usage | Your ElevenLabs plan, read with your own key, and where to see Claude Code's and Codex's (`/usage`, `/status`) |
 | Plugins | A switch for Terminal, Screens, Voice, Schedules and Reactions ([Plugins](plugins.md)) |
 | Personal analytics | How you use Shepherdr, kept only on your machines: on or off, your numbers, see, export or delete it ([analytics.md](analytics.md)) |
+
+## Machine facts
+
+Each machine's facts are read on that machine, through herdr-core, with plain reads an ordinary user may make: no sudo,
+no network, nothing of any agent's own. Health every 45 seconds while a page is open (`machine.py`); the System facts
+with the plan limits, every 10 minutes and once a machine answers again (`machine_system.py`).
+
+| Fact | Linux | macOS |
+|---|---|---|
+| OS | `/etc/os-release` | `sw_vers` |
+| Up | `/proc/uptime` | `sysctl -n kern.boottime` |
+| Restart needed | `/var/run/reboot-required` (Debian, Ubuntu). "Not needed" only where something that writes it is installed (update-notifier-common, reboot-notifier or unattended-upgrades); elsewhere not shown | Not shown: there is no documented way short of `softwareupdate --list`, which is slow and asks Apple's servers |
+| herdr-core | `hc --version` | `hc --version` |
+| Shepherdr | its install record (`~/.local/share/shepherdr/installed.json`, or 3.1's); none there: not shown | the same |
+
+Disks are in decimal GB and TB, as Finder shows them, with used, free and size as `df -H` gives them (blocks a Linux disk
+keeps for the system count in its size only); memory in GB of 2^30 bytes, as About This Mac does. A linked machine
+herdr-core can't reach says when it last answered (known from its first read after the service starts). Needs
+attention: a disk or memory over 90%, a restart waiting, or a Shepherdr or herdr-core older than the machine serving the
+app. The warnings line says each of them too.
 
 ## Permissions
 

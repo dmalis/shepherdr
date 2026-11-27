@@ -5,6 +5,7 @@
 // agents read (herdr-task turns Settings into lines of a brief).
 import type { Automation, Catalog, CatalogAgent, Config, LevelConfig, Place, Snapshot, Task, AgentPick } from "../web/shared/types.ts";
 import { HOME } from "./paths.ts";
+import { moreWarnings } from "../web/shared/machine-facts.ts";
 import { everythingOf, sameFolder } from "../core/spaces.js";
 import { readSettings, repoLayer, REPO_SECTIONS, writeSettings } from "./settings.ts";
 import { repoKey, repoOf } from "../core/host.js";
@@ -287,6 +288,7 @@ export function warningsOf(snap: Snapshot, plans: Config["plans"]): NonNullable<
     const hot = m.health?.meters.find((x) => /disk|memory/i.test(x.name) && x.pct > 90);
     if (hot) out.push({ id: `m:${m.machine}:${hot.name.toLowerCase()}`, kind: "machine", text: `${m.name}: ${/disk/i.test(hot.name) ? "disk" : "memory"} nearly full` });
   }
+  out.push(...moreWarnings(snap.machines)); // dmalis/shepherdr#107: a restart waiting, an older version
   return out;
 }
 

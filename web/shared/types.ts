@@ -153,6 +153,26 @@ export interface Machine {
   /** its reads as the window keeps them (shared "machines.stats"): its header's meter and red dot and its popup read
    *  them with core/machines.js, as the window's do */
   stats?: MachineStats
+  /** dmalis/shepherdr#107: its OS, uptime, restart and versions (service/machine-system.ts) */
+  system?: MachineSystem
+}
+
+/** A machine's system facts, read with its plan limits (machine_system.py). null: it can't say. */
+export interface MachineSystem {
+  /** when they were read (ms) */
+  at: number
+  /** "Ubuntu 24.04.1 LTS", "macOS 15.1" */
+  os: string | null
+  /** "x86_64", "arm64" */
+  arch: string | null
+  /** when it started (ms, the service's clock) */
+  bootAt: number | null
+  /** an update waits for a restart (Debian and Ubuntu say; elsewhere null) */
+  restart: boolean | null
+  /** the herdr-core it runs */
+  hc: string | null
+  /** the Shepherdr installed there (none: null) */
+  shepherdr: string | null
 }
 
 /** one machine's reads, the window's shape (lib/machines.js): health and limits as machine.py gives them */

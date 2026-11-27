@@ -1,0 +1,57 @@
+/* A machine's card in Settings › Machines (dmalis/shepherdr#107, machine-card.tsx): its header, then Health and System
+   as two small groups, then its actions. Every number has tabular figures so a meter that changes doesn't shift. The
+   meters sit three across while the card has the room, one under another below it (a phone). */
+.mcard.mc{display:block;padding:0;overflow:hidden;container:mc/inline-size;font-variant-numeric:tabular-nums}
+.win .mc .mc-hh,.mc .mc-hh{margin:0;font:inherit;line-height:inherit;color:inherit}
+.mc .mc-h{display:flex;align-items:center;gap:12px;width:100%;min-height:var(--row2);padding:10px 16px;text-align:start}
+.mc button.mc-h{border-radius:12px 12px 0 0}.mc button.mc-h[aria-expanded="false"]{border-radius:12px}
+.mc button.mc-h:focus-visible{outline-offset:-2px}
+@media(hover:hover){.mc button.mc-h:hover{background:var(--control)}}
+@media(pointer:coarse){.mc button.mc-h:active{background:var(--control)}}
+.mc .mc-ht{display:grid;flex:1;min-width:0}
+.mc .mc-ht .nm{overflow:hidden;text-overflow:ellipsis}
+.mc .mc-h2{overflow:hidden;color:var(--muted);font-size:var(--sec);line-height:var(--secl);text-overflow:ellipsis;white-space:nowrap}
+.mc .mc-hst{flex:none;color:var(--sub);font-size:var(--sec);line-height:var(--secl);white-space:nowrap}
+.mc .mc-chev{flex:none;color:var(--muted);transition:transform .2s cubic-bezier(.2,0,0,1)}.mc .mc-chev.up{transform:rotate(180deg)}
+html[data-motion="reduced"] .mc .mc-chev{transition:none}
+@media(prefers-reduced-motion:reduce){.mc .mc-chev{transition:none}}
+
+/* the status dot: green, amber, red; its words beside it say the same */
+.mc .mc-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.mc .mc-dot.ok{background:var(--green)}.mc .mc-dot.attention{background:var(--amber)}.mc .mc-dot.off{background:var(--red)}
+
+.mc .mc-body{display:grid;gap:20px;padding:4px 16px 16px}
+/* past a start limit or the alert one: amber, as upstream's .meter.hot, the words say which; red is only "can't reach" */
+.mc .c-busy,.mc .c-over{color:var(--amber)}
+.mc .mc-warn{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.mc .mc-warn li{display:flex;align-items:flex-start;gap:8px;color:var(--fg)}.mc .mc-warn .i{margin-top:calc((var(--uil) - var(--ic)) / 2)}
+.mc .mc-off{display:grid;gap:8px;color:var(--sub)}
+
+.mc .mc-grp{display:grid;gap:10px}
+.mc h4{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl);font-weight:600}
+.mc h4>span{color:var(--muted);font-weight:400}
+
+/* Health: each meter's name and share, its bar with the limit mark, then its amounts and its limit */
+.mc .mc-gauges{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.mc .mc-g{display:grid;align-content:start;gap:6px;min-width:0}
+.mc .mc-gh{display:flex;justify-content:space-between;gap:8px}.mc .mc-gh .num{font-weight:600}
+.mc .mc-gs{display:grid;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+.mc .mc-gl{display:grid;min-width:0}
+.mc .mc-glim{white-space:nowrap}
+.mc .mc-bar{position:relative;height:6px;border-radius:3px;background:var(--control2)}
+.mc .mc-bar>i{display:block;width:var(--w);height:100%;border-radius:3px;background:var(--fg)}
+.mc .mc-bar.busy>i,.mc .mc-bar.over>i{background:var(--amber)}
+/* the start limit: a short upright mark across the bar, with a hairline of the card around it to stand off the fill */
+.mc .mc-bar>b{position:absolute;top:-3px;bottom:-3px;inset-inline-start:clamp(0px,calc(var(--at) - 1px),calc(100% - 2px));width:2px;border-radius:1px;background:var(--sub);box-shadow:0 0 0 1px var(--canvas)}
+
+/* System: label and value rows, two columns of them while there's room */
+.mc .mc-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px;margin:0}
+.mc .mc-f{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:12px;min-width:0}
+.mc .mc-f dt{color:var(--muted)}.mc .mc-f dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.mc .mc-fx{color:var(--muted)}
+.mc .mc-acts{justify-content:flex-start;margin:0}
+
+@container mc (max-width:520px){
+  .mc .mc-gauges{grid-template-columns:minmax(0,1fr);gap:14px}
+  .mc .mc-facts{grid-template-columns:minmax(0,1fr)}
+}

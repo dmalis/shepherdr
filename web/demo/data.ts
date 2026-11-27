@@ -2,8 +2,10 @@
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
 import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem } from '../shared/types.ts'
+import { demoFacts } from './machine-facts.ts'
 
 const NOW = Date.now()
+const facts = demoFacts(NOW)
 const min = 60_000
 const hour = 60 * min
 const day = 24 * hour
@@ -229,10 +231,11 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     last: empty ? {} : { [P.blog]: 3, [P.garden]: 2, [P.shop]: 5, [P.vmRoot]: 2 },
     read: empty ? {} : { [P.blog]: 2, [P.garden]: 1, [P.shop]: 5, [P.vmRoot]: 1 },
     machines: [
-      { id: 'm:mac-mini', machine: 'mac-mini', name: 'mac-mini', status: 'idle', here: true, limits: noUsage, health: { meters: [{ name: 'CPU', pct: 34, detail: '', level: 'ok' }, { name: 'Memory', pct: 71, detail: '', level: 'ok' }, { name: 'Disk', pct: 58, detail: '', level: 'ok' }], herdr: true, working: 5, held: 0, at: '' } },
-      { id: 'm:vm', machine: 'vm', name: 'vm', status: down ? 'off' : 'idle', ...(down ? { unreachableSince: '14:02' } : {}), limits: noUsage, health: { meters: [{ name: 'CPU', pct: 12, detail: '', level: 'ok' }, { name: 'Memory', pct: 40, detail: '', level: 'ok' }, { name: 'Disk', pct: empty ? 40 : 91, detail: '', level: 'over' }], herdr: true, working: 2, held: 0, at: '' } },
-      { id: 'm:studio', machine: 'studio', name: 'studio', status: 'idle' },
-      { id: 'm:pi', machine: 'pi', name: 'pi', status: 'idle' },
+      { id: 'm:mac-mini', machine: 'mac-mini', name: 'mac-mini', status: 'idle', here: true, limits: noUsage, ...facts['mac-mini'], health: { meters: [{ name: 'CPU', pct: 34, detail: '', level: 'ok' }, { name: 'Memory', pct: 71, detail: '', level: 'ok' }, { name: 'Disk', pct: 58, detail: '', level: 'ok' }], herdr: true, working: 5, held: 0, at: '' } },
+      { id: 'm:vm', machine: 'vm', name: 'vm', status: down ? 'off' : 'idle', ...(down ? { unreachableSince: '14:02' } : {}), limits: noUsage, ...facts.vm, health: { meters: [{ name: 'CPU', pct: 12, detail: '', level: 'ok' }, { name: 'Memory', pct: 40, detail: '', level: 'ok' }, { name: 'Disk', pct: empty ? 40 : 91, detail: '', level: 'over' }], herdr: true, working: 2, held: 0, at: '' } },
+      { id: 'm:studio', machine: 'studio', name: 'studio', status: 'idle', ...facts.studio, health: { meters: [{ name: 'CPU', pct: 18, detail: '', level: 'ok' }, { name: 'Memory', pct: 44, detail: '', level: 'ok' }, { name: 'Disk', pct: 4, detail: '', level: 'ok' }], herdr: true, working: 1, held: 0, at: '' } },
+      // #107: pi can't be reached (Settings › Machines shows one of each: fine, needs attention, can't reach)
+      { id: 'm:pi', machine: 'pi', name: 'pi', status: 'off', unreachableSince: 'Tue 9:12' },
     ],
     tasks: empty ? [] : tasks.map((t) => {
       const settings = t.agent && chats[t.agent.chat]?.agent
@@ -248,7 +251,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
       { id: 'q-labels', chat: 'vm:ACME-10/worker', place: P.vmShop, task: 'vm:ACME-10', at: NOW - 2 * min, question: labelsQ().at(-1)!.question! },
     ],
     // #1547: each machine's start limits, as the service's Machines section keeps them
-    settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' })) },
+    settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' }), limitRows('studio', {})) },
       // Settings › Secrets: every kept secret by name and where, a machine's own too (#1560)
       { name: 'Secrets', level: 'all', rows: [], vault: [
         { name: 'GITHUB_TOKEN', at: NOW - 9 * day, scope: 'everywhere', machine: null, space: null, where: 'Everywhere' },

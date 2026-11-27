@@ -8,6 +8,7 @@ import { settingsFile } from "./paths.ts";
 import { exec } from "./model.ts";
 import * as MC from "../core/machines.js";
 import { notRead } from "../core/agent-usage.js";
+import { lastSeen, markAway, readSystem, systemDue } from "./machine-system.ts";
 
 const { holdOf, nextRead, healthMeters } = MC as any;
 // Run this version's probe on every machine, including machines with an older install.
@@ -16,6 +17,8 @@ export const MACHINE_PROBE = join(import.meta.dir, "..", "mods", "tasks", "bin",
 export class Machines {
   stats = new Map<string | null, any>();
   private busy = false;
+  /** dmalis/shepherdr#107: the linked machines connected at the last poll, to see one that went and came back */
+  private connected: Set<string> | null = null;
   onChange: () => void = () => {};
   /** is a page open (service/live.ts anyone) */
   watched: () => boolean = () => true;
@@ -71,17 +74,24 @@ export class Machines {
       let cfg: any = null;
       try { cfg = JSON.parse(readFileSync(settingsFile(), "utf8")); } catch {}
       const script = readFileSync(MACHINE_PROBE, "utf8"), now = Date.now();
-      await Promise.all([null, ...this.list()].map(async (m) => {
+      const listed = this.list();
+      this.connected = markAway(this.stats, listed, this.connected); // dmalis/shepherdr#107
+      await Promise.all([null, ...listed].map(async (m) => {
         const was = this.stats.get(m) ?? {};
         const limits = now - (was.limitsAt ?? 0) > 10 * 60_000;
-        if (!limits && now - (was.at ?? 0) < 45_000) return;
+        if (!limits && !was.away && now - (was.at ?? 0) < 45_000) return;
+        // dmalis/shepherdr#107: its system facts with its plan limits, and again once it answers after it couldn't or was away
+        const sys = systemDue(was, limits, now) ? readSystem(this.hub, m) : null;
         const r = await exec(this.hub, ["python3", "-c", script, ...(limits ? ["--limits"] : [])], m, 90).catch(() => null);
+        const system = await sys;
         const line = r?.stdout.split("\n").find((l) => l.startsWith("{"));
-        const out: any = { ...was, hold: holdOf(cfg, m), at: Date.now() };
+        const out: any = { ...was, hold: holdOf(cfg, m), at: Date.now(), ...(system ? { system } : {}) };
+        if (system) delete out.away;
         if (line) {
           const d = JSON.parse(line);
           out.health = d.health;
           delete out.error;
+          out.seenAt = Date.now(); // dmalis/shepherdr#107: last seen, once it can't be reached
           if (d.limits) { out.limits = Object.fromEntries(Object.entries(d.limits).map(([k, v]) => [k, nextRead(was.limits?.[k], v)])); out.limitsAt = Date.now(); }
         } else {
           // as the window's (lib/machines.js): why it couldn't, its header's red dot; the last numbers stay
@@ -107,12 +117,14 @@ export class Machines {
     if (s.limits) s = { ...s, limits: Object.fromEntries(Object.entries<any>(s.limits).filter(([k, v]) => !(notRead(k) && v?.state === "no-access"))) };
     const stats = { at: s.at, ...(s.error ? { error: s.error } : {}), ...(s.limitsAt ? { limitsAt: s.limitsAt } : {}), hold: s.hold,
       ...(s.health ? { health: s.health } : {}), ...(s.limits ? { limits: s.limits } : {}) };
-    if (!s.health) return { stats };
+    const system = s.system ? { system: s.system } : {};
+    const seen = lastSeen(m, s.seenAt, this.list()); // dmalis/shepherdr#107
+    if (!s.health) return { stats, ...system, ...seen };
     const health = { engine: "core", herdr: true, working: 0, held: 0, at: new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       meters: healthMeters(s).map((x: any) => ({ name: x.name, pct: x.pct, detail: x.detail, level: x.level })) };
     const limits = s.limits ? Object.fromEntries(Object.entries<any>(s.limits).map(([k, v]) => [k, v.state === "ok"
       ? { state: "ok", plan: v.plan, at: v.at ?? s.limitsAt, windows: (v.windows ?? []).map((w: any) => ({ name: w.name, used: w.used, ...(w.resets_at ? { resetsAt: w.resets_at } : {}) })) }
       : { state: v.state ?? "unknown", why: v.why ?? "", at: v.at ?? s.limitsAt }])) : undefined;
-    return { health, stats, ...(limits ? { limits } : {}) };
+    return { health, stats, ...system, ...seen, ...(limits ? { limits } : {}) };
   }
 }

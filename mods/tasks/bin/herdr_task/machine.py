@@ -73,7 +73,7 @@ def _disks():
         if used + avail <= 0:
             continue
         out.append({"path": "home" if path == HOME else path, "pct": round(used * 100 / (used + avail)),
-                    "free_gb": round(avail / 2 ** 30)})
+                    "free_gb": round(avail / 2 ** 30), "free": avail, "used": used, "size": st.f_blocks * st.f_frsize})
     return out
 
 

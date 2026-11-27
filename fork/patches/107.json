@@ -1,0 +1,25 @@
+{
+  "issue": 107,
+  "name": "Machines: more health facts, clearer cards",
+  "files": [
+    "mods/tasks/bin/herdr_task/machine_system.py",
+    "mods/tasks/bin/herdr_task/machine.py",
+    "service/machine-system.ts",
+    "service/machines.ts",
+    "service/next.ts",
+    "web/shared/machine-facts.ts",
+    "web/shared/types.ts",
+    "web/src/machine-card.tsx",
+    "web/src/machine-card.css",
+    "web/src/settings.tsx",
+    "web/demo/machine-facts.ts",
+    "web/demo/data.ts",
+    "docs/settings.md"
+  ],
+  "tests": [
+    "test/test_machine_system.py",
+    "service/machine-system.test.ts",
+    "web/shared/machine-facts.test.ts",
+    "web/src/machine-card.test.tsx"
+  ]
+}
