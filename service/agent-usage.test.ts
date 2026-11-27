@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { AGENT_USAGE, notRead } from "../core/agent-usage.js";
 import { noPlanWords } from "../core/machines.js";
 import { planWords, voiceTool, type VoiceIO, type Where } from "./voice-tools.ts";
+import { Machines } from "./machines.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const src = (p: string) => readFileSync(root + p, "utf8");
@@ -59,6 +60,31 @@ test("the voice's Usage setting says once where to look, with or without a plan 
   expect(await usage()).toContain(`Usage: ElevenLabs creator: Credits 25% used. ${AGENT_USAGE}`);
   const machines = (await voiceTool("look", { what: "machines" }, where, io)).result;
   expect(machines).not.toMatch(/plan usage|\/usage|\/status/);
+});
+
+test("the service drops the notes before any page or the voice's look data sees them; ElevenLabs stays", async () => {
+  const ms = new Machines({} as any, () => ["vm"]);
+  const probe = { at: now, limitsAt: now, hold: {}, health: stats.health, limits: { claude: stats.limits.claude, codex: stats.limits.codex } };
+  ms.stats.set(null, probe);
+  ms.stats.set("vm", probe);
+  (ms as any).voice = { ...stats.limits.elevenlabs, state: "no-access", why: "Give your ElevenLabs key 'User → Read' access" };
+  const here = ms.of(null) as any, vm = ms.of("vm") as any;
+  expect(Object.keys(here.limits)).toEqual(["elevenlabs"]);
+  expect(Object.keys(here.stats.limits)).toEqual(["elevenlabs"]);
+  expect(Object.keys(vm.limits)).toEqual([]);
+  expect(Object.keys(vm.stats.limits)).toEqual([]);
+  const snap: any = {
+    host: "box", name: "Shepherdr", user: "You", everything: "home", places: [{ id: "home", name: "home", home: true, machine: "box", chat: "p:home", level: 0, status: "idle" }],
+    machines: [{ id: "m:box", machine: "box", name: "box", status: "idle", here: true, ...here }, { id: "m:vm", machine: "vm", name: "vm", status: "idle", ...vm }],
+    tasks: [], needs: [], automations: {}, artifacts: [], settings: [], asks: {},
+    config: { all: { agents: {}, review: false, merge: "done", proof: false }, spaces: {}, secrets: [], plugins: [], plans: [] },
+  };
+  const io: VoiceIO = { snap: () => snap, chat: async () => null, send: async () => {}, action: async () => ({ ok: true }) } as any;
+  const where: Where = { client: "web", device: "phone", place: "home" };
+  const data = (await voiceTool("look", { what: "data", query: "plan usage" }, where, io)).result;
+  expect(data).not.toContain("Shepherdr doesn't read");
+  expect((await voiceTool("look", { what: "settings", query: "plan usage" }, where, io)).result).toContain(AGENT_USAGE);
+  expect((await voiceTool("look", { what: "data", query: "User → Read" }, where, io)).result).toContain("elevenlabs");
 });
 
 test("Settings: machine cards show no usage note, Usage shows the one line", () => {

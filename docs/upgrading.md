@@ -63,7 +63,7 @@ Also left out on purpose, each with what to do instead:
 - Grouping tasks by For you or by Space. Filter by space.
 - Worktree rows in a space's menu, and worktree spaces under their repo. Start a task: it gets its own worktree.
 - Browse in New space. Type or paste the folder's path.
-- Plan usage per machine. Settings › Usage shows this machine's; an agent at its limit tells you.
+- Plan usage per machine. Run `/usage` in Claude Code or `/status` in Codex; Settings › Usage shows your ElevenLabs plan. An agent at its limit tells you.
 - The folder hint that told two spaces with the same name apart. Rename one.
 - The Home Assistant switch and Make home space. Ask in a chat and its agent edits the settings file
   ([Settings](settings.md)).
