@@ -7,6 +7,7 @@ import type { Hub } from "./hub.ts";
 import { settingsFile } from "./paths.ts";
 import { exec } from "./model.ts";
 import * as MC from "../core/machines.js";
+import { notRead } from "../core/agent-usage.js";
 
 const { holdOf, nextRead, healthMeters } = MC as any;
 // Run this version's probe on every machine, including machines with an older install.
@@ -100,7 +101,10 @@ export class Machines {
   of(m: string | null) {
     const got = this.stats.get(m);
     if (!got) return {};
-    const s = m === null && this.voice ? { ...got, limits: { ...(got.limits ?? {}), elevenlabs: this.voice } } : got;
+    let s = m === null && this.voice ? { ...got, limits: { ...(got.limits ?? {}), elevenlabs: this.voice } } : got;
+    // Claude Code's and Codex's plan usage is never read: machine.py's note per machine stays off every page and the
+    // voice (Settings › Usage says once where to see it, core/agent-usage.js)
+    if (s.limits) s = { ...s, limits: Object.fromEntries(Object.entries<any>(s.limits).filter(([k, v]) => !(notRead(k) && v?.state === "no-access"))) };
     const stats = { at: s.at, ...(s.error ? { error: s.error } : {}), ...(s.limitsAt ? { limitsAt: s.limitsAt } : {}), hold: s.hold,
       ...(s.health ? { health: s.health } : {}), ...(s.limits ? { limits: s.limits } : {}) };
     if (!s.health) return { stats };

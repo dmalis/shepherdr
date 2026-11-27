@@ -9,6 +9,7 @@ import type { AgentPick, Need, Snapshot, Task, Place } from "../web/shared/types
 import { ACTS, ASK_FIRST, navWords, REPLY_MAX, SETTINGS } from "../core/voice.js";
 import { screenParams, screenWords } from "../core/screen.js";
 import { planRows, windowWords, whyWords, healthWords } from "../core/machines.js";
+import { AGENT_USAGE, notRead } from "../core/agent-usage.js";
 import { artifactsIn, everything, isEverything, isTilde, listOf, machineLabel, machineWarn, needsCount, nowGroups, onBranch, scheduleLine, schedulesOf, spaceLabel, spacesOf, etaOf, leftWords, statusWord, taskInSpace, taskLine, taskWhen, tstate, unreachable, whereWords } from "../web/shared/view.ts";
 import { SOURCES, scrub, render, at, search, segments, type SourceArgs } from "./voice-data.ts";
 import { lookPage, type PageRead } from "./voice-page.ts";
@@ -413,7 +414,8 @@ export function planWords(stats: any, now = Date.now()) {
   const h = stats.health ? healthWords(stats) : "";
   if (h) out.push(`Health: ${h}.`);
   for (const r of planRows(stats, now) as any[]) {
-    if (r.none) continue;
+    // Claude Code's and Codex's plan usage is never read: no note per machine (Usage says once where to see it)
+    if (r.none || (notRead(r.cli) && r.read?.state === "no-access")) continue;
     const name = `${r.name}${r.read?.plan ? ` (${r.read.plan})` : ""}`;
     if (r.read?.state !== "ok") { out.push(`${name}: ${whyWords(r.read)}`); continue; }
     const ws = (r.read.windows ?? []).map((w: any) => windowWords(w, now)).map((w: any) => (w.dead ? w.dead : `${w.name} ${w.words}, ${w.refill[0].toLowerCase()}${w.refill.slice(1)}`));
@@ -556,7 +558,7 @@ function lookSettings(snap: Snapshot, where: Where, id: unknown, query: string) 
     `Tasks › Proof: ${onOff(lv.proof)}${mark("proof")}`,
     ...(space ? [] : [
       `Plugins: ${c.plugins.map((x) => `${x.name} ${x.always ? "always on" : onOff(x.on)}`).join(", ")}`,
-      `Usage: ${c.plans.length ? c.plans.map((pl) => `${pl.name}: ${pl.windows.map((w) => `${w.name} ${w.used}% used${w.resets ? `, ${w.resets[0].toLowerCase()}${w.resets.slice(1)}` : ""}`).join("; ")}`).join(". ") : "no plan usage read yet"}`,
+      `Usage: ${c.plans.map((pl) => `${pl.name}: ${pl.windows.map((w) => `${w.name} ${w.used}% used${w.resets ? `, ${w.resets[0].toLowerCase()}${w.resets.slice(1)}` : ""}`).join("; ")}. `).join("")}${AGENT_USAGE}`,
       `Secrets: ${c.secrets.length} kept (look secrets for their names)`,
       `Machines: ${snap.machines.map((m) => m.name).join(", ")}`,
     ]),

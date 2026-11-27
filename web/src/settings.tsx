@@ -16,6 +16,8 @@ import { canKeepAwake, setAwake, useAwake } from './awake.ts'
 import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
 import { OWN_VERSION } from './update.ts'
 import { ReviewRows } from './review-rows.tsx'
+import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
+import { READS } from '@core/machines.js'
 import { IconButton } from './space-icon.tsx'
 import { Btn, cx, I, IB, Meter, Row, Seg, Tgl } from './ui.tsx'
 
@@ -434,7 +436,6 @@ function Machines({ snap }: { snap: Snapshot }) {
         // #1547: each meter's start limit under it (new tasks wait above it), and Start limits to change them
         const lims = limitsOf(snap, m)
         const desk = !off && snap.config?.desktops?.includes(m.machine)
-        const noUsage = noUsageOf(m.limits)
         return (
           <div className="mcard" key={m.id}>
             <div>
@@ -454,7 +455,6 @@ function Machines({ snap }: { snap: Snapshot }) {
                 ))}
               </div>
             )}
-            {!off && noUsage.map(([name, why]) => <div className="hint" key={name}>{name}. {why}</div>)}
             {(desk || lims.length > 0) && (
               <div className="acts" style={{ justifyContent: 'flex-start' }}>
                 {lims.length > 0 && <Btn small onClick={() => limitsDialog(m.id)}>Start limits</Btn>}
@@ -471,10 +471,10 @@ function Machines({ snap }: { snap: Snapshot }) {
   )
 }
 
-/** The agents whose plan usage Shepherdr doesn't read, with where to see it ("Open Codex and run /status"). */
-const USAGE_NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' }
+/** A plan Shepherdr may read but can't now, with why (an ElevenLabs key without User → Read). Claude Code's and Codex's
+ *  plan usage is never read: their notes stay off, and Usage says once where to see it (core/agent-usage.js). */
 function noUsageOf(limits: Snapshot['machines'][number]['limits']): [string, string][] {
-  return Object.entries(limits ?? {}).filter(([, l]) => l?.state === 'no-access').map(([k, l]) => [USAGE_NAMES[k] ?? k, l.why ?? ''])
+  return Object.entries(limits ?? {}).filter(([k, l]) => !notRead(k) && l?.state === 'no-access').map(([k, l]) => [READS[k as keyof typeof READS] ?? k, (l as { why?: string }).why ?? ''])
 }
 
 function Usage({ snap }: { snap: Snapshot }) {
@@ -482,7 +482,7 @@ function Usage({ snap }: { snap: Snapshot }) {
   const noUsage = noUsageOf((snap.machines.find((m) => m.here) ?? snap.machines[0])?.limits)
   return (
     <>
-      <p className="hint">How much of each plan your agents have used.</p>
+      <p className="hint">{AGENT_USAGE}</p>
       {plans.map((p) => (
         <div className="mcard" key={p.name}>
           <div className="nm">{p.name}</div>
@@ -500,7 +500,6 @@ function Usage({ snap }: { snap: Snapshot }) {
         </div>
       ))}
       {noUsage.map(([name, why]) => <div className="mcard" key={name}><div className="nm">{name}</div><p className="hint">{why}</p></div>)}
-      {!plans.length && !noUsage.length && <div className="empty"><span>No plan to show yet.</span></div>}
     </>
   )
 }

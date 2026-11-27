@@ -96,7 +96,7 @@ export const healthReadWords = (s, now = Date.now()) => (s.error ? "Couldn't rea
 // Under it, while there are no meters.
 export const noHealthWords = (s) => (s.error ? `Couldn't read it: ${s.error}` : "Reading…");
 // The plan block, while there are no CLIs.
-export const noPlanWords = (s) => (s.limitsAt ? "No agent CLIs here." : "Reading plan usage…");
+export const noPlanWords = (s) => (s.limitsAt ? "No agent CLIs here." : "Reading…");
 // A CLI's heading: its name and plan ("Claude Code · Max").
 export const cliTitle = (r) => r.name + (r.read?.plan ? ` · ${r.read.plan[0].toUpperCase()}${r.read.plan.slice(1)}` : "");
 // A read older than OLD, or one that failed since, shows amber.

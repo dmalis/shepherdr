@@ -23,9 +23,10 @@ How Shepherdr works:
 - Screen: an agent's browser and desktop, live. "Take over" gives the person its mouse and keyboard, "Hand back" returns it to the agent. "Needs your hands": a step only the person can do there.
 - Artifacts are pages agents make to keep; a task's proof stays on its task. Each chat and task also has its agent's terminal ("View as terminal"); "your terminal" is the person's own.
 - Settings has General, Agents, Tasks, Secrets, Machines, Usage and Plugins. Secrets are kept by name: never read a value out, never ask for one by voice.
+- Shepherdr never reads Claude Code or Codex plan usage. Asked about it, say in one sentence: run /usage in Claude Code or /status in Codex.
 
 Your tools:
-- look: read anything: here (where the call is, what is on screen), a chat (latest messages or a search), spaces, machines (health, plan usage, warnings), tasks, one task, needs (all that waits on the person), news, schedules, settings, secret names, artifacts.
+- look: read anything: here (where the call is, what is on screen), a chat (latest messages or a search), spaces, machines (health, the ElevenLabs plan, warnings), tasks, one task, needs (all that waits on the person), news, schedules, settings, secret names, artifacts.
 - look page reads the words of the artifact open on screen (only that one): a long page comes in parts, and query finds the parts about something. Open an artifact first to read another.
 - look data sees everything the app shows: its live data and what opens on demand (a task's changed files and checks, usage insights, the agents' models...). With no path it lists them all; a path drills into any item; query searches every value. If the other looks don't have it, look data does: never say you can't see something the app shows before you tried it.
 - open: show something in the person's app (the one the call runs in): Everything or a space, a task, an agent's Screen (its browser or desktop), its terminal, Tasks, Needs you, Artifacts, an artifact, a Settings page.
@@ -93,10 +94,10 @@ export const ACTS = ["done", "done_without_merging", "start", "stop", "restart",
 export const ASK_FIRST = ["done", "done_without_merging", "stop", "delete", "archive_space", "remove_space", "delete_artifact"];
 
 export const TOOLS = [
-  tool("look", "Read Shepherdr: where the call is, a chat, spaces, machines (health, plan usage, warnings), tasks, a task's details, what needs the person, news, schedules, settings, secret names, artifacts, and data: everything else the app shows anywhere. Answers in short sentences.", {
+  tool("look", "Read Shepherdr: where the call is, a chat, spaces, machines (health, the ElevenLabs plan, warnings), tasks, a task's details, what needs the person, news, schedules, settings, secret names, artifacts, and data: everything else the app shows anywhere. Answers in short sentences.", {
     what: { type: "string", enum: LOOKS, description: "What to read. here: the call's context and what is on screen. chat: a chat's latest messages (or a search with query). tasks: a list (filter with id and query). task: one task's status, summary, checks and proof. needs: every question, command to allow, step for the person's hands, task Ready for review or Stopped. page: the words of the artifact open on screen (query: only the parts about it; part: the next part of a long one). data: everything the app shows: no path lists every part; path drills in; query searches values." },
     id: PLACE,
-    path: { type: "string", description: "data: where to read, a part then keys or names, like \"machines/mini/stats/limits/codex\", \"config/all\", \"insights\", \"changes\" (id: the task)." },
+    path: { type: "string", description: "data: where to read, a part then keys or names, like \"machines/mini/stats/health\", \"config/all\", \"insights\", \"changes\" (id: the task)." },
     query: { type: "string", description: "Words to search for (a chat, tasks, artifacts), or a status to filter tasks (needs you, ready for review, working, stopped, up next, done, archived)." },
     count: { type: "integer", description: "How many chat messages or items (default 6, at most 30)." },
     part: { type: "integer", description: "page: which part of a long page (1 first)." },
@@ -530,8 +531,8 @@ export async function checkKey(k, fetchFn = fetch) {
 }
 
 // ---- usage -------------------------------------------------------------------------------
-// SHEP-128: what is left of the person's ElevenLabs plan, under Plan usage beside Claude Code's and Codex's (the web's
-// Settings › Machines, the serving machine's block), read with the voice key: GET <API>/user/subscription. Its
+// SHEP-128: what is left of the person's ElevenLabs plan, under Settings › Usage (Claude Code's and Codex's are
+// never read, core/agent-usage.js), read with the voice key: GET <API>/user/subscription. Its
 // character_count / character_limit are the plan's credits, refilled at next_character_count_reset_unix (seconds).
 // A key restricted without "User → Read" gets 401 missing_permissions: a plain hint, never an error wall.
 
