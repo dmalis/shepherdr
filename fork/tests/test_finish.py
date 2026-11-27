@@ -253,7 +253,7 @@ class ToldWords(unittest.TestCase):
 
     def test_a_hold_still_held_stays(self):
         self.assertEqual(self.words(("held", self.HELD), ("rolled-back", self.RB1), ("installed", None)),
-                         ("installed", "What's new. " + self.HELD + " " + gate.EARLIER_ROLLBACK))
+                         ("installed", self.HELD + " What's new. " + gate.EARLIER_ROLLBACK))
 
     def test_only_rollbacks(self):
         self.assertEqual(self.words(("rolled-back", self.RB1), ("rolled-back", self.RB2), says=None),

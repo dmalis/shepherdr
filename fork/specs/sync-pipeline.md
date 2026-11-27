@@ -637,8 +637,8 @@ our merges' own install policy:
    run that owns the lease: no merge is stranded. A release sync may take the lease between two installs. A run that
    went more than once tells every round in one `--told`, and its last words follow what is installed now: a
    rollback before the run's last healthy install is over, said once as "An earlier try rolled back; the next install
-   is healthy." after what's new, never as "Rolled back: … back on <the old version>". A hold a later healthy install
-   cleared is over too, and not told.
+   is healthy." after what's new, never as "Rolled back: … back on <the old version>". A hold still standing goes
+   before what's new; one a later healthy install cleared is over, and not told. CI's words come after (below).
 7. `ci`, when `finish` says `next: ci` (below). It gives the completion command.
 
 **Our merges' install policy.** `install` has two policies, chosen from the run's state:
@@ -674,10 +674,12 @@ doesn't clear it, but a change to a shipped file does. `settle` ends such a run 
   when it goes in, and stays there until its verdict is final, however far the installs history moves on. Then `ci` reads every such install's verdict, however
   many installs came after it, and waits for the run's own, in calls of at most 9 minutes, for up to 30 minutes after
   the install. It then gives the completion command.
-- A red result is told once per SHA, in the run's `--told` words: which check failed and on which commit, that
-  nothing was rolled back, and the recovery point. The person's Assistant can then open a fix task. A result that
-  comes later, or no finished run within 2 hours (missed), is told by a later run. Telling and marking a SHA told
-  happen under one lock, so two runs never both tell it.
+- A red result is told once per failure, in the run's `--told` words: which check failed and on which commit, that
+  CI never rolls back, and the recovery point. One failed run on a later merge decides the verdict of every install
+  before it, so those installs share one sentence ("CI on main failed after 5 installs of …: fork-check failed on
+  <commit>"), and a failure (check and commit) another run already told is said no more. The person's Assistant can
+  then open a fix task. A result that comes later, or no finished run within 2 hours (missed), is told by a later
+  run. Telling and marking told happen under one lock, the words made again there, so two runs never both tell it.
 - Nothing rolls back on red CI. The newest install whose CI passed is kept as `recovery`: its tag and SHA. A release
   sync's install counts, since its checks passed before it installed. The person can ask to go back to it. Going back
   is an ordinary update of the install folder to that tag, run by the person or under their yes.
@@ -820,7 +822,7 @@ The rehearsal skips the live terminal check (`may_ask`: its updater is its own),
    **Answered:** as soon as possible. No quiet wait, no gap, and no daily or per-run cap. One install at a time, each
    taking main's tip when it starts. Our merges skip the trial and don't wait for main's checks. Health covers what
    the trial did (the web app served, herdr-task answering). CI reports afterwards: a red result is told once per
-   SHA, nothing rolls back on it, and the newest install CI passed is kept as the recovery point.
+   failure, nothing rolls back on it, and the newest install CI passed is kept as the recovery point.
 5. **A hooks change in a release.** When a release adds a hook, the scheduled run holds it. **Recommendation:** the
    held message tells the person to run `shepherdr update` once themselves after reading what the hook does; a yes in
    the chat is not enough, because the run must not write an agent's config.

@@ -644,7 +644,7 @@ def told_words(rounds, says):
     """(outcome, --told words) of a run's rounds [(outcome, words, path)], oldest first. The last words follow what is
     installed now: a rollback before the run's last healthy install is over, so it is said at most once as
     EARLIER_ROLLBACK, after what's new, never as "Rolled back: … back on <the old version>". A rollback after that
-    install still says where the run is back on, last."""
+    install still says where the run is back on, last. A hold still standing goes before what's new."""
     kinds = [o for o, _, _ in rounds]
     last_install = max((i for i, o in enumerate(kinds) if o == "installed"), default=-1)
     over = [i for i, o in enumerate(kinds) if o == "rolled-back" and i < last_install]
@@ -654,7 +654,7 @@ def told_words(rounds, says):
         if not says:
             raise Refused("an install ends --told with what's new: finish --says \"<what's new>\"", outcome="stop")
         healthy_last = "rolled-back" not in kinds[last_install:]
-        return "installed", " ".join([says] + before + after + ([EARLIER_ROLLBACK] if over and healthy_last else []))
+        return "installed", " ".join(before + [says] + after + ([EARLIER_ROLLBACK] if over and healthy_last else []))
     if "rolled-back" in kinds:
         return "rolled-back", " ".join(after + ([says] if says else []))
     if "held" in kinds:

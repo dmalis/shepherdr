@@ -400,19 +400,21 @@ def scheduler_now(path):
 
 def scheduler_alive(pid):
     """Whether pid is a running herdr-task scheduler: its command line's words hold `scheduler` (it runs as
-    `<python> <herdr-task> scheduler`). `ps -o command= -p` reads it the same on Linux and macOS."""
+    `<python> <herdr-task> scheduler`). `ps -ww -o command= -p` reads it whole on Linux and macOS (without -ww,
+    Linux's ps cuts it at the terminal's or $COLUMNS's width, and the last word goes first)."""
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
-    code, out, _ = run(["ps", "-o", "command=", "-p", str(pid)], timeout=10)
+    code, out, _ = run(["ps", "-ww", "-o", "command=", "-p", str(pid)], timeout=10)
     return code == 0 and "scheduler" in out.split()
 
 
 def scheduler_line(s, since=None, sleep=time.sleep):
-    """None once the scheduler runs the installed herdr-task (.scheduler.json's hash is its script_hash()), else
-    why not, in fixed words. The scheduler re-execs only between rounds, after its round and a 15 s nap, so while it
-    is running it is waited for up to scheduler_wait_s(): a long round (it starts and checks tasks) is still on the
-    old code, not a failure. One that isn't running fails after health_wait_s() instead (time for it to come back,
-    never the whole ceiling). `since` (epoch seconds, the update's start) tells a re-exec from the old code."""
+    """None once a running scheduler runs the installed herdr-task (.scheduler.json's pid is a live scheduler and its
+    hash is the installed script_hash()), else why not, in fixed words. The scheduler re-execs only between rounds,
+    after its round and a 15 s nap, so while it is running it is waited for up to scheduler_wait_s(): a long round (it
+    starts and checks tasks) is still on the old code, not a failure. One that isn't running fails after
+    health_wait_s() instead (time for one started again to come up), never past the ceiling. `since` (epoch seconds,
+    the update's start) tells a re-exec from the old code."""
     want, store = None, None
     start = clock()
     first, was_alive, dead_since = None, False, None
@@ -422,7 +424,7 @@ def scheduler_line(s, since=None, sleep=time.sleep):
             if v and v.get("hash") and v.get("store"):
                 want, store = v["hash"], v["store"]
         now_ = scheduler_now(os.path.join(store, ".scheduler.json")) if store else None
-        if now_ and now_["hash"] == want:
+        if now_ and now_["alive"] and now_["hash"] == want:
             return None
         t = clock()
         if now_ is not None:
@@ -433,9 +435,10 @@ def scheduler_line(s, since=None, sleep=time.sleep):
                 dead_since = t
         if want is None and t - start >= health_wait_s():
             return "the installed herdr-task can't say its code's hash"
-        if dead_since is not None and t - dead_since >= health_wait_s():
+        if dead_since is not None and (t - dead_since >= health_wait_s() or t - start >= scheduler_wait_s()):
             if was_alive:
-                return "it ended instead of re-execing onto the installed herdr-task"
+                return ("it ended after it re-execed onto the installed herdr-task" if now_["hash"] == want else
+                        "it ended instead of re-execing onto the installed herdr-task")
             return "not running" + ("" if (first or {}).get("pid") else " (its .scheduler.json can't be read)")
         if dead_since is None and want is not None and t - start >= scheduler_wait_s():
             rewritten = (now_["hash"] != first["hash"] or
@@ -518,7 +521,8 @@ def tasks_answer(s, timeout=30):
     return None
 
 
-SCHEDULER_STEPS = (("not running", "not running"), ("it ended", "ended instead of re-execing"),
+SCHEDULER_STEPS = (("not running", "not running"), ("it ended after", "ended after re-execing"),
+                   ("it ended", "ended instead of re-execing"),
                    ("it re-execed", "re-execed onto other code"), ("still on the old", "still on the old code"),
                    ("the installed herdr-task", "code hash unread"))
 

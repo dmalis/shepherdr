@@ -897,6 +897,34 @@ class BusyScheduler(unittest.TestCase):
         self.assertLess(self.time.t, 33, "the short wait, never the 5-minute ceiling")
         self.assertEqual(install.step_words("scheduler", why), "scheduler: not running")
 
+    def test_a_dead_scheduler_on_the_new_hash_doesnt_pass(self):
+        """The file names the installed code, but nothing runs it (or the rollback's baseline hash left on disk)."""
+        self.write(an_ended_process(), self.NEW)
+        self.assertEqual(self.line(), "not running")
+        self.assertLess(self.time.t, 33)
+
+    def test_one_that_re_execs_then_ends_says_so(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(10, lambda: (self.write(p.pid, self.NEW), p.kill(), p.wait()))
+        why = self.line()
+        self.assertEqual(why, "it ended after it re-execed onto the installed herdr-task")
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: ended after re-execing")
+
+    def test_a_long_command_line_on_a_narrow_terminal_is_read_whole(self):
+        """Linux's ps cuts `command` at $COLUMNS without -ww: the last word, `scheduler`, must still be read."""
+        p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "x" * 300, "scheduler"])
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        with mock.patch.dict(os.environ, {"COLUMNS": "80"}):
+            self.assertTrue(install.scheduler_alive(p.pid))
+
+    def test_an_exit_late_in_the_wait_never_passes_the_ceiling(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(298, lambda: (p.kill(), p.wait()))
+        self.assertEqual(self.line(), "it ended instead of re-execing onto the installed herdr-task")
+        self.assertLess(self.time.t, 303)
+
     def test_pid_1_or_a_reused_pid_isnt_a_scheduler(self):
         self.write(1, self.OLD)
         self.assertEqual(self.line(), "not running")
@@ -944,11 +972,9 @@ class BusySchedulerInstall(World):
                                                    "FORK_SYNC_SCHEDULER_WAIT_S": "300"})):
             patch.start()
             self.addCleanup(patch.stop)
-        self.sched = a_scheduler(self)
-        self.point_scheduler_at_us()
 
     def point_scheduler_at_us(self):
-        """.scheduler.json names the running stand-in, on the code it has now."""
+        """.scheduler.json names the world's running stand-in, on the code it has now."""
         path = os.path.join(self.store, ".scheduler.json")
         with open(path) as f:
             rec = json.load(f)
