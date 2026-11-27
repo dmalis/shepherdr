@@ -195,6 +195,11 @@ test("an iPhone's home screen: the top row is pinned, so iOS draws no blur over 
   const lbar = '.app.phone .lbox > .lbar:first-child'
   expect(block).toContain(`${line},\n    ${hd},\n    ${lbar} {\n      position: sticky;\n      top: 0;\n    }`)
   expect(block).toContain(`${hd} {\n      background: var(--canvas);\n    }`)
+  // the viewer's bar names its colour (WebKit would otherwise sample, and keep, the light page as the viewer fades in),
+  // painted only under its own white text, so the viewer looks as before
+  expect(block).toContain(`${lbar} {\n      background-color: #000;\n      -webkit-background-clip: text;\n      background-clip: text;\n    }`)
+  expect(read('web/src/ds.css')).toContain('.lname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')
+  expect(read('web/src/ds.css')).toMatch(/\.lbox\{position:fixed;inset:0;[^}]*color:#fafafa;/)
   expect(block).not.toMatch(/backdrop-filter|opacity|z-index|padding|margin|height/)
   // nothing else pins or moves the top: the rest of the sheet keeps only the safe area on top
   expect(css.replace(block, '')).not.toMatch(/position: (sticky|fixed)/)

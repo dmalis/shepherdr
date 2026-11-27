@@ -120,8 +120,11 @@
    So the top row is pinned, the way a native app's navigation bar is: the header, or a line above it. Sticky doesn't
    move it (nothing above it scrolls), and the header takes the canvas it already sits on, so it looks the same.
    A full-screen layer on top (fixed, the screen's size) keeps the colour the status bar already has, so the picture
-   viewer pins its own bar too: the status bar turns dark over it, not the header's light. Only the phone-width layout
-   (an iPhone, or an iPad's narrow window) is that wide; a browser tab, Android and a desktop window never take these. */
+   viewer pins its own bar too: the status bar turns dark over it, not the header's light. That bar names its colour,
+   black: without one WebKit samples the pixels, and while the viewer fades in it would take, and keep, the light page
+   behind it. The colour is painted only under the bar's own text (background-clip: text), where the white letters
+   cover it, so the viewer looks as before. Only the phone-width layout is that wide (an iPhone; an iPad's narrow
+   window or a high app zoom); a browser tab, Android and a desktop window never take these. */
 @media (display-mode: standalone) {
   @supports (-webkit-touch-callout: none) {
     .app.phone .device > .tline:not(.device > :not(.upchip) ~ *),
@@ -132,6 +135,11 @@
     }
     .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child {
       background: var(--canvas);
+    }
+    .app.phone .lbox > .lbar:first-child {
+      background-color: #000;
+      -webkit-background-clip: text;
+      background-clip: text;
     }
   }
 }
