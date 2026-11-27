@@ -10213,6 +10213,45 @@ class RebasedPush(unittest.TestCase):
         self.assertTrue(said.startswith("remote: error: GH013: Repository rule violations found"), said)
         self.assertIn("push declined due to repository rule violations", said)
 
+    def lookups_fail(self, times):
+        """GitHub's branch can't be read (a 503) the first times looks: the pushes made."""
+        import herdr_task.github as github
+        seen = self.pushes()
+        real, looks = github.git, []
+
+        def git(cwd, *args):
+            if args[:1] == ("ls-remote",):
+                looks.append(args)
+                if len(looks) <= times:
+                    return False, "", "remote: Service Unavailable\nfatal: unable to access: The requested URL returned error: 503"
+            return real(cwd, *args)
+        self.patch(github, "git", git)
+        return seen
+
+    def test_a_branch_github_cant_show_is_never_pushed_on_the_tracking_ref(self):
+        """Its lookup fails after a fetch moved the tracking ref to someone else's push: nothing is pushed over it
+        (review round 2's blocker)."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        outsider = self.outsider(remote)
+        self.git(self.main, "fetch", "-q", "origin")
+        seen = self.lookups_fail(2)
+        with self.assertRaisesRegex(self.commands.Fail, "Couldn't read task/1 on GitHub"):
+            github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual((self.at(remote), len(seen)), (outsider, 0))
+
+    def test_a_lookup_that_fails_once_is_tried_again(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        self.lookups_fail(1)
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.at(remote), tip)
+
+    def test_a_4xx_is_no_passing_refusal(self):
+        import herdr_task.rebased_push as rebased_push
+        self.assertFalse(rebased_push.passing("", "remote: Forbidden\nerror: RPC failed; HTTP 403 curl 22 The requested "
+                                              "URL returned error: 403\nfatal: the remote end hung up unexpectedly"))
+
     def test_githubs_bare_failed_is_pushed_again_once(self):
         import herdr_task.github as github
         remote, there, tip = self.rebased()

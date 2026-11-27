@@ -107,7 +107,12 @@ def pr_push(s, task, repo):
         raise Fail(f"Can't push this task to {to}. Use the task's own branch or explicitly take its pull request.")
     ref = f"refs/heads/{to}"
     has, tip, _ = git(wt, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}")
-    seen, there, _ = git(wt, "ls-remote", remote, ref)
+    seen, there, err = git(wt, "ls-remote", remote, ref)
+    if not seen:  # dmalis/shepherdr#97: never a lease on the tracking ref alone, which a fetch moves to someone else's push
+        seen, there, err = rebased_push.look_again(wt, remote, ref)
+        if not seen:
+            raise Fail(f"Couldn't read {to} on GitHub to push {br}, twice, a few seconds apart; nothing was pushed. "
+                       "Run ready again in a minute.\n" + push_error("", err))
     if has and tip and seen and there.split()[:1] == [tip]:
         if (task.get("pushed") or {}).get("sha") != tip:  # dmalis/shepherdr#74: its merge is pinned to it (merge_wait)
             task["pushed"] = {"sha": tip, "at": now()}

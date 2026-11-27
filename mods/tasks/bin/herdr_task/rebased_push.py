@@ -7,6 +7,7 @@ short pause (push()); one that stays, or any other, says GitHub's own words, or 
 names the commit GitHub's branch is at whenever this task had it as its branch's (lease()), as git's own
 --force-if-includes reads the reflog: a stale tracking ref is no refusal, and a commit someone else pushed still is."""
 
+import re
 import time
 
 
@@ -23,6 +24,12 @@ REFUSED = ("(failed)", "(failure)", "failed to lock", "cannot lock ref", "failed
 LINK = ("internal server error", "the remote end hung up unexpectedly", "rpc failed", "unexpected disconnect",
         "early eof", "returned error: 5")
 
+
+def look_again(wt, remote, ref):
+    """git ls-remote once more after RETRY_S, its first look having failed: (ok, out, err). Never the tracking ref
+    instead: a fetch moves that to someone else's push."""
+    time.sleep(RETRY_S)
+    return git(wt, "ls-remote", remote, ref)
 
 
 def had(wt, br, there, saved):
@@ -59,6 +66,8 @@ def passing(out, err):
     word for a ref it didn't update (GitHub's "failed", a lock) with no reason given. A reason (a rule, a hook, push
     protection) is no passing one: pushing again changes nothing."""
     words = (out + "\n" + err).lower()
+    if re.search(r"(returned error:|http) 4\d\d", words):
+        return False  # GitHub said no (a 403, a 404): pushing again changes nothing
     if any(x in words for x in LINK):
         return True
     return "[remote rejected]" in words and any(x in words for x in REFUSED) and not reasons(out, err)
