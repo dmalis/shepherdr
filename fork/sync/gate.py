@@ -530,6 +530,8 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
     if phase in ("installing", "rolling-back", "broken"):
         # unknown: the lease and the phase stay, so the next run resumes (or, broken, waits for the person)
         what = "Rollback failed" if phase == "broken" else "Update outcome unknown"
+        if phase == "broken" and (snap.get("install") or {}).get("broken") == "hooks":
+            what = "An agent's hook file changed during the install"
         rel = ((snap.get("release") or {}).get("tag")) or "the candidate"
         told = f"{what}: {rel} ({(snap.get('candidate') or '')[:12]}). Nothing installs until it is looked at."
         # the same checks as every --told: a merged branch fetched, the worktree in a state the command accepts

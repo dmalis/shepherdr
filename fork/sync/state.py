@@ -110,6 +110,9 @@ def fresh():
         "trials": [],             # [{sha, tree, at}]: fork/bin/trial passed on that commit
         "checks": [],             # [{sha, at}]: main's checks passed on that commit (fork/sync/gate.py)
         "waits": {},              # {what: stamp}: when a gate first waited on checks still running
+        # build task 4 (fork/sync/install.py):
+        "install": None,          # the install under way: {sha, version, baseline, before, ask, update, health, ...}
+        "rollback": None,         # the rollback under way: {sha, from, ask, update, health, failed}
     }
 
 
@@ -330,6 +333,20 @@ def record_checks(st, sha, now=None):
 
 def checks_passed(st, sha):
     return next((c for c in st.get("checks") or [] if c.get("sha") == sha), None)
+
+
+def record_rehearsal(st, sha, code_hash, now=None):
+    """fork/bin/rehearse passed on this commit, whose pipeline code (fork/bin and fork/sync) hashes to `code_hash`
+    (install.pipeline_hash). Only the rehearsal writes this."""
+    if not SHA.match(sha or "") or not re.match(r"^[0-9a-f]{64}$", code_hash or ""):
+        raise Refused("a rehearsal is recorded by its commit's full SHA and its pipeline code's hash", outcome="stop")
+    st["rehearsals"] = [r for r in st.get("rehearsals") or [] if r.get("hash") != code_hash][-(KEEP - 1):] + [
+        {"sha": sha, "hash": code_hash, "at": stamp(now)}]
+
+
+def rehearsal_passed(st, code_hash):
+    """A passing rehearsal for this pipeline code: install refuses a candidate without one."""
+    return next((r for r in st.get("rehearsals") or [] if r.get("hash") == code_hash), None)
 
 
 # --- held records ---
