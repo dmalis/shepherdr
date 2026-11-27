@@ -338,14 +338,14 @@ class Held(unittest.TestCase):
         st = state.fresh()
         rec, new = state.hold(st, "v3.2.22", A_SHA, "conflict", "7", "a patch doesn't fit", now=0, files=["bin/x"])
         self.assertTrue(new)
-        state.ask(st, "7", "RUN-A", "/space", now=100)
+        state.ask(st, "7", "RUN-A", "/space", now=state.QUESTION_AFTER_S + 100)
         rec2, new = state.hold(st, "v3.2.23", B_SHA, "draft", "7", "still", now=5000, branch="sync/v3.2.23",
                                head=B_SHA, pr=12)
         self.assertFalse(new)
         self.assertIs(rec2, rec)
         self.assertEqual(rec["release"], {"tag": "v3.2.23", "sha": B_SHA})
         self.assertEqual(rec["first_seen"], state.stamp(0))
-        self.assertEqual(rec["question"]["asked_at"], state.stamp(100))
+        self.assertEqual(rec["question"]["asked_at"], state.stamp(state.QUESTION_AFTER_S + 100))
         self.assertIsNone(rec["files"])
         _, new = state.hold(st, "v3.2.23", B_SHA, "gate", "check", now=6000)
         self.assertTrue(new)
@@ -365,22 +365,41 @@ class Held(unittest.TestCase):
         st = state.fresh()
         rec, _ = state.hold(st, "v3.2.22", A_SHA, "trial", "trial", now=0)
         day = state.QUESTION_AFTER_S
+        is_open, done = (lambda r, f: "open"), (lambda r, f: "done")
         self.assertFalse(state.question_due(rec, now=day - 1))
+        with self.assertRaises(Refused):
+            state.ask(st, "trial", "RUN-A", "/space", now=day - 1)   # not yet 24 hours
+        self.assertIsNone(rec["question"])
         self.assertTrue(state.question_due(rec, now=day + 1))
         state.ask(st, "trial", "RUN-A", "/space", now=day + 1)
-        self.assertFalse(state.question_due(rec, now=day * 2, owner=lambda r, f: "open"), "the asking run waits")
-        self.assertTrue(state.question_due(rec, now=day * 2, owner=lambda r, f: "done"), "asked once more")
-        state.ask(st, "trial", "RUN-B", "/space", now=day * 2)
-        self.assertFalse(state.question_due(rec, now=day * 3, owner=lambda r, f: "done"), "never a third time")
+        self.assertFalse(state.question_due(rec, now=day * 2, owner=is_open), "the asking run waits")
         with self.assertRaises(Refused):
-            state.ask(st, "trial", "RUN-C", "/space")
+            state.ask(st, "trial", "RUN-B", "/space", now=day * 2, owner=is_open)   # not while the asker is open
+        self.assertTrue(state.question_due(rec, now=day * 2, owner=done), "asked once more")
+        state.ask(st, "trial", "RUN-B", "/space", now=day * 2, owner=done)
+        self.assertEqual(rec["question"]["asks"], 2)
+        self.assertFalse(state.question_due(rec, now=day * 3, owner=done), "never a third time")
+        with self.assertRaises(Refused):
+            state.ask(st, "trial", "RUN-C", "/space", now=day * 3, owner=done)
         state.answer(st, "trial", "wait")
-        self.assertFalse(state.question_due(rec, now=day * 9, owner=lambda r, f: "done"))
+        self.assertFalse(state.question_due(rec, now=day * 9, owner=done))
+
+    def test_asking_again_from_the_same_run_keeps_the_retry(self):
+        st = state.fresh()
+        rec, _ = state.hold(st, "v3.2.22", A_SHA, "trial", "trial", now=0)
+        day = state.QUESTION_AFTER_S
+        state.ask(st, "trial", "RUN-A", "/space", now=day + 1)
+        for _ in range(3):
+            state.ask(st, "trial", "RUN-A", "/space", now=day + 50, owner=lambda r, f: self.fail("no lookup"))
+        self.assertEqual((rec["question"]["asks"], rec["question"]["asked_at"]), (1, state.stamp(day + 1)))
+        self.assertTrue(state.question_due(rec, now=day * 2, owner=lambda r, f: "done"), "its successor asks once more")
+        state.ask(st, "trial", "RUN-B", "/space", now=day * 2, owner=lambda r, f: "done")
+        self.assertEqual(rec["question"]["run"], "RUN-B")
 
     def test_answered_is_kept(self):
         st = state.fresh()
         state.hold(st, "v3.2.22", A_SHA, "trial", "trial", now=0)
-        state.ask(st, "trial", "RUN-A", "/space")
+        state.ask(st, "trial", "RUN-A", "/space", now=state.QUESTION_AFTER_S + 1)
         state.answer(st, "trial", "wait")
         rec, _ = state.hold(st, "v3.2.23", B_SHA, "trial", "trial")
         self.assertEqual(rec["question"]["answer"], "wait")
@@ -549,7 +568,15 @@ class SyncCommand(Base):
         self.assertEqual(code, 0)
         self.assertEqual([(h["blocker"], h["due"]) for h in out["held"]], [("7", False)])
         code, out = self.sync("hold", "--blocker", "7", "--asked")
-        self.assertEqual(out["held"]["question"]["run"], "RUN-B")
+        self.assertEqual((code, out["outcome"]), (1, "stop"), "not due within the first 24 hours")
+        st = state.load(self.p)
+        st["held"][0]["first_seen"] = state.stamp(time.time() - state.QUESTION_AFTER_S - 60)
+        self.write(st)
+        code, out = self.sync("held")
+        self.assertEqual([(h["blocker"], h["due"]) for h in out["held"]], [("7", True)])
+        for _ in range(2):
+            code, out = self.sync("hold", "--blocker", "7", "--asked")
+            self.assertEqual((code, out["held"]["question"]["run"], out["held"]["question"]["asks"]), (0, "RUN-B", 1))
         code, out = self.sync("hold", "--blocker", "7", "--answer", "wait")
         self.assertEqual(out["held"]["question"]["answer"], "wait")
         code, out = self.sync("hold", "--blocker", "8", "--tag", "v3.2.22", "--sha", A_SHA, "--kind", "draft")

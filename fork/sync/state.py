@@ -318,16 +318,21 @@ def clear_held(st, blocker):
     st["held"] = [h for h in st.get("held") or [] if h.get("blocker") != blocker]
 
 
-def ask(st, blocker, run, folder, now=None):
-    """Records that this run asks the 24-hour question, before it asks."""
+def ask(st, blocker, run, folder, now=None, owner=task_state):
+    """Records that this run asks the 24-hour question, before it asks. Only when it is due (question_due); the run
+    that asked already asking again changes nothing, so a repeated call never uses up the one retry."""
     rec = held_record(st, blocker)
     if not rec:
         raise Refused(f"no held record for {blocker}", outcome="stop")
     q = rec.get("question") or {}
     if q.get("answer") is not None:
         raise Refused(f"the question for {blocker} was answered already", outcome="stop")
-    if int(q.get("asks") or 0) >= QUESTION_ASKS:
-        raise Refused(f"the question for {blocker} was asked {QUESTION_ASKS} times already", outcome="stop")
+    if q and (q.get("run"), q.get("folder")) == (run, folder):
+        return rec
+    if not question_due(rec, now=now, owner=owner):
+        raise Refused(f"the question for {blocker} isn't due" + (
+            f" (asked {q.get('asks')} times already)" if int(q.get("asks") or 0) >= QUESTION_ASKS else ""),
+            outcome="stop")
     rec["question"] = {"asked_at": stamp(now), "run": run, "folder": folder, "answer": None,
                        "asks": int(q.get("asks") or 0) + 1}
     return rec
