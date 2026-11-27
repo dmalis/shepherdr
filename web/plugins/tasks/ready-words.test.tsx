@@ -46,7 +46,8 @@ test('in the folder itself, or no repo: mark it as done', () => {
 
 test('closed by its Merge setting: one quiet line with what it found', () => {
   const s = text({ status: 'done', state: 'done', repo: 'branch', nothingToMerge: true, closedAlone: true, summary: 'Already fixed upstream.' })
-  expect(s).toContain('Done · nothing to merge')
+  // its kind first, then its state: "Task · Check the coupon bug · Done · nothing to merge" (the · are drawn by kind.css)
+  expect(s).toContain('Task Check the coupon bug Done nothing to merge')
   expect(s).toContain('Already fixed upstream.')
   expect(s).not.toContain('Close, nothing changes')
   expect(doneWords({ ...ready, repo: 'branch', nothingToMerge: true })).toBe('Done · nothing to merge')
