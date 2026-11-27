@@ -1,0 +1,15 @@
+{
+  "issue": 112,
+  "name": "phone +: one tap to camera, photos, files",
+  "files": [
+    "web/plugins/chat/attach.tsx",
+    "web/plugins/chat/attach.css",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/clip.test.tsx",
+    "web/src/icons.ts"
+  ],
+  "tests": [
+    "web/plugins/chat/attach.test.tsx",
+    "web/plugins/chat/clip.test.tsx"
+  ]
+}
