@@ -5,7 +5,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 
 | Plugin | Switch | What it is | Off means |
 |---|---|---|---|
-| chat | always on | A chat's messages, cards and message box | |
+| chat | always on | A chat's messages, cards and message box; the space's menu has a Folder row while the header hides the folder (a phone, or the keyboard up; fork #105) | |
 | tasks | always on | The Tasks pane, a task's thread, the review card | |
 | artifacts | always on | The Artifacts pane, a page's tile in a chat, Mark up | |
 | search | always on | The command palette: finds anything and runs any command (⌘K, Ctrl+K) | |
@@ -16,7 +16,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
 | installed | always on | The installed app: the icon's shortcuts (Everything, Needs you, New task) and links opened in it reach the open window, the headers in a desktop window's title bar, a phone's safe areas on every screen (fork #34) | |
 | whatsnew | always on | What's new under Settings › About: what changed in each version, read at build time, and the toast after an update saying what it brought (fork #70) | |
-| typing | always on | While a phone's keyboard is up the chat gets the room: the bottom tabs and their home-bar band step aside, the header keeps one line (the model stays in the message box), a note on top waits; all back as the keyboard closes (fork #86) | |
+| typing | always on | While a phone's keyboard is up the chat gets the room: the bottom tabs and their home-bar band step aside, the header keeps one line, a note on top waits; the message box is one row (+, the text, send; the model line back when the keyboard closes) and suggested replies step aside once you type; all back as the keyboard closes (fork #86, #105) | |
 | terminal | yes | Your own terminal in a space or a task, and "View as terminal" | No Terminal menu items |
 | screens | yes | An agent's browser and desktop: watch, Take over, Hand back | No Screen menu item, live picture or card |
 | voice | yes | Voice over the whole app, dictation in the message box, and Settings › Voice (the ElevenLabs key) | No voice or mic button, no Voice page |

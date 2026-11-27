@@ -1,0 +1,11 @@
+/* fork #105: the header's folder (where.tsx). A long path gives way in its middle, as macOS Finder's path bar and VS
+   Code's breadcrumbs do: the parents before the last part are cut with …, and the last part (the folder itself) stays
+   whole while it fits; only a last part wider than the whole room is cut, at its end. Never "…ects/shop". */
+.hpath .hp.cut{display:flex;direction:ltr;min-width:0}
+.hpath .hp.cut>.hpl{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hpath .hp.cut>.hpn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* fork #105: a phone's header has no folder: it cost the name its room, came out cut from its start and repeated the
+   space's name. The space's menu (its name's chevron) shows it, with the whole path and Copy (plugins/chat/folder-row.tsx) */
+.app.phone .col > .hd .ttl > .hpath{display:none}
+.app.phone .col > .hd .ttl > .tbtn:has(+ .hpath){max-width:100%}

@@ -4,13 +4,18 @@
 // changes, in the same frame as the new size, so the tabs never show over the keyboard first; it comes off once the
 // keyboard has finished going down, so nothing climbs back while it slides away. iOS Messages, WhatsApp, Telegram and
 // Slack do the same: the tab bar stays behind the keyboard.
+// fork #105: the message box is one row while the mark is on (typing.css); its text area is fitted to its new width
+// each time the mark changes.
 import './typing.css'
 import { definePlugin, getState, subscribe } from '@client/kernel.ts'
-import { markTyping } from './typing.ts'
+import { fitBox } from '@client/grow.ts'
+import { markTyping, shown, withAfter } from './typing.ts'
+
+const refit = () => document.querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach((t) => shown(t) && fitBox(t))
 
 export default definePlugin({
   name: 'typing',
   setup() {
-    markTyping(document.documentElement, () => getState().ui.keyboard, subscribe, window.visualViewport ?? null)
+    markTyping(withAfter(document.documentElement, refit), () => getState().ui.keyboard, subscribe, window.visualViewport ?? null)
   },
 })
