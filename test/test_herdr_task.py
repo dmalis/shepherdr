@@ -10157,6 +10157,62 @@ class RebasedPush(unittest.TestCase):
         self.assertIn("stale info", str(e.exception))
         self.assertEqual(self.at(remote), outsider)
 
+    def outsider(self, remote):
+        """Someone else pushes to GitHub's branch from their own clone: their commit."""
+        other = os.path.join(self.root, "other")
+        self.git(self.root, "clone", "-q", "-b", "task/1", remote, other)
+        for k, v in (("user.name", "O"), ("user.email", "o@example.com"), ("commit.gpgsign", "false")):
+            self.git(other, "config", k, v)
+        sha = self.commit(other, "someone else's", "b.txt")
+        self.git(other, "push", "-q", "origin", "task/1")
+        return sha
+
+    def test_someone_elses_push_already_fetched_is_still_refused(self):
+        """A fetch moved the tracking ref to their commit: that is no lease on it (review round 1's blocker)."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        outsider = self.outsider(remote)
+        self.git(self.main, "fetch", "-q", "origin")
+        self.assertEqual(self.git(self.main, "rev-parse", "refs/remotes/origin/task/1"), outsider)
+        self.pushes()
+        with self.assertRaisesRegex(self.commands.Fail, "someone else pushed"):
+            github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.at(remote), outsider)
+
+    def test_a_commit_made_while_it_waits_to_push_again_is_never_pushed_in_its_place(self):
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        seen = self.pushes(refused=1)
+        real_push = github.git
+
+        def git(cwd, *args):
+            got = real_push(cwd, *args)
+            if args[:1] == ("push",) and len(seen) == 1 and not os.path.exists(os.path.join(self.task["worktree"], "later")):
+                self.commit(self.task["worktree"], "later", "later")  # its agent commits during the pause
+            return got
+        self.patch(github, "git", git)
+        with self.assertRaisesRegex(self.commands.Fail, "without giving a reason"):
+            github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual((self.at(remote), len(seen)), (there, 1))
+
+    def test_a_5xx_is_pushed_again_whatever_github_adds(self):
+        import herdr_task.rebased_push as rebased_push
+        self.assertTrue(rebased_push.passing("", "remote: Service Unavailable\nerror: RPC failed; HTTP 503 curl 22 "
+                                             "The requested URL returned error: 503\nfatal: the remote end hung up unexpectedly"))
+        self.assertFalse(rebased_push.passing("", "remote: error: GH013: Repository rule violations found\n"
+                                              " ! [remote rejected] b -> b (push declined due to repository rule violations)"))
+
+    def test_githubs_reason_leads_a_long_refusal(self):
+        import herdr_task.github as github
+        import herdr_task.rebased_push as rebased_push
+        err = ("remote: error: GH013: Repository rule violations found for refs/heads/b.\n" +
+               "".join(f"remote: - detail {i}\n" for i in range(25)) + "To https://github.com/o/r.git\n"
+               " ! [remote rejected] b -> b (push declined due to repository rule violations)\n"
+               "error: failed to push some refs to 'https://github.com/o/r.git'")
+        said = rebased_push.said("", err, False, github.push_error)
+        self.assertTrue(said.startswith("remote: error: GH013: Repository rule violations found"), said)
+        self.assertIn("push declined due to repository rule violations", said)
+
     def test_githubs_bare_failed_is_pushed_again_once(self):
         import herdr_task.github as github
         remote, there, tip = self.rebased()
@@ -10354,6 +10410,23 @@ class MergeableAfterAPush(PrLooks):
         self.assertIn("merging it failed: It conflicts with the base branch.", msg)
         self.assertEqual((t["state"], self.merges()), ("running", []))
         self.assertIn("It conflicts", t["merge_failed"])
+
+    def test_the_tick_checks_here_without_fetching(self):
+        """Its look keeps the task list held (a fetch lets it go, and its pull request record would go stale): the base
+        checked against is the one already here (review round 1)."""
+        import herdr_task.github as github
+        real, asked = github.base_tip_ref, []
+        self.patch_base = unittest.mock.patch.object(github, "base_tip_ref",
+                                                     lambda s, t, fetch=False: (asked.append(fetch), real(s, t))[1])
+        self.patch_base.start()
+        self.addCleanup(self.patch_base.stop)
+        tip = self.rebased()
+        self.github_says(tip, "CONFLICTING")
+        t, _ = self.ready_again(tip)
+        self.tick_after(t, 10_000)
+        self.assert_waits(t)
+        self.assertTrue(asked)
+        self.assertNotIn(True, asked)
 
     def test_a_conflict_github_keeps_saying_past_the_wait_is_one(self):
         tip = self.rebased()

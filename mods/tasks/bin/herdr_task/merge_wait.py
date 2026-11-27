@@ -43,10 +43,12 @@ MERGEABLE_WAIT_MS = 2 * 60000  # GitHub's answer for the commit pushed comes wit
 
 
 def merges_here(s, task, head):
-    """Its head merges into its base's newest here (fetched first): True when the base is in it or a real merge of the two
-    is clean, False when that merge conflicts, None when this git can't say (no base, an old git without merge-tree)."""
+    """Its head merges into its base's newest here: True when the base is in it or a real merge of the two is clean,
+    False when that merge conflicts, None when this git can't say (no base, an old git without merge-tree). Never
+    fetched: the task list stays held (a fetch lets it go, and the tick's pull request record goes stale), and the base
+    its agent just rebased onto is here."""
     main = s.loc["folder"]
-    ref = github.base_tip_ref(s, task, fetch=True)
+    ref = github.base_tip_ref(s, task)
     if not ref or not head:
         return None
     if github.git(main, "merge-base", "--is-ancestor", ref, head)[0]:

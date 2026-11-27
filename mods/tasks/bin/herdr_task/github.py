@@ -133,13 +133,15 @@ def pr_push(s, task, repo):
                        f"commits since. Put them on a new branch (a new task) rather than a second pull request.")
     tracking = git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{to}")[1]
     expected = (pr.get("lease") or tracking) if to != br else ("" if gone else tracking)
-    # dmalis/shepherdr#97: the commit there, when this clone had it as the branch's (a stale tracking ref, a taken PR
-    # with no saved tip); one it never had keeps the lease above, for git to refuse.
-    expected = rebased_push.lease_on(wt, br, (there.split() or [""])[0], (task.get("pushed") or {}).get("sha")) or expected
+    # dmalis/shepherdr#97: the commit there when the task had it (a stale tracking ref, a taken PR with no saved tip), else
+    # one git refuses; never the tracking ref alone, which a fetch moves to someone else's push
+    if seen and there.strip():
+        saved = [pr.get("lease"), (task.get("pushed") or {}).get("sha")]
+        expected = rebased_push.lease(wt, br, there.split()[0], saved)
     # Older taken PRs may have no saved tip and no tracking ref. Git can still push a fast-forward.
     lease = [f"--force-with-lease={ref}:{expected}"] if to == br or expected else []
     with released(s):
-        ok, out, err, again = rebased_push.push(wt, remote, ref, tip, [*lease, *(["-u"] if to == br else []), remote,
+        ok, out, err, again = rebased_push.push(wt, remote, ref, br, tip, [*lease, *(["-u"] if to == br else []), remote,
                                                                        f"refs/heads/{br}:{ref}"])
     if not ok:
         raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {rebased_push.said(out, err, again, push_error)}")
