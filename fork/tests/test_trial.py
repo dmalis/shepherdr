@@ -60,7 +60,7 @@ class Base(unittest.TestCase):
     def scratch(self, t):
         t.scratch = tempfile.mkdtemp(prefix=t.name + "-", dir=self.tmp)
         t.mark(t.scratch, "scratch")
-        for d in ("bin", "src", "data", "store", "tmp", "templates", "worktrees"):
+        for d in ("bin", "src", "data", "store", "tmp", "templates", "worktrees", "app/mods/tasks/bin"):
             os.makedirs(os.path.join(t.scratch, d))
         return t.scratch
 
@@ -78,17 +78,26 @@ class Env(Base):
         self.assertEqual(set(e), {"HOME", "TERM", "PATH", "HC_SESSION", "SHEPHERDR_SESSION", "SHEPHERDR_FROM_SESSION",
                                   "SHEPHERDR_DATA", "HERDR_TASK_STORE", "HERDR_TASK_SETTINGS", "HERDR_TASK_TEMPLATES",
                                   "HERDR_TASK_GH", "SHEPHERDR_NO_MIGRATE", "SHEPHERDR_PORT", "SHEPHERDR_WEB", "TMPDIR",
-                                  "GIT_TERMINAL_PROMPT", "LANG", "XDG_RUNTIME_DIR"})
+                                  "GIT_TERMINAL_PROMPT", "LANG", "XDG_RUNTIME_DIR", "HERDR_APP_HOME",
+                                  "SHEPHERDR_HERDR_ARTIFACT"})
         self.assertEqual(e["HOME"], self.home)
         for k in ("HC_SESSION", "SHEPHERDR_SESSION", "SHEPHERDR_FROM_SESSION"):
             self.assertEqual(e[k], t.name)
         self.assertRegex(t.name, r"^fork-trial-[0-9a-f]{8}$")
         for k in ("SHEPHERDR_DATA", "HERDR_TASK_STORE", "HERDR_TASK_SETTINGS", "HERDR_TASK_TEMPLATES", "HERDR_TASK_GH",
-                  "TMPDIR"):
+                  "TMPDIR", "HERDR_APP_HOME", "SHEPHERDR_HERDR_ARTIFACT"):
             self.assertTrue(e[k].startswith(s + os.sep), k)
         self.assertEqual(e["PATH"].split(os.pathsep)[0], os.path.join(s, "bin"))
         self.assertEqual((e["SHEPHERDR_WEB"], e["SHEPHERDR_NO_MIGRATE"]), ("off", "1"))
         self.assertEqual(e["SHEPHERDR_PORT"], str(t.port))
+
+    def test_the_core_state_it_watches_is_where_its_children_put_it(self):
+        # the caller's XDG_STATE_HOME doesn't reach the children: their core writes under HOME
+        t = self.make(env={**self.CALLER, "XDG_STATE_HOME": os.path.join(self.tmp, "custom-state")})
+        self.scratch(t)
+        self.assertNotIn("XDG_STATE_HOME", t.env)
+        self.assertEqual(t.core_dir, os.path.join(self.home, ".local", "state", "herdr-core", t.name))
+        self.assertEqual(t.core_dir, trial.core_state_dir(t.env, t.name))
 
     def test_two_trials_never_share_a_name_or_a_port_folder(self):
         a, b = self.make(), self.make()
@@ -237,6 +246,46 @@ class Wrappers(Base):
         self.assertEqual(trial.gh_calls(log), [])
         self.call("gh-stub", "pr", "create", "--title", "x")
         self.assertEqual(trial.gh_calls(log), ["gh pr create --title x"])
+
+    def installed(self):
+        """Fake installed helpers in the throwaway HOME, where the service would find them: they must never run."""
+        ran = os.path.join(self.tmp, "installed-ran.log")
+        for p in (os.path.join(self.home, ".local", "bin", "herdr-task"),
+                  os.path.join(self.home, ".local", "bin", "herdr-artifact"),
+                  os.path.join(self.home, ".config", "herdr-app", "mods", "tasks", "bin", "herdr-task")):
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            script(p, f'#!/bin/sh\necho "{p} $*" >> {ran}\n')
+        return ran
+
+    def service_tool(self, env, name):
+        """service/jobs.ts tool() and service/artifacts.ts tool(), as written (Pins checks they still are)."""
+        if name == "herdr-artifact":
+            return env.get("SHEPHERDR_HERDR_ARTIFACT") or next(
+                (p for p in (os.path.join(self.home, ".local", "bin", "herdr-artifact"),) if os.path.exists(p)), name)
+        app = env.get("HERDR_APP_HOME") or os.path.join(self.home, ".config", "herdr-app")
+        return next((p for p in (os.path.join(app, "mods", "tasks", "bin", "herdr-task"),
+                                 os.path.join(self.home, ".local", "bin", "herdr-task")) if os.path.exists(p)), name)
+
+    def test_the_services_helpers_are_the_candidates_never_the_installed_ones(self):
+        ran = self.installed()
+        src = os.path.join(self.s, "src")
+        for rel in ("mods/tasks/bin/herdr-task", "mods/artifacts/bin/herdr-artifact"):
+            os.makedirs(os.path.join(src, os.path.dirname(rel)), exist_ok=True)
+            with open(os.path.join(src, rel), "w") as f:
+                f.write(f'import os, sys\nprint("candidate {os.path.basename(rel)}", os.environ.get("HERDR_APP_HOME"), *sys.argv[1:])\n')
+        e = self.t.env
+        for name in ("herdr-task", "herdr-artifact"):
+            tool = self.service_tool(e, name)
+            self.assertTrue(tool.startswith(self.s + os.sep), (name, tool))
+            r = subprocess.run([tool, "tick", "--json"], env=e, stdout=subprocess.PIPE, universal_newlines=True)
+            self.assertEqual(r.returncode, 0)
+            self.assertTrue(r.stdout.startswith(f"candidate {name} "), r.stdout)
+        # herdr-task gets the real app home back (its guard refuses another); herdr-artifact keeps the scratch one
+        r = subprocess.run([self.service_tool(e, "herdr-task"), "x"], env=e, stdout=subprocess.PIPE,
+                           universal_newlines=True)
+        self.assertEqual(r.stdout.split()[2], "None")
+        self.assertFalse(os.path.exists(ran))
+        self.assertEqual(trial.herdr_task_calls(os.path.join(self.s, "herdr-task.log")), ["tick --json", "x"])
 
     def test_shepherdr_refuses_what_would_change_an_install(self):
         for args in (["update"], ["install"], ["uninstall"], ["migrate"], ["web", "on"], ["secrets", "set", "x"]):
@@ -525,6 +574,42 @@ class Main(Base):
         self.assertTrue(last.startswith("FAIL: cleanup: left behind: herdr-core's state"), last)
 
 
+class EndChecks(Base):
+    """The last step's isolation checks (Trial.github), on the logs a run leaves in its scratch."""
+
+    def setUp(self):
+        super().setUp()
+        self.t = self.make()
+        self.s = self.scratch(self.t)
+        self.ticked()
+
+    def ticked(self, lines=("tick --json", "scheduler --ensure --json")):
+        with open(os.path.join(self.s, "herdr-task.log"), "w") as f:
+            f.write("".join(ln + "\n" for ln in lines))
+
+    def why(self):
+        try:
+            self.t.github()
+        except trial.Failed as e:
+            return f"{e.step}: {e.why}"
+        return None
+
+    def test_a_clean_run_passes(self):
+        self.assertIsNone(self.why())
+
+    def test_a_service_that_ticked_another_herdr_task_fails(self):
+        self.ticked(["add Trial task --worktree"])
+        self.assertEqual(self.why(), "isolation: the service's background tick didn't run the candidate's herdr-task")
+
+    def test_herdr_task_reaching_another_machine_fails(self):
+        os.makedirs(os.path.join(self.t.env["HERDR_TASK_STORE"], ".remote", "elsewhere"))
+        self.assertEqual(self.why(), "isolation: herdr-task reached another machine (elsewhere)")
+
+    def test_an_empty_remote_folder_is_fine(self):
+        os.makedirs(os.path.join(self.t.env["HERDR_TASK_STORE"], ".remote"))
+        self.assertIsNone(self.why())
+
+
 class Pins(unittest.TestCase):
     """What the trial relies on in herdr-task and the service, by name (Part of #2). A break here means fork/bin/trial
     needs adapting to the release, before any trial result is trusted."""
@@ -532,6 +617,18 @@ class Pins(unittest.TestCase):
     def source(self, *parts):
         with open(os.path.join(ROOT, *parts)) as f:
             return f.read()
+
+    def test_the_service_still_finds_its_helpers_where_the_trial_puts_them(self):
+        # service/jobs.ts: herdr-task from the app home first; service/artifacts.ts: $SHEPHERDR_HERDR_ARTIFACT first.
+        # Changed, the candidate's service would run the installed helpers (the trial's end check says so too).
+        jobs = self.source("service", "jobs.ts")
+        self.assertIn('for (const p of [join(appHome(), inApp), join(HOME, ".local", "bin", name)])', jobs)
+        self.assertIn('tool("herdr-task", "mods/tasks/bin/herdr-task")', jobs)
+        self.assertIn("process.env.HERDR_APP_HOME || REAL_APP", self.source("service", "paths.ts"))
+        self.assertIn("export const tool = () => process.env.SHEPHERDR_HERDR_ARTIFACT\n",
+                      self.source("service", "artifacts.ts"))
+        # herdr-task refuses a changed app home: the trial's wrapper gives it the real one back
+        self.assertIn('app = env.get("HERDR_APP_HOME")', self.source("mods", "tasks", "bin", "herdr_task", "base.py"))
 
     def test_review_refusal_is_still_the_gate(self):
         tree = ast.parse(self.source("mods", "tasks", "bin", "herdr_task", "commands.py"))

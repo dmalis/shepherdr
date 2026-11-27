@@ -87,6 +87,23 @@ exec "{hc}" "$@"
 """
 
 
+# herdr-task: the candidate's, each call logged on one line. herdr-task refuses a changed HERDR_APP_HOME
+# (base.not_real): it gets the real one back, which it only reads (feedback's installed.json).
+HERDR_TASK_WRAP = """#!/bin/sh
+printf '%s\n' "$(printf '%s ' "$@" | tr '\n\t' '  ' | cut -c1-200)" >> "{log}"
+unset HERDR_APP_HOME
+exec "{python}" "{src}/mods/tasks/bin/herdr-task" "$@"
+"""
+
+
+def herdr_task_calls(log):
+    try:
+        with open(log) as f:
+            return [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+    except FileNotFoundError:
+        return []
+
+
 class Failed(Exception):
     def __init__(self, step, why):
         super().__init__(f"{step}: {why}")
@@ -146,6 +163,12 @@ def clean_env(scratch, name, port, home, caller_env, extra=None):
         "SHEPHERDR_PORT": str(port),
         "SHEPHERDR_WEB": "off",
         "TMPDIR": os.path.join(scratch, "tmp"),
+        # the service's app home (chat flags, attachments, voice secrets), where its background jobs look for
+        # herdr-task first (service/jobs.ts tool(): <app home>/mods/tasks/bin/herdr-task, else the installed one in
+        # ~/.local/bin): the scratch one, with the candidate's herdr-task in it
+        "HERDR_APP_HOME": os.path.join(scratch, "app"),
+        # the service's herdr-artifact (service/artifacts.ts tool(): else the installed one)
+        "SHEPHERDR_HERDR_ARTIFACT": os.path.join(scratch, "bin", "herdr-artifact"),
         "GIT_TERMINAL_PROMPT": "0",
         "LANG": caller_env.get("LANG") or "C.UTF-8",
     }
@@ -154,6 +177,11 @@ def clean_env(scratch, name, port, home, caller_env, extra=None):
         env["XDG_RUNTIME_DIR"] = caller_env["XDG_RUNTIME_DIR"]
     env.update(extra or {})
     return env
+
+
+def core_state_dir(env, name):
+    """herdr-core's state folder for a session, in a child's environment."""
+    return os.path.join(env.get("XDG_STATE_HOME") or os.path.join(env["HOME"], ".local", "state"), "herdr-core", name)
 
 
 def runtime_dir(env):
@@ -279,8 +307,8 @@ class Trial:
         self.port = free_port()
         self.live_before = None
         self.live_pid = None
-        self.core_dir = os.path.join(self.caller_env.get("XDG_STATE_HOME") or os.path.join(self.home, ".local", "state"),
-                                     "herdr-core", self.name)
+        # where the core keeps its state, as the children see it (clean_env passes no XDG_STATE_HOME)
+        self.core_dir = core_state_dir(clean_env("/nonexistent", self.name, 0, self.home, self.caller_env), self.name)
         self.shared_worktrees = os.path.join(self.home, ".local", "share", "shepherdr", "worktrees", self.name)
         self.core_started = False
 
@@ -386,7 +414,7 @@ class Trial:
     def build(self):
         self.scratch = tempfile.mkdtemp(prefix=self.name + "-", dir=self.base)
         self.mark(self.scratch, "scratch")
-        for d in ("bin", "src", "data", "store", "tmp", "templates", "worktrees"):
+        for d in ("bin", "src", "data", "store", "tmp", "templates", "worktrees", "app/mods/tasks/bin"):
             os.makedirs(os.path.join(self.scratch, d))
         self.log(f"scratch {self.scratch}, building {self.sha[:12]}")
         src = os.path.join(self.scratch, "src")
@@ -411,7 +439,7 @@ class Trial:
             "hc": HC_WRAP.format(log=os.path.join(self.scratch, "hc.log"), hc=real_hc, name=self.name,
                                  sock=os.path.join(runtime_dir(self.env), f"{self.name}.sock")),
             "stand-in": "#!/bin/sh\n" + STAND_IN + "\n",
-            "herdr-task": f'#!/bin/sh\nexec "{python}" "{src}/mods/tasks/bin/herdr-task" "$@"\n',
+            "herdr-task": HERDR_TASK_WRAP.format(log=os.path.join(self.scratch, "herdr-task.log"), python=python, src=src),
             "herdr-artifact": f'#!/bin/sh\nexec "{python}" "{src}/mods/artifacts/bin/herdr-artifact" "$@"\n',
             "shepherdr": SHEPHERDR_WRAP.format(log=os.path.join(self.scratch, "refused.log"), python=python, src=src),
             "gh-stub": GH_STUB.format(log=os.path.join(self.scratch, "gh.log")),
@@ -421,6 +449,9 @@ class Trial:
             with open(p, "w") as f:
                 f.write(text)
             os.chmod(p, 0o755)
+        # the service's background jobs find herdr-task in its app home first: the same wrapper
+        os.symlink(os.path.join(b, "herdr-task"),
+                   os.path.join(self.env["HERDR_APP_HOME"], "mods", "tasks", "bin", "herdr-task"))
 
     def write_settings(self):
         settings = {"everywhere": {
@@ -621,6 +652,12 @@ class Trial:
             refused = []
         if refused:
             raise Failed("isolation", f"something asked for {refused[0][:80]}")
+        remote = os.path.join(self.env["HERDR_TASK_STORE"], ".remote")
+        if os.path.isdir(remote) and os.listdir(remote):
+            raise Failed("isolation", f"herdr-task reached another machine ({', '.join(sorted(os.listdir(remote)))})")
+        if not any(c.split()[:1] == ["tick"] for c in herdr_task_calls(os.path.join(self.scratch, "herdr-task.log"))):
+            # the service ticks once at its start (service/jobs.ts): no tick here means it ran another herdr-task
+            raise Failed("isolation", "the service's background tick didn't run the candidate's herdr-task")
 
     # ---- cleanup ---------------------------------------------------------------------------------
     def stop_service(self):
