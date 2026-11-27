@@ -51,5 +51,6 @@ html{touch-action:manipulation}
 /* at a big zoom on a phone, Zoom's buttons and any Settings row's choices wrap rather than run off the side */
 .zoomc{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:100%}.zoomc .btn{margin-left:4px}.zooms{display:inline-flex;align-items:center;gap:2px}
 .srow .seg{flex-wrap:wrap}
+.srow:has(>.seg){flex-wrap:wrap}.srow:has(>.seg) .n{min-width:min(10rem,100%)}
 .zoomv{min-width:4.5ch;text-align:center;font-variant-numeric:tabular-nums}
 .tsize{display:flex;padding-block:4px 8px;font-size:var(--chat);line-height:var(--chatl);overflow-wrap:break-word;hyphens:auto}.tsize+.hint{margin-bottom:12px}

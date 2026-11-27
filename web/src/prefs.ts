@@ -45,7 +45,8 @@ function load(): Prefs {
 let prefs = load()
 const listeners = new Set<() => void>()
 const system = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
-const finger = typeof matchMedia === 'function' ? matchMedia('(pointer:coarse)') : null
+// any finger at all: a touchscreen laptop with a mouse as well can still be tapped, in the phone's layout too
+const finger = typeof matchMedia === 'function' ? matchMedia('(any-pointer:coarse)') : null
 
 /** Zoom's lowest step here: on a touch screen 100%, so nothing a finger taps shrinks under its 44 px */
 export const minZoom = (): Zoom => (finger?.matches ? 100 : ZOOMS[0]!)
