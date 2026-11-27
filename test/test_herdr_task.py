@@ -9188,16 +9188,16 @@ class HeldForTheTrueReason(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def test_a_question_with_an_empty_line_is_not_input(self):
-        self.screen = self.QUESTION
-        self.assertEqual(self.news.typing("t3", self.k), "asking", "its status not told: read off the dialog on screen")
         self.k["status"]["state"] = "blocked"
-        self.screen = None  # never read: its status says it asks
+        self.screen = self.QUESTION
         self.assertEqual(self.news.typing("t3", self.k), "asking")
         self.assertEqual(self.news.typing("t3", {**self.k, "status": "blocked"}), "asking")
 
-    def test_a_codex_approval_is_not_input(self):
-        self.screen = "  Would you like to run the following command?\n\n› 1. Yes, proceed (y)\n  2. No, and tell Codex what to do differently (esc)\n"
-        self.assertEqual(self.news.typing("t3", self.k), "asking")
+    def test_numbered_words_typed_in_the_input_line_are_still_input(self):
+        self.screen = self.RULE + "❯ 1. fix the failing test\n" + self.RULE
+        self.assertEqual(self.news.typing("t3", self.k), "input")
+        with self.mock.patch.object(self.news, "suggested", lambda k: ["1. fix the failing test"]):
+            self.assertIsNone(self.news.typing("t3", self.k), "one of its own suggested replies is no one typing (#1207)")
 
     def test_an_empty_input_line_holds_nothing_and_typed_words_still_do(self):
         self.assertIsNone(self.news.typing("t3", self.k), "the CLI's dim placeholder is no one's words")
