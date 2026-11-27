@@ -15,8 +15,9 @@ export interface Press {
   id: string
   siblings: string[]
   /** a machine's rows are its own and its projects' (data-machine); a project's its own (data-project), a pinned row's
-   *  its own (data-pin) */
-  level: 'machine' | 'project' | 'section'
+   *  its own (data-pin). item: a machine's groups and its spaces in no group, in one order (data-item: a group's
+   *  heading and its rows, or a loose space's row; web/shared/group-slots.ts) */
+  level: 'machine' | 'project' | 'section' | 'item'
   /** the new order, once it lands somewhere else; inside flushSync, so the rows are in it when it settles */
   drop: (ids: string[]) => void
   /** a space: the group it is in (data-drop on its rows and heading), whether it may go into another, and going there
@@ -33,6 +34,8 @@ export interface Press {
 interface Block {
   id: string
   els: HTMLElement[]
+  /** where each of its rows was when the drag began */
+  rs: DOMRect[]
   top: number
   bottom: number
 }
@@ -100,7 +103,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     blocks = o.siblings.map((k) => {
       const els = rowsOf(k)
       const rs = els.map((x) => x.getBoundingClientRect())
-      return { id: k, els, top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)) }
+      return { id: k, els, rs, top: Math.min(...rs.map((r) => r.top)), bottom: Math.max(...rs.map((r) => r.bottom)) }
     })
     from = to = o.siblings.indexOf(o.id)
     if (from < 0 || blocks.some((b) => !b.els.length)) return false
@@ -128,6 +131,18 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     const heading = document.querySelector<HTMLElement>(`[data-heading="${attr(group)}"]`)
     return { group, before, lit: [heading, before ? row : null].filter((e): e is HTMLElement => !!e) }
   }
+  /** a loose space among its machine's groups (level item): over a group's rows or the lower half of its heading,
+   *  where they were when the drag began, it goes into that group (before that row); over the upper half, just above
+   *  it. Where the rows were, not where they show: making room moves them, and must not change what is under it */
+  const isGroup = (b: Block) => b.els[0]?.dataset.heading === b.id
+  const split = (b: Block) => (isGroup(b) ? (b.rs[0].top + b.rs[0].bottom) / 2 : (b.top + b.bottom) / 2)
+  const slotTarget = (y: number) => {
+    const b = blocks.find((b, i) => i !== from && isGroup(b) && y >= split(b) && y < b.bottom)
+    if (!b || !o.into?.may(b.id)) return null
+    const row = b.els.find((x, i) => i > 0 && y >= b.rs[i].top && y < b.rs[i].bottom)
+    const before = row?.dataset.project
+    return { group: b.id, before, lit: [b.els[0], ...(before && row ? [row] : [])] }
+  }
   const light = (next: typeof over) => {
     if (over?.group === next?.group && over?.before === next?.before) return
     for (const e of over?.lit ?? []) delete e.dataset.dropOver
@@ -136,9 +151,9 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
   }
   const place = (sy: number, x: number) => {
     const me = blocks[from]
-    light(target(x, sy))
     // where the pointer is in the list as it was measured, before any scroll
     const y = sy + scrolled()
+    light(o.level === 'item' ? (o.into ? slotTarget(y) : null) : target(x, sy))
     if (over) {
       // out over another group: it follows the pointer, and the rest stay as they were
       dy = y - y0
@@ -148,9 +163,10 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
       return
     }
     dy = Math.min(Math.max(y - y0, blocks[0].top - me.top), blocks.at(-1)!.bottom - me.bottom)
-    // it passes a row once its top edge (going up) or bottom edge (going down) is past that row's middle
+    // it passes a row once its top edge (going up) or bottom edge (going down) is past that row's middle; among a
+    // machine's groups, once the pointer is past it (a group's: its heading's middle, as slotTarget)
     const others = blocks.filter((_, i) => i !== from)
-    to = others.filter((b, k) => (b.top + b.bottom) / 2 < (k < from ? me.top : me.bottom) + dy).length
+    to = o.level === 'item' ? others.filter((b) => split(b) < y).length : others.filter((b, k) => (b.top + b.bottom) / 2 < (k < from ? me.top : me.bottom) + dy).length
     const room = me.bottom - me.top + gap
     for (const x of me.els) x.style.transform = `translateY(${dy}px)`
     for (const [k, b] of others.entries()) {

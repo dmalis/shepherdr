@@ -309,3 +309,20 @@ test('every row of a machine carries its key, so dragging its heading takes them
   // the keyboard way to move it, for those who don't drag
   expect(part(html, 'vm')).toContain('aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"')
 })
+
+// fork patch #31 (Sidebar: move a space above groups)
+test("a machine's groups and loose spaces show in one order: a loose space above a group, a group between spaces", () => {
+  setUI({ at: '', shut: {} })
+  const html = renderToStaticMarkup(<List snap={{ ...snap, sections: [{ id: 's:g1', name: 'Work', machine: 'mini', spaces: ['blog'], after: ['shop'] }] }} />)
+  const mini = part(html, 'mini')
+  const at = (s: string) => mini.indexOf(s)
+  expect(at('data-project="shop"')).toBeLessThan(at('data-heading="s:g1"'))
+  expect(at('data-heading="s:g1"')).toBeLessThan(at('data-project="blog"'))
+  // each row says which row of the list it moves with: a group's heading and its spaces the group, a loose space itself
+  expect(mini).toContain('data-section="s:g1" data-machine="mini" data-heading="s:g1" data-drop="s:g1" data-item="s:g1"')
+  expect(mini).toContain('data-project="blog" data-section="s:g1" data-machine="mini" data-item="s:g1"')
+  expect(mini).toContain('data-project="shop" data-machine="mini" data-item="shop"')
+  // saved before (no after): groups first, as it always was
+  const before = part(renderToStaticMarkup(<List snap={{ ...snap, sections: [{ id: 's:g1', name: 'Work', machine: 'mini', spaces: ['blog'] }] }} />), 'mini')
+  expect(before.indexOf('data-heading="s:g1"')).toBeLessThan(before.indexOf('data-project="shop"'))
+})

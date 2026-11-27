@@ -590,7 +590,8 @@ export class Compat {
 
     // the groups (shared "spaces-chat" sections)
     const sections: Section[] = [
-      ...input.sections.map((x: any) => ({ id: `s:${x.id}`, name: x.name, ...(x.icon ? { emoji: x.icon } : {}), machine: x.machine ?? host, spaces: x.spaces ?? [] })),
+      ...input.sections.map((x: any) => ({ id: `s:${x.id}`, name: x.name, ...(x.icon ? { emoji: x.icon } : {}), machine: x.machine ?? host, spaces: x.spaces ?? [],
+        ...(Array.isArray(x.after) ? { after: x.after.filter((id: unknown) => typeof id === "string") } : {}) })),
     ];
 
     const { last, read } = unreadMarks(spaces, placeKey);

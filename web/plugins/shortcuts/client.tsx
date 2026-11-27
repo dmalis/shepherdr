@@ -13,6 +13,7 @@ import { showList } from '@client/App.tsx'
 import { SRow } from '@client/settings.tsx'
 import { Btn, cx, I, IB, Tgl } from '@client/ui.tsx'
 import { everything, listOf } from '@shared/view.ts'
+import { slottedSpaces } from '@shared/group-slots.ts'
 import { shownOn } from '@client/kernel.ts'
 
 /** the areas in the order the sheet and Settings show them */
@@ -34,7 +35,7 @@ function spaceOrder(): string[] {
   const { snap, ui } = getState()
   if (!snap) return []
   const ev = everything(snap)
-  const listed = listOf(snap, (m) => shownOn(ui, m)).flatMap((m) => [...m.groups.flatMap((g) => g.spaces), ...m.spaces].map((p) => p.id))
+  const listed = listOf(snap, (m) => shownOn(ui, m)).flatMap((m) => slottedSpaces(m.items).map((p) => p.id))
   return [...(ev ? [ev.id] : []), ...listed]
 }
 function stepSpace(by: 1 | -1) {
