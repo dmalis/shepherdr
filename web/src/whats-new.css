@@ -6,10 +6,11 @@
 .wn-v::before{content:"";position:absolute;left:4px;top:calc(var(--row) / 2);bottom:calc(var(--row) / -2);width:1px;background:var(--line2)}
 .wn-v:last-child::before{display:none}
 .wn-h{position:relative;display:flex;align-items:center;gap:8px;width:100%;min-height:var(--row);padding:0;border:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
-.wn-h::before{content:"";position:absolute;left:-22px;top:50%;width:9px;height:9px;margin-top:-4.5px;box-sizing:border-box;border-radius:50%;border:1.5px solid var(--muted);background:var(--canvas)}
-.wn-v[data-open] .wn-h::before{border-color:var(--fg)}
-.wn-v[data-mine] .wn-h::before{border-color:var(--fg);background:var(--fg)}
-.wn-n{font-weight:600;font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}
+/* its point, a span of its own: a button's ::before is its touch pad (ds.css) */
+.wn-dot{position:absolute;left:-22px;top:50%;width:9px;height:9px;margin-top:-4.5px;box-sizing:border-box;border-radius:50%;border:1.5px solid var(--muted);background:var(--canvas)}
+.wn-v[data-open] .wn-dot{border-color:var(--fg)}
+.wn-v[data-mine] .wn-dot{border-color:var(--fg);background:var(--fg)}
+.wn-n{font-weight:600;font-variant-numeric:tabular-nums;min-width:4em;overflow-wrap:anywhere}
 .wn-d{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums;white-space:nowrap}
 .wn-h>.chev{flex:none;margin-left:auto;color:var(--muted);transition:transform .16s cubic-bezier(.2,0,0,1)}
 .wn-h[aria-expanded="false"]>.chev{transform:rotate(-90deg)}
@@ -19,11 +20,14 @@
 .wn-g ul{margin:0;padding:0;list-style:none}
 .wn-g li{padding:2px 0;color:var(--sub);font-size:var(--sec);line-height:var(--secl);overflow-wrap:anywhere}
 .wn-g code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;font-variant-ligatures:none}
-/* a line with more: the whole line opens it, its chevron says so */
-.wn-i{display:block;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:4px}
+/* a line with more: the whole line opens it, its chevron says so. Its touch pad is the line itself, never over the
+   next one's (ds.css --hit); on touch the lines open up a little to make room for a finger */
+.wn-g li:has(>.wn-i){padding:0}
+.wn-i{position:relative;--hit:0px;display:block;width:100%;padding:2px 0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:4px}
 .wn-i>.chev{display:inline-block;vertical-align:-3px;margin-left:2px;color:var(--muted);transition:transform .16s cubic-bezier(.2,0,0,1)}
 .wn-i[aria-expanded="false"]>.chev{transform:rotate(-90deg)}
-.wn-rest{margin:2px 0 4px;color:var(--muted)}
-.wn-all{margin:12px 0 0;font-size:var(--sec);line-height:var(--secl)}
+.app.tap .wn-i{padding:6px 0}
+.wn-rest{margin:0 0 4px;color:var(--muted)}
+.wn-all{margin:12px 0 0;padding-bottom:16px;font-size:var(--sec);line-height:var(--secl)}
 @media(prefers-reduced-motion:reduce){.wn-h>.chev,.wn-i>.chev{transition:none}}
 :root[data-motion="reduced"] .wn-h>.chev,:root[data-motion="reduced"] .wn-i>.chev{transition:none}

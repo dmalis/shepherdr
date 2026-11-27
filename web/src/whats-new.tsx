@@ -77,6 +77,7 @@ function Version({ b, open, flip }: { b: Block; open: boolean; flip: () => void 
   return (
     <li className="wn-v" id={idOf(b.key)} data-mine={b.mine || undefined} data-open={open || undefined}>
       <button type="button" className="wn-h" aria-expanded={open} onClick={flip}>
+        <span className="wn-dot" aria-hidden="true" />
         <span className="wn-n">{b.head}</span>
         {b.meta && <span className="wn-d">{b.meta}</span>}
         <I n="down" c="chev s16" />
@@ -113,7 +114,8 @@ export function WhatsNew() {
       const at = takeGoto()
       if (!at) return
       setOpen((o) => new Set([...(o ?? firstOpen(bs)), at]))
-      requestAnimationFrame(() => document.getElementById(idOf(at))?.scrollIntoView({ block: 'start' }))
+      // no such block (nothing on top of a new release): What's new's start
+      requestAnimationFrame(() => (document.getElementById(idOf(at)) ?? document.querySelector('.wn-v'))?.scrollIntoView({ block: 'start' }))
     }
     const off = onGoto(go)
     go()

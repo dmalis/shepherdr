@@ -77,14 +77,16 @@ export const commitOf = (build: string) => /@([0-9a-f]{7,64})$/.exec(build)?.[1]
 export type Updated = { text: string; at?: 'top' | string }
 
 /**
- * The line after an update, naming the build as About does ("Updated to 3.2.22 · 9fedf5c"). Changes on top of the
- * same release that the old build didn't have: how many, opening What's new at them ("Updated · 3 new changes"), the
- * way VS Code says "updated, see the release notes". A new release: its number, opening at it.
+ * The line after an update, naming the build as About does ("Updated to 3.2.22 · 9fedf5c"). Changes on top that the
+ * old build didn't have: how many, opening What's new at them ("Updated · 3 new changes"), the way VS Code says
+ * "updated, see the release notes". A new release says its number too ("Updated to 3.2.23 · 3 new changes"), and
+ * opens What's new at the changes on top, else at the release.
  */
 export function updatedWords(version: string, stamp: Stamp | null, news: Since | null): Updated {
   if (!version) return { text: 'Updated to the newest version' }
   const build = `Updated to ${version}${exact(stamp) ? '' : ` · ${short(stamp!.commit)}`}`
-  if (news && news.v !== version) return { text: build, at: version }
-  if (news?.changes.length) return { text: `Updated · ${changesWords(news.changes.length)}`, at: 'top' }
+  const n = news?.changes.length ?? 0
+  if (news && news.v !== version) return n ? { text: `Updated to ${version} · ${changesWords(n)}`, at: 'top' } : { text: build, at: version }
+  if (n) return { text: `Updated · ${changesWords(n)}`, at: 'top' }
   return { text: build }
 }

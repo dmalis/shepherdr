@@ -9,7 +9,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import { githubRepo } from './build-stamp.ts'
+import { buildRepo } from './build-stamp.ts'
 import { parseChangelog, shown, SHORT, title, type Changelog, type OnTop } from './shared/changelog.ts'
 
 function git(root: string, args: string[]): string | null {
@@ -50,10 +50,16 @@ export function onTop(root: string, version: string): OnTop[] {
   if (log === null) return []
   const out: OnTop[] = []
   let top: OnTop = { v: version, changes: [], trail: [] }
+  // the commit before the oldest one walked: the release the oldest changes sat on, a build an update can come from
+  let before = ''
   for (const rec of log.split(SEP).slice(1)) {
     const [sha = '', parents = '', subject = '', body = '', names = ''] = rec.split(F)
+    before = parents.trim().split(' ')[0] ?? ''
     // upstream's own release commit: what's before it is in CHANGELOG.md
-    if (/^Release Shepherdr v?\d/.test(subject)) break
+    if (/^Release Shepherdr v?\d/.test(subject)) {
+      before = sha
+      break
+    }
     const files = names.split('\n').map((f) => f.trim()).filter(Boolean)
     const id = sha.slice(0, SHORT)
     top.trail.push(id)
@@ -61,7 +67,11 @@ export function onTop(root: string, version: string): OnTop[] {
     if (files.includes('package.json')) {
       const was = versionAt(root, `${sha}^1`)
       // a release came in here: what's older sat on the one before
-      if (was && was !== versionAt(root, sha)) {
+      const now = versionAt(root, sha)
+      if (was && was !== now) {
+        // the release itself, merged in (its tag's commit, else the merge's other side): a build to count from too
+        const rel = [git(root, ['rev-parse', '-q', '--verify', `refs/tags/v${now}^{commit}`])?.trim(), parents.trim().split(' ')[1]]
+        for (const r of rel) if (r && !top.trail.includes(r.slice(0, SHORT))) top.trail.push(r.slice(0, SHORT))
         out.push(top)
         top = { v: was, changes: [], trail: [] }
         continue
@@ -69,8 +79,9 @@ export function onTop(root: string, version: string): OnTop[] {
     }
     if (shown(t, files)) top.changes.push({ c: id, s: t })
   }
+  if (before) top.trail.push(before.slice(0, SHORT))
   out.push(top)
-  return out.filter((t) => t.trail.length)
+  return out.filter((t) => t.changes.length || t.trail.length > 1)
 }
 
 /** each release's date (YYYY-MM-DD): its tag's, else the date of the commit that released it upstream */
@@ -101,7 +112,7 @@ export function changelog(root: string, version: string): Changelog {
     const d = when.get(r.v)
     if (d) r.date = d
   }
-  return { releases, onTop: onTop(root, version), repo: githubRepo(git(root, ['remote', 'get-url', 'origin']) ?? '') }
+  return { releases, onTop: onTop(root, version), repo: buildRepo(root) }
 }
 
 /** how many changes sit on top of this build's own release (About's "n changes on top") */

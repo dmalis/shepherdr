@@ -120,14 +120,18 @@ const HOUSEKEEPING = /^(?:Fork rule:|Sync:|AGENTS\.md)/i
 /** files no install puts anywhere: the fork's own rules and tools, agents' instructions, CI, docs and tests */
 const NOTHING = [/^FORK\.md$/, /^AGENTS\.md$/, /^CLAUDE\.md$/, /^README\.md$/, /^fork\//, /^\.agents\//, /^\.claude\//, /^\.github\//, /^docs\//, /^test\//, /\.test\.[cm]?[jt]sx?$/]
 
-/** The change's title as people read it: a merge commit's pull request title (its body's first line), "(#n)" dropped. */
+/**
+ * The change's title as people read it, its "(#n)" dropped: a squashed pull request's subject, or a merge commit's pull
+ * request title (its body's first line). '' for a commit that isn't a merged pull request (a branch's own work).
+ */
 export function title(subject: string, body = '', merge = false): string {
   let s = subject.trim()
   if (merge || /^Merge pull request #\d+ from /.test(s)) {
     if (!/^Merge pull request #\d+ from /.test(s)) return ''
     s = body.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
-  }
-  return s.replace(/\s*\(#\d+\)\s*$/, '').trim()
+  } else if (!/\(#\d+\)\s*$/.test(s)) return ''
+  // a squash of a pull request that names another keeps both: "Waiting prompts … (#45) (#64)"
+  return s.replace(/(?:\s*\(#\d+\))+\s*$/, '').trim()
 }
 
 /** Does this change belong in What's new: a title, not housekeeping, and it installs something? */

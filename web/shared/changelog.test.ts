@@ -81,7 +81,10 @@ describe('the changes on top', () => {
     expect(title('Sidebar: move a space above groups (#41)')).toBe('Sidebar: move a space above groups')
     expect(title('Merge pull request #23 from o/sync/v3.2.22', '\nTake upstream v3.2.22\n', true)).toBe('Take upstream v3.2.22')
     expect(title('Merge branch main into x', '', true)).toBe('')
-    expect(title('Fix (#2) in the middle')).toBe('Fix (#2) in the middle')
+    // not a merged pull request: a branch's own commit isn't a change yet
+    expect(title('Fix (#2) in the middle')).toBe('')
+    expect(title('About: a changelog')).toBe('')
+    expect(title('Waiting prompts count under Needs you (#45) (#64)')).toBe('Waiting prompts count under Needs you')
   })
 
   test('housekeeping and changes that install nothing are left out', () => {

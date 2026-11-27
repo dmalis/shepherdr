@@ -57,8 +57,9 @@ describe('the toast after an update', () => {
     // only housekeeping came: the build, no button
     expect(updatedWords('3.2.22', stamp, { v: '3.2.22', changes: [] })).toEqual({ text: 'Updated to 3.2.22 · 9fedf5c' })
   })
-  test('a new release: its number, opening at it', () => {
+  test('a new release: its number and what came on top, opening at them, else at the release', () => {
     expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [] })).toEqual({ text: 'Updated to 3.2.22 · 9fedf5c', at: '3.2.22' })
+    expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [{ c: 'aaaaaaa', s: 'A' }, { c: 'bbbbbbb', s: 'B' }] })).toEqual({ text: 'Updated to 3.2.22 · 2 new changes', at: 'top' })
   })
   test('the old build\'s commit comes from its build id', () => {
     expect(commitOf(`assets/a.js v3.2.22 @${stamp.commit}`)).toBe(stamp.commit)

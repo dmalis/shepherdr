@@ -68,8 +68,9 @@ describe('changelog at build time', () => {
     ])
     expect(log.onTop[0]!.changes[0]!.c).toBe(sha(d, 'HEAD'))
     // every commit is in the trail, the housekeeping and the release's merge too, so an update can count from any build
-    expect(log.onTop[0]!.trail).toEqual([sha(d, 'HEAD'), sha(d, 'HEAD~1'), sha(d, 'HEAD~2'), sha(d, 'HEAD~3'), sha(d, 'HEAD~4')])
-    expect(log.onTop[1]!.trail.length).toBe(3)
+    // and the release's own commit, merged in, and the one the oldest changes sat on: builds an update can come from
+    expect(log.onTop[0]!.trail).toEqual([sha(d, 'HEAD'), sha(d, 'HEAD~1'), sha(d, 'HEAD~2'), sha(d, 'HEAD~3'), sha(d, 'HEAD~4'), sha(d, 'v1.1.0')])
+    expect(log.onTop[1]!.trail).toEqual([sha(d, 'HEAD~5'), sha(d, 'HEAD~6'), sha(d, 'HEAD~7'), sha(d, 'v1.0.0')])
     expect(onTopCount(log, '1.1.0')).toBe(2)
     expect(onTopCount(log, '1.2.0')).toBe(0)
   })
@@ -78,6 +79,24 @@ describe('changelog at build time', () => {
     const d = fork(false)
     const log = changelog(d, '1.1.0')
     expect(log.onTop.map((t) => ({ v: t.v, n: t.changes.length }))).toEqual([{ v: '1.1.0', n: 2 }, { v: '1.0.0', n: 1 }])
+  })
+
+  test('a commit that is not a merged pull request (work on a branch) is no change yet', () => {
+    const d = fork(true)
+    commit(d, 'About: a changelog')
+    expect(changelog(d, '1.1.0').onTop[0]!.changes.map((c) => c.s)).toEqual(['Alerts: a list in the app', 'Sidebar: move a space above groups'])
+  })
+
+  test('the repo is the remote the build comes from: an upstream clone fetching the fork from a remote of its own', () => {
+    const d = fork(true)
+    git(d, 'remote', 'set-url', 'origin', 'https://github.com/upstream/shepherdr.git')
+    git(d, 'update-ref', 'refs/remotes/origin/main', 'v1.1.0')
+    git(d, 'remote', 'add', 'fork', 'https://github.com/someone/shepherdr.git')
+    git(d, 'update-ref', 'refs/remotes/fork/main', 'HEAD')
+    expect(changelog(d, '1.1.0').repo).toBe('https://github.com/someone/shepherdr')
+    // origin has it too: origin
+    git(d, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+    expect(changelog(d, '1.1.0').repo).toBe('https://github.com/upstream/shepherdr')
   })
 
   test('each release gets its date: its tag, else its release commit', () => {
