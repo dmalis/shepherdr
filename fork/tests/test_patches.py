@@ -32,7 +32,8 @@ class TheList(unittest.TestCase):
         # #36 Zoom and chat text size; #34 the installed app; #37 the alerts list and device check; #55 agent messages fold; #44 About names the build; #45 waiting prompts
         # #49 Everything's one plain line
         # #48 a merged task stays done; #62 the trust card's per-repo tip; #70 What's new
-        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 48, 49, 55, 62, 70])
+        # #81 a change's tick that comes while one runs, runs right after it
+        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 48, 49, 55, 62, 70, 81])
         self.assertTrue(any(os.path.basename(patches.split(t)[0]) == install.HOLD_PATCH_TEST
                             for x in self.lines for t in x["tests"]))
 

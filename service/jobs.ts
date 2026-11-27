@@ -50,6 +50,8 @@ export function agentMachines(terminals: Iterable<any>): string[] {
 export class Jobs {
   readonly on = jobsOn();
   private ticking = false;
+  /** a change's tick that came while one ran: it runs right after that one ends */
+  private again = false;
   private rounds = 0;
   private soon: ReturnType<typeof setTimeout> | null = null;
   private seen = "";
@@ -70,8 +72,8 @@ export class Jobs {
     setInterval(() => this.flags(), 4000);
   }
 
-  private async tick() {
-    if (this.ticking) return;
+  private async tick(change = false) {
+    if (this.ticking) { if (change) this.again = true; return; }
     this.ticking = true;
     try {
       const cli = tool("herdr-task", "mods/tasks/bin/herdr-task");
@@ -93,6 +95,7 @@ export class Jobs {
       }
     } finally {
       this.ticking = false;
+      if (this.again) { this.again = false; void this.tick(); }
     }
   }
 
@@ -104,7 +107,7 @@ export class Jobs {
     const first = !this.seen;
     this.seen = now;
     if (first || this.soon) return;
-    this.soon = setTimeout(() => { this.soon = null; void this.tick(); }, 2000);
+    this.soon = setTimeout(() => { this.soon = null; void this.tick(true); }, 2000);
   }
 
   /** The hook asks a chat only while its flag is fresh (ask-hook.sh: 15 s): a page showing a local Claude agent's chat
