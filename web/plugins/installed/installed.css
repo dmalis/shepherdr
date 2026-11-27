@@ -118,12 +118,15 @@
    when a fixed or sticky element sits at the very top of the page: at least 90% as wide as the screen, more than 10px
    tall, with a background (WebKit's LocalFrameView::fixedContainerEdges; WKWebView's _shouldHideTopScrollPocket).
    So the top row is pinned, the way a native app's navigation bar is: the header, or a line above it. Sticky doesn't
-   move it (nothing above it scrolls), and the header takes the canvas it already sits on, so it looks the same. Only a
-   phone's single column is that wide; a browser tab, Android and a desktop window never take these. */
+   move it (nothing above it scrolls), and the header takes the canvas it already sits on, so it looks the same.
+   A full-screen layer on top (fixed, the screen's size) keeps the colour the status bar already has, so the picture
+   viewer pins its own bar too: the status bar turns dark over it, not the header's light. Only the phone-width layout
+   (an iPhone, or an iPad's narrow window) is that wide; a browser tab, Android and a desktop window never take these. */
 @media (display-mode: standalone) {
   @supports (-webkit-touch-callout: none) {
     .app.phone .device > .tline:not(.device > :not(.upchip) ~ *),
-    .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child {
+    .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child,
+    .app.phone .lbox > .lbar:first-child {
       position: sticky;
       top: 0;
     }

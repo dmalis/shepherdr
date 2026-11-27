@@ -190,7 +190,10 @@ test("an iPhone's home screen: the top row is pinned, so iOS draws no blur over 
   const line = '.app.phone .device > .tline:not(.device > :not(.upchip) ~ *)'
   // WebKit hides its soft top edge effect for a fixed or sticky element at the very top, as wide as the screen, more
   // than 10px tall, with a background: the header (or a line above it), on the canvas it already sits on
-  expect(block).toContain(`${line},\n    ${hd} {\n      position: sticky;\n      top: 0;\n    }`)
+  // a full-screen layer keeps the colour the status bar already has (WebKit prefers it for a screen-sized layer), so
+  // the picture viewer pins its own bar: dark over the viewer, not the header's light
+  const lbar = '.app.phone .lbox > .lbar:first-child'
+  expect(block).toContain(`${line},\n    ${hd},\n    ${lbar} {\n      position: sticky;\n      top: 0;\n    }`)
   expect(block).toContain(`${hd} {\n      background: var(--canvas);\n    }`)
   expect(block).not.toMatch(/backdrop-filter|opacity|z-index|padding|margin|height/)
   // nothing else pins or moves the top: the rest of the sheet keeps only the safe area on top
@@ -212,7 +215,10 @@ test('pinned: the page never scrolls, the header is a plain row on the canvas, a
   expect(ds).toMatch(/button\{position:relative;/)
   // the phone's column and header are the ones the rule names
   const app = read('web/src/App.tsx')
-  expect(app).toContain('<section className="col chat"')
+  // the chat's header is its column's first child, the viewer's bar its first
+  expect(app).toMatch(/<section className="col chat"[^>]*>\s*<ChatHeader /)
+  expect(read('web/plugins/chat/thumbs.tsx')).toMatch(/openDialog\(\s*\(close\) => \(\s*<>\s*<div className="lbar">/)
+  expect(read('web/src/overlay.tsx')).toContain("className={layer.view ? 'lbox in'")
   expect(app).toContain('<section className="col pane"')
   expect(app).toMatch(/<div className="device">\s*\{registry\.topBars\.map/)
 })
