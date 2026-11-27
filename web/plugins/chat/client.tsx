@@ -27,6 +27,8 @@ import { replyToTask, SlideHint, useSlide } from './slide.tsx'
 import { dayLabel } from './days.ts'
 import { Markdown, withLinks } from './markdown.tsx'
 import { expandPicked, useMentions } from './mentions.tsx'
+import { KindName } from './kind.tsx'
+import { taskKind } from '@shared/kinds.ts'
 import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
 import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPastes, sizeOf, usePastes, type Paste } from './fold.ts'
@@ -177,7 +179,7 @@ function TaskRef({ id, title, t }: { id: string; title: string; t?: Task }) {
       <SlideHint slide={slide} armed={armed} />
       <span className={cx('tmv', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd}>
         {t ? <StatusIcon t={t} time="side" /> : <I n="chat" c="s16" />}
-        <span className="rt">{title}</span>
+        <KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />
       </span>
     </button>
   )
@@ -192,13 +194,14 @@ function TaskQuote({ id, title }: { id: string; title: string }) {
     <button
       type="button"
       className="quote qtask"
-      aria-label={`Replying to the task ${t?.name ?? title}${word ? `, ${word}` : ''}`}
+      aria-label={`Replying to the ${taskKind(t).toLowerCase()} ${t?.name ?? title}${word ? `, ${word}` : ''}`}
       onClick={(e) => {
         e.stopPropagation()
         openTask(id)
       }}
     >
       {t ? <StatusIcon t={t} time="none" /> : <I n="tasks" c="s16" />}
+      <span className="qt0">{taskKind(t)}</span>
       <span className="qt1">{t?.name ?? title}</span>
       {word && <span className="qt2">{word}</span>}
     </button>

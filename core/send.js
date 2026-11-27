@@ -7,6 +7,7 @@
 // Shared core: the source is core/send.js; bin/sync-shared copies it into the mods in lib/COPIES.
 
 import { excerpt } from "./chat-log.js";
+import { sharedTitles, unpicked } from "./mention-picks.js";
 
 // SHEP-324: what is in front of an agent's terminal, checked right before anything is typed into it. herdr-core keeps a
 // terminal whose program it lost (a core restart, a crash) as a plain shell, and one whose agent exited stays live too:
@@ -87,11 +88,14 @@ export function taskTag(x, ref) {
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const words = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 export function mentionedIn(text, tasks) {
-  const t = String(text ?? ""), low = t.toLowerCase(), flat = words(t).toLowerCase();
+  const t = String(text ?? ""), low = t.toLowerCase();
+  // a picked [@title](task:KEY) names its one task by its key, never by its words; a title several tasks share (a
+  // schedule's runs) names none of them
+  const said = unpicked(t), flat = words(said).toLowerCase(), shared = sharedTitles(tasks);
   return (tasks ?? []).filter((x) => {
     const title = words(x.title).toLowerCase();
-    if (title && (title.includes(" ") || title.length >= 10) && flat.includes(title) &&
-        new RegExp(`(^|[^\\p{L}\\p{N}])${esc(title).replace(/ /g, "\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(t)) return true;
+    if (title && !shared.has(title) && (title.includes(" ") || title.length >= 10) && flat.includes(title) &&
+        new RegExp(`(^|[^\\p{L}\\p{N}])${esc(title).replace(/ /g, "\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(said)) return true;
     if (x.ref && new RegExp(`\\]\\(task:([^)\\s/]*/)?${esc(x.ref)}(\\?|\\))`, "i").test(t)) return true;
     if (!low.includes(String(x.ref ? x.ref : `#${x.id}`).toLowerCase())) return false;
     const ref = x.ref ? `[#@]?${esc(x.ref)}` : `#${x.id}`;

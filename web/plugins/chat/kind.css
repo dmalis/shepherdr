@@ -1,0 +1,11 @@
+/* Say what each thing is: a task's kind, its name and its state on one line (kind.tsx). The kind and the state keep
+   their words; only the name is cut short, so a phone's row still says what it is and how it stands. */
+.knd{display:inline-flex;align-items:baseline;min-width:0;max-width:100%;white-space:nowrap}
+.knd>.kd,.knd>.ks{flex:none;color:var(--muted)}
+.knd>.kn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+.knd>.kd::after,.knd>.ks::before{content:"·" / "";margin-inline:4px;color:var(--muted)}
+/* inside a link in words: a quiet word, not underlined with the title */
+.kdi{display:inline-block;margin-inline-end:.3em;opacity:.72;font-size:.92em}
+/* a reply to a task, quoted above its words: its kind before its title (ds.css .quote.qtask) */
+.quote.qtask>.qt0{flex:none;color:var(--muted)}.quote.qtask>.qt0::after{content:"·" / "";margin-inline:4px}
+.card .t .knd>.kn{color:inherit}

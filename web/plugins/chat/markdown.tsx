@@ -11,6 +11,7 @@ import { go, notice, openTask, useSnap } from '@client/kernel.ts'
 import type { Message, Snapshot } from '@shared/types.ts'
 import { spacesOf, taskRef } from '@shared/view.ts'
 import { taskFor, withMentions } from './mentions.tsx'
+import { markKind } from './kind.tsx'
 
 marked.setOptions({ gfm: true, breaks: false })
 // #1549: an agent's raw HTML shows as typed: a placeholder like <code> or <id> stays words and styles nothing after it.
@@ -137,6 +138,7 @@ export function Markdown({ text, mentions, plain, place }: { text: string; menti
         a.setAttribute('role', 'link')
         a.setAttribute('tabindex', '0')
         a.setAttribute(kind === 'task' ? 'data-task' : 'data-place', target)
+        if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))
       }),
     [text, snap?.tasks, snap?.places, snap?.machines, mentions, plain, place],
   )

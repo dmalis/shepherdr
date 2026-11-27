@@ -18,6 +18,7 @@ import { SpaceIcon } from '@client/space-icon.tsx'
 import type { MergeEvidence, Message, Snapshot, Task } from '@shared/types.ts'
 import { askedWords, isEverything, machineLabel, nowGroups, onBranch, placeDown, reposOf, spaceLabel, spaceOnFolder, spacesOf, etaOf, headLine, leftWords, statusWord, taskChat, taskLine, taskWhen, tasksIn, tstate, workKey, workName, workWords, type Repo } from '@shared/view.ts'
 import { DoneRow } from '@plugins/chat/cards.tsx'
+import { KindName } from '@plugins/chat/kind.tsx'
 import { Markdown } from '@plugins/chat/markdown.tsx'
 import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
@@ -319,7 +320,7 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
     const offer = ctx === 'chat' && offersAfterMerge(t) && !t.afterMerge?.onMain && !t.afterMerge?.followUp
     return (
       <DoneRow>
-        {statusWord(t).word} · {t.name}{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}{am ? ` · ${am}` : ''}
+        <KindName t={t} name={t.name} state={statusWord(t).word} />{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}{am ? ` · ${am}` : ''}
         {offer && <> · <button type="button" className="lk" onClick={() => void tryAct({ type: 'follow-up', chat: taskChat(t) }, 'Follow-up started', 'Starting the follow-up…')}>Start a follow-up</button></>}
       </DoneRow>
     )
@@ -339,7 +340,7 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   const said = saidWords({ summary: t.summary ?? ev?.summary, details: t.details ?? ev?.details }) as { summary: string; details: string }
   return (
     <div className="card" data-card={`review:${t.id}`}>
-      {ctx === 'chat' && <span className="t tw"><StatusIcon t={t} time="none" />{t.name}</span>}
+      {ctx === 'chat' && <span className="t tw"><StatusIcon t={t} time="none" /><KindName t={t} name={t.name} /></span>}
       {/* the decision first, then why it waits for you (dmalis/shepherdr#29); what its agent said follows as evidence */}
       <span className={ctx === 'chat' ? undefined : 't'}>{rw.ask}</span>
       {t.waitsWhy && <span className="s">{t.waitsWhy}</span>}

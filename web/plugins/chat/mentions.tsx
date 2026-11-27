@@ -11,6 +11,8 @@ import { SpaceIcon } from '@client/space-icon.tsx'
 import { StatusIcon } from '@plugins/tasks/icon.tsx'
 import type { Place, Snapshot, Task } from '@shared/types.ts'
 import { machineLabel, spaceName, taskRef } from '@shared/view.ts'
+import { KindWord } from './kind.tsx'
+import { taskKind } from '@shared/kinds.ts'
 import './mentions.css'
 
 const M = MN as any
@@ -174,7 +176,7 @@ export function useMentions(chatKey: string, here: string, text: string, setText
           tabIndex={-1}
           lead={i.kind === 'space' ? (i.place && snap ? <SpaceIcon snap={snap} id={i.place.id} /> : <span className="mhash" aria-hidden="true">{i.space.emoji ?? '#'}</span>) : <StatusIcon t={i.task} time="none" />}
           label={i.kind === 'space' ? i.space.name : i.task.name}
-          sub={i.kind === 'space' ? (i.space.route ? i.space.machine : undefined) : [taskRef(i.task), i.where].filter(Boolean).join(' · ')}
+          sub={i.kind === 'space' ? (i.space.route ? i.space.machine : undefined) : [i.task.schedule ? taskKind(i.task) : '', taskRef(i.task), i.where].filter(Boolean).join(' · ')}
           onMouseDown={(e) => e.preventDefault()}
           onMouseMove={() => n !== sel && setAt(n)}
           onClick={() => pick(i)}
@@ -228,7 +230,7 @@ function MentionLink({ kind, name, target, here }: { kind: 'space' | 'task'; nam
     <a className="lk" role="link" tabIndex={0}
       onClick={(e) => { e.stopPropagation(); open() }}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); open() } }}>
-      {kind === 'space' ? `#${name}` : (task?.name ?? name)}
+      {kind === 'space' ? `#${name}` : <><KindWord t={task} />{task?.name ?? name}</>}
     </a>
   )
 }

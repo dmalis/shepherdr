@@ -70,7 +70,7 @@ test("a cleared need gets a quiet replacement even when there is no new alert", 
   const before = alertsOf({ needs: [need], tasks });
   expect(pushChanges(before, before, 1)).toEqual([]);
   expect(pushChanges(before, new Map(), 0)).toEqual([{
-    title: "No longer waiting", body: "Fix login", tag: "SHOP-1", place: "sp1", topic: "needs",
+    title: "No longer waiting", body: "Task · Fix login", tag: "SHOP-1", place: "sp1", topic: "needs",
     url: "./?place=sp1&task=SHOP-1", waits: true, resolved: true, badge: 0, open: [], replacedBy: [],
   }]);
   const [resolved, ready] = pushChanges(before, alertsOf({ tasks: [{ ...tasks[0], status: "ready" }] }), 1);
@@ -103,7 +103,7 @@ test("SHEP-322: an agent's alert names its task by title, never its key (--task 
     { address: "t5", name: "worker2", state: "live", labels: { "herdr.task": "shop#1", "herdr.alert": al("c", "SHOP-3") } },
   ];
   const out = agentAlerts(terms, snap, (a) => (a === "t1" || a === "t5" ? "SHOP-1/worker" : null), "/nonexistent");
-  expect(out.map((a) => [a.title, a.task])).toEqual([["Fix login · Look", "SHOP-1"], ["Fix login · Look", "SHOP-1"], ["Docs · Look", "SHOP-3"]]);
+  expect(out.map((a) => [a.title, a.task])).toEqual([["Task · Fix login · Look", "SHOP-1"], ["Task · Fix login · Look", "SHOP-1"], ["Task · Docs · Look", "SHOP-3"]]);
 });
 
 // SHEP-243: each alert's buttons do the thing from the phone or the watch, in words that fit a watch

@@ -98,7 +98,7 @@ export function pushChanges(before: Map<string, Out>, now: Map<string, Out>, bad
     waiting.add(waitOf(a));
     const replacedBy = added.filter((b) => b.tag === a.tag).map(({ topic, place }) => ({ topic, place }));
     const { tag, topic, place, url } = a;
-    resolved.push({ title: "No longer waiting", body: a.title.split(" · ")[0], tag, topic, place, url,
+    resolved.push({ title: "No longer waiting", body: a.title.slice(0, Math.max(0, a.title.lastIndexOf(" · "))) || a.title, tag, topic, place, url,
       waits: true, resolved: true, badge, open, replacedBy });
   }
   return [...resolved, ...added];

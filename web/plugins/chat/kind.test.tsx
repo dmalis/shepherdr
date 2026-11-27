@@ -1,0 +1,35 @@
+// dmalis/shepherdr "Chat: say what each thing is": a chat's task line and a link to a task say what kind of thing it
+// is, so a title that reads like a sentence ("Install merged") never reads as news.
+import { expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { KindName, KindWord } from './kind.tsx'
+
+const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+test("a task's line: its kind, its title, its state; a schedule's run says so", () => {
+  expect(text(renderToStaticMarkup(<KindName t={{}} name="Fix login" state="Working" />))).toBe('Task Fix login Working')
+  const run = renderToStaticMarkup(<KindName t={{ schedule: 'Install merged' }} name="Install merged" state="Done" />)
+  expect(text(run)).toBe('Schedule run Install merged Done')
+  // the kind and state in their own quiet parts, the title the part that is cut short
+  expect(run).toContain('<span class="kd">Schedule run</span><span class="kn">Install merged</span><span class="ks">Done</span>')
+  expect(text(renderToStaticMarkup(<KindName name="Fix login" />))).toBe('Task Fix login')
+  expect(text(renderToStaticMarkup(<KindWord t={{ schedule: 'x' }} />))).toBe('Schedule run')
+})
+
+test('one line on a phone: the kind and state never shrink, the title truncates', () => {
+  const css = readFileSync(join(import.meta.dir, 'kind.css'), 'utf8')
+  expect(css).toMatch(/\.knd\{[^}]*white-space:nowrap/)
+  expect(css).toMatch(/\.knd>\.kd,\.knd>\.ks\{flex:none/)
+  expect(css).toMatch(/\.knd>\.kn\{[^}]*min-width:0;overflow:hidden;text-overflow:ellipsis/)
+})
+
+test('every place a chat names a task uses it (pins the call sites in upstream files)', () => {
+  const read = (p: string) => readFileSync(join(import.meta.dir, p), 'utf8')
+  expect(read('client.tsx')).toContain('<KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />')
+  expect(read('client.tsx')).toContain('<span className="qt0">{taskKind(t)}</span>')
+  expect(read('mentions.tsx')).toContain('<KindWord t={task} />')
+  expect(read('markdown.tsx')).toContain("if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))")
+  expect(read('../tasks/client.tsx')).toContain('<KindName t={t} name={t.name} state={statusWord(t).word} />')
+})
