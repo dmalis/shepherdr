@@ -3,6 +3,7 @@
 // them out.
 import { useSyncExternalStore, type FC, type ReactNode } from 'react'
 import { buildId } from '@shared/build.ts'
+import type { Stamp } from '@shared/build-stamp.ts'
 import { afterLoad, mayRetry, OWN_VERSION, readMark, safeNow, writeMark, type Now } from './update.ts'
 import type { Action, Chat, Message, ReplyQuote, ServerEvent, Snapshot, Task, UpdateStatus } from '@shared/types.ts'
 import { everything, placeOf, taskChat, taskOf, type ListFilter, type Space } from '@shared/view.ts'
@@ -288,7 +289,7 @@ interface State {
   outbox: Outgoing[]
   update: UpdateStatus | null
   /** the web app the service serves (SHEP-337): its build and version; a page on another build updates itself */
-  served: { build: string; version: string } | null
+  served: { build: string; version: string; stamp?: Stamp | null } | null
   /** what needs the person, as the service counts it while this page is off screen (it sends nothing else then) */
   needs: number | null
   ui: UI
@@ -679,7 +680,7 @@ export function connect() {
       if (!msg.chat.fresh) putOutbox(settle(state.outbox, msg.chat))
     } else if (msg.type === 'update') state = { ...state, update: msg.update }
     else if (msg.type === 'build') {
-      state = { ...state, served: { build: msg.id, version: msg.version ?? '' } }
+      state = { ...state, served: { build: msg.id, version: msg.version ?? '', stamp: msg.stamp ?? null } }
       if (BUILD && msg.id && msg.id !== BUILD) reloadSoon()
     } else return
     emit()

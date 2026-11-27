@@ -11,6 +11,7 @@ import type { Compat } from "./compat.ts";
 import type { Chat, Snapshot } from "../web/shared/types.ts";
 import { cut, diff, chatDiff, type Cut } from "../web/shared/patch.ts";
 import { needsCount } from "../web/shared/view.ts";
+import type { WebBuild } from "./webbuild.ts";
 
 // A page's socket: the chats it follows (by 2.1's chat key), each with the terminal and the watcher it holds.
 type WS = ServerWebSocket<{ who: string; keys?: string[]; chats?: Map<string, { addr: string; watcher: Watcher }>; push?: string | null; visible?: boolean; seen?: number; from?: string | null;
@@ -53,7 +54,7 @@ export class Live {
   private lookedAt = new Map<string, number>();
   /** the web app's build this service serves (webbuild.ts): each page hears it, and again when it changes */
   private build = "";
-  web: (() => { id: string; version: string }) | null = null;
+  web: (() => WebBuild) | null = null;
 
   constructor(private hub: Hub, private store: Store, private me: () => Me | null, private version: string, private link: () => string | null = () => null) {
     // the shared document changed: a choice for an Assistant that hasn't started may be one of them
@@ -65,7 +66,7 @@ export class Live {
     const b = this.web?.();
     this.build = b?.id ?? "";
     // a web app from before it said its version: the service's own
-    return this.build ? JSON.stringify({ type: "build", id: this.build, version: b?.version || this.version }) : "";
+    return this.build ? JSON.stringify({ type: "build", id: this.build, version: b?.version || this.version, stamp: b?.stamp ?? null }) : "";
   }
 
   /** a new web app put in place while the service runs: every page hears of it */
