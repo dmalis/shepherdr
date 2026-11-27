@@ -306,13 +306,45 @@ function cleanUser(t) {
   return pilot ? { ...(out ?? { text: "" }), pilot } : out;
 }
 
+// A relayed message's words, without the <hc from="…">…</hc> an agent wrote around them itself (hc send adds its own
+// on top: <hc from="t1 shop-4-fix"><hc from="SHOP-4 worker">words</hc></hc>), at any depth. The most specific sender:
+// an inner terminal address (from), else an inner name ("SHOP-4 worker", by), which names the sender when its address
+// can't (core/chat-view.js fromName). A bare inner address is on the outer sender's machine. Only a wrapper of the whole
+// text: not two tags side by side (`<hc from="a">one</hc> and <hc from="b">two</hc>`, a tag that closes before another
+// opens, outside code). A closing tag quoted in the words, in any kind of code, leaves it one wrapper.
+const WRAP = /^<hc\b([^>]*)>([\s\S]*)<\/hc>$/;
+function whole(body) {
+  const code = codeRanges(body);
+  let closed = false;
+  for (const m of body.matchAll(/<hc\b[^>]*?(\/?)>|<\/hc>/g)) {
+    if (inCode(code, m.index)) continue;
+    if (m[0] === "</hc>") closed = true;
+    else if (!m[1] && closed) return false;
+  }
+  return true;
+}
+function unwrapped(text, outer) {
+  let from = null, by = null;
+  const machine = /^([\w.-]+)\/(?:t\d|ppid:\d)/.exec(String(outer ?? "").trim())?.[1];
+  for (let m; (m = WRAP.exec(text)) && whole(m[2]); ) {
+    const f = /\bfrom="([^"]*)"/.exec(m[1])?.[1];
+    if (f === undefined) break;
+    const v = f.trim();
+    if (/^([\w.-]+\/)?t\d[0-9a-z]*(\s|$)/.test(v)) { from = machine && !v.split(/\s/)[0].includes("/") ? `${machine}/${v}` : v; by = null; }
+    else if (v && v !== "person" && v !== "artifact") by = v;
+    text = m[2].trim();
+  }
+  return { text, from, by };
+}
+
 function cleanWords(t) {
   const r = reactionLines(t);
   if (r.reactions.length) {
     const u = r.text ? cleanWords(r.text) : null;
     return { ...(u ?? { text: "" }), reactions: r.reactions };
   }
-  const cmd = /<command-name>([^<]*)<\/command-name>/.exec(t);
+  // a slash command the person ran (not one quoted in another agent's message)
+  const cmd = /^\s*<hc\b[^>]*\bfrom="/.test(t.replace(/<\/?pasted_content\b[^>]*>/g, "")) ? null : /<command-name>([^<]*)<\/command-name>/.exec(t);
   if (cmd) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(t)?.[1] ?? "";
     return { text: `${cmd[1].trim()} ${args.trim()}`.trim() };
@@ -342,7 +374,9 @@ function cleanWords(t) {
     // An artifact's form (mods/artifacts) says which one: "Message from Coverage". Else the
     // whole from= ("t7 herd-12-fix"): the chat names the sender from it (main.js sender()).
     const title = from === "artifact" ? /\btitle="([^"]*)"/.exec(hc[1])?.[1] : null;
-    return from ? { text: hc[2].trim(), from: title || from } : null;
+    if (!from) return null;
+    const inner = unwrapped(hc[2].trim(), from);
+    return { text: inner.text, from: title || inner.from || from, ...(inner.by ? { by: inner.by } : {}) };
   }
   // A message that is one tag from end to end was written by a program, not typed.
   if (/^<([a-z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/.test(t)) return null;
@@ -365,7 +399,7 @@ function claudeUser(c) {
   if (!parts.length) return images ? { text: "", images } : null;
   const reactions = parts.flatMap((p) => p.reactions ?? []), news = parts.flatMap((p) => p.news ?? []);
   const pilot = parts.find((p) => p.pilot)?.pilot;
-  return { text: parts.map((p) => p.text).filter(Boolean).join("\n\n"), from: parts[0].from, ...(parts[0].assistant ? { assistant: parts[0].assistant } : {}), images, reactions, news, ...(pilot ? { pilot } : {}),
+  return { text: parts.map((p) => p.text).filter(Boolean).join("\n\n"), from: parts[0].from, ...(parts[0].by ? { by: parts[0].by } : {}), ...(parts[0].assistant ? { assistant: parts[0].assistant } : {}), images, reactions, news, ...(pilot ? { pilot } : {}),
     replyTo: parts[0].replyTo, ...(parts[0].replyTask ? { replyTask: parts[0].replyTask } : {}), quoted: parts[0].quoted, rest: parts[0].rest };
 }
 
@@ -899,7 +933,7 @@ export class Conversation {
     // a new message from the person: no step of an earlier turn is still running (SHEP-430)
     this.open.clear();
     this.waits.clear();
-    this.push({ kind: "user", id, text, replyTo, ...(u.replyTask && replyTo === u.replyTo ? { replyTask: u.replyTask } : {}), from: u.from, ...(u.assistant ? { assistant: u.assistant } : {}), at: u.at, images: u.images || 0 });
+    this.push({ kind: "user", id, text, replyTo, ...(u.replyTask && replyTo === u.replyTo ? { replyTask: u.replyTask } : {}), from: u.from, ...(u.by ? { by: u.by } : {}), ...(u.assistant ? { assistant: u.assistant } : {}), at: u.at, images: u.images || 0 });
     this.doing = null;
   }
 
@@ -911,7 +945,9 @@ export class Conversation {
       // its pictures are "[Image #1]" markers in the words there
       const images = (c.match(/\[Image #\d+\]/g) ?? []).length;
       const u = c && !c.includes("<task-notification>") ? claudeUser(c.replace(/\[Image #\d+\]\s*/g, "")) : null;
-      if (u || images) this.queue.push({ id: `q${off}`, raw: c, at: time(l.timestamp), text: u?.text ?? "", images });
+      // another agent's message waits there too: it keeps its sender, so it shows as that agent's row at once
+      const who = u?.from ? { from: u.from, ...(u.by ? { by: u.by } : {}), ...(u.assistant ? { assistant: u.assistant } : {}) } : {};
+      if (u || images) this.queue.push({ id: `q${off}`, raw: c, at: time(l.timestamp), text: u?.text ?? "", images, ...who });
       else this.queue.push({ id: `q${off}`, raw: c, at: time(l.timestamp) });
       if (this.queue.length > 50) this.queue.shift();
     } else if (l.operation === "dequeue" || !c) this.queue.shift();
@@ -921,7 +957,8 @@ export class Conversation {
     }
   }
 
-  // What the person typed that waits in the queue for the agent to take: [{ id, text, images, at }].
+  // What waits in the queue for the agent to take: [{ id, text, images, at }], the person's words, and another agent's
+  // message with its sender ({ from, by?, assistant? }, as a user item has them).
   queued() {
     return this.queue.filter((x) => x.text !== undefined);
   }
