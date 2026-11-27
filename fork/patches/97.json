@@ -1,0 +1,15 @@
+{
+  "issue": 97,
+  "name": "ready after a rebase: its push, and a conflict GitHub hasn't worked out yet",
+  "files": [
+    "mods/tasks/bin/herdr_task/rebased_push.py",
+    "mods/tasks/bin/herdr_task/github.py",
+    "mods/tasks/bin/herdr_task/merge_wait.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/tick.py"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::RebasedPush",
+    "test/test_herdr_task.py::MergeableAfterAPush"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "issue": 45,
+  "name": "waiting prompts count under Needs you, say why a hook held them, and their answers show",
+  "files": [
+    "service/prompts.ts",
+    "service/compat.ts",
+    "service/asks.ts",
+    "web/shared/answered.ts",
+    "web/shared/view.ts",
+    "web/shared/types.ts",
+    "web/plugins/chat/client.tsx",
+    "mods/tasks/bin/herdr_task/answered.py",
+    "mods/tasks/bin/herdr_task/news.py",
+    "hooks/ask-hook.sh",
+    "web/plugins/chat/cards.tsx",
+    "web/plugins/chat/prompt-body.tsx",
+    "web/plugins/chat/prompt-body.css",
+    "web/src/list.tsx",
+    "service/main.ts",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "service/prompts.test.ts",
+    "test/test_herdr_task.py::PromptAnswered",
+    "web/src/folded-needs.test.tsx",
+    "web/plugins/chat/prompt-body.test.tsx"
+  ]
+}

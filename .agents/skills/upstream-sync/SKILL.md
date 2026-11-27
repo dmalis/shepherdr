@@ -80,13 +80,14 @@ on from their records ([Held](#held)).
 2. Resolve each conflict upstream-first, then put our intent back on top. The resolving-merge-conflicts skill helps,
    and each patch's issue says what its patch must keep doing. A conflict you can't resolve in this run: **held**
    (kind `conflict`).
-3. Our patches are the lines of `fork/patches.json` at the merge, never the open issue list. For each one:
+3. Our patches are the patch list at the merge, one file per patch in `fork/patches/<n>.json` (`fork/bin/sync
+   patch-list`), never the open issue list. For each one:
    - read what upstream changed in its files (`git log -p <old release>..<release sha> -- <its files>`) and adapt it
      as the fork-patch skill's step 4 says;
-   - upstream now does the same thing: drop the patch and its line, comment on its issue and label it
+   - upstream now does the same thing: drop the patch and its file, comment on its issue and label it
      `fixed-upstream`. It closes only after the install without it is healthy (step 7);
    - one you can't adapt in this run: **held** (kind `draft`, blocker its issue number).
-4. Run each line's `tests`, `python3 -m unittest discover -s fork/tests` and `bin/sync-shared --check`. Patches that
+4. Run each patch's `tests` (`fork/bin/sync patch-tests`), `python3 -m unittest discover -s fork/tests` and `bin/sync-shared --check`. Patches that
    touch the web app also: `bun install && bun web/build-plugins.ts && bunx tsc`. Never the whole suite: CI runs it.
 5. Push: `git push origin HEAD:refs/heads/sync/<tag>`. Open the **sync PR**: `gh pr create -R dmalis/shepherdr --base
    main --head sync/<tag> --title "Take upstream <tag>" --body-file <file>`. Its body:
@@ -131,13 +132,14 @@ it found: report that, never a guess at why, and never repair `main` by force.
 
 ## 7. Finish and report
 
-1. After a healthy install: each issue in `fork/patches.json` at the candidate gets "carried since `<tag>`" at the
+1. After a healthy install: each issue in the patch list at the candidate (`fork/bin/sync patch-list --at
+   <candidate>`, which also reads an older commit's `fork/patches.json`) gets "carried since `<tag>`" at the
    start of its status line, in place of "building" or an older "carried since". The rest of the line stays as it
    is: what the fix does and how to try it, what the person decided, upstream links, each pull request's part. A
-   `fixed-upstream` issue whose line the candidate no longer has no longer waits on the person: remove `not-filed`,
+   `fixed-upstream` issue the candidate's list no longer has no longer waits on the person: remove `not-filed`,
    its status line says "fixed upstream in `vX.Y.Z`, then dropped", and it is closed now.
-   - **`live` follows the install:** every issue in `fork/patches.json` at the installed commit gets `live`. An
-     issue with `live` that the line no longer has (its fix reverted, or dropped for upstream's) loses it:
+   - **`live` follows the install:** every issue in the patch list at the installed commit gets `live`. An
+     issue with `live` that the list no longer has (its fix reverted, or dropped for upstream's) loses it:
      `gh issue list -R dmalis/shepherdr --label live --state all`, then `gh issue edit <n> -R dmalis/shepherdr
      --remove-label live`. A rollback changes no labels, since this step runs only after a healthy install.
    - **Find what this install made live:** our merged pull requests (`gh pr list -R dmalis/shepherdr --state merged
@@ -234,8 +236,8 @@ answer. Then, once per blocker:
 2. Ask with your question tool: "Wait for the fix", or "Install `<tag>` without `<patch>` for now". Stay open for the
    answer.
 3. `fork/bin/sync hold --blocker <it> --answer "<their answer>"`.
-4. Without the patch: revert it on the sync branch and drop its line from `fork/patches.json`; its issue says "paused
-   since `<tag>`"; carry on from step 4. The hold patch (`test_hold_patch.py` in `fork/patches.json`) never goes:
+4. Without the patch: revert it on the sync branch and remove its `fork/patches/<n>.json`; its issue says "paused
+   since `<tag>`"; carry on from step 4. The hold patch (`test_hold_patch.py` in `fork/patches/19.json`) never goes:
    install refuses a candidate without it.
 
 ### Before a release is selected

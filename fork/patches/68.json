@@ -1,0 +1,35 @@
+{
+  "issue": 68,
+  "name": "Settings: one look on every page",
+  "files": [
+    "web/src/choice.tsx",
+    "web/src/settings-look.css",
+    "web/src/appearance.tsx",
+    "web/src/settings.tsx",
+    "web/src/review-rows.tsx",
+    "web/src/zoom.ts",
+    "web/src/size.css",
+    "web/plugins/inbox/device-check.tsx",
+    "web/plugins/inbox/inbox.css",
+    "web/plugins/inbox/client.tsx",
+    "web/plugins/alerts/client.tsx",
+    "web/src/sides.test.tsx",
+    "docs/settings.md",
+    "docs/plugins.md",
+    "fork/tests/test_patches.py",
+    "core/voice.js",
+    "service/voice-tools.ts",
+    "web/plugins/voice/client.tsx",
+    "web/plugins/voice/screen.ts",
+    "core/voice-spec.test.js",
+    "service/voice-tools.test.ts"
+  ],
+  "tests": [
+    "web/src/settings-look.test.tsx",
+    "web/plugins/zoom/zoom.test.ts",
+    "web/plugins/inbox/inbox.test.tsx",
+    "web/src/sides.test.tsx",
+    "service/voice-tools.test.ts",
+    "core/voice-spec.test.js"
+  ]
+}

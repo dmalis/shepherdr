@@ -199,6 +199,13 @@ class BeforeAnythingMoves(World):
         self.set(plan=["ok"])
         self.assertEqual(self.install()["update"], "ok")
 
+    def test_an_older_tree_s_patch_list_still_counts(self):
+        # a commit from before the list became one file per patch: its fork/patches.json names the hold patch
+        c2 = self.new_candidate(patches="legacy")
+        self.ready_to_install(c2)
+        self.set(plan=["ok"])
+        self.assertEqual(self.install(sha=c2)["update"], "ok")
+
     def test_the_hold_patch_must_be_carried(self):
         c2 = self.new_candidate(patches=False)
         self.ready_to_install(c2)

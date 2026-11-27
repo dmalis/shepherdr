@@ -1,6 +1,8 @@
-"""fork/patches.json and `fork/bin/sync patch-tests` (Part of #2): every line names files and tests this tree has, a
-Python entry may name one class or test so only that runs, and the step runs each line's tests from the right folder.
-The real list is checked against this tree; the step itself runs on a scratch tree, never on the repo's own tests."""
+"""The patch list (fork/patches/<issue>.json, or an old tree's fork/patches.json) and `fork/bin/sync patch-list` and
+`patch-tests` (Part of #2): every line names files and tests this tree has, a Python entry may name one class or test
+so only that runs, and the step runs each line's tests from the right folder. The real list is checked against this
+tree with checks that hold for any set of patches; the loader, the install gate and the steps run on scratch trees
+and scratch git repos, never on the repo's own tests."""
 import os
 import sys
 
@@ -21,20 +23,25 @@ SYNC = os.path.join(ROOT, "fork", "bin", "sync")
 
 
 class TheList(unittest.TestCase):
+    """This tree's list, checked so it holds for any set of patches: no issue numbers to keep up to date, so patches
+    built side by side never edit the same line here."""
+
     def setUp(self):
-        self.lines = patches.read(ROOT)
+        self.lines, self.layout = patches.read(ROOT)
 
     def test_every_line_matches_this_tree(self):
-        self.assertEqual(patches.problems(ROOT, self.lines), [])
+        # each file in fork/patches/ is <issue>.json for its own issue, every line has its fields, no issue twice,
+        # and each file and test it names is here
+        self.assertEqual(self.layout + patches.problems(ROOT, self.lines), [])
 
-    def test_it_carries_the_hold_patch_and_the_fixes(self):
-        # #19 the hold patch (install refuses a candidate without it); #7, #11, #12, #29, #33 the fixes to upstream's files; #31 a space above groups; #56 sent images
-        # #36 Zoom and chat text size; #34 the installed app; #37 the alerts list and device check; #55 agent messages fold; #44 About names the build; #45 waiting prompts
-        # #49 Everything's one plain line
-        # #48 a merged task stays done; #62 the trust card's per-repo tip; #70 What's new; #80 busy Assistant: hold messages
-        # #81 a change's tick that comes while one runs, runs right after it
-        # #68 Settings: one look on every page; #74 ready after a rebase waits for checks; #86 the phone keyboard's room; #78 Needs you 1/6, red counts; #97 its push and a conflict not there
-        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 48, 49, 55, 56, 62, 68, 70, 74, 78, 80, 81, 86, 97])
+    def test_one_file_per_patch(self):
+        self.assertTrue(os.path.isdir(os.path.join(ROOT, patches.DIR)))
+        self.assertFalse(os.path.exists(os.path.join(ROOT, patches.LEGACY)),
+                         f"{patches.LEGACY} is the old list: move its lines to {patches.DIR}/<issue>.json")
+        self.assertTrue(self.lines)
+
+    def test_it_carries_the_hold_patch(self):
+        # install refuses a candidate without it (install.carries_hold_patch)
         self.assertTrue(any(os.path.basename(patches.split(t)[0]) == install.HOLD_PATCH_TEST
                             for x in self.lines for t in x["tests"]))
 
@@ -94,6 +101,164 @@ class Problems(unittest.TestCase):
         self.assertEqual(patches.command("service/review-rows.test.ts"), (".", ["bun", "test", "./service/review-rows.test.ts"]))
 
 
+IDENT = {"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "T",
+         "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_NOSYSTEM": "1"}
+HOLD = {"issue": 19, "name": "the hold patch", "files": ["a.py"], "tests": ["fork/tests/test_hold_patch.py"]}
+
+
+def git(cwd, *args, ok=True):
+    r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, env={**os.environ, **IDENT})
+    if ok and r.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)}: {r.stderr}")
+    return r
+
+
+def put(repo, rel, text):
+    full = os.path.join(repo, rel)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def put_line(repo, line):
+    """A patch's own file, as the fork-patch skill says to write it."""
+    put(repo, f"fork/patches/{line['issue']}.json", json.dumps(line, indent=2) + "\n")
+
+
+def put_legacy(repo, lines):
+    put(repo, "fork/patches.json", json.dumps({"patches": lines}))
+
+
+def line(issue, **kw):
+    return dict({"issue": issue, "name": f"fix {issue}", "files": ["a.py"], "tests": ["test/test_a.py"]}, **kw)
+
+
+class TheLoader(unittest.TestCase):
+    """patches.read, the one loader: fork/patches/<issue>.json, or an old tree's fork/patches.json, in the working
+    tree or at a commit (a real scratch git repo)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        git(self.tmp, "init", "-q", "-b", "main")
+        put(self.tmp, "a.py", "x = 1\n")
+
+    def commit(self, words):
+        git(self.tmp, "add", "-A")
+        git(self.tmp, "commit", "-q", "-m", words)
+        return git(self.tmp, "rev-parse", "HEAD").stdout.strip()
+
+    def test_one_file_per_patch_in_issue_order(self):
+        for n in (100, 19, 5):
+            put_line(self.tmp, line(n))
+        lines, layout = patches.read(self.tmp)
+        self.assertEqual(([x["issue"] for x in lines], layout), ([5, 19, 100], []))
+        self.assertEqual(lines[0], line(5))
+
+    def test_an_old_tree(self):
+        put_legacy(self.tmp, [line(7), line(3)])
+        self.assertEqual(patches.read(self.tmp), ([line(7), line(3)], []))
+
+    def test_what_the_layout_finds(self):
+        put_line(self.tmp, line(5))
+        put(self.tmp, "fork/patches/6.json", json.dumps(line(7)))
+        put(self.tmp, "fork/patches/eight.json", json.dumps(line(8)))
+        put(self.tmp, "fork/patches/README.md", "notes\n")
+        put(self.tmp, "fork/patches/9.json", json.dumps(line(True)))
+        lines, layout = patches.read(self.tmp)
+        # every .json file is still read, so a misnamed one is never dropped from what the gate sees
+        self.assertEqual([x["issue"] for x in lines], [5, 7, True, 8])
+        self.assertEqual(layout, ["fork/patches/6.json: its issue is 7, its name says 6",
+                                  "fork/patches/9.json: its issue is true, its name says 9",
+                                  "fork/patches/README.md: only <issue>.json files go in fork/patches/",
+                                  "fork/patches/eight.json: name it <issue>.json"])
+
+    def test_the_old_list_beside_the_new_folder(self):
+        # a rebase that kept fork/patches.json: both are read (nothing lost) and the layout says to move it
+        put_line(self.tmp, line(5))
+        put_legacy(self.tmp, [line(5), line(6)])
+        lines, layout = patches.read(self.tmp)
+        self.assertEqual([x["issue"] for x in lines], [5, 5, 6])
+        self.assertEqual(layout, ["fork/patches.json is the old list: move each of its lines to fork/patches/<issue>.json"])
+        self.assertIn("#5: listed twice", patches.problems(self.tmp, lines))
+
+    def test_what_it_refuses(self):
+        with self.assertRaises(OSError):
+            patches.read(self.tmp)
+        put(self.tmp, "fork/patches/5.json", "{not json")
+        with self.assertRaises(ValueError):
+            patches.read(self.tmp)
+        put(self.tmp, "fork/patches/5.json", "[]")
+        with self.assertRaises(TypeError):
+            patches.read(self.tmp)
+
+    def test_at_a_commit_either_format(self):
+        put_legacy(self.tmp, [HOLD, line(7)])
+        old = self.commit("the old list")
+        git(self.tmp, "rm", "-q", "fork/patches.json")
+        put_line(self.tmp, HOLD)
+        put_line(self.tmp, line(7))
+        new = self.commit("one file per patch")
+        put_line(self.tmp, line(8))                           # not committed: a commit's list ignores the tree
+        self.assertEqual(patches.read(self.tmp, at=old), ([HOLD, line(7)], []))
+        self.assertEqual(patches.read(self.tmp, at=new), ([line(7), HOLD], []))
+        self.assertEqual([x["issue"] for x in patches.read(self.tmp)[0]], [7, 8, 19])
+        with self.assertRaises(OSError):
+            patches.read(self.tmp, at="0" * 40)
+
+    def test_the_install_gate_reads_either_format(self):
+        put_legacy(self.tmp, [HOLD, line(7)])
+        old = self.commit("the old list")
+        put_legacy(self.tmp, [line(7)])
+        old_without = self.commit("the old list, no hold patch")
+        git(self.tmp, "rm", "-q", "fork/patches.json")
+        put_line(self.tmp, HOLD)
+        put_line(self.tmp, line(7))
+        new = self.commit("one file per patch")
+        git(self.tmp, "rm", "-q", "fork/patches/19.json")
+        new_without = self.commit("no hold patch")
+        put(self.tmp, "fork/patches/19.json", "{broken")
+        broken = self.commit("a broken file")
+        self.assertEqual([install.carries_hold_patch(self.tmp, s) for s in (old, old_without, new, new_without, broken)],
+                         [True, False, True, False, False])
+        self.assertFalse(install.carries_hold_patch(self.tmp, "0" * 40))
+
+    def test_two_new_patches_merge_cleanly(self):
+        """Two patch branches from the same main, each adding its own file, merge without a conflict; the same two
+        additions to the old single file conflict (what every rebase hit)."""
+        def two_branches(base, add):
+            git(self.tmp, "checkout", "-q", "-b", base)
+            for n in (50, 51):
+                git(self.tmp, "checkout", "-q", "-b", f"{base}-{n}", base)
+                add(n)
+                self.commit(f"#{n}")
+            git(self.tmp, "checkout", "-q", base)
+            git(self.tmp, "merge", "-q", "--no-edit", f"{base}-50")
+            return git(self.tmp, "merge", "--no-edit", f"{base}-51", ok=False)
+
+        put_line(self.tmp, HOLD)
+        self.commit("main")
+        r = two_branches("new", lambda n: put_line(self.tmp, line(n)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(patches.read(self.tmp, at="HEAD"), ([HOLD, line(50), line(51)], []))
+        self.assertEqual(patches.read(self.tmp), ([HOLD, line(50), line(51)], []))
+
+        # the old way, from a main that still has the one file: each branch appends its line to it
+        git(self.tmp, "checkout", "-q", "main")
+        git(self.tmp, "rm", "-q", "-r", "fork/patches")
+        put(self.tmp, "fork/patches.json", json.dumps({"patches": [HOLD]}, indent=1) + "\n")
+        self.commit("the old list")
+
+        def append(n):
+            with open(os.path.join(self.tmp, "fork/patches.json"), encoding="utf-8") as f:
+                lines = json.load(f)["patches"]
+            put(self.tmp, "fork/patches.json", json.dumps({"patches": lines + [line(n)]}, indent=1) + "\n")
+        r = two_branches("old", append)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("CONFLICT (content): Merge conflict in fork/patches.json", r.stdout + r.stderr)
+        git(self.tmp, "merge", "--abort")
+
+
 class TheStep(unittest.TestCase):
     """`fork/bin/sync patch-tests` on a scratch tree: each named entry runs, and only it."""
 
@@ -115,14 +280,52 @@ class TheStep(unittest.TestCase):
                     "class Theirs(unittest.TestCase):\n    def test_it(self):\n        mark('Theirs.test_it')\n\n"
                     "class Broken(unittest.TestCase):\n    def test_it(self):\n        mark('Broken.test_it')\n        self.fail('dropped')\n")
 
-    def write(self, lines):
-        with open(os.path.join(self.tree, "fork", "patches.json"), "w") as f:
-            json.dump({"patches": lines}, f)
+    def write(self, lines, legacy=False):
+        """The list as one file per patch, or (legacy) as an old tree's fork/patches.json."""
+        shutil.rmtree(os.path.join(self.tree, "fork", "patches"), True)
+        if legacy:
+            put_legacy(self.tree, lines)
+        else:
+            for x in lines:
+                put_line(self.tree, x)
 
-    def step(self, *args):
-        r = subprocess.run([sys.executable, SYNC, "patch-tests", "--repo", self.tree, "--root", self.tmp, *args],
+    def step(self, *args, step="patch-tests"):
+        r = subprocess.run([sys.executable, SYNC, step, "--repo", self.tree, "--root", self.tmp, *args],
                            capture_output=True, text=True, timeout=120)
         return r.returncode, json.loads(r.stdout.strip().splitlines()[-1])
+
+    def test_an_old_tree_s_list_runs_too(self):
+        self.write([{"issue": 2, "name": "two", "files": ["a.py"], "tests": ["test/test_big.py::Ours.test_two"]},
+                    {"issue": 1, "name": "one", "files": ["a.py"], "tests": ["test/test_big.py::Theirs"]}], legacy=True)
+        code, out = self.step()
+        self.assertEqual((code, [p["issue"] for p in out["patches"]]), (0, [2, 1]), out)
+        self.assertEqual(sorted(self.ran_tests()), ["Ours.test_two", "Theirs.test_it"])
+
+    def test_a_kept_old_list_stops_the_step(self):
+        self.write([{"issue": 1, "name": "one", "files": ["a.py"], "tests": ["test/test_big.py::Ours"]}])
+        put_legacy(self.tree, [{"issue": 2, "name": "two", "files": ["a.py"], "tests": ["test/test_big.py::Ours"]}])
+        code, out = self.step()
+        self.assertEqual((code, out["problems"]),
+                         (1, ["fork/patches.json is the old list: move each of its lines to fork/patches/<issue>.json"]))
+        self.assertEqual(self.ran_tests(), [])
+
+    def test_the_list_at_a_commit(self):
+        git(self.tree, "init", "-q", "-b", "main")
+        self.write([HOLD], legacy=True)
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "old")
+        old = git(self.tree, "rev-parse", "HEAD").stdout.strip()
+        os.remove(os.path.join(self.tree, "fork", "patches.json"))
+        self.write([HOLD, line(7)])
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "new")
+        want = lambda *ns: [{"issue": n, "name": "the hold patch" if n == 19 else f"fix {n}"} for n in ns]  # noqa: E731
+        self.assertEqual(self.step("--at", old, step="patch-list"),
+                         (0, {"ok": True, "step": "patch-list", "patches": want(19), "layout": []}))
+        self.assertEqual(self.step("--at", "HEAD", step="patch-list")[1]["patches"], want(7, 19))
+        self.assertEqual(self.step(step="patch-list")[1]["patches"], want(7, 19))
+        code, out = self.step("--at", "0" * 40, step="patch-list")
+        self.assertEqual((code, out["outcome"]), (1, "stop"))
 
     def ran_tests(self):
         try:
@@ -157,7 +360,7 @@ class TheStep(unittest.TestCase):
         self.assertEqual(self.ran_tests(), [])
         self.write([{"issue": 1, "name": "one", "files": ["a.py"], "tests": ["test/test_big.py::Ours"]}])
         code, out = self.step("--issue", "9")
-        self.assertEqual((code, out["why"]), (1, "fork/patches.json has no line for #9"))
+        self.assertEqual((code, out["why"]), (1, "the patch list has no line for #9"))
 
 
 if __name__ == "__main__":

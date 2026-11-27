@@ -1,0 +1,22 @@
+{
+  "issue": 78,
+  "name": "Needs you 1/6: red counts and taps",
+  "files": [
+    "web/shared/needs-open.ts",
+    "web/src/needs-count.tsx",
+    "web/src/list.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/src/App.tsx",
+    "web/src/kernel.ts",
+    "web/shared/task-filter.ts",
+    "web/src/ds.css",
+    "web/demo/data.ts"
+  ],
+  "tests": [
+    "web/src/needs-count.test.tsx",
+    "web/src/folded-needs.test.tsx",
+    "web/src/list.test.tsx",
+    "web/src/badge.test.ts",
+    "web/shared/task-filter.test.ts"
+  ]
+}

@@ -31,7 +31,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
    - **What it does.**
    - **Acceptance criteria:** things a person can see or do.
    - **Where it lives:** files and seams.
-   - **Tests:** the test files the sync must run (the same ones as its `fork/patches.json` line).
+   - **Tests:** the test files the sync must run (the same ones as its `fork/patches/<n>.json`).
    - **Upstream:** "Upstream checked: v<release>, main <short sha>; related: <upstream issues as plain text, or
      none>".
 
@@ -66,9 +66,16 @@ so the cost of a patch is how often a release breaks it. Build for that.
   function's name and arguments or a line a template must still contain. The test names the patch's issue.
 - **Settings.** A new setting is a new key in upstream's existing hierarchy (Everywhere, repo, task `--set`), never
   a second config file. The person's private values stay in their settings file, never in this repo.
-- **Its line in `fork/patches.json`**, in the patch's pull request: `{"issue": <n>, "name": "<short name>",
-  "files": [...], "tests": [...]}`, its files and test files as paths in the repo. The sync reads this file at the
-  commit it installs: a patch without a line is neither tested nor counted as carried.
+- **Its own file in the patch list**, in the patch's pull request: `fork/patches/<n>.json`, `<n>` its issue
+  number, holding `{"issue": <n>, "name": "<short name>", "files": [...], "tests": [...]}`, its files and test files
+  as paths in the repo.
+  - Write only that one file. Never edit another patch's file or `fork/tests/test_patches.py` to register yours, so
+    patches built side by side merge without a conflict.
+  - The sync reads the list at the commit it installs: a patch without its file is neither tested nor counted as
+    carried.
+  - `fork/bin/sync patch-tests --issue <n>` checks your file against the tree and runs its tests.
+  - A branch from before still adds a line to `fork/patches.json`: on rebase, move that line to
+    `fork/patches/<n>.json` and drop the old file.
 - **Tests before ready.** Run only the patch's own tests, plus `bunx tsc` or a build when it could break one
   (AGENTS.md: Tests). The pull request's CI runs the rest.
 
@@ -76,13 +83,13 @@ so the cost of a patch is how often a release breaks it. Build for that.
 
 1. Read what upstream changed: `git log -p <old>..<new> -- <the patch's files>`.
 2. Keep the patch's behaviour, as its issue states it, in upstream's new shape. Don't keep its old code.
-3. If upstream now does the same thing, delete the patch and its `fork/patches.json` line instead. Label its issue
+3. If upstream now does the same thing, delete the patch and its `fork/patches/<n>.json` instead. Label its issue
    `fixed-upstream`; it closes only after the install without it is healthy.
-4. Update the issue's "Where it lives", its pinning test and its `fork/patches.json` line.
+4. Update the issue's "Where it lives", its pinning test and its `fork/patches/<n>.json`.
 
 ## 5. Done means
 
-- The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
+- The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches/<n>.json`, CI's
   `check` passed, and the reviewer had no must-fix finding left.
 - UI work: its proof has the 390px and desktop screenshots, light and dark, and its summary names the UI skills used.
 - **Only a real device can confirm it** (iOS home-screen behaviour, a real keyboard, push on a device, haptics:

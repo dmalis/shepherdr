@@ -102,7 +102,7 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
     It comes off only when they confirm. If they say it's still wrong, that fix's part of the status line goes back
     to building, with what they saw, and a fix task starts; the label stays until they confirm the new fix.
 - **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
-  every issue its installed `fork/patches.json` lists, and takes it off one whose fix left (upstream-sync skill,
+  every issue its installed patch list (`fork/patches/`) names, and takes it off one whose fix left (upstream-sync skill,
   step 7). No `live`: not installed yet.
 - **What the person decided about a fix:** one of these describes the issue as a whole (the upstream-issue skill:
   "After a fix lands").
@@ -129,6 +129,8 @@ First shape it (the shaping-a-request skill). Then use the fork-patch skill. In 
   Prefer these to edits in upstream's busiest files.
 - **Pin what you rely on:** a test for every upstream behaviour the patch depends on, so the next sync sees a break at
   once.
+- **Register it in its own file:** `fork/patches/<issue>.json` names its files and tests. A patch writes only its own
+  file, so patches built side by side merge without a conflict.
 
 ## Upstream releases
 

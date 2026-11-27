@@ -1,0 +1,10 @@
+{
+  "issue": 81,
+  "name": "a change's tick that comes while one runs, runs right after it",
+  "files": [
+    "service/jobs.ts"
+  ],
+  "tests": [
+    "service/jobs.test.ts"
+  ]
+}

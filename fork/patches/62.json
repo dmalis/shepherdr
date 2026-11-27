@@ -1,0 +1,22 @@
+{
+  "issue": 62,
+  "name": "the trust card's per-repo tip",
+  "files": [
+    "service/trust-tip.ts",
+    "web/plugins/chat/trust-tip.tsx",
+    "web/plugins/chat/trust-tip.css",
+    "service/compat.ts",
+    "service/actions.ts",
+    "service/voice-data.ts",
+    "web/plugins/chat/cards.tsx",
+    "web/shared/types.ts",
+    "core/screens.js",
+    "mods/tasks/bin/herdr_task/agents.py",
+    "web/demo/data.ts",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "service/trust-tip.test.ts",
+    "test/test_herdr_task.py::TaskFlow.test_a_reviewers_add_dir_trust_screen_is_a_trust_ask"
+  ]
+}

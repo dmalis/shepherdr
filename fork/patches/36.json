@@ -1,0 +1,31 @@
+{
+  "issue": 36,
+  "name": "Zoom and chat text size",
+  "files": [
+    "web/zoom-css.ts",
+    "web/vite.config.ts",
+    "web/src/zoom-steps.ts",
+    "web/src/zoom.ts",
+    "web/src/appearance.tsx",
+    "web/plugins/zoom/client.tsx",
+    "web/plugins.json",
+    "web/src/prefs.ts",
+    "web/src/kernel.ts",
+    "web/src/settings.tsx",
+    "web/src/keys.ts",
+    "web/plugins/shortcuts/client.tsx",
+    "web/src/size.css",
+    "package.json",
+    "docs/settings.md",
+    "docs/shortcuts.md",
+    "docs/plugins.md",
+    "web/src/choice.tsx",
+    "web/src/settings-look.css"
+  ],
+  "tests": [
+    "web/plugins/zoom/zoom.test.ts",
+    "web/src/keys.test.ts",
+    "web/src/commands.test.ts",
+    "web/src/settings-look.test.tsx"
+  ]
+}

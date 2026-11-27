@@ -4,7 +4,7 @@
   the baseline B (version 3.2.21) and the candidate C (3.2.22) on top. Both carry a small Shepherdr: upstream's real
   `bin/shepherdr` (its real VERSION line rewritten, its real set_hooks and HOOKS kept, its `main` swapped for a fake
   doctor), a tiny herdr_task package (base.STORE, scheduler.script_hash, self_update.clean_env, the real layout),
-  fork/patches.json.
+  the patch list (fork/patches/1.json, or an older tree's fork/patches.json).
 - A scratch root is the home: Shepherdr is installed under it from the install folder (a clone at B), with the
   agents' hook files written by the real set_hooks, a `.local/bin/shepherdr` link and a scheduler file.
 - A fake `herdr-task` first on PATH answers show, auto show, assistants and update-shepherdr. Its update does what
@@ -297,11 +297,15 @@ class World(unittest.TestCase):
             self.put(w, f"{pkg}/layout.py", f.read())       # the real one: where the sync hold goes
         self.put(w, "fork/bin/sync", f"# pipeline {pipeline or 1}\n")
         self.put(w, "fork/sync/state.py", "# state\n")
-        if patches:
-            self.put(w, "fork/patches.json", json.dumps({"patches": [
-                {"issue": 1, "files": ["bin/shepherdr"], "tests": ["fork/tests/test_hold_patch.py"]}]}))
-        elif os.path.exists(os.path.join(w, "fork/patches.json")):
-            git(w, "rm", "-q", "fork/patches.json")
+        # the patch list: one file per patch (patches=True), an older tree's single file ("legacy"), or none
+        hold = {"issue": 1, "files": ["bin/shepherdr"], "tests": ["fork/tests/test_hold_patch.py"]}
+        for rel in ("fork/patches.json", "fork/patches"):
+            if os.path.exists(os.path.join(w, rel)):
+                git(w, "rm", "-q", "-r", rel)
+        if patches == "legacy":
+            self.put(w, "fork/patches.json", json.dumps({"patches": [hold]}))
+        elif patches:
+            self.put(w, "fork/patches/1.json", json.dumps(hold))
         git(w, "commit", "-q", "--allow-empty", "-m", version)
         return git(w, "rev-parse", "HEAD")
 

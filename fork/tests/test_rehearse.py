@@ -131,7 +131,7 @@ class Run(unittest.TestCase):
 
     def test_a_candidate_install_refuses_fails_and_is_cleaned_up(self):
         def no_hold_patch(folder):
-            os.remove(os.path.join(folder, "fork", "patches.json"))
+            shutil.rmtree(os.path.join(folder, "fork", "patches"))
         space = Space(self.tmp, candidate_edit=no_hold_patch)
         p = self.rehearse(space)
         last = p.stdout.strip().splitlines()[-1]

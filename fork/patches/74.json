@@ -1,0 +1,14 @@
+{
+  "issue": 74,
+  "name": "ready after a rebase waits for checks",
+  "files": [
+    "mods/tasks/bin/herdr_task/merge_wait.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/github.py",
+    "mods/tasks/bin/herdr_task/tick.py"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::ReadyAfterARebase",
+    "test/test_herdr_task.py::PushedForItsMerge"
+  ]
+}

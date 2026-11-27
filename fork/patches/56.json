@@ -1,0 +1,18 @@
+{
+  "issue": 56,
+  "name": "sent images: tap to open",
+  "files": [
+    "service/sent-images.ts",
+    "service/compat.ts",
+    "service/main.ts",
+    "web/plugins/chat/sent-images.ts",
+    "web/plugins/chat/client.tsx",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "service/sent-images.test.ts",
+    "web/plugins/chat/sent-images.test.tsx"
+  ]
+}

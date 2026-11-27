@@ -1,0 +1,22 @@
+{
+  "issue": 34,
+  "name": "installed app polish: desktop and iPhone",
+  "files": [
+    "web/plugins/installed/client.tsx",
+    "web/plugins/installed/launch.ts",
+    "web/plugins/installed/installed.css",
+    "web/plugins.json",
+    "web/public/manifest.webmanifest",
+    "web/public/manifest-dark.webmanifest",
+    "web/public/manifest-light.webmanifest",
+    "web/public/manifest-night.webmanifest",
+    "web/public/sw.js",
+    "web/index.html",
+    "web/public/splash/420x912@3-light.png",
+    "web/public/splash/420x912@3-dark.png",
+    "docs/plugins.md"
+  ],
+  "tests": [
+    "web/plugins/installed/installed.test.ts"
+  ]
+}

@@ -74,7 +74,7 @@ person. Their answer for that fix sets the label:
 | Nothing yet | Nothing. It stays on the not-filed list | `not-filed` |
 | File it | "Filing a fix", below. Their "file it" is the yes: no draft round | `upstream-proposed`, once it is posted |
 | Keep it ours | Post nothing. Status line: "fork-only", with their reason if they gave one | `fork-only` |
-| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its part of the `fork/patches.json` line. Status line: "reverting in #m". The healthy install that carries the revert (upstream-sync skill, step 7) makes it "reverted in #m", puts the label on and closes the issue | `reverted` |
+| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its part of its `fork/patches/<n>.json`. Status line: "reverting in #m". The healthy install that carries the revert (upstream-sync skill, step 7) makes it "reverted in #m", puts the label on and closes the issue | `reverted` |
 
 - Swap the labels in one call: `gh issue edit <n> -R dmalis/shepherdr --add-label <label> --remove-label not-filed`.
   For a revert, `not-filed` stays until `reverted` goes on.
@@ -87,7 +87,7 @@ person. Their answer for that fix sets the label:
     no longer fits: `not-filed` while any part is "not filed yet" or "reverting"; beside it, one label for the
     issue as a whole: `upstream-proposed` if any fix we still carry was filed (proposed or declined upstream), else
     `fork-only` if any carried fix is kept ours, else none; `reverted`, alone, only once every fix was undone.
-  - **Undoing one of them** reverts only that pull request. The `fork/patches.json` line keeps every path and test
+  - **Undoing one of them** reverts only that pull request. Its `fork/patches/<n>.json` keeps every path and test
     another carried fix still needs. The issue closes only once every fix was undone.
 - **The author declines a filed fix:** the label stays `upstream-proposed`, and the status line says "declined
   upstream: <link>", with the author's reason. Our patch stays.

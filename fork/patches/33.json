@@ -1,0 +1,20 @@
+{
+  "issue": 33,
+  "name": "usage notes: remove the leftovers",
+  "files": [
+    "core/agent-usage.js",
+    "web/src/settings.tsx",
+    "service/machines.ts",
+    "service/voice-tools.ts",
+    "core/voice.js",
+    "core/machines.js",
+    "web/demo/data.ts",
+    "docs/settings.md",
+    "docs/agents-and-terms.md",
+    "docs/upgrading.md"
+  ],
+  "tests": [
+    "service/agent-usage.test.ts",
+    "core/machines.test.js"
+  ]
+}

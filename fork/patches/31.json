@@ -1,0 +1,24 @@
+{
+  "issue": 31,
+  "name": "a space above groups in the sidebar",
+  "files": [
+    "web/shared/group-slots.ts",
+    "core/group-slots.js",
+    "web/shared/view.ts",
+    "web/shared/types.ts",
+    "web/src/list.tsx",
+    "web/src/drag.ts",
+    "service/actions.ts",
+    "service/compat.ts",
+    "core/host.js",
+    "service/voice-tools.ts",
+    "web/plugins/shortcuts/client.tsx",
+    "web/demo/data.ts",
+    "web/demo/serve.ts"
+  ],
+  "tests": [
+    "web/shared/group-slots.test.ts",
+    "service/group-slots.test.ts",
+    "web/src/list.test.tsx"
+  ]
+}
