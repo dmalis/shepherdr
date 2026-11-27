@@ -151,7 +151,9 @@ it found: report that, never a guess at why, and never repair `main` by force.
    - **A fix only a device can confirm** (its issue has a "Device check:" line for it, fork-patch skill: "Done
      means"): label the issue `device-check` too (`gh label create device-check -R dmalis/shepherdr` first, if
      `gh label list` lacks it). `--says` never calls it fixed: "not seen on a device yet: please check <that
-     line>".
+     line>". When `finish` says `again`, keep these lines: the last healthy round's `--says` carries every
+     round's. Only the person's confirmation takes `device-check` off; no install does. A part that went back to
+     building after a failed check stays building until a pull request that fixes it is installed.
    - **A revert** (its issue's status line says "reverting in #m" for it): that part becomes "reverted in #m", and
      the labels are set from the parts again. The issue closes only when every fix on it was undone.
    - **A pull request that changes Shepherdr** (any file outside `FORK.md`, `fork/` and `.agents/`) and names no

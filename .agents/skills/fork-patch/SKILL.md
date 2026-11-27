@@ -86,9 +86,9 @@ so the cost of a patch is how often a release breaks it. Build for that.
   `check` passed, and the reviewer had no must-fix finding left.
 - UI work: its proof has the 390px and desktop screenshots, light and dark, and its summary names the UI skills used.
 - **Only a real device can confirm it** (iOS home-screen behaviour, a real keyboard, push on a device, haptics:
-  anything our headless checks can't show): the summary says so, and the issue gets a line "Device check: <the exact
-  thing to look at>", e.g. "open the app from the iPhone home screen: the header's first row is sharp, with no gap
-  above it". The proof lists it under "Not proven". The install then asks the person to check it (FORK.md:
+  anything our headless checks can't show): the summary and the issue both say what to do on the device and what
+  to see. The issue gets it as a line "Device check: <what to do>: <what to see>", e.g. "Device check: open the app
+  from the iPhone home screen: the header's first row is sharp, with no gap above it". The proof lists it under "Not proven". The install then asks the person to check it (FORK.md:
   `device-check`).
 - Every fix has its own issue, and merging never closes it. A new fix for a problem an earlier fix covers gets a
   new issue that links the earlier one.

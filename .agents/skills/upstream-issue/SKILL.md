@@ -106,10 +106,12 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
 3. **End with the link** that opens exactly those issues on GitHub:
    https://github.com/dmalis/shepherdr/issues?q=is%3Aissue+is%3Aopen+label%3Anot-filed
 4. **When the person asked:** the Assistant gives the list, then asks with the question tool, one question per fix
-   (up to four at a time): "File it upstream", "Keep it ours", "Undo it", "Not yet". It does what "After a fix
+   (up to four at a time): "File it upstream", "Keep it ours", "Undo it", "Not yet". "File it upstream" only
+   for a fix step 2 didn't find fixed upstream. It does what "After a fix
    lands" says for each answer. "Not yet" changes nothing. Nothing waits: say so in one line.
 5. **The daily run** is a task of its own: it changes nothing and asks nothing. It ends with
-   `ready --told "<the list and the link, then: say file it, keep it ours or undo it for any of them>"`, or
+   `ready --told "<the list and the link, then: say file it, keep it ours or undo it for any of them; file it only
+   for one upstream hasn't fixed>"`, or
    `ready --nothing` when none waits. The Assistant tells the person those words, and their answer comes to the Assistant like any message.
 
 ## Filing a fix

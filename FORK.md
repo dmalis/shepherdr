@@ -99,7 +99,8 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - `later`: not now.
   - `device-check`: a live fix only a real device can confirm (an iPhone's home screen, a real keyboard, push on a
     device, haptics), not confirmed by the person yet. The install puts it on, from the issue's "Device check" line.
-    It comes off only when they confirm; if they say it's still wrong, the issue goes back to building.
+    It comes off only when they confirm. If they say it's still wrong, that fix's part of the status line goes back
+    to building, with what they saw, and a fix task starts; the label stays until they confirm the new fix.
 - **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
   every issue its installed `fork/patches.json` lists, and takes it off one whose fix left (upstream-sync skill,
   step 7). No `live`: not installed yet.
@@ -217,7 +218,7 @@ whether it goes into theirs.
   its status line says in plain words what the fix does and how to try it. Once a patch is merged and live (the
   install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
   decides that fix:
-  - **File it:** that is the yes, with no draft round. After a search upstream for a duplicate, we post one comment
+  - **File it:** that is the yes, with no draft round. After the upstream check again (fixed upstream since: nothing to post), we post one comment
     on their existing issue, or one new upstream issue, linking our pull request. `upstream-proposed`.
   - **Keep it ours:** `fork-only`. Nothing is posted.
   - **Undo it:** a revert pull request first. `reverted` goes on, and the issue closes, only once the revert has
