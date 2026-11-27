@@ -2,9 +2,10 @@ import { afterEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot } from '@shared/types.ts'
-import { needsCount } from '@shared/view.ts'
-import { filterTasks, NO_FILTER } from '@shared/task-filter.ts'
-import { needsFilter, needsItems, needsWords, oneTarget } from '@shared/needs-open.ts'
+import { isEverything, needsCount, tstate } from '@shared/view.ts'
+import { taskAlerts } from '@shared/needs-you.ts'
+import { chipsOf, clean, filterTasks, NO_FILTER } from '@shared/task-filter.ts'
+import { needsChats, needsFilter, needsItems, needsWords, oneTarget } from '@shared/needs-open.ts'
 import { EV, snapshot } from '../demo/data.ts'
 
 // Needs you 1/6, red counts and taps (dmalis/shepherdr, "Needs you: one happy path"). Red is Needs you: the one red
@@ -14,12 +15,14 @@ import { EV, snapshot } from '../demo/data.ts'
 
 const { getState, setUI } = await import('./kernel.ts')
 const { List } = await import('./list.tsx')
-const { NeedsCount, openNeeds } = await import('./needs-count.tsx')
+const { listNeeds, NeedsCount, openNeeds } = await import('./needs-count.tsx')
 
 const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8')
 const demo = (mode: Parameters<typeof snapshot>[0] = 'normal') => snapshot(mode) as Snapshot
+// openLink reads the page's own address
+;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
-afterEach(() => setUI({ ...ui0 }))
+afterEach(() => { setUI({ ...ui0 }); Object.assign(getState(), { snap: null }) })
 
 test('the items are exactly what needsCount counts, for every space and for everyone', () => {
   for (const mode of ['normal', 'more', 'long', 'one', 'five'] as const) {
@@ -37,39 +40,77 @@ test('the items cover a chat that asks and a queued question, as needsCount does
   expect(needsItems(more, 'p:vm:root')).toEqual([{ place: 'p:vm:root', card: null }, { task: 'vm:ROOT-3', place: 'p:vm:root', card: 'q-late' }])
 })
 
-test('one thing opens its card: the task and the card to scroll to', () => {
+const q = (id: string, task: string, place: string) => ({ id, chat: `${task}/worker`, place, task, at: 0, question: { id, title: id, kind: 'Question', queued: true, choices: [], to: '' } })
+const working = (s: Snapshot) => s.tasks.find((t) => tstate(t) === 'working' && !taskAlerts(s).has(t.id))!
+
+test('one thing opens its card, as the app draws it: a question, Ready for review, a stop, an alert, your hands', () => {
   const s = demo()
   expect(oneTarget(needsItems(s, 'p:mac-mini:docs'))).toEqual({ task: 'DOCS-3', place: 'p:mac-mini:docs', card: 'q-docs' })
-  // two things in one task are still one place to go
-  expect(oneTarget([{ task: 'A', place: 'p', card: null }, { task: 'A', place: 'p', card: 'q1' }])).toEqual({ task: 'A', place: 'p', card: 'q1' })
-  // two tasks: a list
+  expect(oneTarget(needsItems(s, 'p:mac-mini:notes'))).toEqual({ task: 'NOTES-4', place: 'p:mac-mini:notes', card: 'review:NOTES-4' })
+  const cards = needsItems(s).map((i) => i.card)
+  expect(cards).toContain('stopped:BLOG-11')
+  expect(cards).toContain('hands:SHOP-17')
+  // a standing alert on a task at work: its alert card
+  const alerting = s.tasks.find((t) => taskAlerts(s).has(t.id) && tstate(t) === 'working')
+  if (alerting) expect(needsItems(s).find((i) => i.task === alerting.id)?.card).toBe(`alert:${taskAlerts(s).get(alerting.id)!.id}`)
+  // two things, even in one task, are a list: the count says 2
+  const w = working(s)
+  const two = { ...s, needs: [...s.needs, q('q1', w.id, w.place), q('q2', w.id, w.place)] } as Snapshot
+  expect(needsItems(two, w.place).filter((i) => i.task === w.id).length).toBe(2)
+  expect(oneTarget([{ task: 'A', place: 'p', card: 'q1' }, { task: 'A', place: 'p', card: 'q2' }])).toBeNull()
   expect(oneTarget(needsItems(s, 'p:studio:site'))).toBeNull()
   expect(oneTarget([])).toBeNull()
 })
 
-test("two or more list that scope's Needs you, and the list shows exactly those tasks", () => {
+test("two or more: the list shows exactly what the count counts, at work or not, and the chats that ask", () => {
   const s = demo()
-  const site = needsItems(s, 'p:studio:site')
-  const f = needsFilter(s, site, { place: 'p:studio:site' })
-  expect(f).toEqual({ ...NO_FILTER, state: ['needs', 'ready'], here: true })
-  expect(filterTasks(s, f, 'p:studio:site').map((t) => t.id).sort()).toEqual(['studio:SITE-5', 'studio:SITE-6'])
-  // everyone's: no space, every task that counts
-  const all = needsItems(s)
-  const fa = needsFilter(s, all, { place: EV })
-  expect(fa.here).toBe(false)
-  expect(filterTasks(s, fa, EV).map((t) => t.id).sort()).toEqual([...new Set(all.map((i) => i.task!))].sort())
-  // a machine's
-  expect(needsFilter(s, needsItems(s, 'p:vm:shop'), { machine: 'vm' }).machine).toEqual(['vm'])
+  const listed = (snap: Snapshot, scopes: string[], at: string) => filterTasks(snap, needsFilter(scopes), at).map((t) => t.id).sort()
+  const tasksOf = (items: ReturnType<typeof needsItems>) => [...new Set(items.flatMap((i) => (i.task ? [i.task] : [])))].sort()
+  for (const p of s.places) expect([p.id, listed(s, [p.id], p.id)]).toEqual([p.id, tasksOf(needsItems(s, p.id))])
+  expect(listed(s, [EV], EV)).toEqual(tasksOf(needsItems(s)))
+  // working tasks with queued questions: counted, and listed (their questions show under Needs you)
+  const ws = s.tasks.filter((t) => tstate(t) === 'working' && t.place === 'p:vm:root')
+  const queued = { ...s, needs: [...s.needs, ...ws.map((t, i) => q(`qq${i}`, t.id, t.place))] } as Snapshot
+  expect(listed(queued, ['p:vm:root'], 'p:vm:root')).toEqual(tasksOf(needsItems(queued, 'p:vm:root')))
+  // a space's own chat asking has no task row: the list adds it
+  const chat = { ...s, places: s.places.map((p) => (p.id === 'p:vm:root' ? { ...p, needs: true } : p)) } as Snapshot
+  expect(needsChats(chat, ['p:vm:root'])).toEqual([{ place: 'p:vm:root', card: null }])
+  expect(needsChats(chat, [EV]).map((i) => i.place)).toEqual(['p:vm:root'])
+  // a folded machine: only the spaces its heading counts (the open one stays in sight with its own count)
+  const mac = s.places.filter((p) => p.machine === 'mac-mini' && p.id !== 'p:mac-mini:shop' && !isEverything(s, p.id)).map((p) => p.id)
+  const counted = mac.reduce((n, id) => n + needsCount(s, id), 0)
+  expect(listed(s, mac, 'p:mac-mini:shop').length).toBe(counted)
+  expect(listed(s, mac, 'p:mac-mini:shop')).not.toContain('SHOP-12')
+  // its chip, one tap to take off; a kept filter keeps it
+  expect(chipsOf(s, needsFilter(['p:mac-mini:docs']), EV).map((c) => c.label)).toEqual(['Needs you in docs'])
+  expect(chipsOf(s, needsFilter([EV]), EV)[0]!.off(needsFilter([EV]))).toEqual(NO_FILTER)
+  expect(clean(JSON.parse(JSON.stringify(needsFilter(mac))))).toEqual(needsFilter(mac))
+  expect(clean(NO_FILTER)).toEqual(NO_FILTER)
 })
 
-test('a tap on one opens its task at its card; on several opens Tasks with the Needs you filter', () => {
+test('a tap on one opens it at its card, even past a maximized task or a terminal view; on several, the list', () => {
   const s = demo()
   setUI({ at: EV, pane: null, task: null })
-  openNeeds(s, needsItems(s, 'p:mac-mini:docs'), { place: 'p:mac-mini:docs' })
+  openNeeds(needsItems(s, 'p:mac-mini:docs'), ['p:mac-mini:docs'], 'p:mac-mini:docs')
   expect(getState().ui).toMatchObject({ at: 'p:mac-mini:docs', pane: 'tasks', task: 'DOCS-3', jump: 'q-docs' })
-  setUI({ at: EV, pane: null, task: null, tf: NO_FILTER })
-  openNeeds(s, needsItems(s, 'p:studio:site'), { place: 'p:studio:site' })
-  expect(getState().ui).toMatchObject({ at: 'p:studio:site', pane: 'tasks', task: null, tf: { ...NO_FILTER, state: ['needs', 'ready'], here: true } })
+  // the space's own chat asking, with a task maximized over it and the chat shown as a terminal
+  Object.assign(getState(), { snap: s })
+  const chat = s.places.find((p) => p.id === 'p:vm:root')!.chat!
+  setUI({ at: 'p:vm:root', pane: null, task: null, max: 'vm:ROOT-3', aterm: { [chat]: true } })
+  openNeeds([{ place: 'p:vm:root', card: 'c1' }], ['p:vm:root'], 'p:vm:root')
+  expect(getState().ui).toMatchObject({ at: 'p:vm:root', max: null, jump: 'c1', aterm: { [chat]: false } })
+  setUI({ at: EV, pane: null, task: null, max: null, tf: NO_FILTER })
+  openNeeds(needsItems(s, 'p:studio:site'), ['p:studio:site'], 'p:studio:site')
+  expect(getState().ui).toMatchObject({ at: 'p:studio:site', pane: 'tasks', task: null, tab: 'Now', tf: needsFilter(['p:studio:site']) })
+})
+
+test('a red Tasks button lists Needs you from any state; once it shows, a tap does what it always did', () => {
+  setUI({ at: 'p:mac-mini:shop', pane: 'tasks', task: null, tab: 'Scheduled', tf: NO_FILTER })
+  expect(listNeeds(['p:mac-mini:shop'])).toBe(true)
+  expect(getState().ui).toMatchObject({ pane: 'tasks', tab: 'Now', tf: needsFilter(['p:mac-mini:shop']) })
+  expect(listNeeds(['p:mac-mini:shop'])).toBe(false)
+  setUI({ task: 'SHOP-12' })
+  expect(listNeeds(['p:mac-mini:shop'])).toBe(true)
 })
 
 test('the red count: a button of its own, with words for a screen reader; nothing at 0', () => {
@@ -95,10 +136,12 @@ test("in the list: the space's count, Everything's and a folded machine's are re
 test('the Tasks button and the bar: red with what needs you here, a tap lists it; else the quiet count', () => {
   const t = src('../plugins/tasks/client.tsx')
   expect(t).toContain("label={red ? `Tasks, ${needsWords(red)}` : 'Tasks'}")
-  expect(t).toContain('listNeeds(snap, needsItems(snap, at), { place: at })')
-  expect(t).toContain('needs: needsCount, openNeeds: (snap, place) => listNeeds(snap, needsItems(snap, place), { place })')
+  expect(t).toContain("onClick={() => (red && listNeeds([at])) || togglePane('tasks')}")
+  expect(t).toContain('needs: needsCount, openNeeds: (_, place) => listNeeds([place]) })')
+  expect(t).toContain('{o && chats.map((i) => <AskRow')
   const app = src('./App.tsx')
   expect(app).toContain("const red = b.needs?.(snap, at) ?? 0")
+  expect(app).toContain('onClick={() => (red && b.openNeeds?.(snap, at)) || setUI(')
   expect(app).toContain("<span className={cx('cnt', red > 0 && 'needs')}>{n}</span>")
   // the list's drags and a machine heading's hold leave the count's button alone
   const list = src('./list.tsx')

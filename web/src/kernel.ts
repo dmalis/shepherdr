@@ -124,7 +124,7 @@ export interface Registry {
   panes: Pane[]
   /** the phone's bottom pill, after Chat */
   /** needs: what needs you there, shown red in the count's place; openNeeds: a tap while it is red */
-  bar: { order: number; pane: string; label: string; icon: IconName; count?: (snap: Snapshot, place: string) => number; needs?: (snap: Snapshot, place: string) => number; openNeeds?: (snap: Snapshot, place: string) => void }[]
+  bar: { order: number; pane: string; label: string; icon: IconName; count?: (snap: Snapshot, place: string) => number; needs?: (snap: Snapshot, place: string) => number; openNeeds?: (snap: Snapshot, place: string) => boolean }[]
   /** rows of a space's menu, first, before Settings: Terminal and Screen (only from the header's name: `head`), then
    *  View as terminal */
   spaceMenu: { order: number; rows: (place: Space, head: boolean) => MenuRow[] }[]

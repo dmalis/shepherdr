@@ -63,7 +63,7 @@ html{--cnt-quiet:color-mix(in srgb,var(--fg) 14%,var(--canvas))}
 /* Needs you 1/6 (dmalis/shepherdr, "Needs you: one happy path"): red is Needs you, the only red count; every other count
    is quiet. Its own button beside the row it counts for (44px on touch), never inside the row's button. */
 .cnt.needs,.ib .cnt.needs,.pt .cnt.needs{background:var(--needs-fill);color:var(--needs-ink)}
-.ncnt{display:inline-grid;place-items:center;min-width:var(--ib);height:var(--ib);padding:0 2px;border-radius:8px;flex:none}.ncnt:hover{background:var(--control)}
+.ncnt{display:inline-grid;place-items:center;min-width:var(--ib);height:var(--ib);padding:0 2px;border-radius:8px;flex:none}@media(hover:hover){.ncnt:hover{background:var(--control)}}
 .row{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--row);padding:0 8px;border-radius:8px;color:var(--sub);min-width:0}
 button.row:hover,.row[aria-current="true"],.rowx:has(>.row[aria-current="true"]){background:var(--control);color:var(--fg)}
 .rowx:has(>.row[aria-current="true"])>.row{background:none}

@@ -1,56 +1,93 @@
 // Needs you 1/6, red counts and taps (dmalis/shepherdr, "Needs you: one happy path"): what a red count stands for,
 // item by item, and where a tap on it goes. The items are exactly what needsCount counts (a test holds the two
 // together); which things count is not decided here.
-import { NO_FILTER, fstate, type TaskFilter } from './task-filter.ts'
-import type { Snapshot } from './types.ts'
-import { isEverything, taskInSpace, tstate } from './view.ts'
-import { taskAlerts } from './needs-you.ts'
+import type { Need, Snapshot, Task } from './types.ts'
+import type { TaskFilter } from './task-filter.ts'
+import { isEverything, spaceLabel, taskInSpace, tstate } from './view.ts'
+import { taskAlerts, type Alert } from './needs-you.ts'
 
-/** one thing that needs you: a task (its pane, at its card when it has one) or a chat (a space's own agent asking) */
-export type NeedItem = { task: string; place: string; card: string | null } | { task?: undefined; place: string; card: string | null }
+/** one thing that needs you: a task (its pane) or a chat (a space's own agent asking), and the card it shows there */
+export interface NeedItem {
+  task?: string
+  place: string
+  /** the card to scroll to: its data-card as the app draws it */
+  card: string | null
+}
 
-/** the card a need shows, to scroll to: its request's id ('attention' has no card) */
-const cardOf = (id: string | undefined) => (id && id !== 'attention' ? id : null)
+type Alerting = Map<string, Alert>
+const inScope = (snap: Snapshot, t: Task, placeId?: string) => !placeId || isEverything(snap, placeId) || taskInSpace(t, placeId)
+
+/** needsCount's rule for a task: under Needs you (Ready for review among them), or an alert about it still stands */
+const counted = (t: Task, alerting: Alerting) => ['ask', 'ready'].includes(tstate(t)) || (alerting.has(t.id) && tstate(t) !== 'done' && tstate(t) !== 'archived')
+/** a question answered from its card while the chat carries on (needsCount counts it on its own) */
+const queuedFor = (snap: Snapshot, t: Task) => (snap.needs ?? []).some((n) => n.question?.queued && n.task === t.id)
+
+/** the card a need draws: its question's or secret's, or the hands card; 'attention' has none */
+function needCard(n: Need): string | null {
+  if (n.hands) return n.task ? `hands:${n.task}` : null
+  return n.question?.id ?? n.secret?.id ?? (n.id && n.id !== 'attention' ? n.id : null)
+}
+
+/** the card a task that needs you shows in its own chat, as the tasks and screens plugins draw them */
+function taskCard(snap: Snapshot, t: Task, alerting: Alerting): string | null {
+  const need = (snap.needs ?? []).find((n) => n.task === t.id && needCard(n))
+  if (need) return needCard(need)
+  const sc = snap.screens?.[`task:${t.id}`]
+  if (sc?.hands && !sc.hands.settled) return `hands:${t.id}`
+  if (tstate(t) === 'ready') return `review:${t.id}`
+  if (tstate(t) === 'ask' && t.stopped && t.stopped.by !== 'you') return `stopped:${t.id}`
+  const a = alerting.get(t.id)
+  return a ? `alert:${a.id}` : null
+}
 
 /** what needsCount(snap, placeId) counts, one item each, in the same order: tasks, chats, queued questions */
 export function needsItems(snap: Snapshot, placeId?: string): NeedItem[] {
   const all = !placeId || isEverything(snap, placeId)
   const alerting = taskAlerts(snap)
   const needs = snap.needs ?? []
-  const card = (task: string) => cardOf(needs.find((n) => n.task === task && cardOf(n.id))?.id)
-  const tasks = snap.tasks
-    .filter((t) => (all || taskInSpace(t, placeId)) && (['ask', 'ready'].includes(tstate(t)) || (alerting.has(t.id) && tstate(t) !== 'done' && tstate(t) !== 'archived')))
-    .map((t): NeedItem => ({ task: t.id, place: t.place, card: card(t.id) }))
+  const tasks = snap.tasks.filter((t) => inScope(snap, t, placeId) && counted(t, alerting)).map((t): NeedItem => ({ task: t.id, place: t.place, card: taskCard(snap, t, alerting) }))
   const chats = snap.places
     .filter((p) => p.needs && (all || p.id === placeId))
-    .map((p): NeedItem => ({ place: p.id, card: cardOf(needs.find((n) => !n.task && n.place === p.id && cardOf(n.id))?.id) }))
+    .map((p): NeedItem => {
+      const n = needs.find((x) => !x.task && x.place === p.id && needCard(x))
+      return { place: p.id, card: n ? needCard(n) : null }
+    })
   const queued = needs
-    .filter((n) => n.question?.queued && (all || (n.task ? !!snap.tasks.find((t) => t.id === n.task && taskInSpace(t, placeId)) : n.place === placeId)))
-    .map((n): NeedItem => (n.task ? { task: n.task, place: snap.tasks.find((t) => t.id === n.task)?.place ?? n.place, card: n.question?.id ?? cardOf(n.id) } : { place: n.place, card: n.question?.id ?? cardOf(n.id) }))
+    .filter((n) => n.question?.queued && (all || (n.task ? !!snap.tasks.find((t) => t.id === n.task && taskInSpace(t, placeId!)) : n.place === placeId)))
+    .map((n): NeedItem => {
+      const t = n.task ? snap.tasks.find((x) => x.id === n.task) : undefined
+      return { ...(n.task ? { task: n.task } : {}), place: t?.place ?? n.place, card: needCard(n) }
+    })
   return [...tasks, ...chats, ...queued]
 }
 
-/** the one place a tap opens, when every item is in the same task (or the same chat); none when they are spread out.
- *  The card to scroll to is the first one any of them names. */
-export function oneTarget(items: NeedItem[]): NeedItem | null {
-  if (!items.length) return null
-  const key = (i: NeedItem) => (i.task ? `t:${i.task}` : `p:${i.place}`)
-  if (items.some((i) => key(i) !== key(items[0]))) return null
-  return { ...items[0], card: items.find((i) => i.card)?.card ?? null }
+/** a tap opens one card only when the count is 1; anything more is a list */
+export const oneTarget = (items: NeedItem[]): NeedItem | null => (items.length === 1 ? items[0]! : null)
+
+/** the link that opens one item where it waits, at its card (the app's own links, kernel's openLink) */
+export function itemLink(i: NeedItem): string {
+  const q = new URLSearchParams({ place: i.place, ...(i.task ? { task: i.task } : {}), ...(i.card ? { focus: i.card } : {}) })
+  return `./?${q}`
 }
 
-/** the Tasks filter that lists a scope's Needs you: a space's (This space only), a machine's, or everyone's. Ready
- *  for review counts as Needs you, and a task an Assistant stopped is filed under Stopped, so those states come too
- *  when one of the items is one. */
-export function needsFilter(snap: Snapshot, items: NeedItem[], scope: { place?: string; machine?: string }): TaskFilter {
-  const states = new Set<string>(['needs'])
-  for (const i of items) {
-    const t = i.task ? snap.tasks.find((x) => x.id === i.task) : undefined
-    const s = t && fstate(t)
-    if (s === 'ready' || s === 'stopped') states.add(s)
-  }
-  const here = !!scope.place && !isEverything(snap, scope.place)
-  return { ...NO_FILTER, state: [...states], here, machine: scope.machine ? [scope.machine] : [] }
+/** the Tasks list's "Needs you" filter: a task the count counts in any of these spaces (Everything: everyone's) */
+export function needsTask(snap: Snapshot, t: Task, scopes: string[], alerting: Alerting = taskAlerts(snap)): boolean {
+  return (counted(t, alerting) || queuedFor(snap, t)) && scopes.some((p) => inScope(snap, t, p))
+}
+
+/** the chats among these spaces that ask you themselves (no task): they have no row in Tasks, so the list adds them */
+export function needsChats(snap: Snapshot, scopes: string[]): NeedItem[] {
+  const seen = new Set<string>()
+  return scopes.flatMap((p) => needsItems(snap, p)).filter((i) => !i.task && !seen.has(i.place) && !!seen.add(i.place))
+}
+
+/** the filter a red count's tap puts on: only the Needs you of these spaces, nothing else picked */
+export const needsFilter = (scopes: string[]): TaskFilter => ({ state: [], machine: [], space: [], repo: [], here: false, hideDone: false, needs: scopes })
+
+/** its chip: "Needs you", "Needs you in docs", "Needs you in 3 spaces" */
+export function needsChip(snap: Snapshot, scopes: string[]): string {
+  if (scopes.some((p) => isEverything(snap, p))) return 'Needs you'
+  return scopes.length === 1 ? `Needs you in ${spaceLabel(snap, scopes[0]!).replace(/^#/, '')}` : `Needs you in ${scopes.length} spaces`
 }
 
 /** a red count's words for a screen reader: "1 needs you", "2 need you" */

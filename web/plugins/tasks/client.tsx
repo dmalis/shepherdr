@@ -26,8 +26,8 @@ import { AfterMergeCard } from './after-merge.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
-import { needsItems, needsWords } from '@shared/needs-open.ts'
-import { listNeeds } from '@client/needs-count.tsx'
+import { needsWords } from '@shared/needs-open.ts'
+import { AskRow, listNeeds, needsAsks } from '@client/needs-count.tsx'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
 
 export { StatusIcon }
@@ -631,7 +631,8 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
     const task = n.task ? byId.get(n.task) : undefined
     return n.question?.queued && task ? [{ task, question: n.question }] : []
   })
-  const groups = nowGroups(filtered, alerts).filter((g) => g.tasks.length || (g.name === 'Needs you' && queued.length))
+  const asks = needsAsks(snap, f)
+  const groups = nowGroups(filtered, alerts).filter((g) => g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length))
   if (!groups.length)
     return snap.tasks.length ? (
       <>
@@ -651,15 +652,17 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
         const o = ui.open[g.name] ?? !['Done', 'Archived'].includes(g.name)
         const shown = g.name === 'Done' ? g.tasks.slice(0, ui.doneShown) : g.tasks
         const questions = g.name === 'Needs you' ? queued : []
+        const chats = g.name === 'Needs you' ? asks : []
         return (
           <div key={g.name} style={{ display: 'contents' }}>
             <button type="button" className="grp" aria-expanded={o} onClick={() => setUI({ open: { ...ui.open, [g.name]: !o } })}>
-              {g.name} · {g.tasks.length + questions.length}
+              {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
             {o && shown.map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
             {o && questions.map(({ task, question }) => <Row key={question.id} icon="chat"
               label={question.title} sub={task.name} onClick={() => { openTask(task.id); setUI({ jump: question.id }) }} />)}
+            {o && chats.map((i) => <AskRow key={`ask:${i.place}`} snap={snap} i={i} />)}
             {o && shown.length < g.tasks.length && (
               <button type="button" className="grp" onClick={() => setUI({ doneShown: ui.doneShown + 20 })}>Show more</button>
             )}
@@ -822,7 +825,7 @@ function TasksButton() {
   // red: what needs you here, and a tap lists it (web/src/needs-count.tsx); else the filter's own quiet count
   const red = snap ? needsCount(snap, at) : 0
   return (
-    <IB icon="tasks" label={red ? `Tasks, ${needsWords(red)}` : 'Tasks'} pressed={on} onClick={() => (snap && red && !on ? listNeeds(snap, needsItems(snap, at), { place: at }) : togglePane('tasks'))}>
+    <IB icon="tasks" label={red ? `Tasks, ${needsWords(red)}` : 'Tasks'} pressed={on} onClick={() => (red && listNeeds([at])) || togglePane('tasks')}>
       {snap && (red ? <span className="cnt needs">{red}</span> : <Cnt n={filterCount(snap, tf, at)} />)}
     </IB>
   )
@@ -832,7 +835,7 @@ export default definePlugin({
   name: 'tasks',
   setup(reg) {
     reg.header.push({ order: 50, View: TasksButton })
-    reg.bar.push({ order: 10, pane: 'tasks', label: 'Tasks', icon: 'tasks', count: (snap, place) => filterCount(snap, getState().ui.tf, place), needs: needsCount, openNeeds: (snap, place) => listNeeds(snap, needsItems(snap, place), { place }) })
+    reg.bar.push({ order: 10, pane: 'tasks', label: 'Tasks', icon: 'tasks', count: (snap, place) => filterCount(snap, getState().ui.tf, place), needs: needsCount, openNeeds: (_, place) => listNeeds([place]) })
     reg.panes.push({ id: 'tasks', View: TasksPane })
     reg.views.taskHead = TaskHead
     reg.views.taskTop = TaskTop

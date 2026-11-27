@@ -2,6 +2,7 @@
 // Space, State, Repo), each a multi-select where nothing picked means all. Two quick
 // choices beside them: "This space only" (follows the space you are in) and "Hide done". Kept on this device.
 import type { Snapshot, Task } from './types.ts'
+import { needsChip, needsTask } from './needs-open.ts'
 import { isEverything, machineLabel, reposOf, spaceLabel, taskInSpace, tstate, workKey } from './view.ts'
 
 /** the states the filter offers, in the order the person reads them */
@@ -30,13 +31,15 @@ export interface TaskFilter {
   here: boolean
   /** Done and Archived left out */
   hideDone: boolean
+  /** only what the red count of these spaces counts (a tap on it, needs-open.ts) */
+  needs?: string[]
 }
 export const NO_FILTER: TaskFilter = { state: [], machine: [], space: [], repo: [], here: false, hideDone: false }
 
 /** a filter kept from an older visit, or hand-edited: whatever is not a list or a flag counts as nothing picked */
 export function clean(f: Partial<TaskFilter> | null | undefined): TaskFilter {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-  return { state: list(f?.state), machine: list(f?.machine), space: list(f?.space), repo: list(f?.repo), here: f?.here === true, hideDone: f?.hideDone === true }
+  return { state: list(f?.state), machine: list(f?.machine), space: list(f?.space), repo: list(f?.repo), here: f?.here === true, hideDone: f?.hideDone === true, ...(list(f?.needs).length ? { needs: list(f?.needs) } : {}) }
 }
 
 /** a task's state as the filter names it: Stopped apart from Needs you, Scheduled apart from Up next */
@@ -71,7 +74,7 @@ export const hereOn = (snap: Snapshot, f: TaskFilter, at: string) => f.here && !
 export function filterTasks(snap: Snapshot, f: TaskFilter, at: string): Task[] {
   const here = hereOn(snap, f, at)
   return snap.tasks.filter(
-    (t) => (!here || taskInSpace(t, at)) && !(f.hideDone && doneLike(t)) && GROUPS.every((g) => !f[g.key].length || f[g.key].includes(g.of(snap, t))),
+    (t) => (!here || taskInSpace(t, at)) && !(f.hideDone && doneLike(t)) && (!f.needs?.length || needsTask(snap, t, f.needs)) && GROUPS.every((g) => !f[g.key].length || f[g.key].includes(g.of(snap, t))),
   )
 }
 
@@ -79,7 +82,7 @@ export function filterTasks(snap: Snapshot, f: TaskFilter, at: string): Task[] {
 export const filterCount = (snap: Snapshot, f: TaskFilter, at: string) => filterTasks(snap, f, at).filter((t) => ['ask', 'ready'].includes(tstate(t))).length
 
 /** a filter is on: anything picked, or a quick choice that applies here */
-export const filterOn = (snap: Snapshot, f: TaskFilter, at: string) => hereOn(snap, f, at) || f.hideDone || GROUPS.some((g) => f[g.key].length > 0)
+export const filterOn = (snap: Snapshot, f: TaskFilter, at: string) => hereOn(snap, f, at) || f.hideDone || !!f.needs?.length || GROUPS.some((g) => f[g.key].length > 0)
 
 /** the choices of a group, from the tasks there are (a choice picked before stays, so it can be taken off). Never a
  *  blank one: a task whose space was removed has no space (the service gives it ''), and it made a row with no name. */
@@ -134,6 +137,7 @@ const STATE_ICON: Record<FState, Chip['icon']> = { needs: 'ask', working: 'worki
 export function chipsOf(snap: Snapshot, f: TaskFilter, at: string): Chip[] {
   const out: Chip[] = []
   if (hereOn(snap, f, at)) out.push({ key: 'here', label: `${spaceLabel(snap, at)} only`, icon: 'hash', off: (x) => ({ ...x, here: false }) })
+  if (f.needs?.length) out.push({ key: 'needs', label: needsChip(snap, f.needs), icon: 'ask', off: ({ needs: _, ...x }) => x })
   if (f.hideDone) out.push({ key: 'hideDone', label: 'Done hidden', icon: 'check', off: (x) => ({ ...x, hideDone: false }) })
   for (const id of f.state) out.push({ key: `state:${id}`, label: STATE_WORDS[id as FState] ?? id, icon: STATE_ICON[id as FState] ?? 'check', off: (x) => toggle(x, 'state', id) })
   for (const id of f.machine) out.push({ key: `machine:${id}`, label: machineLabel(snap, id), icon: 'server', off: (x) => toggle(x, 'machine', id) })
