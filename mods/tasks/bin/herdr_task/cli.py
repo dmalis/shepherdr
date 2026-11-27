@@ -550,6 +550,10 @@ def main():
     c = sub.add_parser("_outbox")  # another machine fetching the Assistants' answers left here for it (machines.replies_pass)
     c.add_argument("--for", dest="for_", required=True)
     c.set_defaults(fn=cmd_outbox, json=False)
+    c = sub.add_parser("_receive")  # another machine's tell-assistant: sent or held here (held_there.py, dmalis/shepherdr#80)
+    c.add_argument("address")
+    c.add_argument("text")
+    c.set_defaults(fn=lambda a: __import__("herdr_task.held_there", fromlist=["cmd_receive"]).cmd_receive(a), json=False)
     c = sub.add_parser("_session-note")  # the chat's SessionStart hook (mods/chat/session-note.sh): an Assistant's extra words
     c.add_argument("terminal")
     c.set_defaults(fn=cmd_session_note, json=False)
