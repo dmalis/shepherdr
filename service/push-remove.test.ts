@@ -62,7 +62,9 @@ test("removing this device by its id is the same as turning alerts off here", as
   two.p.unsubscribe(two.a.endpoint);
   const { removed, ...state } = one.p.state(one.a.endpoint);
   expect(state).toEqual(two.p.state(two.a.endpoint));
-  expect(one.p.devices(one.a.endpoint)).toEqual(two.p.devices(two.a.endpoint));
+  // each list's devices were turned on a moment apart: everything but that moment is the same
+  const kept = (p) => p.devices("").map(({ at: _at, ...d }) => d);
+  expect(kept(one.p)).toEqual(kept(two.p));
   expect(JSON.parse(readFileSync(one.f, "utf8")).map((s) => s.endpoint)).toEqual(JSON.parse(readFileSync(two.f, "utf8")).map((s) => s.endpoint));
 });
 
