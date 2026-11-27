@@ -284,7 +284,8 @@ test('upstream seams of the one-row box: its parts, the replies, dictation, the 
   expect(box).toContain('<div className="sugs" ref={row} role="group" aria-label="Suggested replies">')
   expect(box).toContain('placeholder={hint}')
   expect(read('web/src/ui.tsx')).toContain('export function IB(')
-  expect(box).toContain('<IB icon="plus" label={finger ? \'Add\' : \'Add files\'} onClick={plus} />')
+  // + and its hidden inputs (Phone + sheet: one tap to camera, photos, files): the button first, so it leads the bar
+  expect(read('web/plugins/chat/attach.tsx')).toMatch(/return \(\n    <>\n      <IB icon="plus" /)
   expect(read('web/src/picker.tsx')).toContain('<button ref={ref} type="button" className="agent"')
   expect(read('web/plugins/chat/update.tsx')).toContain('className="agent-upd"')
   // dictation takes over the bar with its own surface: the box keeps its two rows then
