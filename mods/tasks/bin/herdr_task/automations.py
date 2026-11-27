@@ -26,6 +26,7 @@ from .archive import archive_pass
 from .output import say
 from .scheduler import ensure_scheduler, script_hash
 from .commands import begin
+from .start_after import nap
 from .news import news_pass
 from .tick import end_done_pass, lost_logs_pass, memory_guard, stopped_pass, tick_store
 from .machines import machines_pass
@@ -1016,6 +1017,7 @@ def cmd_scheduler(args):
     print(f"herdr-automations: watching {STORE} every 15 s.", flush=True)
     while True:
         report = {"started": [], "done": [], "attention": [], "fired": []}
+        began = time.time()
         try:
             if not test:
                 layout.heal_back(WHERE)       # rolled back: what was written at the new paths just after, taken back
@@ -1043,7 +1045,7 @@ def cmd_scheduler(args):
         if args.once:
             say(args, report, None)
             return
-        time.sleep(15)
+        nap(15, began)  # dmalis/shepherdr#54: less when a task done meanwhile wakes it (start_after.py)
         # Updated, or this machine's data moved since: carry on as the new version, on the new paths.
         if script_hash() != started or (not test and WHERE.migrated != on_layout):
             fcntl.flock(me, fcntl.LOCK_UN)

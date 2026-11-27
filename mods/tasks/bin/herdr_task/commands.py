@@ -31,6 +31,7 @@ from .launch import (
 )
 from .store import bare_by_mistake, Busy, is_task_list, locate, open_store, queue_progress, quoted, read_list, Store, store_files
 from .queues import after_refs, parse_after, queue_reason, set_after
+from .start_after import first_start, follow_move, moved_to, queue_at_add, show_moved, wake
 from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
@@ -131,16 +132,26 @@ def cmd_add(args):
         if at:
             # Started later by the scheduler, with no caller to ask: its space is kept now.
             schedule(s, t, at, {"space": space or default_space()})
+        elif args.after:
+            # dmalis/shepherdr#54: --after starts it by itself afterwards (start_after.py)
+            queue_at_add(s, t, space or default_space())
         v = view(s, t)
+        waits = queue_reason(s, t) if t["state"] == "queued" else None
+        if t["state"] == "queued":
+            v.update(queued=True, **({"reason": waits} if waits else {}))
         warn = shared_branch_warning(s, t)
         if warn:
             v["warning"] = warn
         # SHEP-335: what it got from its repo's settings (or Everywhere's), so the Assistant knows the repo's, not its own
         got = [x for x in task_settings(s, t) if x["by"] and x["by"] != "task" and x["label"] in ("Review", "Merge", "Proof", "Agent")]
-    if at:
+    if at or t["state"] == "queued":
         ensure_scheduler_quietly()
+    if t["state"] == "queued" and not waits:
+        wake()  # nothing left to wait for: the scheduler's next round starts it now
     said = "; ".join(f"{x['label']} {x['text'].split(':')[0]} ({SET_BY[x['by']]})" for x in got)
     say(args, v, f"{s.name(t)} added (its key, for commands only: {s.ref(t)})" + (f": {v['why']}" if at else "")
+        + (f"\nIt is queued ({waits}) and starts by itself when it can: no start needed." if waits else
+           "\nIt is queued and starts by itself in a moment: no start needed." if t["state"] == "queued" else "")
         + (f"\nIts settings: {said}." if said else "") + (f"\nHeads-up: {v['warning']}" if v.get("warning") else ""))
 
 
@@ -393,6 +404,7 @@ def set_notes(t, args):
 
 
 def cmd_show(args):
+    show_moved(args)  # dmalis/shepherdr#54: by an old key, the task where it moved to
     with open_store(args, write="try") as s:
         t = s.find(args.id)
         live = [detail(k) for k in live_agents(s.key(t))]
@@ -578,9 +590,12 @@ def cmd_start(args):
             schedule(s, t, at, plan)
             v = view(s, t)
             reason = "scheduled"
-        # A queued task started again goes now; other tasks wait their turn unless --now was given.
-        elif (reason := None if (t["state"] == "queued" or args.now) else queue_reason(s, t)):
-            t["state"], t["queued_at"] = "queued", now()
+        # A queued task started again goes now, past a busy machine, but still after its --after tasks (#54: added
+        # --after, it is queued already, its first start is as a To do one's, and a start stays harmless); other
+        # tasks wait their turn unless --now was given.
+        elif (reason := None if args.now else queue_reason(s, t, hold=first_start(t))):
+            t["queued_at"] = (t["state"] == "queued" and t.get("queued_at")) or now()
+            t["state"] = "queued"
             t.pop("scheduled_for", None)
             t["queue"] = plan
             s.dirty = True
@@ -1483,8 +1498,28 @@ def move_task(args):
         if os.path.realpath(loc["folder"]) == os.path.realpath(s.loc["folder"]):
             raise Fail(f"{s.name(t)} is already in {s.loc['folder']}.")
         old_ref, old_prefix, old_id = s.ref(t), s.prefix, t["id"]
+        # dmalis/shepherdr#54: this list stays held while it moves, and it leaves only once its copy is saved there, so
+        # what waits for it never finds it gone (a queued task would take that as removed and start), and nothing
+        # here starts it meanwhile.
+        new_ref, new_id = move_into(t, loc, old_ref, old_prefix)
         s.data["tasks"].remove(t)
+        moved_to(s, old_id, new_ref, loc["folder"])
         s.dirty = True
+        # what waited for it here waits for it there
+        for o in s.data["tasks"]:
+            if old_id in (o.get("after") or []):
+                o["after"] = [i for i in o["after"] if i != old_id]
+                o.setdefault("after_ext", []).append({"ref": new_ref, "machine": None, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id,
+                                                      "state": "todo", "checked": 0})
+    # dmalis/shepherdr#54: and what waits for it in other folders (a queued one there would take it as removed)
+    follow_move({"prefix": old_prefix, "id": old_id}, {"ref": new_ref, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id},
+                s.loc["folder"], loc["folder"])
+    args.folder, args.id, args.move_to = loc["folder"], str(new_id), None
+    return old_ref
+
+
+def move_into(t, loc, old_ref, old_prefix):
+    """move_task's copy of `t` in `loc`'s list: its new ref and id there."""
     with Store(loc) as d:
         n = d.new(t["title"], t.get("prompt") or "", "worktree" if d.loc["kind"] == "repo" and t.get("mode") == "worktree" and worktrees_on(d) else "here")
         for k, v in t.items():
@@ -1501,17 +1536,7 @@ def move_task(args):
         if n.get("queue") and not n["queue"].get("custom"):
             n["queue"].pop("argv", None)  # its agent as that folder's settings say
         d.dirty = True
-        new_ref, new_id = d.ref(n), n["id"]
-    with open_store(args) as s:
-        # what waited for it here waits for it there
-        for o in s.data["tasks"]:
-            if old_id in (o.get("after") or []):
-                o["after"] = [i for i in o["after"] if i != old_id]
-                o.setdefault("after_ext", []).append({"ref": new_ref, "machine": None, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id,
-                                                      "state": "todo", "checked": 0})
-                s.dirty = True
-    args.folder, args.id, args.move_to = loc["folder"], str(new_id), None
-    return old_ref
+        return d.ref(n), n["id"]
 
 
 def cmd_edit(args):

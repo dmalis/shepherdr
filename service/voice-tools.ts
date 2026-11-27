@@ -879,7 +879,7 @@ async function act(snap: Snapshot, where: Where, io: VoiceIO, p: any, id: string
         ask = `Mark ${n} as done without merging anything?`; body = { type: "close", chat, force: true }; did = `${n} is marked as done, not merged.`; break;
       case "start":
         if (s !== "next") return fail(`${n} isn't waiting to start: it is ${is}.${t.stopped ? " Restart it instead." : ""}`);
-        body = { type: "task-start", chat }; did = `${n} starts now.`; break;
+        body = { type: "task-start", chat, ...(t.status === "queued" ? { now: true } : {}) }; did = `${n} starts now.`; break;
       case "stop":
         if (s !== "working") return fail(`${n} isn't working: it is ${is}.`);
         ask = `Stop ${n}? Its agent stops where it is; your next message carries on.`; body = { type: "stop", chat }; did = `Stopped ${n}.`; break;

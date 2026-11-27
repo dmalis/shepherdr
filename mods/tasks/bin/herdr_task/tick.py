@@ -550,7 +550,7 @@ def tick_turn(s, report):
     provider_paused = {a["id"] for a in (s.data.get("automations") or [])
                        if a.get("paused") and (a.get("last_error") or {}).get("kind") == "provider"}
     for t in queued:
-        if t.get("automation") in provider_paused:
+        if t.get("automation") in provider_paused or t.get("archived"):  # dmalis/shepherdr#54: archived, it waits
             continue
         waits = bool(waiting_for(s, t))
         if not waits:

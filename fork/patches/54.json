@@ -1,0 +1,22 @@
+{
+  "issue": 54,
+  "name": "start after: a task added --after starts by itself",
+  "files": [
+    "mods/tasks/bin/herdr_task/start_after.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/queues.py",
+    "mods/tasks/bin/herdr_task/store.py",
+    "mods/tasks/bin/herdr_task/automations.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "web/plugins/tasks/client.tsx",
+    "service/actions.ts",
+    "service/voice-tools.ts",
+    "service/model.ts",
+    "service/next.ts"
+  ],
+  "tests": [
+    "service/next.test.ts",
+    "test/test_herdr_task.py::StartAfter",
+    "test/test_herdr_task.py::StartAfterReady"
+  ]
+}

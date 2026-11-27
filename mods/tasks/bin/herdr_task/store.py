@@ -528,6 +528,8 @@ class Store:
             # personal analytics (analytics.py): what changed, as ids and timings, on this machine only
             if self.before is not None:
                 analytics.saved(self.before, self.data)
+                from .start_after import saved  # dmalis/shepherdr#54: a task done now starts what waits for it
+                saved(self, self.before)
                 self.before = analytics.snapshot(self.data.get("tasks"))
 
     @contextmanager

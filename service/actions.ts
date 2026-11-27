@@ -765,7 +765,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       const { ref, folder, machine } = taskOf(b);
       const p = b.agent && typeof b.agent === "object" ? b.agent : {};
       const word = (v: unknown) => (typeof v === "string" && /^[\w.\[\]:/-]{1,80}$/.test(v) ? v : null);
-      const args = ["start", ref, ...(word(p.agent) ? ["--agent", word(p.agent)!] : []), ...(word(p.model) ? ["--model", word(p.model)!] : []), ...(word(p.effort) ? ["--effort", word(p.effort)!] : []),
+      const args = ["start", ref, ...(b.now === true ? ["--now"] : []), ...(word(p.agent) ? ["--agent", word(p.agent)!] : []), ...(word(p.model) ? ["--model", word(p.model)!] : []), ...(word(p.effort) ? ["--effort", word(p.effort)!] : []),
         ...(p.fast === "ultrafast" || typeof p.fast === "boolean" ? ["--speed", p.fast === "ultrafast" ? "ultrafast" : p.fast ? "fast" : "regular"] : []),
         ...(word(p.perm) ? ["--permission", word(p.perm)!] : [])];
       const r = await task(args, folder, machine);

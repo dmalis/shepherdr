@@ -108,6 +108,23 @@ test("Up next: it waits for the tasks not done yet, the first by title and the r
   expect(by("APP-11").afterMore).toBeUndefined();
 });
 
+test("Up next: another folder's or machine's task it waits for is named too (dmalis/shepherdr#54: its Start dialog says so)", async () => {
+  const { enrich } = await import("./next.ts");
+  const spaces = [{ id: "sp1", folder: "/srv/app", machine: null }];
+  const row = (id: number, title: string, section: string, x: any = {}) => ({ ref: `APP-${id}`, id, title, folder: "/srv/app", machine: null, section, x });
+  const snapTask = (id: number) => ({ id: `APP-${id}`, name: "", place: "sp1", status: "queued", state: "queued", on: "mini", created: "", age: "" });
+  const rows = [row(1, "Old one", "done"), row(2, "Their API", "working"),
+    row(5, "Use their API", "queued", { after_ext: [{ title: "Their part" }] }), row(6, "Both", "queued", { after: [2], after_ext: [{ title: "Their part" }] }),
+    row(7, "After a done one and theirs", "queued", { after: [1], after_ext: [{ title: "Their part" }] })];
+  const snap: any = { places: [{ id: "sp1", chat: "p:sp1", name: "app", machine: "mini" }], tasks: [5, 6, 7].map(snapTask), machines: [] };
+  const out: any = enrich(snap, { spaces, rows, archived: [], asked: () => null, reportOf: () => null, config: { plans: [], all: { agents: { Tasks: {} } } } } as any);
+  const by = (id: string) => out.tasks.find((t: any) => t.id === id);
+  expect(by("APP-5")).toMatchObject({ afterTitle: "Their part" });
+  expect(by("APP-6")).toMatchObject({ afterTitle: "Their API", afterMore: 1 });
+  expect(by("APP-7")).toMatchObject({ afterTitle: "Their part" });
+  expect(by("APP-7").afterMore).toBeUndefined();
+});
+
 test("a browser sign-in request takes over the task's inferred wait until it is settled", async () => {
   const { enrich } = await import("./next.ts");
   const task = { id: "APP-1", place: "sp1", status: "need", at: 500 };

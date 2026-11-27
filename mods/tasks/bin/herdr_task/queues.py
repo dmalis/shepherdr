@@ -54,6 +54,9 @@ def ext_state(x):
         if d is None:
             raise Fail(f"Couldn't read {ref}'s list.")
         t = next((t for t in d.get("tasks") or [] if t.get("id") == x["id"]), None)
+        from .start_after import follow  # dmalis/shepherdr#54: moved to another folder, it is still there
+        if not t and follow(x, d):
+            return ext_state(x)
         if t and t.get("title"):
             x["title"] = t["title"]  # SHEP-322: what a reason says instead of its key
         return t.get("state") if t else None
@@ -153,10 +156,10 @@ def waiting_for(s, task):
     return [i for i in task.get("after") or [] if i in known and known[i]["state"] != "done"]
 
 
-def queue_reason(s, task):
+def queue_reason(s, task, hold=True):
     """Why a start has to wait, in plain words: 'after "Add the API route"', or its machine too busy
     ("vm-a's memory is 92% full", HERD-40); None when it can go. Never a count: any number of tasks
-    run at once (3.2)."""
+    run at once (3.2). hold=False: only what it comes after (a queued task started again)."""
     refresh_ext(s, task)
     known = {t["id"]: t for t in s.data["tasks"]}
     # SHEP-322: by title, never by key
@@ -165,7 +168,7 @@ def queue_reason(s, task):
         for x in task.get("after_ext") or [] if x.get("state") not in ("done", "gone")]
     if wait:
         return "after " + ", ".join(wait)
-    return machine_hold()
+    return machine_hold() if hold else None
 
 
 # ---- the machine's room (HERD-40) -------------------------------------------------------------
