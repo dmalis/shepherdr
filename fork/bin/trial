@@ -1,0 +1,871 @@
+#!/usr/bin/env python3
+"""fork/bin/trial <sha>: a throwaway Shepherdr built from one commit (fork/specs/sync-pipeline.md, "fork/bin/trial").
+
+It builds the commit in a scratch folder, starts its own herdr-core session and the commit's service, drives one task
+through its review gate and its accept, then removes everything it made. It prints `PASS`, or
+`FAIL: <step>: <why>`, as its last line, and exits 0 or 1. It never touches the live session, the install or other
+tasks: every child starts from a clean environment that names the throwaway session, and the live session is only
+read (`hc ls`), before and after, to prove it is unchanged.
+"""
+import argparse
+import json
+import os
+import re
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+LIVE = "shepherdr"   # the live Shepherdr session: only ever read
+PREFIX = "fork-trial-"
+TOOLS = ("hc", "git", "gh", "bun", "python3")
+# The caller's variables a child never gets: its terminal, its session, its agent (spec: "Environment").
+DROP_PREFIXES = ("HC_", "HERDR_", "CLAUDE", "CODEX_", "SHEPHERDR_")
+
+# The stand-in agent: one commit with fixed words, names and dates, so its tree is always the same.
+STAND_IN_TEXT = "Written by the stand-in agent of a fork trial.\n"   # no quote marks: it goes in a shell line
+FIXED = {"GIT_AUTHOR_NAME": "Fork Trial", "GIT_AUTHOR_EMAIL": "trial@example.invalid",
+         "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+0000", "GIT_COMMITTER_NAME": "Fork Trial",
+         "GIT_COMMITTER_EMAIL": "trial@example.invalid", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+0000"}
+GIT_PLAIN = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "-c", "init.defaultBranch=main"]
+STAND_IN = ("printf '" + STAND_IN_TEXT.replace("\n", "\\n") + "' > trial.txt && git " + " ".join(GIT_PLAIN)
+            + " add trial.txt && " + " ".join(f"{k}='{v}'" for k, v in FIXED.items())
+            + " git " + " ".join(GIT_PLAIN) + " commit -q -m 'Trial: the stand-in agent' && exec sleep 900")
+TITLE = "Trial task"
+ROUNDS = 3   # one more than the gate's two rounds, so the last ready passes on the head match, not on used-up rounds
+
+# The stub herdr-task gets as gh: every call fails as gh does in a repo with no GitHub remote, and is written down.
+# herdr-task's own question whether the repo is on GitHub (`gh repo view`, github.py's github()) is how it learns to
+# merge locally; any other call is a stray one and a FAIL (gh_calls).
+GH_STUB = """#!/bin/sh
+echo "gh $*" | tr '\\n' ' ' >> "{log}"
+echo >> "{log}"
+echo "none of the git remotes configured for this repository point to a known GitHub host" >&2
+exit 1
+"""
+GH_ASKS = ("gh repo view --json nameWithOwner",)
+
+
+def gh_calls(log):
+    """The stray gh calls in the stub's log: [] when none."""
+    try:
+        with open(log) as f:
+            lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+    except FileNotFoundError:
+        return []
+    return [ln for ln in lines if not ln.startswith(GH_ASKS)]
+# The candidate's shepherdr: everything but what would change an install (the guard's list, SHEP-323).
+SHEPHERDR_WRAP = """#!/bin/sh
+case " $* " in *" --root"*|*" --dry-run "*) ;; *)
+  case "$1" in install|update|uninstall|migrate|web|secrets)
+    case " $* " in *" status "*|*" where "*) ;; *)
+      echo "shepherdr $*" >> "{log}"
+      echo "fork/bin/trial: refused: shepherdr $1 would change the live install" >&2
+      exit 77 ;;
+    esac ;;
+  esac ;;
+esac
+exec "{python}" "{src}/bin/shepherdr" "$@"
+"""
+
+
+# Every hc the trial's children run: written down with its session, then the real one. A call that names any other
+# session is refused here and is a FAIL (hc_calls). The trial's own reads of the live session don't come through it.
+HC_WRAP = """#!/bin/sh
+printf '%s\\t%s\\t%s\\n' "${{HC_SESSION:-}}" "${{HC_SOCKET:-}}" "$(printf '%s ' "$@" | tr '\\n\\t' '  ' | cut -c1-200)" >> "{log}"
+if [ "${{HC_SESSION:-}}" != "{name}" ] && [ "${{HC_SOCKET:-}}" != "{sock}" ]; then
+  echo "fork/bin/trial: refused: hc outside the trial's own session ({name})" >&2
+  exit 77
+fi
+exec "{hc}" "$@"
+"""
+
+
+# herdr-task: the candidate's, each call logged on one line. herdr-task refuses a changed HERDR_APP_HOME
+# (base.not_real): it gets the real one back, which it only reads (feedback's installed.json).
+HERDR_TASK_WRAP = """#!/bin/sh
+printf '%s\n' "$(printf '%s ' "$@" | tr '\n\t' '  ' | cut -c1-200)" >> "{log}"
+unset HERDR_APP_HOME
+exec "{python}" "{src}/mods/tasks/bin/herdr-task" "$@"
+"""
+
+
+def herdr_task_calls(log):
+    try:
+        with open(log) as f:
+            return [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+    except FileNotFoundError:
+        return []
+
+
+class Failed(Exception):
+    def __init__(self, step, why):
+        super().__init__(f"{step}: {why}")
+        self.step, self.why = step, one_line(why)
+
+
+class Interrupted(BaseException):
+    pass
+
+
+def one_line(text):
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    return (lines[-1] if lines else "no output")[:300]
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def tool_dirs(path, tools=TOOLS):
+    """The folders that hold each tool on `path`, in order. A task terminal's guard folder (SHEP-323) is skipped: its
+    stand-ins run the next hc on PATH, which would be the trial's own wrapper, and the wrapper refuses every session
+    but the trial's anyway."""
+    dirs = []
+    parts = [p for p in (path or "").split(os.pathsep) if p and not os.path.exists(os.path.join(p, "guard.sh"))]
+    for tool in tools:
+        for d in parts:
+            if os.path.isfile(os.path.join(d, tool)) and os.access(os.path.join(d, tool), os.X_OK):
+                if d not in dirs:
+                    dirs.append(d)
+                break
+    for d in ("/usr/bin", "/bin"):
+        if d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
+def clean_env(scratch, name, port, home, caller_env, extra=None):
+    """A child's whole environment (spec, "What it isolates"): env -i, then only these."""
+    env = {
+        "HOME": home,
+        "TERM": caller_env.get("TERM") or "xterm-256color",
+        "PATH": os.pathsep.join([os.path.join(scratch, "bin"), *tool_dirs(caller_env.get("PATH", ""))]),
+        "HC_SESSION": name,
+        "SHEPHERDR_SESSION": name,
+        # the session 3.1's data is carried over from (default: the Herdr app's own, "default"): the trial's, so the
+        # service's carry-over reads nothing of the person's
+        "SHEPHERDR_FROM_SESSION": name,
+        "SHEPHERDR_DATA": os.path.join(scratch, "data"),
+        "HERDR_TASK_STORE": os.path.join(scratch, "store", "tasks"),
+        "HERDR_TASK_SETTINGS": os.path.join(scratch, "settings.json"),
+        "HERDR_TASK_TEMPLATES": os.path.join(scratch, "templates"),
+        "HERDR_TASK_GH": os.path.join(scratch, "bin", "gh-stub"),
+        "SHEPHERDR_NO_MIGRATE": "1",
+        "SHEPHERDR_PORT": str(port),
+        "SHEPHERDR_WEB": "off",
+        "TMPDIR": os.path.join(scratch, "tmp"),
+        # the service's app home (chat flags, attachments, voice secrets), where its background jobs look for
+        # herdr-task first (service/jobs.ts tool(): <app home>/mods/tasks/bin/herdr-task, else the installed one in
+        # ~/.local/bin): the scratch one, with the candidate's herdr-task in it
+        "HERDR_APP_HOME": os.path.join(scratch, "app"),
+        # the service's herdr-artifact (service/artifacts.ts tool(): else the installed one)
+        "SHEPHERDR_HERDR_ARTIFACT": os.path.join(scratch, "bin", "herdr-artifact"),
+        "GIT_TERMINAL_PROMPT": "0",
+        "LANG": caller_env.get("LANG") or "C.UTF-8",
+    }
+    # hc finds its sockets under the user's runtime folder: the same for the throwaway core and the live read
+    if caller_env.get("XDG_RUNTIME_DIR"):
+        env["XDG_RUNTIME_DIR"] = caller_env["XDG_RUNTIME_DIR"]
+    env.update(extra or {})
+    return env
+
+
+def core_state_dir(env, name):
+    """herdr-core's state folder for a session, in a child's environment."""
+    return os.path.join(env.get("XDG_STATE_HOME") or os.path.join(env["HOME"], ".local", "state"), "herdr-core", name)
+
+
+def runtime_dir(env):
+    return os.path.join(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}", "herdr-core")
+
+
+def session_up(env, name):
+    """Whether a herdr-core answers on that session's socket, without starting one (hc's own calls start a core)."""
+    path = os.path.join(runtime_dir(env), f"{name}.sock")
+    if not os.path.exists(path):
+        return False
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(2)
+    try:
+        s.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def hc_calls(log, name, sock):
+    """The hc calls in the wrapper's log that reached for another session than the trial's (by HC_SESSION, or by
+    HC_SOCKET without one): [] when none."""
+    try:
+        with open(log) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return []
+    out = []
+    for ln in lines:
+        if not ln.strip():
+            continue
+        session, socket_, args = (ln.split("\t", 2) + ["", ""])[:3]
+        if session != name and socket_ != sock:
+            out.append(f"HC_SESSION={session or '(none)'} hc {args}")
+    return out
+
+
+def marked_pids(name, proc="/proc"):
+    """{pid: is a herdr-core} of the processes whose environment names the trial's session exactly (HC_SESSION or
+    SHEPHERDR_SESSION is its unique name): every child of the trial, whatever they started, detached or not, and the
+    throwaway core itself."""
+    wants = {f"HC_SESSION={name}", f"SHEPHERDR_SESSION={name}"}
+    out = {}
+    if os.path.isdir(proc):
+        for d in os.listdir(proc):
+            if not d.isdigit():
+                continue
+            try:
+                with open(os.path.join(proc, d, "environ"), "rb") as f:
+                    env = set(f.read().decode("utf-8", "replace").split("\0"))
+                with open(os.path.join(proc, d, "cmdline"), "rb") as f:
+                    argv0 = f.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+            except OSError:
+                continue
+            if env & wants:
+                out[int(d)] = os.path.basename(argv0) == "herdr-core"
+        return out
+    # no /proc (macOS): ps prints each process's environment after its command
+    r = subprocess.run(["ps", "-A", "-E", "-ww", "-o", "pid=,command="], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, universal_newlines=True)
+    for line in r.stdout.splitlines():
+        pid, _, rest = line.strip().partition(" ")
+        if pid.isdigit() and any(f" {w} " in f" {rest} " for w in wants):
+            out[int(pid)] = os.path.basename(rest.split(" ", 1)[0]) == "herdr-core"
+    return out
+
+
+def hc_runtime_dirs(env, name):
+    """herdr-core's per-start runtime folders (systemd's hc-serve-*/hc-hold-*, each with its `environment`) that are
+    the trial's session's: herdr-core leaves them after the core stops. Found by reading each one's own words for the
+    session, never by a name pattern alone."""
+    root = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    want = f'HC_SESSION="{name}"'
+    out = []
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for e in entries:
+        if not e.startswith(("hc-serve-", "hc-hold-")):
+            continue
+        try:
+            with open(os.path.join(root, e, "environment")) as f:
+                if want in f.read().splitlines():
+                    out.append(os.path.join(root, e))
+        except OSError:
+            continue
+    return out
+
+
+def live_changes(before, after, trial_marks):
+    """What the trial did to the live session, as (changes, ended): `before` is {id: terminal} of its live terminals
+    then; `after` is {id: terminal} from `hc ls --all` now. A new terminal that is the trial's (its name or folder names
+    it) is a change. One that has gone since is listed in `ended`: the live session keeps working through a trial, and
+    no hc call of the trial's reached it (hc_calls), so those ended on their own."""
+    changes, ended = [], []
+    for tid in sorted(set(before) - set(after)):
+        ended.append(tid)
+    for tid in sorted(set(after) - set(before)):
+        t = after[tid]
+        text = " ".join(str(t.get(k) or "") for k in ("name", "cwd", "agent"))
+        if any(m and m in text for m in trial_marks):
+            changes.append(f"live terminal {tid} is the trial's")
+    return changes, ended
+
+
+class Trial:
+    def __init__(self, sha, repo, home=None, caller_env=None, base=None, live=LIVE, log=None):
+        self.sha_in, self.repo = sha, repo
+        self.home = home or os.path.expanduser("~")
+        self.caller_env = dict(caller_env if caller_env is not None else os.environ)
+        self.hex = secrets.token_hex(4)
+        self.name = PREFIX + self.hex
+        self.base = base or tempfile.gettempdir()
+        self.live = live
+        self.log = log or (lambda msg: print(f"trial: {msg}", file=sys.stderr, flush=True))
+        self.scratch = None
+        self.made = []          # [{"path", "what"}], also in <scratch>/made.json
+        self.service = None     # its Popen
+        self.port = free_port()
+        self.live_before = None
+        self.live_pid = None
+        # where the core keeps its state, as the children see it (clean_env passes no XDG_STATE_HOME)
+        self.core_dir = core_state_dir(clean_env("/nonexistent", self.name, 0, self.home, self.caller_env), self.name)
+        self.shared_worktrees = os.path.join(self.home, ".local", "share", "shepherdr", "worktrees", self.name)
+        self.core_started = False
+
+    # ---- what it made ----------------------------------------------------------------------------
+    def mark(self, path, what):
+        """Records a path the trial made, before anything is in it, so cleanup removes it (and only it)."""
+        self.made.append({"path": path, "what": what})
+        if self.scratch and os.path.isdir(self.scratch):
+            tmp = os.path.join(self.scratch, "made.json.tmp")
+            with open(tmp, "w") as f:
+                json.dump(self.made, f, indent=1)
+            os.replace(tmp, os.path.join(self.scratch, "made.json"))
+
+    def made_list(self):
+        try:
+            with open(os.path.join(self.scratch, "made.json")) as f:
+                got = json.load(f)
+            if isinstance(got, list):
+                return got
+        except (OSError, ValueError, TypeError):
+            pass
+        return list(self.made)
+
+    @property
+    def env(self):
+        return clean_env(self.scratch or "/nonexistent", self.name, self.port, self.home, self.caller_env)
+
+    # ---- running things --------------------------------------------------------------------------
+    def run(self, args, step, cwd=None, env=None, timeout=120, ok=True, inp=None):
+        try:
+            r = subprocess.run(args, cwd=cwd, env=env if env is not None else self.env, input=inp,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise Failed(step, f"{os.path.basename(args[0])} {args[1] if len(args) > 1 else ''} took over {timeout} s")
+        except OSError as e:
+            raise Failed(step, f"{args[0]}: {e}")
+        if ok and r.returncode != 0:
+            words = [os.path.basename(args[0])] + [a for i, a in enumerate(args[1:], 1)
+                                                   if a != "-c" and args[i - 1] != "-c"][:2]
+            raise Failed(step, f"{' '.join(words)}: {one_line(r.stderr or r.stdout)}")
+        return r
+
+    def hc(self, *args, step, ok=True, timeout=60):
+        return self.run(["hc", *args], step, ok=ok, timeout=timeout)
+
+    def task(self, *args, step, ok=True, timeout=120):
+        return self.run(["herdr-task", *args, "--folder", self.repo_dir], step, ok=ok, timeout=timeout)
+
+    def task_json(self, *args, step):
+        r = self.task(*args, "--json", step=step)
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            raise Failed(step, f"herdr-task {args[0]} --json printed no JSON")
+
+    def live_env(self):
+        """For the trial's own two reads of the live session: the real hc, never the wrapper (which refuses it)."""
+        e = clean_env("/nonexistent", self.live, 0, self.home, self.caller_env)
+        e["PATH"] = os.pathsep.join(tool_dirs(self.caller_env.get("PATH", "")))
+        return {k: e[k] for k in ("HOME", "TERM", "PATH", "HC_SESSION", "LANG", "XDG_RUNTIME_DIR") if k in e}
+
+    def live_read(self, step, all_=False):
+        """The live session's terminals, read only: {id: terminal}, and its core's pid. Never starts a core."""
+        env = self.live_env()
+        if not session_up(env, self.live):
+            return None, None
+        r = self.run(["hc", "ls", "--json", *(["--all"] if all_ else [])], step, env=env, timeout=30)
+        try:
+            rows = json.loads(r.stdout).get("terminals") or []
+        except (ValueError, AttributeError):
+            raise Failed(step, "hc ls --json printed no JSON")
+        st = self.run(["hc", "server", "status", "--json"], step, env=env, timeout=30)
+        try:
+            pid = json.loads(st.stdout).get("pid")
+        except (ValueError, AttributeError):
+            pid = None
+        return {t.get("address"): t for t in rows if t.get("address") and (all_ or t.get("state") == "live")}, pid
+
+    # ---- the steps -------------------------------------------------------------------------------
+    def go(self):
+        sha = self.run(["git", "-C", self.repo, "rev-parse", "--verify", "--quiet", f"{self.sha_in}^{{commit}}"],
+                       "args", env=self.caller_env, ok=False)
+        if sha.returncode != 0 or not sha.stdout.strip():
+            raise Failed("args", f"{self.sha_in} isn't a commit in {os.path.basename(self.repo) or self.repo}")
+        self.sha = sha.stdout.strip()
+        self.before()
+        self.build()
+        self.core()
+        self.start_service()
+        self.make_repo()
+        self.start_task()
+        self.review_gate()
+        self.accept()
+        self.github()
+
+    def before(self):
+        self.live_before, self.live_pid = self.live_read("before")
+        if self.live_before is None:
+            self.log(f"the live session ({self.live}) isn't running: nothing to compare")
+        else:
+            self.log(f"live session: {len(self.live_before)} terminals")
+
+    def build(self):
+        self.scratch = tempfile.mkdtemp(prefix=self.name + "-", dir=self.base)
+        self.mark(self.scratch, "scratch")
+        for d in ("bin", "src", "data", "store", "tmp", "templates", "worktrees", "app/mods/tasks/bin"):
+            os.makedirs(os.path.join(self.scratch, d))
+        self.log(f"scratch {self.scratch}, building {self.sha[:12]}")
+        src = os.path.join(self.scratch, "src")
+        arc = subprocess.Popen(["git", "-C", self.repo, "archive", self.sha], stdout=subprocess.PIPE, env=self.caller_env)
+        tar = subprocess.run(["tar", "-x", "-C", src], stdin=arc.stdout, stderr=subprocess.PIPE, universal_newlines=True)
+        arc.stdout.close()
+        if arc.wait() != 0 or tar.returncode != 0:
+            raise Failed("build", f"git archive {self.sha[:12]}: {one_line(tar.stderr)}")
+        self.write_bin(src)
+        self.write_settings()
+        self.run(["bun", "install", "--frozen-lockfile"], "build", cwd=src, timeout=600)
+        self.run(["bun", "web/build-plugins.ts"], "build", cwd=src, timeout=300)
+        self.src = src
+
+    def write_bin(self, src):
+        b = os.path.join(self.scratch, "bin")
+        python = shutil.which("python3", path=self.env["PATH"]) or "python3"
+        real_hc = shutil.which("hc", path=os.pathsep.join(tool_dirs(self.caller_env.get("PATH", ""))))
+        if not real_hc:
+            raise Failed("build", "no hc on PATH")
+        files = {
+            "hc": HC_WRAP.format(log=os.path.join(self.scratch, "hc.log"), hc=real_hc, name=self.name,
+                                 sock=os.path.join(runtime_dir(self.env), f"{self.name}.sock")),
+            "stand-in": "#!/bin/sh\n" + STAND_IN + "\n",
+            "herdr-task": HERDR_TASK_WRAP.format(log=os.path.join(self.scratch, "herdr-task.log"), python=python, src=src),
+            "herdr-artifact": f'#!/bin/sh\nexec "{python}" "{src}/mods/artifacts/bin/herdr-artifact" "$@"\n',
+            "shepherdr": SHEPHERDR_WRAP.format(log=os.path.join(self.scratch, "refused.log"), python=python, src=src),
+            "gh-stub": GH_STUB.format(log=os.path.join(self.scratch, "gh.log")),
+        }
+        for n, text in files.items():
+            p = os.path.join(b, n)
+            with open(p, "w") as f:
+                f.write(text)
+            os.chmod(p, 0o755)
+        # the service's background jobs find herdr-task in its app home first: the same wrapper
+        os.symlink(os.path.join(b, "herdr-task"),
+                   os.path.join(self.env["HERDR_APP_HOME"], "mods", "tasks", "bin", "herdr-task"))
+
+    def write_settings(self):
+        settings = {"everywhere": {
+            "tasks": {"worktrees": True, "worktree_root": os.path.join(self.scratch, "worktrees"),
+                      "review_rounds": ROUNDS, "merge": "ask", "proof": False},
+            # no browser for the stand-in: its sign-ins are the space's, and a trial shares nothing
+            "plugins_off": ["screens"]}}
+        with open(os.path.join(self.scratch, "settings.json"), "w") as f:
+            json.dump(settings, f, indent=1)
+
+    def core(self):
+        existed = os.path.exists(self.core_dir)
+        if not existed:
+            self.mark(self.core_dir, "core state")
+        self.core_started = True
+        self.hc("server", "start", step="core")
+        st = self.hc("server", "status", "--json", step="core")
+        try:
+            st = json.loads(st.stdout)
+        except ValueError:
+            raise Failed("core", "hc server status --json printed no JSON")
+        if not st.get("pid"):
+            raise Failed("core", f"the throwaway core {self.name} isn't running")
+        if self.live_pid and st.get("pid") == self.live_pid:
+            raise Failed("core", "the throwaway session answered with the live core")
+        machines = self.hc("machine", "ls", "--json", step="core")
+        try:
+            m = json.loads(machines.stdout or "[]")
+        except ValueError:
+            raise Failed("core", "hc machine ls --json printed no JSON")
+        rows = m.get("machines", m) if isinstance(m, dict) else m
+        if rows:
+            raise Failed("core", f"the throwaway core has linked machines ({len(rows)})")
+        self.log(f"core {self.name} up (pid {st['pid']})")
+
+    def start_service(self):
+        logf = open(os.path.join(self.scratch, "service.log"), "w")
+        try:
+            self.service = subprocess.Popen(["bun", "service/main.ts"], cwd=self.src, env=self.env, stdout=logf,
+                                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+        finally:
+            logf.close()
+        token_path = os.path.join(self.scratch, "data", "token")
+        deadline, last = time.time() + 90, "no answer"
+        while time.time() < deadline:
+            if self.service.poll() is not None:
+                raise Failed("service", f"the service exited ({self.service.returncode}): {self.service_tail()}")
+            try:
+                with open(token_path) as f:
+                    token = f.read().strip()
+                req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/state",
+                                             headers={"Authorization": f"Bearer {token}", "x-shepherdr": "1"})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    if r.status == 200:
+                        json.loads(r.read() or b"null")
+                        self.log(f"service up on 127.0.0.1:{self.port}")
+                        return
+                    last = f"HTTP {r.status}"
+            except (OSError, ValueError) as e:
+                last = getattr(e, "reason", None) or str(e)
+            time.sleep(0.5)
+        raise Failed("service", f"GET /api/state didn't answer in 90 s ({last})")
+
+    def service_tail(self):
+        try:
+            with open(os.path.join(self.scratch, "service.log")) as f:
+                return one_line(f.read())
+        except OSError:
+            return "no log"
+
+    def git(self, *args, step, cwd=None, ok=True, env=None):
+        return self.run(["git", *GIT_PLAIN, *args], step, cwd=cwd or self.repo_dir, env={**self.env, **(env or {})}, ok=ok)
+
+    def make_repo(self):
+        self.repo_dir = os.path.join(self.scratch, self.name)
+        os.makedirs(self.repo_dir)
+        self.git("init", "-q", "-b", "main", step="repo")
+        with open(os.path.join(self.repo_dir, "README.md"), "w") as f:
+            f.write("A fork trial's scratch repo.\n")
+        self.git("add", "README.md", step="repo")
+        self.git("commit", "-q", "-m", "Trial: the start", step="repo", env=FIXED)
+        self.start_sha = self.git("rev-parse", "HEAD", step="repo").stdout.strip()
+        # the stand-in's tree, worked out apart from it: the start's tree plus trial.txt
+        idx = os.path.join(self.scratch, "tmp", "expected-index")
+        blob = self.run(["git", "hash-object", "-w", "--stdin"], "repo", cwd=self.repo_dir, inp=STAND_IN_TEXT).stdout.strip()
+        ienv = {"GIT_INDEX_FILE": idx}
+        self.git("read-tree", self.start_sha, step="repo", env=ienv)
+        self.git("update-index", "--add", "--cacheinfo", f"100644,{blob},trial.txt", step="repo", env=ienv)
+        self.expected_tree = self.git("write-tree", step="repo", env=ienv).stdout.strip()
+
+    def show(self, step):
+        return self.task_json("show", str(self.task_id), step=step)
+
+    def start_task(self):
+        added = self.task_json("add", TITLE, "--worktree", "--prompt", "The trial's stand-in task.", step="task")
+        self.task_id = added.get("id")
+        if not self.task_id:
+            raise Failed("task", "herdr-task add gave no task id")
+        self.task("start", str(self.task_id), "--argv", json.dumps(["sh", "-c", f"exec sh {self.stand_in_script()}"]), "--space", "trial", "--now", step="task")
+        deadline = time.time() + 90
+        v, head = None, None
+        while time.time() < deadline:
+            v = self.show("task")
+            wt = v.get("worktree")
+            if wt and os.path.isdir(wt):
+                r = self.run(["git", "-C", wt, "rev-parse", "HEAD"], "task", ok=False)
+                head = r.stdout.strip()
+                if r.returncode == 0 and head and head != self.start_sha:
+                    break
+            time.sleep(1)
+        else:
+            self.show_screens()
+            raise Failed("task", f"the stand-in agent made no commit in 90 s (state {(v or {}).get('state')})")
+        self.worktree, self.head, self.key = v["worktree"], head, v.get("key")
+        if not os.path.realpath(self.worktree).startswith(os.path.realpath(os.path.join(self.scratch, "worktrees")) + os.sep):
+            raise Failed("task", "its worktree isn't under the scratch worktree folder")
+        tree = self.run(["git", "-C", self.worktree, "rev-parse", f"{head}^{{tree}}"], "task").stdout.strip()
+        if tree != self.expected_tree:
+            raise Failed("task", f"the stand-in's tree is {tree[:12]}, not {self.expected_tree[:12]}")
+        self.agent = next((a.get("address") for a in v.get("live") or []), None) or \
+            next((a.get("terminal") for a in reversed(v.get("agents") or []) if a.get("terminal")), None)
+        self.log(f"task {v.get('ref')} committed {head[:12]}, its tree as expected")
+
+    def stand_in_script(self):
+        """The stand-in agent's script (write_bin wrote it): a file, so the brief herdr-task hands an agent and the
+        shell it starts in never meet its quoting."""
+        return os.path.join(self.scratch, "bin", "stand-in")
+
+    def show_screens(self):
+        """The throwaway core's terminals and their last lines, on stderr: what a stuck step looked like."""
+        r = self.hc("ls", "--all", "--json", step="task", ok=False)
+        try:
+            rows = json.loads(r.stdout).get("terminals") or []
+        except (ValueError, AttributeError):
+            rows = []
+        for t in rows:
+            scr = self.hc("read", t.get("address", ""), "--lines", "15", step="task", ok=False).stdout
+            self.log(f"terminal {t.get('address')} ({t.get('name')}, {t.get('state')}):\n" + scr.rstrip()[-1500:])
+
+    def ready(self, step):
+        return self.task("ready", str(self.task_id), "--summary", "The trial's stand-in task.", step=step, ok=False)
+
+    def review_gate(self):
+        r = self.ready("review")
+        if r.returncode == 0:
+            raise Failed("review", "ready was accepted with no review round recorded")
+        if "isn't reviewed" not in (r.stdout + r.stderr):
+            raise Failed("review", f"ready was refused, but not for review: {one_line(r.stderr or r.stdout)}")
+        # a stand-in reviewer, as the task's child, waited for and ended as a worker does
+        rev = f"{(self.key or self.name).split('#')[0][:20].lower().strip('-')}-review"
+        rev = re.sub(r"[^a-z0-9_-]", "-", rev)[:32]
+        self.hc("run", "--bg", "--name", rev, "--label", f"herdr.task={self.key}", "--label", "herdr.role=reviewer",
+                *(["--parent", self.agent] if self.agent else []), "--", "sh", "-c", 'echo "No findings."',
+                step="review")
+        self.hc("wait", rev, "--timeout", "60", step="review", ok=False, timeout=90)
+        out = self.hc("read", rev, step="review", ok=False)
+        if "No findings." not in out.stdout:
+            raise Failed("review", "the stand-in reviewer's words aren't on its screen")
+        self.hc("kill", rev, step="review", ok=False)
+        self.task("reviewed", str(self.task_id), "--commit", self.start_sha, "--report", "No findings.", step="review")
+        r = self.ready("review")
+        if r.returncode == 0:
+            raise Failed("review", "ready was accepted with the only round on another commit")
+        if "isn't reviewed" not in (r.stdout + r.stderr):
+            raise Failed("review", f"ready was refused, but not for review: {one_line(r.stderr or r.stdout)}")
+        self.task("reviewed", str(self.task_id), "--report", "No findings.", step="review")
+        r = self.ready("review")
+        if r.returncode != 0:
+            raise Failed("review", f"ready was refused after a round on the final commit: {one_line(r.stderr or r.stdout)}")
+        v = self.show("review")
+        if v.get("state") != "ready":
+            raise Failed("review", f"ready was accepted, but the task is {v.get('state')}, not ready")
+        self.log("review gate: refused, refused on the wrong commit, accepted on the final one")
+
+    def accept(self):
+        self.task("accept", str(self.task_id), step="accept", timeout=180)
+        v = self.show("accept")
+        if v.get("state") != "done":
+            raise Failed("accept", f"the task is {v.get('state')} after accept, not done")
+        main = self.git("rev-parse", "main", step="accept").stdout.strip()
+        if not self.git("merge-base", "--is-ancestor", self.head, "main", step="accept", ok=False).returncode == 0:
+            # a squash or a merge lands the same tree: what counts is the stand-in's file on main
+            got = self.git("show", "main:trial.txt", step="accept", ok=False).stdout
+            if got != STAND_IN_TEXT:
+                raise Failed("accept", f"main ({main[:12]}) doesn't have the stand-in's commit")
+        if os.path.exists(self.worktree):
+            raise Failed("accept", "the task's worktree is still there after accept")
+        self.log("accepted: on the scratch repo's main, task done, worktree gone")
+
+    def github(self):
+        calls = gh_calls(os.path.join(self.scratch, "gh.log"))
+        if calls:
+            raise Failed("github", f"{len(calls)} stray gh call(s), e.g. {calls[0][:80]}")
+        try:
+            with open(os.path.join(self.scratch, "refused.log")) as f:
+                refused = [ln for ln in f.read().splitlines() if ln.strip()]
+        except FileNotFoundError:
+            refused = []
+        if refused:
+            raise Failed("isolation", f"something asked for {refused[0][:80]}")
+        remote = os.path.join(self.env["HERDR_TASK_STORE"], ".remote")
+        if os.path.isdir(remote) and os.listdir(remote):
+            raise Failed("isolation", f"herdr-task reached another machine ({', '.join(sorted(os.listdir(remote)))})")
+        if not any(c.split()[:1] == ["tick"] for c in herdr_task_calls(os.path.join(self.scratch, "herdr-task.log"))):
+            # the service ticks once at its start (service/jobs.ts): no tick here means it ran another herdr-task
+            raise Failed("isolation", "the service's background tick didn't run the candidate's herdr-task")
+
+    # ---- cleanup ---------------------------------------------------------------------------------
+    def stop_service(self):
+        p = self.service
+        if not p:
+            return
+        if p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGTERM)   # its own process group (start_new_session): it and its children
+            except ProcessLookupError:
+                pass
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                p.wait(10)
+        # whatever still listens on the port is stopped by its own pid, never by a name (AGENTS.md)
+        for pid in self.listeners():
+            if pid in self.own_pids(p.pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def listeners(self):
+        if not shutil.which("lsof"):
+            return []
+        r = subprocess.run(["lsof", "-t", f"-i:{self.port}", "-sTCP:LISTEN"], stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, universal_newlines=True)
+        return [int(x) for x in r.stdout.split() if x.isdigit()]
+
+    @staticmethod
+    def own_pids(root):
+        """root and the pids of its process group (the service's own session)."""
+        out = {root}
+        try:
+            for d in os.listdir("/proc"):
+                if d.isdigit():
+                    try:
+                        if os.getpgid(int(d)) == root:
+                            out.add(int(d))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        return out
+
+    def stop_strays(self):
+        """Ends the trial's other processes by their own pids: whatever still carries its session, the core's aside.
+        herdr-task starts background jobs of its own (start's `_track`, accept's `_after-accept`, ...) in sessions of
+        their own: one that outlives the core and calls hc would start the core again (hc starts one on any call)."""
+        pids = [p for p, core in marked_pids(self.name).items() if not core and p != os.getpid()]
+        for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 2)):
+            for p in pids:
+                try:
+                    os.kill(p, sig)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            deadline = time.time() + wait
+            while time.time() < deadline and any(p in marked_pids(self.name) for p in pids):
+                time.sleep(0.2)
+            pids = [p for p in pids if p in marked_pids(self.name)]
+            if not pids:
+                return
+
+    def stop_core(self):
+        """`hc server stop` on the trial's own session, only while it answers (a call to a stopped one starts it),
+        and again if something started it after, until it stays down."""
+        if not self.core_started:
+            return
+        for _ in range(3):
+            self.stop_strays()
+            if session_up(self.env, self.name):
+                self.run(["hc", "server", "stop"], "cleanup", ok=False, timeout=60)
+                deadline = time.time() + 15
+                while time.time() < deadline and session_up(self.env, self.name):
+                    time.sleep(0.3)
+            time.sleep(2)   # a straggler's call lands in this time, or never
+            if not session_up(self.env, self.name) and not marked_pids(self.name):
+                break
+        for d in hc_runtime_dirs(self.env, self.name):
+            if not any(m["path"] == d for m in self.made_list()):
+                self.mark(d, "hc runtime")
+
+    def remove_made(self):
+        problems = []
+        made = self.made_list()
+        if os.path.isdir(self.shared_worktrees) and not any(m["path"] == self.shared_worktrees for m in made):
+            # herdr-task put a worktree in the live worktrees folder: the trial's own (unique) name, made during it
+            made.append({"path": self.shared_worktrees, "what": "stray worktrees"})
+            problems.append("a worktree landed in ~/.local/share/shepherdr/worktrees")
+        for m in reversed(made):
+            p = m.get("path")
+            if not p or not os.path.isabs(p) or os.path.realpath(p) in ("/", os.path.realpath(self.home)):
+                continue
+            if m.get("what") == "hc runtime":
+                # herdr-core's runtime folder for a start of the trial's session: removed only while it still names it
+                if p not in hc_runtime_dirs(self.env, self.name):
+                    if os.path.exists(p):
+                        problems.append(f"made.json names {p}, which isn't the trial's")
+                    continue
+            elif not os.path.basename(p).startswith(self.name):
+                problems.append(f"made.json names {p}, which isn't the trial's")
+                continue
+            if os.path.islink(p) or os.path.isfile(p):
+                os.remove(p)
+            elif os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+        return problems
+
+    def leftovers(self):
+        out = []
+        if self.scratch and os.path.exists(self.scratch):
+            out.append("the scratch folder")
+        if self.core_started and os.path.exists(self.core_dir):
+            out.append(f"herdr-core's state for {self.name}")
+        if session_up(self.env, self.name):
+            out.append(f"the {self.name} session")
+        if os.path.exists(self.shared_worktrees):
+            out.append(f"~/.local/share/shepherdr/worktrees/{self.name}")
+        if self.service and self.service.poll() is None:
+            out.append("the service")
+        if self.service and self.listeners():
+            out.append(f"a listener on port {self.port}")
+        procs = marked_pids(self.name)
+        if procs:
+            out.append(f"{len(procs)} process(es) with its session ({', '.join(map(str, sorted(procs)[:5]))})")
+        dirs = hc_runtime_dirs(self.env, self.name)
+        if dirs:
+            out.append(f"{len(dirs)} herdr-core runtime folder(s) of its session")
+        return out
+
+    def cleanup(self):
+        problems = []
+        for what, fn in (("service", self.stop_service), ("other processes", self.stop_strays), ("core", self.stop_core)):
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001 - cleanup goes on, and says what it couldn't do
+                problems.append(f"stopping the {what}: {one_line(e)}")
+        if self.scratch:
+            bad = hc_calls(os.path.join(self.scratch, "hc.log"), self.name,
+                           os.path.join(runtime_dir(self.env), f"{self.name}.sock"))
+            if bad:
+                for b in sorted(set(bad))[:5]:
+                    self.log(f"refused: {b[:200]}")
+                problems.append(f"{len(bad)} hc call(s) outside the trial's session, e.g. {bad[0][:80]}")
+        try:
+            problems += self.remove_made()
+        except OSError as e:
+            problems.append(f"removing: {one_line(e)}")
+        left = self.leftovers() if self.scratch or self.core_started else []
+        problems += [f"left behind: {x}" for x in left]
+        if self.live_before is not None:
+            try:
+                after, pid = self.live_read("cleanup", all_=True)
+            except Failed as e:
+                after, pid = None, None
+                problems.append(f"reading the live session: {e.why}")
+            if after is None:
+                problems.append("the live session isn't running any more")
+            else:
+                if self.live_pid and pid and pid != self.live_pid:
+                    problems.append("the live session's core changed")
+                changes, ended = live_changes(self.live_before, after, [self.name, self.scratch])
+                problems += changes
+                kept = len(set(self.live_before) & set(after))
+                self.log(f"live session after: {kept} of {len(self.live_before)} terminals still there"
+                         + (f"; ended on their own: {', '.join(ended)}" if ended else "")
+                         + ("; the same core" if not self.live_pid or pid == self.live_pid else "; ANOTHER core"))
+        return problems
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="fork/bin/trial", description="A throwaway Shepherdr built from one commit.")
+    ap.add_argument("sha", help="the commit to try")
+    ap.add_argument("--repo", default=".", help="the git repo that has it (default: here)")
+    a = ap.parse_args(argv)
+
+    def stop(sig, frame):
+        raise Interrupted(signal.Signals(sig).name)
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, stop)
+    t = Trial(a.sha, os.path.abspath(a.repo))
+    result = None
+    try:
+        t.go()
+    except Failed as e:
+        result = f"FAIL: {e.step}: {e.why}"
+    except Interrupted as e:
+        result = f"FAIL: interrupted: {e}"
+    except Exception as e:  # noqa: BLE001 - any surprise is a failure, after cleanup
+        result = f"FAIL: trial: {type(e).__name__}: {one_line(e)}"
+    finally:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)   # cleanup runs to its end
+        problems = t.cleanup()
+    if result is None and problems:
+        result = f"FAIL: cleanup: {problems[0]}" + (f" (and {len(problems) - 1} more)" if len(problems) > 1 else "")
+    elif problems:
+        for p in problems:
+            t.log(f"cleanup: {p}")
+    print(result or "PASS", flush=True)
+    return 0 if result is None else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
