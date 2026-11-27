@@ -35,7 +35,7 @@ from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
 from .proof import evidence, find_proof
-from .waits import closed_words, closes_alone, waits_why
+from .waits import closed_words, closes_alone, left_files, waits_why
 from .when import when_from
 
 
@@ -841,6 +841,11 @@ def cmd_ready(args):
                        + (f"Bring it back (git -C {q(main)} worktree add {q(wt)} {br}), then run ready again." if has else
                           f"Its branch {br} is gone too: nothing is left here to merge. Tell the person."))
         policy = merge_policy(s, t)
+        left = left_files(wt) if t.get("nothing_to_merge") else []
+        if left:
+            t["left_files"] = left[:20]
+        else:
+            t.pop("left_files", None)
         if closes_alone(t, policy):
             # Nothing to merge, and Merge says no one needs to look (waits.py): done now, no card and no alert; its
             # Assistant hears what it found (news.py's done line).
@@ -1260,7 +1265,7 @@ def back_to_work(s, t, why, said=WORKING_AGAIN, auto=False):
     if t["state"] != "ready":
         return False
     t["state"] = "running"
-    for k in ("ready_turns", "merge_requested"):
+    for k in ("ready_turns", "merge_requested", "waits_why"):
         t.pop(k, None)
     t["back"] = {"at": now(), "why": why, **({"auto": True, "progress": t.get("progress")} if auto else {})}
     # by: Herdr's words, not its agent's (on_it() counts only an agent's own line).
@@ -1399,7 +1404,7 @@ def cmd_state(args, state):
                 t["kept_open"] = True
                 t["was_merged"] = True  # SHEP-423: its merge stays a fact (done again: merged, not "not merged")
             for k in ("reviews", "review", "auto_merge", "merged", "nothing_to_merge", "accepted_at", "merge_asked", "merge_queued", "closed_unmerged",
-                      "quiet", "told", "told_sent", "waits_why", "closed_alone"):
+                      "quiet", "told", "told_sent", "waits_why", "closed_alone", "left_files"):
                 t.pop(k, None)
         if state == "done" and (t.get("was_merged") or (t.get("worktree") and (merged_here(s, t) or landed(s, t)))):
             # SHEP-423: reopened after it merged (to tag a release, say), then done again: still merged. Squash-merged on
@@ -1845,7 +1850,7 @@ def cmd_reply(args):
                 t["kept_open"] = True
                 t["was_merged"] = True  # SHEP-423, as reopen
             for k in ("reviews", "review", "auto_merge", "merged", "nothing_to_merge", "accepted_at", "merge_asked", "merge_queued", "closed_unmerged",
-                      "quiet", "told", "told_sent", "waits_why", "closed_alone", "attention"):
+                      "quiet", "told", "told_sent", "waits_why", "closed_alone", "left_files", "attention"):
                 t.pop(k, None)
             t["state"], t["reopened_at"] = "running", now()
             s.dirty = True

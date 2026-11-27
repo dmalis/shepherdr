@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot, Task } from '@shared/types.ts'
 import { doneWords } from '@shared/view.ts'
 import { snapshot } from '../../demo/data.ts'
-import { LATER, readyWords } from './ready-words.ts'
+import { LATER, readyWords } from '@shared/ready-words.ts'
 
 // dmalis/shepherdr#29: a card that waits for the person starts with the decision in plain words and says why it waits;
 // each button names what it does. A task that changed nothing reads "Close, nothing changes", never a merge.
@@ -50,4 +50,11 @@ test('closed by its Merge setting: one quiet line with what it found', () => {
   expect(s).toContain('Already fixed upstream.')
   expect(s).not.toContain('Close, nothing changes')
   expect(doneWords({ ...ready, repo: 'branch', nothingToMerge: true })).toBe('Done · nothing to merge')
+})
+
+test('new files left uncommitted: the card says closing deletes them', () => {
+  const s = text({ repo: 'branch', nothingToMerge: true, leftFiles: ['research.md'], waitsWhy: 'Waits for you: it committed nothing but left new files (research.md); closing it deletes them.' })
+  expect(s).toContain("left new files it didn't commit. Close it and delete them?")
+  expect(s).toContain('Close, delete its files')
+  expect(s).not.toContain('Close, nothing changes')
 })

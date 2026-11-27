@@ -2966,6 +2966,47 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
                 self.assertFalse(self.task.get("merged"))
                 self.assertNotIn(("pr", "create"), calls)
 
+    def test_new_files_left_uncommitted_keep_it_waiting(self):
+        """Closing a task deletes its worktree, new files too: one that left some is never closed on its own, its card
+        says so, and with the real finish and worktree removal nothing is deleted at ready."""
+        from unittest import mock
+        import herdr_task.github as github
+        self.github([])
+        with open(os.path.join(self.task["worktree"], "research.md"), "w") as f:
+            f.write("what it found")
+        with mock.patch.object(self.commands, "finish", github.finish), \
+                mock.patch.object(github, "live_agents", lambda key: []), mock.patch.object(github, "live_helpers", lambda key: []):
+            self.assertEqual(self.ready_said(policy="auto"), "ready")
+        self.assertEqual(self.task["left_files"], ["research.md"])
+        self.assertNotIn("closed_alone", self.task)
+        self.assertEqual(self.task["waits_why"], "Waits for you: it committed nothing but left new files (research.md); closing it deletes them.")
+        self.assertTrue(os.path.isfile(os.path.join(self.task["worktree"], "research.md")))
+        # committed or removed, the next ready closes it
+        os.remove(os.path.join(self.task["worktree"], "research.md"))
+        self.task["state"] = "running"
+        self.assertEqual(self.ready_said(policy="auto"), "done")
+        self.assertNotIn("left_files", self.task)
+
+    def test_back_at_work_it_waits_for_no_one(self):
+        self.github([])
+        self.assertEqual(self.ready_said(), "ready")
+        self.assertIn("waits_why", self.task)
+        self.commands.back_to_work(self.store, self.task, "asked to fix it")
+        self.assertNotIn("waits_why", self.task)
+
+    def test_a_ready_task_from_before_says_why_when_it_still_holds(self):
+        from unittest import mock
+        import herdr_task.waits as waits
+        import herdr_task.settings as settings
+        self.task.update(state="ready", nothing_to_merge=True)
+        with mock.patch.object(settings, "merge_policy", lambda *a: "ask"):
+            self.assertEqual(waits.waits_now(self.store, self.task), "Waits for you: Merge is When I mark it as done (the default).")
+        with mock.patch.object(settings, "merge_policy", lambda *a: "auto"):
+            self.assertIsNone(waits.waits_now(self.store, self.task))  # the setting changed since: no stale reason
+        self.task["mode"] = "here"
+        with mock.patch.object(settings, "merge_policy", lambda *a: "auto"):
+            self.assertIn("folder itself", waits.waits_now(self.store, self.task))
+
     def test_closed_alone_news_says_what_it_found(self):
         import herdr_task.news as news
         self.task.update(state="done", nothing_to_merge=True, closed_alone="auto", summary="Already fixed upstream.")

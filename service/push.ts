@@ -6,7 +6,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA, where } from "./paths.ts";
 import * as T from "../core/toasts.js";
-import { alertUrl, ACCEPT, ACCEPT_MERGE, RESTART_ALL, choiceButtons, DEFAULT_TOPICS, notifies, notifyOf, pushTopics, REPLY, taskWho, WATCH_BODY, WATCH_TITLE, watchTitle, type PushAction, type PushTopic } from "../web/shared/alerts.ts";
+import { alertUrl, ACCEPT, RESTART_ALL, choiceButtons, DEFAULT_TOPICS, notifies, notifyOf, pushTopics, REPLY, taskWho, WATCH_BODY, WATCH_TITLE, watchTitle, type PushAction, type PushTopic } from "../web/shared/alerts.ts";
+import { readyWords } from "../web/shared/ready-words.ts";
 import { excerpt } from "../web/shared/excerpt.ts";
 import { unread } from "../web/shared/needs-you.ts";
 
@@ -51,10 +52,11 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   // core/tasks.js readyWait), the same Accept as the Tasks panel's
   for (const t of snap.tasks ?? []) if (t.status === "ready" && !t.archived)
     now.set(`ready:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), T.FINISHED), body: t.summary || "Tap to look at it.", tag: t.id, topic: "ready", place: t.place, waits: true, url: alertUrl({ place: t.place, task: t.id }),
-      // on its own branch the button merges too, and says so
-      actions: [t.repo === "branch" || (t.repo === undefined && (t.branch || t.pr)) ? ACCEPT_MERGE : ACCEPT], accept: { task: t.id } });
+      // the card's own button, saying what it does (web/shared/ready-words.ts, dmalis/shepherdr#29): Close, Merge into main
+      actions: [{ ...ACCEPT, title: readyWords(t).go }], accept: { task: t.id } });
   // a finished task ("Everything" on a device adds these); a schedule's run that found nothing to do sends none
-  for (const t of snap.tasks ?? []) if (t.status === "done" && !t.archived && t.quiet !== "nothing")
+  // nor one its Merge setting closed with nothing to merge (its line stays in the chat)
+  for (const t of snap.tasks ?? []) if (t.status === "done" && !t.archived && t.quiet !== "nothing" && !t.closedAlone)
     now.set(`done:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), t.merged ? "Done and merged" : "Done"), body: t.summary || "", tag: t.id, topic: "done", place: t.place, url: alertUrl({ place: t.place, task: t.id }) });
   // an Assistant's new message (its chat's last moved on, not yet read), unless its space's Notify is Off
   for (const p of snap.places ?? []) {

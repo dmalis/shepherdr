@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { alertsOf } from "./push.ts";
 
 // dmalis/shepherdr#29: herdr-task's nothing_to_merge, closed_alone and waits_why reach the app's task, each only in the
 // state it is about (a why line on a Ready task, closed by its setting on a Done one).
@@ -18,4 +19,15 @@ test("nothing to merge, closed by its setting and why it waits reach the task", 
   expect(by("APP-2")).toMatchObject({ nothingToMerge: true, closedAlone: true });
   expect(by("APP-2").waitsWhy).toBeUndefined();
   expect(by("APP-3").waitsWhy).toBeUndefined(); // back at work: it waits for no one
+});
+
+// the phone's alert: the card's own button, and no Done alert for a task its Merge setting closed
+test("a nothing-to-merge alert says Close, and one closed by its setting sends none", () => {
+  const alerts = (tasks: any[]) => [...alertsOf({ places: [], tasks, needs: [], settings: [] }).values()];
+  const [a] = alerts([{ id: "APP-1", name: "Check the bug", status: "ready", place: "sp1", repo: "branch", nothingToMerge: true }]);
+  expect(a.actions).toEqual([{ action: "accept", title: "Close, nothing changes" }]);
+  const [b] = alerts([{ id: "APP-2", name: "Search", status: "ready", place: "sp1", repo: "branch", base: "main", pr: { number: 3 } }]);
+  expect(b.actions).toEqual([{ action: "accept", title: "Merge into main" }]);
+  expect(alerts([{ id: "APP-3", name: "Check", status: "done", place: "sp1", nothingToMerge: true, closedAlone: true, summary: "Already fixed." }])).toEqual([]);
+  expect(alerts([{ id: "APP-4", name: "Check", status: "done", place: "sp1", nothingToMerge: true, summary: "Already fixed." }]).length).toBe(1);
 });

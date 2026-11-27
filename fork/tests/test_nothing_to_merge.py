@@ -47,6 +47,13 @@ class Seams(unittest.TestCase):
         for name in waits.MERGE_NAMES.values():
             self.assertIn(f"'{name}'", read("web", "src", "settings.tsx"))
 
+    def test_it_never_closes_over_new_files_and_old_cards_say_why(self):
+        from herdr_task import output
+        self.assertIn("left_files(wt)", inspect.getsource(commands.cmd_ready))
+        self.assertIn('"--untracked-files=no"', inspect.getsource(github.remove_worktree))  # why: it removes new files
+        self.assertIn('"waits_why"', inspect.getsource(commands.back_to_work))
+        self.assertIn("waits_now(s, task)", inspect.getsource(output.view))
+
     def test_the_done_news_says_what_it_found(self):
         self.assertIn('t.get("closed_alone")', inspect.getsource(news.news_line))
         self.assertIn('not t.get("quiet")', inspect.getsource(news.news_pass))  # its done news isn't skipped as quiet
@@ -60,6 +67,9 @@ class Seams(unittest.TestCase):
         self.assertIn("{rw.go}", card)
         self.assertIn("{rw.later}", card)
         self.assertIn("t.waitsWhy", card)
+        push = read("service", "push.ts")
+        self.assertIn("title: readyWords(t).go", push)
+        self.assertIn("!t.closedAlone", push)
         self.assertNotIn("Mark as done and merge'", card.split("export function ReviewCard")[1].split("\nexport ")[0])
 
 
