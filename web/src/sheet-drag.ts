@@ -22,6 +22,15 @@ export const shown = (dy: number) => rubber(dy)
  *  it; a slow let-go closes once it is carried past a third of the sheet. */
 export const closes = (dy: number, v: number, h: number) => dy > 0 && lands(dy, v, h / 3)
 
+/** How fast the finger was going as it let go (px per ms, down is +): over the moves of its last 100 ms, up to the
+ *  let-go itself, so a pull held still before letting go is no flick. */
+export function speed(samples: { t: number; y: number }[], end: { t: number; y: number }, window = 100) {
+  const recent = samples.filter((s) => end.t - s.t <= window)
+  const first = recent[0]
+  if (!first || end.t <= first.t) return 0
+  return (end.y - first.y) / (end.t - first.t)
+}
+
 /** the scroller under the finger, inside the sheet (the sheet itself when it scrolls) */
 function scrollerIn(target: Element | null, sheet: HTMLElement): HTMLElement | null {
   for (let el = target as HTMLElement | null; el && sheet.contains(el); el = el.parentElement) {
@@ -49,9 +58,13 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
   let h = 0
 
   const at = (e: TouchEvent) => [...e.changedTouches].find((t) => t.identifier === id)
+  // with less motion (Motion: Reduced, or the device's) the sheet stays put and fades as it is pulled
+  let still = false
   const paint = () => {
-    sheet.style.transform = `translateY(${shown(dy)}px)`
-    if (shade) shade.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / h))
+    const gone = Math.max(0, dy) / h
+    if (still) sheet.style.opacity = String(Math.max(0.2, 1 - gone))
+    else sheet.style.transform = `translateY(${shown(dy)}px)`
+    if (shade) shade.style.opacity = String(Math.max(0, 1 - gone))
   }
 
   const start = (e: TouchEvent) => {
@@ -80,13 +93,14 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
       if (sideways || scrolls) return void (mode = 'off')
       mode = 'drag'
       h = sheet.offsetHeight || 1
+      still = calm()
       for (const a of sheet.getAnimations()) a.cancel()
       sheet.style.transition = 'none'
     }
     e.preventDefault()
     dy = t.clientY - y0
     samples.push({ t: e.timeStamp, y: t.clientY })
-    if (samples.length > 6) samples.shift()
+    if (samples.length > 12) samples.shift()
     paint()
   }
 
@@ -97,18 +111,16 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
     const was = mode
     mode = 'off'
     if (was !== 'drag') return
-    // speed over the last few moves (px per ms): a flick
-    const first = samples[0]!
-    const last = samples[samples.length - 1]!
-    const v = e.type === 'touchcancel' || last.t === first.t ? 0 : (last.y - first.y) / (last.t - first.t)
+    const v = e.type === 'touchcancel' ? 0 : speed(samples, { t: e.timeStamp, y: t.clientY })
     if (e.type !== 'touchcancel' && closes(dy, v, h)) {
-      const ms = calm() ? 0 : settleMs(h - dy, v, 300)
+      const ms = still ? 120 : settleMs(h - dy, v, 300)
       if (shade) void moveTo(shade, { opacity: '0' }, ms, 'ease-out')
-      void moveTo(sheet, { transform: 'translateY(100%)' }, ms, IOS).then(close)
+      void moveTo(sheet, still ? { opacity: '0' } : { transform: 'translateY(100%)' }, ms, still ? 'ease-out' : IOS).then(close)
     } else {
-      if (shade) void moveTo(shade, { opacity: '1' }, calm() ? 0 : 300, 'ease-out')
-      void moveTo(sheet, { transform: 'translateY(0px)' }, calm() ? 0 : 300, IOS).then(() => {
+      if (shade) void moveTo(shade, { opacity: '1' }, still ? 120 : 300, 'ease-out')
+      void moveTo(sheet, still ? { opacity: '1' } : { transform: 'translateY(0px)' }, still ? 120 : 300, still ? 'ease-out' : IOS).then(() => {
         sheet.style.transform = ''
+        sheet.style.opacity = ''
         if (shade) shade.style.opacity = ''
       })
     }

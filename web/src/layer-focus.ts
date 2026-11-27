@@ -1,6 +1,6 @@
 // fork #109: the keyboard in a menu, sheet or dialog, as WAI-ARIA's menu and modal dialog patterns (and Radix,
 // Linear, GitHub) do it. A dialog keeps Tab inside itself; a menu moves with ↑ ↓ Home End and closes on Tab, the way
-// a native menu does. When one closes, focus goes back to what opened it, unless it already went somewhere else.
+// a native menu does (one with fields too keeps Tab inside). When one closes, focus goes back to what opened it, unless it already went somewhere else.
 
 /** what can take focus inside a layer, in order */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
@@ -42,8 +42,9 @@ export function layerKey(e: KeyboardEvent, box: HTMLElement, kind: 'menu' | 'dia
   if (e.defaultPrevented || e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return false
   const here = document.activeElement as HTMLElement | null
   if (e.key === 'Tab') {
-    if (kind === 'menu') {
-      // out of a menu: it closes, and Tab goes on from its button
+    // out of a menu of rows: it closes, and Tab goes on from its button. A menu with fields too (the Tasks filter's
+    // searches) keeps Tab inside, as a dialog, so every field and row can be reached
+    if (kind === 'menu' && !box.querySelector('input:not([type=hidden]), textarea, select')) {
       close()
       return false
     }

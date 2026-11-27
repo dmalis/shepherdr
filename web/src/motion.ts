@@ -81,14 +81,14 @@ function enter(el: HTMLElement, m: Motion) {
   if (calm()) return void el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' })
   const p = panelOf(el)
   const shade = shadeOf(el)
-  if (m === 'menu') p.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 180, easing: OUT })
+  if (m === 'menu') p.animate([{ opacity: 0, scale: '.96' }, { opacity: 1, scale: '1' }], { duration: 180, easing: OUT })
   else if (m === 'page') p.animate([{ transform: 'translateX(100%)' }, { transform: 'none' }], { duration: PUSH_MS, easing: IOS })
   else if (m === 'fade') p.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' })
   else {
     if (shade) shade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: m === 'sheet' ? SHEET_MS : 200, easing: 'ease-out' })
     else if (p !== el) el.animate([{ backgroundColor: 'transparent' }, {}], { duration: m === 'sheet' ? SHEET_MS : 250, easing: 'ease-out' })
     if (m === 'sheet') p.animate([{ transform: 'translateY(100%)' }, { transform: 'none' }], { duration: SHEET_MS, easing: IOS })
-    else p.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: OUT })
+    else p.animate([{ opacity: 0, scale: '.96' }, { opacity: 1, scale: '1' }], { duration: 200, easing: OUT })
   }
 }
 
@@ -98,13 +98,13 @@ function leave(el: HTMLElement, m: Motion): Promise<unknown> {
   const p = panelOf(el)
   const shade = shadeOf(el)
   const opt = { fill: 'forwards' as const }
-  if (m === 'menu') return p.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)' }], { ...opt, duration: 120, easing: OUT }).finished
+  if (m === 'menu') return p.animate([{ opacity: 1, scale: '1' }, { opacity: 0, scale: '.98' }], { ...opt, duration: 120, easing: OUT }).finished
   if (m === 'page') return p.animate([{ transform: 'none' }, { transform: 'translateX(100%)' }], { ...opt, duration: 380, easing: IOS }).finished
   if (m === 'fade') return p.animate([{ opacity: 1 }, { opacity: 0 }], { ...opt, duration: 160, easing: 'ease-out' }).finished
   if (shade) shade.animate([{ opacity: 1 }, { opacity: 0 }], { ...opt, duration: m === 'sheet' ? 300 : 150, easing: 'ease-out' })
   else if (p !== el) el.animate([{}, { backgroundColor: 'transparent' }], { ...opt, duration: 260, easing: 'ease-in' })
   if (m === 'sheet') return p.animate([{}, { transform: 'translateY(100%)' }], { ...opt, duration: 300, easing: IOS }).finished
-  return p.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.98)' }], { ...opt, duration: 150, easing: OUT }).finished
+  return p.animate([{ opacity: 1, scale: '1' }, { opacity: 0, scale: '.98' }], { ...opt, duration: 150, easing: OUT }).finished
 }
 
 /** A still copy of what is on screen: where it is, scrolled as it is, without ids, frames or anything to load again. */
@@ -130,7 +130,7 @@ function ghostOf(el: HTMLElement) {
 
 /** the layer ghosts play on: over the app, drawn the way the app is (its device, type and colours) */
 function ghostLayer() {
-  const app = document.querySelector<HTMLElement>('[data-device]')
+  const app = document.querySelector<HTMLElement>('[data-device]') ?? document.querySelector<HTMLElement>('.app')
   const g = document.createElement('div')
   g.className = app?.className ?? ''
   if (app?.dataset.device) g.dataset.device = app.dataset.device

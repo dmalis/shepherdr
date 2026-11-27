@@ -2,7 +2,7 @@
 // goes and grows from, which item a key moves to, what a sheet says on top), plus pins on what the system leans on.
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { closes, rubber } from './sheet-drag.ts'
+import { closes, rubber, speed } from './sheet-drag.ts'
 import { step } from './layer-focus.ts'
 import { closeAll, layersNow, openDialog, openMenu, originOf, placeAt } from './overlay.tsx'
 
@@ -24,6 +24,15 @@ test('a let-go closes the sheet on a flick down or past a third, else it settles
   expect(closes(260, 0, 600)).toBe(true) // carried past a third
   expect(closes(80, 0, 600)).toBe(false) // let go early
   expect(closes(-20, 0.5, 600)).toBe(false) // above its top
+})
+
+test('a pull held still before letting go is no flick: it is measured up to the let-go, over the last 100 ms', () => {
+  const moves = [{ t: 0, y: 0 }, { t: 16, y: 6 }, { t: 32, y: 12 }]
+  expect(speed(moves, { t: 48, y: 18 })).toBeCloseTo(0.375)
+  // 12 px, then held for a second: nothing recent, no speed, and 12 px of 600 is no close
+  expect(speed(moves, { t: 1032, y: 12 })).toBe(0)
+  expect(closes(12, speed(moves, { t: 1032, y: 12 }), 600)).toBe(false)
+  expect(speed([], { t: 10, y: 10 })).toBe(0)
 })
 
 test('↑ ↓ wrap through a menu, Home and End go to its ends', () => {
@@ -100,7 +109,7 @@ test('pinned: motion follows Motion: Reduced as well as the device, and nothing 
   expect(m).toMatch(/export function moveTo\(/)
   const both = m.slice(m.indexOf('function enter('), m.indexOf('/** A still copy'))
   expect(both).toContain('function leave(')
-  for (const prop of both.match(/\b(\w+):\s*['`]/g) ?? []) expect(['transform', 'opacity', 'backgroundColor', 'easing', 'fill'].some((p) => prop.startsWith(p))).toBe(true)
+  for (const prop of both.match(/\b(\w+):\s*['`]/g) ?? []) expect(['transform', 'scale', 'opacity', 'backgroundColor', 'easing', 'fill'].some((p) => prop.startsWith(p))).toBe(true)
   // the viewport's keyboard height the layer sits on (an iPhone home-screen app)
   expect(read('web/src/viewport.ts')).toContain('--app-h')
   expect(read('web/src/sheets.css')).toContain('.layer{bottom:auto;height:var(--app-h,100dvh)}')

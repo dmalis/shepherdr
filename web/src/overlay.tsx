@@ -39,12 +39,13 @@ interface Layer {
   onClose?: () => void
 }
 
-/** What had focus as a layer opens. Opened from a menu's row (Rename…), it is what opened that menu: the row goes. */
+/** What had focus as a layer opens. Opened from a menu's row (Rename…), it is what opened that menu: the row goes
+ *  with its menu. Opened from inside a dialog that stays (New group's Machine), it is that button. */
 function openerNow(): Element | null {
   if (typeof document === 'undefined') return null
   const now = document.activeElement
   const from = now && [...layers, ...(gone ? [gone] : [])].find((l) => document.querySelector(`[data-layer="${l.id}"]`)?.contains(now))
-  return from ? (from.opener ?? null) : now
+  return from && (from.kind === 'menu' || from === gone) ? (from.opener ?? null) : now
 }
 /** the layer closed last, while it may still be on the page: a row that closed its menu and opens a dialog */
 let gone: Layer | null = null
@@ -274,15 +275,22 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
     }
     place()
     addEventListener('resize', place)
-    // a menu in a panel follows its own size too (a search narrowing its rows)
-    const ro = layer.within && panel.current && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => place()) : null
+    // and follows its own size (a search narrowing its rows, Move to group folding open near the bottom)
+    const ro = panel.current && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => place()) : null
     if (ro && panel.current) ro.observe(panel.current.firstElementChild ?? panel.current)
     return () => {
       removeEventListener('resize', place)
       ro?.disconnect()
     }
   }, [layer, shape])
-  // comes in with its shape's motion, unless a key opened it; goes out the same way (a key closing it: at once)
+  // a key closing it (Esc, Enter on a row, Search's own Esc in App.tsx): gone at once, no exit. Before useMotion, so
+  // its cleanup runs first; set up again clears it (React's strict mode takes a part down and up in development)
+  useLayoutEffect(() => {
+    const el = wrap.current
+    el?.removeAttribute('data-gone')
+    return () => void (byKey() && el?.setAttribute('data-gone', ''))
+  }, [])
+  // comes in with its shape's motion, unless a key opened it; goes out the same way
   useMotion(wrap, MOTION[shape], !layer.byKey)
   // its name and role, then where focus starts: once it shows (a popover is hidden until it is placed)
   const shows = shape !== 'pop' || !!at
@@ -291,7 +299,11 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
     const box = panel.current
     if (!box || !shows || started.current) return
     started.current = true
-    if (kind === 'menu') box.setAttribute('role', box.querySelector('[role^="menuitem"]') ? 'menu' : 'dialog')
+    // a menu of anything but menu rows (Alerts, the reactions) is a dialog over the page, modal as its shade says
+    if (kind === 'menu' && !box.querySelector('[role^="menuitem"]')) {
+      box.setAttribute('role', 'dialog')
+      box.setAttribute('aria-modal', 'true')
+    }
     const title = kind === 'dialog' ? box.querySelector<HTMLElement>('h1, h2') : null
     if (title) {
       title.id ||= `layer-${layer.id}-title`
@@ -333,6 +345,7 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
       <div
         ref={panel}
         data-panel=""
+        data-kind={kind}
         tabIndex={-1}
         className={cx(cls, className)}
         role={kind === 'menu' ? 'menu' : 'dialog'}
@@ -344,7 +357,7 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
         {shape === 'sheet' && layer.title && <div className="shd">{layer.title}</div>}
         {children}
         {shape === 'sheet' && kind === 'menu' && layer.cancel && ios() && (
-          <button type="button" className="row scancel" onClick={done}>
+          <button type="button" className="row scancel" role="menuitem" onClick={done}>
             Cancel
           </button>
         )}

@@ -10,28 +10,28 @@
 /* the shade takes no scroll: the page behind never moves under a sheet or a dialog */
 .scrim{touch-action:none;overscroll-behavior:none}
 /* its own scroll stays inside; a quick second tap on a row is a tap, not a zoom */
-.pop,.dlg,.sheet{overscroll-behavior:contain;touch-action:manipulation}
+[data-panel]{overscroll-behavior:contain;touch-action:manipulation}
 /* the panel itself takes focus only to hold it (tabindex -1, layer-focus.ts): no ring on it; its rows and fields keep
    theirs (:focus-visible, ds.css) */
-.pop:focus,.dlg:focus,.sheet:focus{outline:0}
+[data-panel]:focus{outline:0}
 
 /* ---- a sheet: grabber, then an optional title, the content, the actions ---- */
 /* as tall as its content, up to the screen less the status bar; it scrolls inside itself */
-.sheet{position:absolute;top:auto!important;bottom:0;max-height:calc(100% - max(40px, env(safe-area-inset-top) + 16px));overflow-y:auto;-webkit-overflow-scrolling:touch;
+.sheet[data-panel]{position:absolute;top:auto!important;bottom:0;max-height:calc(100% - max(40px, env(safe-area-inset-top) + 16px));overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding-top:6px;padding-bottom:calc(12px + env(safe-area-inset-bottom));border-radius:16px 16px 0 0;box-shadow:0 -1px 0 var(--line2),0 -8px 28px rgb(0 0 0/.12)}
 /* the grabber: iOS's 36 × 5, a little room over it to take a finger */
-.sheet::before{width:36px;height:5px;margin:2px auto 10px;border-radius:3px}
+.sheet[data-panel]::before{width:36px;height:5px;margin:2px auto 10px;border-radius:3px}
 /* a form or a confirmation: its own padding, and the home bar's band under it too */
-.sheet.form{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.sheet[data-panel].form{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
 /* the keyboard covers the home bar: no band for it */
-.kb-up .sheet,.kb-up .sheet.form{padding-bottom:12px}
+.kb-up .sheet[data-panel]{padding-bottom:12px}
 /* its title: what the sheet is for, quiet, as an action sheet's */
 .sheet>.shd{padding:0 12px 6px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* a menu's rows: 52 px, a 20 px icon 16 px from its words (Material's list item, iOS's 44 pt and more) */
-.sheet .row[role^="menuitem"]{min-height:52px;gap:16px;padding:0 12px;border-radius:12px;color:var(--fg)}
-.sheet .row[role^="menuitem"] .i:not([class*="c-"]){color:var(--sub)}
-.sheet .row[role^="menuitem"].danger,.sheet .row[role^="menuitem"].danger .i{color:var(--red)}
-.sheet .row[role^="menuitem"]:active{background:var(--control)}
+.sheet[data-kind="menu"] .row{min-height:52px;gap:16px;padding:0 12px;border-radius:12px;color:var(--fg)}
+.sheet[data-kind="menu"] .row .i:not([class*="c-"]){color:var(--sub)}
+.sheet[data-kind="menu"] .row.danger,.sheet[data-kind="menu"] .row.danger .i{color:var(--red)}
+.sheet[data-kind="menu"] .row:active{background:var(--control)}
 .sheet>hr,.sheet>div>hr{margin:6px 12px}
 .sheet>.cap{padding:0 12px 6px}
 /* iOS: Cancel on its own, last, as an action sheet's */
@@ -42,11 +42,12 @@
 .sheet.form>.acts>.btn,.sheet>.pk>.acts>.btn{flex:1;height:var(--hit)}
 
 /* ---- a popover: grows out of its button (its transform-origin, overlay.tsx) ---- */
-.pop:not(.sheet){max-height:calc(100% - 16px);overflow-y:auto}
-.pop:not(.sheet):has(>.emo:only-child){overflow:visible}
+.pop[data-panel]:not(.sheet){max-height:calc(100% - 16px);overflow-y:auto}
+.pop[data-panel]:not(.sheet):has(>.emo:only-child){overflow:visible}
 
 /* ---- a dialog: in the middle, its own scroll ---- */
-.dlg{overflow-y:auto}
+/* centred by its margins, not a transform, so it grows and shrinks in place (motion.ts scales it) */
+.dlg[data-panel]{left:0;right:0;margin-inline:auto;transform:none;overflow-y:auto}
 
 /* in a ghost (motion.ts: the still copy that plays the exit), the panel keeps the place it had */
 [data-ghost] .ovl{position:absolute}
