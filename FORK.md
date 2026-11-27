@@ -89,7 +89,8 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - reverted (with the revert's pull request);
   - fixed upstream in `vX.Y.Z`, then dropped.
 
-  An issue with several fixes lists each pull request on its status line, with what became of it.
+  After it, in plain words: what the fix does and how to try it. An issue with several fixes lists each pull
+  request on its status line, with what became of it.
 - **Labels:**
   - `patch`: a change we carry.
   - `pipeline`: sync, trial and install.
@@ -139,8 +140,10 @@ whether it goes into theirs.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
   issue, so the person can keep it ours.
-- **Then the person decides, fix by fix.** Once our pull request is merged, its issue is labelled `not-filed`, and
-  nothing goes upstream until the person decides that fix:
+- **Then the person decides, fix by fix,** after trying it for a day or two. Every fix has its own issue here, and
+  its status line says in plain words what the fix does and how to try it. Once the fix is merged and live (the
+  install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
+  decides that fix:
   - **File it:** that is the yes, with no draft round. After a search upstream for a duplicate, we post one comment
     on their existing issue, or one new upstream issue, linking our pull request. `upstream-proposed`.
   - **Keep it ours:** `fork-only`. Nothing is posted.
@@ -149,7 +152,8 @@ whether it goes into theirs.
 
   What we post always says it is the author's to take as it is, do differently or drop. One comment per issue, ever,
   and never a second issue for the same problem.
-- **The person sees what waits.** The Assistant lists the `not-filed` fixes when asked, and once a day.
+- **The person sees what waits.** The Assistant lists the `not-filed` fixes when asked, and once a day, with a link
+  that opens exactly those issues on GitHub.
 - **Our pull request stays in our fork,** linked from upstream. No pull request on upstream unless the person asks
   for that one.
 - **When the author fixes it their own way,** the next sync drops our patch and keeps theirs.

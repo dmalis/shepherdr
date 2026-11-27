@@ -129,8 +129,18 @@ it found: report that, never a guess at why, and never repair `main` by force.
 
 ## 7. Finish and report
 
-1. After a healthy install: each issue in `fork/patches.json` at the candidate gets the status line "carried since
-   `<tag>`"; a `fixed-upstream` issue whose line the candidate no longer has is closed now.
+1. After a healthy install: each issue in `fork/patches.json` at the candidate gets "carried since `<tag>`" at the
+   start of its status line, in place of "building" or an older "carried since". The rest of the line stays as it
+   is: what the fix does and how to try it, what the person decided, upstream links, each pull request's part. A
+   `fixed-upstream` issue whose line the candidate no longer has is closed now.
+   - **The fixes this install made live land now** (upstream-issue skill: "After a fix lands"). They are our pull
+     requests merged since the last install's tag (`git log --merges --first-parent <last ours-* tag>..<candidate>`)
+     that change Shepherdr itself: not sync pull requests, and not ones that change only `FORK.md`, `fork/` or
+     `.agents/`.
+   - Each one's issue gets `not-filed`, unless it already has `fork-only`, `upstream-proposed` or `reverted` and no
+     pull request on its status line is "not filed yet".
+   - A fix whose pull request names no issue gets its own now (fork-patch skill, step 1), labelled `patch` and
+     `not-filed`, with the status line that skill's "Done means" gives. Comment its link on the pull request.
 2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.

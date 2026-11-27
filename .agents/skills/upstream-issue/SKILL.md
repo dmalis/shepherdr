@@ -52,40 +52,55 @@ Before ready, check the patch against every Shepherdr user, not just the person:
 
 ## After a fix lands
 
-When one of our pull requests for a fix merges on dmalis/shepherdr, its issue gets `not-filed`, and its status line
-says "carried since `ours-…`, not filed yet" once it is installed. Then it waits for the person. Their answer sets one
-label that describes the issue as a whole:
+The person tries each fix they use for a day or two, then decides. So every fix stays in sight on GitHub until then:
+- **Every fix has its own issue** on dmalis/shepherdr. A fix that lands without one gets one then (upstream-sync
+  skill, step 7).
+- **Its status line says in plain words what the fix does and how to try it** (fork-patch skill: "Done means").
+- **It stays open with `not-filed` until the person decides.** Merging never closes it: pull requests say
+  `Part of #n`, never `Closes`.
+
+A fix lands when it is merged and live: the first healthy install that carries it (upstream-sync skill, step 7).
+That install labels its issue `not-filed` and its status line starts "carried since `ours-…`". Then it waits for the
+person. Their answer for that fix sets the label:
 
 | They say | Do | Label |
 |---|---|---|
 | Nothing yet | Nothing. It stays on the not-filed list | `not-filed` |
-| File it | "Filing a fix", below. Their "file it" is the yes: no draft round | `upstream-proposed` |
+| File it | "Filing a fix", below. Their "file it" is the yes: no draft round | `upstream-proposed`, once it is posted |
 | Keep it ours | Post nothing. Status line: "fork-only", with their reason if they gave one | `fork-only` |
-| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its `fork/patches.json` line. Status line: "reverting in #m". Once it has merged and the install step installed it healthily: the label, status line "reverted in #m", and close the issue | `reverted` |
+| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its part of the `fork/patches.json` line. Status line: "reverting in #m". Once it has merged and the install step installed it healthily: the label, status line "reverted in #m", and close the issue | `reverted` |
 
-- Swap the labels in one call: `gh issue edit <n> -R dmalis/shepherdr --add-label <label> --remove-label not-filed`.
-  For a revert, `not-filed` stays until `reverted` goes on.
+- Swap the labels in one call: `gh issue edit <n> -R dmalis/shepherdr --add-label <label> --remove-label not-filed`,
+  unless another fix on the issue still waits (below). For a revert, `not-filed` stays until `reverted` goes on.
 - Upstream links already on the issue stay as history. Edit the status line; never delete an upstream link.
 - **Several fixes on one issue:** the status line lists each pull request with what became of it, e.g. "#8: proposed
-  upstream as upstream issue 1648; #30: not filed yet". While one of them waits, `not-filed` is on the issue beside
-  the earlier label. Once all are decided, the issue keeps one label: `upstream-proposed` if any fix we still carry
-  was filed, else `fork-only`; `reverted` only when every fix was undone.
+  upstream as upstream issue 1648; #30: not filed yet". A decision changes only that pull request's part of the line.
+  - While any of them is "not filed yet", `not-filed` stays on the issue, beside the label of the ones decided.
+  - Once none waits, the issue keeps one label for the whole: `upstream-proposed` if any fix we still carry was filed,
+    else `fork-only`. A new fix on a decided issue puts "#m: not filed yet" on its status line before its pull
+    request merges, so its install labels the issue `not-filed` again.
+  - Undoing one of them reverts only that pull request; its files leave the `fork/patches.json` line, which stays
+    while any fix is carried. `reverted`, and closing the issue, only once every fix was undone.
 - **The author declines a filed fix:** the label stays `upstream-proposed`, and the status line says "declined
   upstream: <link>", with the author's reason. Our patch stays.
 
 ## The not-filed list
 
-The Assistant gives it when the person asks which fixes aren't filed, and once a day from the schedule "Not-filed
-fixes".
-1. **Find them:** `gh issue list -R dmalis/shepherdr --label not-filed --json number,title,body`. Read each one's
-   status line for its pull requests; an issue with several fixes may have only one still waiting.
-2. **One line per fix, named by what it does** in plain words, its issue's number after it: "A settings notice no
-   longer ends the Assistant's work mid-turn (#7)". Add a few words when they help the decision: upstream already
-   has an issue for it, it can't fit everyone (keep it ours), or it is being reverted.
-3. **Ask, fix by fix:** with the question tool, one question per fix (up to four at a time): "File it upstream",
-   "Keep it ours", "Undo it", "Not yet". Then do what "After a fix lands" says for each answer. "Not yet" changes
-   nothing.
-4. **Nothing waits:** when asked, say so in one line. The daily run posts nothing.
+The person gets it when they ask which fixes aren't filed, and once a day from a schedule the Assistant set up.
+1. **Find them:** `gh issue list -R dmalis/shepherdr --label not-filed --limit 200 --json number,title,body`. Read
+   each one's status line for its pull requests; an issue with several fixes may have only one still waiting.
+2. **One line per fix, named by what it does** in plain words, then how to try it (from its status line), its
+   issue's number last: "A settings notice no longer ends the Assistant's work mid-turn; try it: change a setting
+   while it works (#7)". Add a few words when they help the decision: upstream already has an issue for it, it
+   can't fit everyone (keep it ours), or it is being reverted.
+3. **End with the link** that opens exactly those issues on GitHub:
+   https://github.com/dmalis/shepherdr/issues?q=is%3Aissue+is%3Aopen+label%3Anot-filed
+4. **When the person asked:** the Assistant gives the list, then asks with the question tool, one question per fix
+   (up to four at a time): "File it upstream", "Keep it ours", "Undo it", "Not yet". It does what "After a fix
+   lands" says for each answer. "Not yet" changes nothing. Nothing waits: say so in one line.
+5. **The daily run** is a task of its own: it changes nothing and asks nothing. It ends with
+   `ready --told "<the list and the link, then: say file it, keep it ours or undo it for any of them>"`, or
+   `ready --nothing` when none waits. The Assistant tells the person those words, and their answer comes to the Assistant like any message.
 
 ## Filing a fix
 
@@ -99,16 +114,19 @@ Only for a fix the person said to file. Never post upstream without their yes fo
    |---|---|
    | The person's issue, open or closed (any reason) | One comment on it, linking our pull request |
    | Someone else's open issue for the same problem | One comment on it, linking our pull request |
-   | Someone else's request that the author declined | Nothing: the author has decided. Tell the person, and keep it ours unless they say otherwise |
+   | Someone else's request that the author declined | Nothing: the author has decided |
    | Nothing | One new issue, linking our pull request |
 
 3. **Post at most once.** Read the issue's comments first: `gh issue view <n> -R eliasstravik/shepherdr --comments`.
-   If one of ours already links a dmalis/shepherdr pull request, post nothing. One comment per issue, ever, and one
-   issue per problem, ever.
+   One comment per issue, ever, and one issue per problem, ever.
+   - One of ours already links this fix's pull request: post nothing; it is already filed (step 6).
+   - One of ours links another pull request, or the table above says nothing: post nothing, and tell the person why
+     it can't be filed. The fix stays `not-filed` for them to keep it ours or undo it.
 4. **Write it** ("How to write one").
 5. **Post it:** `gh issue comment <n> -R eliasstravik/shepherdr --body-file <file>`, or for a new issue
    `gh issue create -R eliasstravik/shepherdr --title "<title>" --body-file <file>`.
-6. **Record it on our issue:** label it `upstream-proposed`, remove `not-filed`, and set its status line to
+6. **Record it on our issue,** only once a post links this fix's pull request (step 5's, or the one found in step
+   3): label it `upstream-proposed`, remove `not-filed` unless another fix still waits, and set the fix's status to
    "proposed upstream: <link>".
 
 Our pull request stays in our fork. Never open a pull request on upstream unless the person asks for that one.
