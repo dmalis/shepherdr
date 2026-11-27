@@ -14,6 +14,9 @@ export function suggestionOf(chat: Chat | undefined, on: boolean): { id: string;
   if (!on || !chat) return null
   for (let i = chat.messages.length - 1; i >= 0; i--) {
     const m = chat.messages[i]!
+    // dmalis/shepherdr#51: never from before a "New session" line (that session's agent is gone; a tapped one couldn't
+    // quote its message)
+    if (m.newSession && !m.text) return null
     if (!m.text || m.relay || m.brief?.from) continue
     if (m.who === 'you' || m.error) return null
     const texts = suggestsOfMessage(m)

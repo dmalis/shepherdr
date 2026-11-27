@@ -131,13 +131,14 @@ async function deliver(cid: string, pending: Promise<string>[]) {
 }
 
 /** Send what a box holds: its words, its files and the message it replies to. `hold`: the agent is working, so it
- *  waits its turn and is delivered when the agent is free. */
-export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble') {
+ *  waits its turn and is delivered when the agent is free. `quote`: what a message sent alone replies to (a tapped
+ *  suggested reply: the message it came with, dmalis/shepherdr#51). */
+export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble', quote?: ReplyQuote & { id: string }) {
   const s = getState()
   // one that failed to go up stays out of it (its tile said so). Alone (a suggested reply tapped): only the text, the
   // box's files and quoted reply stay where they are for the draft
   const boxed = alone ? [] : (s.ui.files[key] ?? []).filter((f) => !f.failed)
-  const reply = alone ? undefined : (s.ui.reply[key] as (ReplyQuote & { id: string }) | undefined)
+  const reply = alone ? quote : (s.ui.reply[key] as (ReplyQuote & { id: string }) | undefined)
   if (!text.trim() && !boxed.length) return
   const cid = newCid()
   const pending = boxed.map((f) => (f.path ? Promise.resolve(f.path) : (uploads.get(f.id ?? '') ?? Promise.reject(new Error('The file is gone.')))))

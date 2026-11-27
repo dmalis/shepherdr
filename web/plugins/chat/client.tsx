@@ -34,6 +34,7 @@ import { fineOnly, touch } from './clip.ts'
 import { landLaunchShare, putAway, useLanded, watchLastChat } from './share.ts'
 import { openSendTo } from './sendto.tsx'
 import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './suggest.ts'
+import { bubbleQuote, ReplyingTo } from './reply-bubbles.tsx'
 import { UpdateHint, updateRows } from './update.tsx'
 import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
@@ -1169,7 +1170,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const sendSug = (t: string) => {
     if (!sug || (getState().ui.call && !TEXT_IN_CALL)) return
     spent.add(sug.id)
-    send(key, key, t, false, true)
+    // dmalis/shepherdr#51: a reply to the message the bubble came with
+    send(key, key, t, false, true, undefined, bubbleQuote(chat, sug.id))
   }
   /** a suggested reply held: written into the box to edit, the box focused at its end */
   const editSug = (t: string) => {
@@ -1193,6 +1195,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     <>
     <Jobs chat={chat} />
     <Held thread={thread} />
+    {sug && <ReplyingTo chat={chat} id={sug.id} />}
     {sug && <Replies texts={sug.texts} onSend={sendSug} onEdit={editSug} />}
     <div
       className="cbox"

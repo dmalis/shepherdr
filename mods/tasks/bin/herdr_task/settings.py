@@ -800,7 +800,7 @@ def task_settings(s, t, space=None, argv=None, live=False):
                        **({"speed": speed} if speed else {})}, a_by)
     # Suggested replies (SHEP-186): the reply ends with one to three replies the person would likely send next (templates/worker.md)
     sug = (cfg.get("agents") or {}).get("suggestions") is not False
-    add("Suggested replies", "on (your reply ends with one to three replies the person would likely send next, or one per option, up to five, when it asks a question with options; each at most 30 characters; shown as bubbles to tap)" if sug
+    add("Suggested replies", "on (your reply ends with one to three replies the person would likely send next, or one per option, up to five, when it asks a question with options; each at most 30 characters, makes sense alone and names what it is about; shown as bubbles to tap, a tapped one sent as a reply to that message)" if sug
         else "off (no suggested replies)", sug, by_layer(s, space, "agents", "suggestions", sug, True))
     return lines
 

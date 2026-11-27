@@ -142,7 +142,11 @@ function action(a: Record<string, any>): unknown {
     const paths: string[] = Array.isArray(a.attachments) ? a.attachments.filter(Boolean) : []
     // a reply to a task quotes it (its title; the page shows its state)
     const quoted = typeof a.replyTask === 'string' ? taskOf(a.replyTask) : undefined
-    if (!paths.length) say(a.chat, { who: 'you', text: a.text, cid: a.cid, ...(quoted ? { reply: { text: quoted.name, task: quoted.id } } : {}) })
+    // a reply to a message quotes its first words, as the service's log gives it back (dmalis/shepherdr#51: a tapped
+    // suggested reply is one)
+    const to = typeof a.reply === 'string' ? chats[a.chat]?.messages.find((m) => m.id === a.reply) : undefined
+    const msgQuote = to?.text ? { id: to.id, who: to.who, text: to.text.replace(/[`*_#>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) } : undefined
+    if (!paths.length) say(a.chat, { who: 'you', text: a.text, cid: a.cid, ...(quoted ? { reply: { text: quoted.name, task: quoted.id } } : msgQuote ? { reply: msgQuote } : {}) })
     else setTimeout(() => {
       const id = `n${++n}`
       const at = Date.now()

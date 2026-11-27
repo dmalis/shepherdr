@@ -1,0 +1,24 @@
+{
+  "issue": 51,
+  "name": "reply bubbles show their message",
+  "files": [
+    "web/plugins/chat/reply-bubbles.tsx",
+    "web/plugins/chat/reply-bubbles.css",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/suggest.ts",
+    "web/src/send.ts",
+    "service/actions.ts",
+    "templates/assistant.md",
+    "templates/worker.md",
+    "mods/tasks/bin/herdr_task/settings.py",
+    "mods/tasks/bin/herdr_task/assistant_settings.py",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "web/plugins/voice/box.test.tsx"
+  ],
+  "tests": [
+    "fork/tests/test_reply_bubbles.py",
+    "web/plugins/chat/reply-bubbles.test.tsx",
+    "service/reply-bubbles.test.ts"
+  ]
+}
