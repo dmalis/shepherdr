@@ -40,6 +40,7 @@ import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
 import { imagesLine, lostLine, useLost } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
 import { BoxLabel } from './box-label.tsx'
+import { folderRows } from './folder-row.tsx'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
 import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.ts'
@@ -1393,6 +1394,8 @@ export default definePlugin({
     // Restart and End (restart.tsx): a way out for a running, even stuck, agent, beside Update in the chat's menu
     reg.spaceMenu.push({ order: 8, rows: (p, head) => (head ? [...restartRows(p.chat), ...endRows(p)] : []) })
     reg.taskMenu.push({ order: 8, rows: (t, where) => (where === 'thread' ? restartRows(taskChat(t)) : []) })
+    // fork #105: a phone's header has no folder; its space's menu has it
+    reg.spaceMenu.push({ order: 30, rows: (p, head) => (head ? folderRows(p) : []) })
   },
 })
 
