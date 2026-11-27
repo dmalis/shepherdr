@@ -11,7 +11,8 @@ It covers every problem the person filed upstream (open, or closed without a fix
 1. **Shape it** (shaping-a-request skill).
 2. **Fix it here** as a patch (fork-patch skill), built for every Shepherdr user (below). Skip this only when
    upstream's own release already fixes it; see "A fix upstream already has".
-3. **Mark it as not filed** once our pull request is merged ("After a fix lands"). Nothing goes upstream yet.
+3. **Mark it as not filed** once our pull request is merged and installed ("After a fix lands"). Nothing goes
+   upstream yet.
 4. **The person decides:** file it, keep it ours, or undo it. They see what waits in the not-filed list ("The
    not-filed list").
 5. **If they file it, the author decides:** take it as it is, do it differently, or drop it. Our Shepherdr already
@@ -53,8 +54,8 @@ Before ready, check the patch against every Shepherdr user, not just the person:
 ## After a fix lands
 
 The person tries each fix they use for a day or two, then decides. So every fix stays in sight on GitHub until then:
-- **Every fix has its own issue** on dmalis/shepherdr. A fix that lands without one gets one then (upstream-sync
-  skill, step 7).
+- **Every fix has its own issue** on dmalis/shepherdr. A new fix for a problem an earlier fix already covers gets
+  a new issue that links the earlier one. A fix that lands without one gets one then (upstream-sync skill, step 7).
 - **Its status line says in plain words what the fix does and how to try it** (fork-patch skill: "Done means").
 - **It stays open with `not-filed` until the person decides.** Merging never closes it: pull requests say
   `Part of #n`, never `Closes`.
@@ -68,19 +69,21 @@ person. Their answer for that fix sets the label:
 | Nothing yet | Nothing. It stays on the not-filed list | `not-filed` |
 | File it | "Filing a fix", below. Their "file it" is the yes: no draft round | `upstream-proposed`, once it is posted |
 | Keep it ours | Post nothing. Status line: "fork-only", with their reason if they gave one | `fork-only` |
-| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its part of the `fork/patches.json` line. Status line: "reverting in #m". Once it has merged and the install step installed it healthily: the label, status line "reverted in #m", and close the issue | `reverted` |
+| Undo it | A revert pull request (`Part of #n`) that undoes the fix and its part of the `fork/patches.json` line. Status line: "reverting in #m". The healthy install that carries the revert (upstream-sync skill, step 7) makes it "reverted in #m", puts the label on and closes the issue | `reverted` |
 
-- Swap the labels in one call: `gh issue edit <n> -R dmalis/shepherdr --add-label <label> --remove-label not-filed`,
-  unless another fix on the issue still waits (below). For a revert, `not-filed` stays until `reverted` goes on.
+- Swap the labels in one call: `gh issue edit <n> -R dmalis/shepherdr --add-label <label> --remove-label not-filed`.
+  For a revert, `not-filed` stays until `reverted` goes on.
 - Upstream links already on the issue stay as history. Edit the status line; never delete an upstream link.
-- **Several fixes on one issue:** the status line lists each pull request with what became of it, e.g. "#8: proposed
-  upstream as upstream issue 1648; #30: not filed yet". A decision changes only that pull request's part of the line.
-  - While any of them is "not filed yet", `not-filed` stays on the issue, beside the label of the ones decided.
-  - Once none waits, the issue keeps one label for the whole: `upstream-proposed` if any fix we still carry was filed,
-    else `fork-only`. A new fix on a decided issue puts "#m: not filed yet" on its status line before its pull
-    request merges, so its install labels the issue `not-filed` again.
-  - Undoing one of them reverts only that pull request; its files leave the `fork/patches.json` line, which stays
-    while any fix is carried. `reverted`, and closing the issue, only once every fix was undone.
+- **Several fixes on one issue** (older issues; a new fix gets its own): the status line lists each pull request
+  with what became of it, e.g. "#8: proposed upstream as upstream issue 1648; #30: not filed yet". A decision or an
+  install changes only that pull request's part. A part is "building" until its own install, so a fix is never
+  offered before the person can try it.
+  - **Set the labels from all the parts** after every change, never from the last action, removing any label that
+    no longer fits: `not-filed` while any part is "not filed yet" or "reverting"; beside it, one label for the
+    issue as a whole: `upstream-proposed` if any fix we still carry was filed (proposed or declined upstream), else
+    `fork-only` if any carried fix is kept ours, else none; `reverted`, alone, only once every fix was undone.
+  - **Undoing one of them** reverts only that pull request. The `fork/patches.json` line keeps every path and test
+    another carried fix still needs. The issue closes only once every fix was undone.
 - **The author declines a filed fix:** the label stays `upstream-proposed`, and the status line says "declined
   upstream: <link>", with the author's reason. Our patch stays.
 
@@ -187,7 +190,7 @@ Look at `git log upstream/main` first.
   - Don't ask the person whether to build it: the standing rule covers every decline.
   - Let the author's reasons shape how it's built (shaping-a-request).
   - Our issue's status line says "declined upstream: <link>", with the author's reason.
-  - Once ours is merged, it is `not-filed` like any other fix. If the person says file it, the one comment linking
+  - Once ours is merged and installed, it is `not-filed` like any other fix. If the person says file it, the one comment linking
     it ("Filing a fix") is the only post.
   - Ask the person only when the current release already meets the need fully and there is nothing to build. Show
     them how to use what upstream has.
