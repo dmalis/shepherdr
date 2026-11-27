@@ -10,10 +10,10 @@ const snap = { host: 'mini', everything: 'ev', places: [{ id: 'ev', machine: 'mi
 const html = (p: Partial<Space>) => renderToStaticMarkup(<HeaderPath snap={snap} place={{ name: 'x', chat: 'c', ...p } as Space} />)
 const css = readFileSync(new URL('./ds.css', import.meta.url), 'utf8')
 
-test('a named space: its path, cut from its start, no machine here', () => {
+test('a named space: its path, cut in its middle (fork #105), no machine here', () => {
   const h = html({ id: 'docs', machine: 'mini', where: '~/dev/clients/northwind/docs', folder: '/Users/sam/dev/clients/northwind/docs' })
   expect(h).toContain('class="hpath"')
-  expect(h).toContain('<span class="hp cut"><bdi>~/dev/clients/northwind/docs</bdi></span>')
+  expect(h).toContain('<span class="hp cut"><span class="hpl">~/dev/clients/northwind</span><span class="hpn">/docs</span></span>')
   expect(h).not.toContain('class="hm"')
   expect(h).toContain('aria-label="Folder: /Users/sam/dev/clients/northwind/docs"')
 })
