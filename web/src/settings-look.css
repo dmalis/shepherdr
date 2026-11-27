@@ -19,14 +19,13 @@
    :where() so that a wrapped row's own .srow (below) and the row rules after them win over them. */
 .win .pg .srow{position:relative;gap:12px;padding:8px 16px}
 .win .pg .kset{padding:0 16px}
-.win .pg .about-in{padding:0 16px 12px}
-.win .pg :where(.srow,.kset,.about-in){border:1px solid var(--line2);border-block-width:0;border-radius:0;background-color:var(--grp)}
-.win .pg :where(.srow,.kset,.about-in):where(:not(:is(.srow,.kset,.about-in)+*)){border-top-width:1px;border-top-left-radius:12px;border-top-right-radius:12px}
-.win .pg :where(.srow,.kset,.about-in)+:where(.srow,.kset){background-image:linear-gradient(var(--line),var(--line));background-size:calc(100% - 16px) 1px;background-position:right top;background-repeat:no-repeat}
-.win .pg :where(.srow,.kset,.about-in):where(:not(:has(+:is(.srow,.kset,.about-in)))){border-bottom-width:1px;border-bottom-left-radius:12px;border-bottom-right-radius:12px;margin-bottom:12px}
+.win .pg :where(.srow,.kset){border:1px solid var(--line2);border-block-width:0;border-radius:0;background-color:var(--grp)}
+.win .pg :where(.srow,.kset):where(:not(:is(.srow,.kset)+*)){border-top-width:1px;border-top-left-radius:12px;border-top-right-radius:12px}
+.win .pg :where(.srow,.kset)+:where(.srow,.kset){background-image:linear-gradient(var(--line),var(--line));background-size:calc(100% - 16px) 1px;background-position:right top;background-repeat:no-repeat}
+.win .pg :where(.srow,.kset):where(:not(:has(+:is(.srow,.kset)))){border-bottom-width:1px;border-bottom-left-radius:12px;border-bottom-right-radius:12px;margin-bottom:12px}
 .win .pg .kset>.srow{padding-inline:0;border:0;border-radius:0;background:none;margin:0}
 /* a group after something that is not a title or words (a picker, a banner) stands a little apart from it */
-.win .pg :where(:not(h3,.hint,.ptl,.srow,.kset,.about-in))+:where(.srow,.kset,.about-in){margin-top:12px}
+.win .pg :where(:not(h3,.hint,.ptl,.srow,.kset))+:where(.srow,.kset){margin-top:12px}
 /* the label takes the room; the control keeps its own width, a value's words may shrink */
 .win .pg .srow .n,.win .pg .srow.wrap .n{flex:1 1 6em;min-width:0}
 /* where even that can't fit (a 320 px phone at 200% zoom), the controls go under the label on the right rather than
