@@ -3,8 +3,8 @@
 // only Agents, Tasks and Secrets, and every row there carries small print under its value: "Same as
 // Everything", or "Set here" with a Reset button beside it. A row is a label and a control: no hint lines under one.
 import { useState, type ReactNode } from 'react'
-import { choose, TELL, turnOn, useDeviceAlerts, WHY, type Tell } from '@plugins/alerts/device.ts'
-import { DeviceCheck } from '@plugins/inbox/device-check.tsx'
+import { NotificationsPage } from '@plugins/alerts/page.tsx'
+import { SpaceAlertsRow } from '@plugins/alerts/space.tsx'
 import type { Config, LevelConfig, RepoConfig, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, machineLabel, machineWarn, placeOf, spaceLabel, unreachable } from '@shared/view.ts'
 import { copyText } from './copy.ts'
@@ -163,34 +163,8 @@ function SpaceRepos({ snap, place }: { snap: Snapshot; place: string }) {
   )
 }
 
-function Notifications() {
-  const { now, read } = useDeviceAlerts()
-  const run = async (f: () => Promise<string | void>) => {
-    try {
-      const said = await f()
-      if (said) notice(said)
-    } catch (e) {
-      notice(e instanceof Error ? e.message : 'That did not work. Try again.', { tone: 'error' })
-    }
-    await read()
-  }
-  const why = now && WHY[now.state]
-  return (
-    <>
-      {now && now.state !== 'on' && (
-        <div className="banner" style={{ margin: '0 0 4px' }}>
-          <I n="bell" />
-          <span className="n">{why ?? "Alerts aren't on in this browser yet"}</span>
-          {now.state === 'off' && <Btn small onClick={() => void run(() => turnOn(now.tell === 'Off' ? 'Needs me' : now.tell))}>Turn on</Btn>}
-        </div>
-      )}
-      <SRow label="Alerts on this device" wrap>
-        <Seg<Tell> label="Alerts on this device" values={TELL} value={now?.tell ?? 'Needs me'} onChange={(v) => now && void run(() => choose(v, now))} />
-      </SRow>
-      <DeviceCheck now={now} reread={read} />
-    </>
-  )
-}
+// fork Needs you 3/6: the page is the alerts plugin's (web/plugins/alerts/page.tsx)
+const Notifications = NotificationsPage
 
 function Agents({ snap, place, only }: { snap: Snapshot; place: string; only?: Role[] }) {
   const c = snap.config!
@@ -507,7 +481,8 @@ function Section({ snap, place, sec }: { snap: Snapshot; place: string; sec: str
   if (!snap.config) return null
   if (sec === 'General') return <><Appearance /><h3>Everything</h3><IconRow snap={snap} id={everything(snap)?.id ?? ''} /></>
   if (sec === 'Notifications') return <Notifications />
-  if (sec === 'Space') return <IconRow snap={snap} id={place} />
+  // fork Needs you 3/6: Space alerts under the icon
+  if (sec === 'Space') return <><IconRow snap={snap} id={place} /><SpaceAlertsRow snap={snap} place={place} /></>
   // a space's Agents: its own Assistant only (its tasks' agents are its repos', SHEP-335)
   if (sec === 'Agents') return <Agents snap={snap} place={place} only={place === 'all' ? undefined : ['Chats']} />
   if (sec === 'Tasks') return <Tasks snap={snap} place={place} />

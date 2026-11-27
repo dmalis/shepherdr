@@ -1,14 +1,15 @@
-// Alerts on this device: one choice and nothing else (Needs me / Everything / Off). What this phone or browser really
-// has comes from the subscription the browser holds and the server's list, so it never says Off for a device that is
-// on. "Everything" adds finished tasks. Tapping an alert opens its task.
+// Alerts on this device (fork Needs you 3/6: one Notifications page): Needs you (the default: only what you must do),
+// Needs you and done, or Off. The words and levels are web/shared/reach.ts's. What this phone or browser really has
+// comes from the subscription the browser holds and the server's list, so it never says Off for a device that is on.
+// Tapping an alert opens its task.
 import { useEffect, useState } from 'react'
 import { setPushEndpoint } from '@client/kernel.ts'
 import { deviceState, type DeviceState, type PushTopic } from '@shared/alerts.ts'
+import { DEFAULT_LEVEL, levelOf, OFF, REACH, topicsOf, type Level, type Reach } from '@shared/reach.ts'
 import { registerWorker } from './worker.ts'
 
-export const TELL = ['Needs me', 'Everything', 'Off'] as const
-export type Tell = (typeof TELL)[number]
-const TOPICS: Record<Exclude<Tell, 'Off'>, PushTopic[]> = { 'Needs me': ['needs', 'ready'], Everything: ['needs', 'ready', 'done'] }
+export const TELL = REACH
+export type Tell = Reach
 
 type Server = { on: boolean; topics: PushTopic[]; muted: string[]; devices: number; removed?: true }
 
@@ -43,23 +44,36 @@ export async function readNow(): Promise<DeviceNow> {
   if (sub && permission === 'granted') {
     server = await post('state', { endpoint: sub.endpoint }).catch(() => null)
     // fork #96: one removed from another device's list stays off here, with its usual Turn on
-    if (server?.removed) want('Off')
+    if (server?.removed) want(OFF)
     else if (server && !server.on) server = await post('subscribe', { sub, device: navigator.userAgent }).catch(() => server)
   }
   const state = deviceState({ push: pushable(), ios: ios(), standalone: standalone(), permission, subscribed: !!sub && !!server?.on })
-  const tell: Tell = state !== 'on' ? (wanted() ?? 'Needs me') : server?.topics.includes('done') ? 'Everything' : 'Needs me'
-  return { state, endpoint: sub?.endpoint ?? null, tell: state === 'on' || wanted() !== 'Off' ? tell : 'Off' }
+  const on = state === 'on' && !!server
+  const level: Level = (on && levelOf(server!.topics)) || levelWanted()
+  if (on) want(level)
+  return { state, endpoint: sub?.endpoint ?? null, tell: on || wanted() !== OFF ? level : OFF }
 }
 
-/** the choice made before alerts were turned on in this browser, kept until they are */
-const KEY = 'shepherdr.tell'
-function wanted(): Tell | null {
+/* the choice made on this device, kept until alerts are on. 'shepherdr.tell' held the page's choice before (Needs me,
+   Everything, Off): Needs me is Needs you now, and Everything (which added done tasks) Needs you and done */
+const KEY = 'shepherdr.reach'
+const OLD = 'shepherdr.tell'
+const get = (k: string) => {
   try {
-    const v = localStorage.getItem(KEY) as Tell | null
-    return v && TELL.includes(v) ? v : null
+    return localStorage.getItem(k)
   } catch {
     return null
   }
+}
+/** an older pick, as the choices now name it */
+export const fromOld = (v: string | null): Tell | null => (v === 'Everything' ? 'Needs you and done' : v === 'Needs me' ? 'Needs you' : v === OFF ? OFF : null)
+export function wanted(): Tell | null {
+  const v = get(KEY) as Tell | null
+  return v && REACH.includes(v) ? v : fromOld(get(OLD))
+}
+const levelWanted = (): Level => {
+  const v = wanted()
+  return v && v !== OFF ? v : DEFAULT_LEVEL
 }
 function want(v: Tell) {
   try {
@@ -70,22 +84,26 @@ function want(v: Tell) {
 }
 
 /** turn alerts on in this browser: it asks the device, then subscribes with the choice made */
-export async function turnOn(tell: Exclude<Tell, 'Off'> = 'Needs me'): Promise<string | void> {
+export async function turnOn(tell: Level = levelWanted()): Promise<string | void> {
   const reg = await registerWorker()
   if ((await Notification.requestPermission()) !== 'granted') return 'Alerts were not allowed on this device.'
   const { key } = (await fetch('api/push/key').then((r) => r.json())) as { key: string }
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }))
   // turnOn (fork #96): asked for here, so a device removed from another one's list is on again
   await post('subscribe', { sub, device: navigator.userAgent, turnOn: true })
-  await post('choose', { endpoint: sub.endpoint, topics: TOPICS[tell], muted: [], all: false })
+  await post('level', { level: tell }).catch(() => undefined)
+  // the spaces it mutes stay as they were: the server keeps them
+  await post('choose', { endpoint: sub.endpoint, topics: topicsOf(tell), all: false })
   setPushEndpoint(sub.endpoint)
   want(tell)
 }
 
-/** the one choice: Needs me, Everything (adds finished tasks) or Off */
+/** what reaches this device: one of the levels, or Off */
 export async function choose(tell: Tell, now: DeviceNow): Promise<string | void> {
   want(tell)
-  if (tell === 'Off') {
+  // the service keeps it for this device too, so its phone app follows it without a subscription here
+  await post('level', { level: tell }).catch(() => undefined)
+  if (tell === OFF) {
     const sub = await browserSub()
     if (sub) {
       await post('unsubscribe', { endpoint: sub.endpoint })
@@ -94,7 +112,7 @@ export async function choose(tell: Tell, now: DeviceNow): Promise<string | void>
     return setPushEndpoint(null)
   }
   if (now.state !== 'on') return now.state === 'off' ? turnOn(tell) : undefined
-  await post('choose', { endpoint: now.endpoint, topics: TOPICS[tell], muted: [], all: false })
+  await post('choose', { endpoint: now.endpoint, topics: topicsOf(tell), all: false })
 }
 
 /** why alerts can't be on here, when they can't */
@@ -106,7 +124,7 @@ export const WHY: Partial<Record<DeviceState, string>> = {
 
 export function useDeviceAlerts() {
   const [now, setNow] = useState<DeviceNow | null>(null)
-  const read = () => readNow().then(setNow).catch(() => setNow({ state: 'off', endpoint: null, tell: 'Needs me' }))
+  const read = () => readNow().then(setNow).catch(() => setNow({ state: 'off', endpoint: null, tell: levelWanted() }))
   useEffect(() => {
     void read()
     // back from the phone's settings (allowed there): read again

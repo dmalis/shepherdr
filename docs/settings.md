@@ -7,7 +7,7 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 | Section | What is in it |
 |---|---|
 | General | Theme (a picture of each), Text and zoom (a sample of the chat; Zoom, the whole app, 67%–200%, ⌘= ⌘− ⌘0; Chat text size: Small, Default, Large, Larger, the messages only), Layout (Chat width, Sides), Behaviour (Motion, Keep the screen on). Kept in that browser. Then the Everything space's icon |
-| Notifications | "Alerts on this device": Needs me, Everything or Off. This device's check (permission, subscription, a test alert) and the devices that get alerts |
+| Notifications | "Alerts on this device": Needs you (the default: a question, a permission, a review to approve), Needs you and done (a done task too) or Off. A new message in a chat and a machine's or a schedule's warning never buzz: the bell keeps them. Then the bell, this device's check (permission, subscription, a test alert) and the devices that get alerts |
 | Agents | What Chats, Tasks and Reviews run on. Each row opens the picker with Agent, Model, Effort, Speed and Permissions |
 | Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |
@@ -65,6 +65,10 @@ Its Tasks page lists the repos its tasks work in, each opening that repo's setti
 Repo settings in its menu too.
 
 A secret added there is for that space only.
+
+Space alerts (its Space page, and Mute alerts or Unmute alerts in its menu): On, the default, or Muted. Muted keeps its
+chat's alerts in the bell and its row from turning bold; its tasks still alert. It is kept as `"alerts": "muted"` in
+`spaces[<space id>]`, and Reset (or Unmute alerts) puts it back to Everything's.
 
 How agents should work is not a setting: they read the repo's or folder's `AGENTS.md` (or `CLAUDE.md`) and their own
 global file, as they do anywhere. The Instructions setting older versions had is gone; the update kept what you wrote

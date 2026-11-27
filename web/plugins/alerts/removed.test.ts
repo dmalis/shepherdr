@@ -41,18 +41,18 @@ afterAll(() => {
 })
 
 test('a device removed elsewhere shows alerts off here and does not sign itself up again', async () => {
-  store.set('shepherdr.tell', 'Needs me')
+  store.set('shepherdr.reach', 'Needs you')
   posts = []
   server = { on: false, topics: ['needs', 'ready'], muted: [], devices: 2, removed: true }
   const now = await readNow()
   expect(posts.map((p) => p.path)).toEqual(['state'])
   expect(now).toEqual({ state: 'off', endpoint: 'https://push.example.test/old-laptop', tell: 'Off' })
-  // its Turn on (Settings' banner) turns on Needs me, as for any device that is off
-  expect(store.get('shepherdr.tell')).toBe('Off')
+  // its Turn on (Settings' banner) turns on Needs you, as for any device that is off
+  expect(store.get('shepherdr.reach')).toBe('Off')
 })
 
 test('one the server lost for another reason is still given back, as before', async () => {
-  store.set('shepherdr.tell', 'Needs me')
+  store.set('shepherdr.reach', 'Needs you')
   posts = []
   server = { on: false, topics: ['needs', 'ready'], muted: [], devices: 2 }
   const now = await readNow()

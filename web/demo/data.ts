@@ -147,7 +147,9 @@ const cc = (model: string, effort: string) => ({ agent: 'claude', model, effort,
 const ccf = (model: string, effort: string) => ({ ...cc(model, effort), fast: true as const })
 export const config: Config = {
   all: { agents: { Chats: cc('sonnet', 'medium'), Tasks: ccf('opus', 'high'), Reviews: { agent: 'codex', model: 'gpt-6.2-sol', effort: 'high', fast: false, perm: null } }, review: false, merge: 'done', proof: true },
-  spaces: { [P.shop]: { agents: { Chats: cc('fable', 'high'), Tasks: ccf('opus', 'high'), Reviews: { agent: 'codex', model: 'gpt-6.2-sol', effort: 'high', fast: false, perm: null } }, review: false, merge: 'done', proof: true, own: ['agents.Chats'] } },
+  spaces: { [P.shop]: { agents: { Chats: cc('fable', 'high'), Tasks: ccf('opus', 'high'), Reviews: { agent: 'codex', model: 'gpt-6.2-sol', effort: 'high', fast: false, perm: null } }, review: false, merge: 'done', proof: true, own: ['agents.Chats'] },
+    // fork Needs you 3/6: a space with its alerts muted (its menu says Unmute alerts)
+    [P.notes]: { agents: { Chats: cc('sonnet', 'medium'), Tasks: ccf('opus', 'high'), Reviews: { agent: 'codex', model: 'gpt-6.2-sol', effort: 'high', fast: false, perm: null } }, review: false, merge: 'done', proof: true, alerts: 'Muted', own: ['alerts'] } },
   // SHEP-335: task settings are the repo's a task works in; root on vm sits on /, its tasks work in the acme shop
   repos: [
     { key: '/Users/sam/dev/shop', folder: '/Users/sam/dev/shop', machine: null, name: 'shop', spaces: [P.shop], tasks: 6, agents: { Chats: cc('sonnet', 'medium'), Tasks: cc('opus', 'xhigh'), Reviews: { agent: 'codex', model: 'gpt-6.2-sol', effort: 'high', fast: false, perm: null } }, review: true, merge: 'checks', proof: true, rounds: 2, mustFix: 'blocker', own: ['agents.Tasks', 'review', 'merge', 'must_fix'] },

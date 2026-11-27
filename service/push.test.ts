@@ -42,7 +42,9 @@ test("alerts say what the window's toasts say", () => {
   const far = { ...snap(), machines: [{ machine: "m3", name: "MacBook" }], needs: [{ id: "q3", chat: "m3:HERD-6/worker", place: "sp1", task: "m3:HERD-6" }], tasks: [], alerts: [] };
   expect([...alertsOf(far).values()].map((x) => x.title)).toEqual(["HERD-6 on MacBook · Needs you"]);
   // Notify Off: nothing from its Assistant; tasks as always
-  expect([...alertsOf(snap("Off")).values()].map((x) => x.title)).toEqual(["HERD-5 · Needs you", "Fix login · Ready for review", "HERD-4 · Stuck"]);
+  expect([...alertsOf(snap("Off")).values()].filter((x) => !x.muted).map((x) => x.title)).toEqual(["HERD-5 · Needs you", "Fix login · Ready for review", "HERD-4 · Stuck"]);
+  // fork Needs you 3/6: its Assistant's question stays for the bell, sent to no device
+  expect([...alertsOf(snap("Off")).values()].filter((x) => x.muted).map((x) => x.title)).toEqual(["#tt-repo · Needs you"]);
 });
 
 test("an agent's own alert, from its label", () => {
@@ -64,19 +66,17 @@ test("inferred task waits stay quiet while requests for the person still alert",
   ]);
 });
 
-test("a cleared need gets a quiet replacement even when there is no new alert", () => {
+test("fork Needs you 3/6: a cleared need sends no push of its own; the next one's open tags close it", () => {
   const need = { id: "q1", chat: "SHOP-1/worker", task: "SHOP-1", place: "sp1", question: { kind: "Question", title: "Deploy now?" } };
   const tasks = [{ id: "SHOP-1", name: "Fix login", status: "need", place: "sp1" }];
   const before = alertsOf({ needs: [need], tasks });
   expect(pushChanges(before, before, 1)).toEqual([]);
-  expect(pushChanges(before, new Map(), 0)).toEqual([{
-    title: "No longer waiting", body: "Task · Fix login", tag: "SHOP-1", place: "sp1", topic: "needs",
-    url: "./?place=sp1&task=SHOP-1", waits: true, resolved: true, badge: 0, open: [], replacedBy: [],
-  }]);
-  const [resolved, ready] = pushChanges(before, alertsOf({ tasks: [{ ...tasks[0], status: "ready" }] }), 1);
-  expect(resolved).toMatchObject({ resolved: true, replacedBy: [{ topic: "ready", place: "sp1" }] });
-  expect(wants({ topics: ["needs"] }, ready)).toBe(false);
-  expect(ready).toMatchObject({ topic: "ready", tag: "SHOP-1" });
+  // no "No longer waiting"
+  expect(pushChanges(before, new Map(), 0)).toEqual([]);
+  const [ready, ...rest] = pushChanges(before, alertsOf({ tasks: [{ ...tasks[0], status: "ready" }] }), 1);
+  expect(rest).toEqual([]);
+  expect(ready).toMatchObject({ topic: "ready", tag: "SHOP-1", badge: 1, open: ["SHOP-1"] });
+  expect(wants({ topics: ["needs"] }, ready)).toBe(true); // Needs you is needs and ready, always
 });
 
 test("SHEP-255: an alert carries the task it is about: its chat's, or a task's helper's by its herdr.task label; a helper of no task's none", () => {

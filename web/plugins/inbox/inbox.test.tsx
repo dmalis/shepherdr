@@ -139,7 +139,9 @@ test('pin: the bell sits in the list’s top row, and the check on Settings › 
   expect(readFileSync(join(root, 'src/list.tsx'), 'utf8')).toContain('registry.sideHead.map(')
   const settings = readFileSync(join(root, 'src/settings.tsx'), 'utf8')
   expect(settings).toContain("['General', 'gear'], ['Notifications', 'bell']")
-  expect(settings).toMatch(/function Notifications\(\) \{[\s\S]*<SRow label="Alerts on this device"[\s\S]*<DeviceCheck now=\{now\} reread=\{read\} \/>/)
+  // fork Needs you 3/6: the page is the alerts plugin's, ending on the device check
+  expect(settings).toContain('const Notifications = NotificationsPage')
+  expect(readFileSync(join(root, 'plugins/alerts/page.tsx'), 'utf8')).toMatch(/{WORDS\.reach}[\s\S]*Ask me after[\s\S]*\{WORDS\.bell\}[\s\S]*<DeviceCheck now=\{now\} reread=\{read\} \/>/)
   expect(JSON.parse(readFileSync(join(root, 'plugins.json'), 'utf8')).plugins).toContain('inbox')
   // the service worker still shows a test alert while the app is on screen
   expect(readFileSync(join(root, 'public/sw.js'), 'utf8')).toContain('if (!a.test && list.some((c) => c.visibilityState')

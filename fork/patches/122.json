@@ -1,0 +1,32 @@
+{
+  "issue": 122,
+  "name": "Needs you 3/6: notifications",
+  "files": [
+    "web/shared/reach.ts",
+    "web/plugins/alerts/page.tsx",
+    "web/plugins/alerts/space.tsx",
+    "web/plugins/alerts/device.ts",
+    "web/plugins/alerts/client.tsx",
+    "web/plugins/inbox/device-check.tsx",
+    "web/plugins/inbox/client.tsx",
+    "web/shared/alerts.ts",
+    "web/shared/needs-you.ts",
+    "web/shared/types.ts",
+    "web/src/settings.tsx",
+    "service/push.ts",
+    "service/glance.ts",
+    "service/next.ts",
+    "service/main.ts",
+    "docs/settings.md",
+    "docs/glance.md"
+  ],
+  "tests": [
+    "service/reach.test.ts",
+    "web/plugins/alerts/space.test.tsx",
+    "service/push-topics.test.ts",
+    "service/push.test.ts",
+    "web/plugins/alerts/removed.test.ts",
+    "web/plugins/inbox/inbox.test.tsx",
+    "service/glance.test.ts"
+  ]
+}

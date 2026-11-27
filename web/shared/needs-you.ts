@@ -33,7 +33,7 @@ export type Waiting = {
   alert?: Alert
 }
 
-export type NeedsSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'last' | 'read' | 'settings' | 'machines'>>
+export type NeedsSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'last' | 'read' | 'settings' | 'machines' | 'config'>>
 
 /** an agent's own alert is a moment, as in the app (a toast, once): Needs you lists it this long, then lets it go;
  *  longer while its task still waits on you (#1561: a guard's approval code it is stuck on) */
@@ -147,7 +147,7 @@ export function unreadChats(snap: NeedsSnap): { chat: string; place: string; at:
   const out: { chat: string; place: string; at: number }[] = []
   for (const p of snap.places as Place[]) {
     if (!p.chat || !unread(snap, p.chat) || asking.has(p.chat)) continue
-    if (snap.settings && notifyOf({ settings: snap.settings }, p.id) === 'Off') continue
+    if (snap.settings && notifyOf({ settings: snap.settings, config: snap.config }, p.id) === 'Off') continue
     out.push({ chat: p.chat, place: p.id, at: snap.last![p.chat] })
   }
   return out

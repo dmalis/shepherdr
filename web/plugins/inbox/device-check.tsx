@@ -9,6 +9,7 @@ import { Btn, cx } from '@client/ui.tsx'
 import { choose, turnOn, type DeviceNow } from '@plugins/alerts/device.ts'
 import { registerWorker } from '@plugins/alerts/worker.ts'
 import { agoShort } from '@shared/view.ts'
+import { levelOf } from '@shared/reach.ts'
 import { advice, deviceName, deviceOf, lastWords } from './words.ts'
 import './inbox.css'
 
@@ -40,11 +41,9 @@ function Line({ label, value, tone }: { label: string; value: string; tone?: 'ok
 async function renew(now: DeviceNow): Promise<string | null> {
   const reg = await registerWorker()
   await (await reg.pushManager.getSubscription())?.unsubscribe()
-  // the choice made on this device (the alerts plugin keeps it as shepherdr.tell), else what the server had: a renewal
-  // never turns Everything into Needs me
-  let saved: string | null = null
-  try { saved = localStorage.getItem('shepherdr.tell') } catch { /* a private window */ }
-  const failed = await turnOn(saved === 'Everything' || (saved !== 'Needs me' && now.tell === 'Everything') ? 'Everything' : 'Needs me')
+  // the choice made on this device (fork Needs you 3/6: the alerts plugin keeps it), else what the server had: a
+  // renewal never narrows what reaches it
+  const failed = await turnOn(now.tell === 'Off' ? undefined : now.tell)
   if (failed) return null
   return (await reg.pushManager.getSubscription())?.endpoint ?? null
 }
@@ -59,7 +58,8 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
     post('devices', { endpoint })
       .then((j: { devices?: Device[] }) => setDevices(j.devices ?? []))
       .catch(() => setDevices(null))
-  }, [endpoint, state])
+    // fork Needs you 3/6: and when this device's level changes, so its row says the new one
+  }, [endpoint, state, now?.tell])
   if (!now) return null
   const permission = 'Notification' in window ? Notification.permission : 'unknown'
   const app = standalone()
@@ -138,7 +138,7 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
               {x.mine ? 'This device' : x.seen ? `Seen ${ago(x.seen)}` : `Turned on ${ago(x.at)}`} · {lastWords(x.last, ago)}
             </span>
           </span>
-          <span className="val">Alerts: {x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
+          <span className="val">Alerts: {levelOf(x.topics) ?? 'Off'}</span>
           <Btn small aria-label={`Remove ${x.mine ? 'this device' : deviceName(x.device)}`} onClick={() => remove(x)}>
             Remove
           </Btn>

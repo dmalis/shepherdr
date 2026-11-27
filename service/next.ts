@@ -81,6 +81,9 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
   if (has("merge")) own.push("merge");
   if (has("proof")) own.push("proof");
   if (has("must_fix")) own.push("must_fix");
+  // fork Needs you 3/6: Space alerts, kept as "alerts": "muted" | "on" in a space's own settings
+  const alerts = layer?.alerts === "muted" ? "Muted" : layer?.alerts === "on" ? "On" : null;
+  if (alerts) own.push("alerts");
   return {
     own,
     lv: {
@@ -91,6 +94,7 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
       // fork #11: Review rounds and Must fix
       rounds: has("review_rounds") ? Number(t.review_rounds) || 0 : base.rounds,
       mustFix: has("must_fix") && MUST_FIX.some(([v]: any) => v === t.must_fix) ? t.must_fix : base.mustFix,
+      alerts: alerts ?? base.alerts ?? "On",
     },
   };
 }
@@ -228,6 +232,10 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
     // fork #11: one of the row's own choices (core/settings.js ROUNDS, MUST_FIX), as the settings file keeps it
     if (value !== null && !(key === "must_fix" ? MUST_FIX : ROUNDS).some(([v]: any) => v === value)) throw new Error("Not one of its choices.");
     task(key, value);
+  } else if (key === "alerts" && !repo) {
+    // fork Needs you 3/6: Space alerts, On or Muted (null: as Everything's)
+    if (value !== null && value !== "On" && value !== "Muted") throw new Error("Not one of its choices.");
+    if (value === null) delete layer.alerts; else layer.alerts = value === "Muted" ? "muted" : "on";
   } else throw new Error("That setting can't be changed here.");
   writeSettings(next);
 }

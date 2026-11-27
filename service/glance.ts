@@ -11,6 +11,7 @@ import { needReason } from "../core/toasts.js";
 import { REASONS } from "../core/needs.js";
 import { suggestsOfMessage, suggestionsOn } from "../web/shared/suggest.ts";
 import { GROUPS } from "../web/shared/types.ts";
+import { DEFAULT_LEVEL, LEVELS, OFF } from "../web/shared/reach.ts";
 import { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, needsYou, unreadChats, waitingTasks } from "../web/shared/needs-you.ts";
 import { notifyOf, terminalQuestion, watchTitle } from "../web/shared/alerts.ts";
 import { kindWho, taskKind } from "../web/shared/kinds.ts";
@@ -45,6 +46,8 @@ export type Item = {
   at?: number;
   /** notify about it (a needs or ready item); a working/done row only shows in the list */
   alert?: boolean;
+  /** fork Needs you 3/6: a machine's warning (an agent's memory or restart alert): the bell keeps it, it notifies nothing */
+  ops?: true;
   /** where a tap opens, relative to Shepherdr's address (./?place=…&task=…) */
   url: string;
   accept?: { task: string };
@@ -187,8 +190,9 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
     const pushed = alerts.get(w.key);
     const a: any = pushed ?? (w.need ? needAlert(snap, w.need) : { title: w.alert!.title, body: w.alert!.body, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) });
     const it: Item = { key: w.key, kind: "needs", type: w.type, tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY),
-      task: t.id, ...taskRow(t), ...(w.at ? { at: w.at } : {}), alert: !!pushed,
+      task: t.id, ...taskRow(t), ...(w.at ? { at: w.at } : {}), alert: !!pushed && !pushed.muted,
       url: a.url ?? (a.place ?? w.place ? urlOf(a.place ?? w.place) : "./"), ...textOf(w.need ? needText(w.need) : w.alert?.body ?? a.body) };
+    if (w.alert?.ops) it.ops = true;
     if (a.accept) it.accept = a.accept;
     if (a.reply) it.reply = a.reply;
     // an agent's own alert from a chat: Reply writes to that agent
@@ -268,7 +272,7 @@ export function spacesOf(snap: any): Space[] {
  *  or short of memory (the warnings line's words, and the memory guard's own alert while it stands) */
 export function eventsOf(snap: any, now: number): Event[] {
   const out: Event[] = [];
-  const quiet = (place?: string) => !!place && !!snap.settings && notifyOf({ settings: snap.settings }, place) === "Off";
+  const quiet = (place?: string) => !!place && !!snap.settings && notifyOf({ settings: snap.settings, config: snap.config }, place) === "Off";
   const seen = new Set<string>();
   for (const [place, list] of Object.entries((snap.automations ?? {}) as Record<string, any[]>)) for (const a of list ?? []) {
     if (!a?.failed || !a.error) continue;
@@ -381,13 +385,29 @@ export class GlanceFeed {
     }
   }
 
-  /** the doc as device D's phone app hears it: what came while its page was on screen notifies nothing there */
+  /** fork Needs you 3/6: the spaces device D muted on Settings › Notifications before (push.ts mutedOn) */
+  muted: (device: string) => string[] = () => [];
+  /** fork Needs you 3/6: device D's level on Settings › Notifications (push.ts levelOn): Off notifies nothing there, Needs
+   *  you and done a task done in the last 15 minutes too */
+  level: (device: string) => string = () => DEFAULT_LEVEL;
+
+  /** the doc as device D's phone app hears it: what came while its page was on screen notifies nothing there; nor
+   *  (fork Needs you 3/6) a machine's or a schedule's warning (the bell keeps those), nor a space that device muted */
   docFor(device: string | null | undefined, doc = this.doc): Glance | null {
+    if (!doc) return doc;
     const seen = device ? this.seen.get(device) : undefined;
-    const quiet = <T extends { key: string; alert?: boolean }>(i: T) => !!i.alert && seen!.has(i.key);
-    if (!doc || !seen?.size || ![...doc.items, ...(doc.events ?? [])].some(quiet)) return doc;
-    const items = doc.items.map((i) => (quiet(i) ? { ...i, alert: false } : i));
-    const events = (doc.events ?? []).map((e) => (quiet(e) ? { ...e, alert: false } : e));
+    const muted = new Set(device ? this.muted(device) : []);
+    const level = device ? this.level(device) : DEFAULT_LEVEL;
+    const off = level === OFF;
+    const done = !off && !!LEVELS.find((l) => l.id === level)?.topics.some((t) => t === "done");
+    const fresh = this.clock() - ALERT_FRESH_MS;
+    const doneNow = (i: Item) => done && i.kind === "done" && !i.alert && (i.at ?? 0) >= fresh && !seen?.has(i.key);
+    const placeOf = (url?: string) => { try { return new URLSearchParams(String(url ?? "").split("?")[1] ?? "").get("place"); } catch { return null; } };
+    const quietItem = (i: Item) => !!i.alert && (off || !!seen?.has(i.key) || !!i.ops || muted.has(placeOf(i.url) ?? ""));
+    const quietEvent = (e: Event) => !!e.alert;
+    if (!doc.items.some((i) => quietItem(i) || doneNow(i)) && !(doc.events ?? []).some(quietEvent)) return doc;
+    const items = doc.items.map((i) => (quietItem(i) ? { ...i, alert: false } : doneNow(i) ? { ...i, alert: true } : i));
+    const events = (doc.events ?? []).map((e) => (quietEvent(e) ? { ...e, alert: false } : e));
     return { ...doc, items, events, urgent: urgentOf(doc.counts, items, events) };
   }
 
@@ -401,9 +421,11 @@ export class GlanceFeed {
     const text = frame(doc);
     const own = new Map<string, string>();
     for (const s of this.streams) {
-      if (!s.native || !s.device) { s.send(text); continue; }
-      if (!own.has(s.device)) { const d = this.docFor(s.device, doc)!; own.set(s.device, d === doc ? text : frame(d)); }
-      s.send(own.get(s.device)!);
+      if (!s.native) { s.send(text); continue; }
+      // fork Needs you 3/6: a phone app whose device isn't known still gets the native projection (no warning buzzes)
+      const k = s.device ?? "";
+      if (!own.has(k)) { const d = this.docFor(s.device, doc)!; own.set(k, d === doc ? text : frame(d)); }
+      s.send(own.get(k)!);
     }
   }
 
@@ -428,9 +450,9 @@ export class GlanceFeed {
     };
     const body = new ReadableStream<Uint8Array>({
       start: (c) => {
-        s = { device, native: native && !!device, send: (text) => { try { c.enqueue(enc.encode(text)); } catch { end(); } } };
+        s = { device, native, send: (text) => { try { c.enqueue(enc.encode(text)); } catch { end(); } } };
         this.streams.add(s);
-        if (s.native) { const n = this.native.get(device!) ?? { open: 0, closed: 0 }; n.open++; this.native.set(device!, n); }
+        if (s.native && device) { const n = this.native.get(device) ?? { open: 0, closed: 0 }; n.open++; this.native.set(device, n); }
         const d = s.native ? this.docFor(device) : this.doc;
         c.enqueue(enc.encode(`retry: 5000\n\n${d ? frame(d) : ""}`));
         signal?.addEventListener("abort", () => { end(); try { c.close(); } catch {} });
