@@ -1,0 +1,8 @@
+/* A merged task's commits after its merge (after-merge.tsx, dmalis/shepherdr#48): the card's own type, the branch
+   mark in sky blue (a status hue apart from the link), the commit subjects in a raised list as GitHub's commit list, one primary button */
+.amcard .amhead{display:flex;align-items:center;gap:8px;min-width:0}
+.amcard .amhead>.i{flex:none;width:16px;height:16px;color:var(--blue)}
+.amcard.am-main .amhead>.i{color:var(--muted)}
+.amrows{display:grid;gap:2px;margin:2px 0 0;padding:6px 10px;list-style:none;border-radius:8px;background:var(--raised);font-size:var(--sec);line-height:var(--secl)}
+.amrows>li{min-width:0;padding:3px 0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;color:var(--fg)}
+.amrows>.ammore{color:var(--muted)}

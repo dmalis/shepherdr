@@ -289,6 +289,16 @@ export interface TaskAgent {
   note: string
 }
 
+/** A merged task's commits after its merge (herdr_task/after_merge.py): how many, their subjects (newest last, at
+ *  most 20), whether main already holds them, and the follow-up task that carries them once started */
+export interface AfterMerge {
+  count: number
+  commits: string[]
+  onMain: boolean
+  /** byHand: its commits didn't cherry-pick cleanly onto main: its agent carries them over */
+  followUp?: { id: string; title: string; byHand?: boolean }
+}
+
 export interface Task {
   /** 3.2, facts the status is worked out from (web/shared/view.ts), never guessed from a screen: */
   /** the agent stopped: by the person (Stop), by an error or a crash, or at its plan's limit; why, in its own words */
@@ -312,6 +322,12 @@ export interface Task {
   closedAlone?: boolean
   /** Ready and waiting for the person: why, in one line, naming where that setting comes from */
   waitsWhy?: string
+  /** done and merged, its branch has commits after what merged (dmalis/shepherdr#48): offered as a follow-up task */
+  afterMerge?: AfterMerge
+  /** Working, and none of its agents busy (their live state): a still mark, never the turning ring (dmalis/shepherdr#48) */
+  agentIdle?: boolean
+  /** with agentIdle: no agent of its own runs at all (it ended; waiting on checks, say) */
+  agentGone?: boolean
   /** done: a schedule's run that had nothing to do, or that only had something to say (posted in its space's chat) */
   quiet?: 'nothing' | 'told'
   /** done: a few words after "Done and merged" ("1 link fixed") */
@@ -1464,6 +1480,8 @@ export type Action =
   | { type: 'close'; chat: string; force?: boolean }
   /** undo done or ready (herdr-task reopen): a voice call's act reopen */
   | { type: 'reopen'; chat: string }
+  /** a merged task's commits after its merge: add and start a follow-up task from its base carrying them (dmalis/shepherdr#48) */
+  | { type: 'follow-up'; chat: string }
   /** SHEP-38: start a task that hasn't started by itself later (herdr-task edit --at / --in, the words as typed), take that
    *  back (off: back to To do) or start a scheduled one now */
   | { type: 'schedule'; chat: string; at?: string; in?: string; off?: boolean; now?: boolean }

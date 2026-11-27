@@ -21,6 +21,8 @@ const MARK = {
 }
 
 function ringSvg(r: Ring): string {
+  // still: its agent idle (dmalis/shepherdr#48), as GitHub's and Vercel's pending mark, never a turning ring
+  if (r.kind === 'pending') return '<circle cx="10" cy="10" r="4.5" fill="currentColor" stroke="none"/>'
   if (r.kind === 'check') return '<circle cx="10" cy="10" r="7.25" fill="currentColor" stroke="none"/><path class="tk" d="m7 10.2 2 2 4-4.4"/>'
   const ring = r.mark === 'unstarted' ? '<circle cx="10" cy="10" r="6.5" stroke-dasharray="1.5 3"/>' : '<circle cx="10" cy="10" r="6.5"/>'
   // needs you: the ring's inside softly filled (SHEP-367: no dot outside the circle), so it reads apart from working without colour

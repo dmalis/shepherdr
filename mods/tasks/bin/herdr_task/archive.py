@@ -60,7 +60,9 @@ def archive_pass(report, folder=None):
         slug = os.path.basename(p)[:-5]
 
         def due(t):
-            return (ms and t.get("state") == "done" and not t.get("archived") and t.get("done_at")
+            am = t.get("after_merge") or {}
+            offered = am.get("n") and not am.get("on_main") and not am.get("follow_up")  # dmalis/shepherdr#48: still offered
+            return (ms and t.get("state") == "done" and not t.get("archived") and t.get("done_at") and not offered
                     and t0 - max(t["done_at"], t.get("unarchived") or 0) >= ms and f"{slug}#{t['id']}" not in busy)
 
         def back(t):

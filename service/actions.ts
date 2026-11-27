@@ -671,7 +671,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     if (!r || !b.job.startsWith("b:") || !(await r.stopJob(b.job.slice(2)))) throw new Error("It isn't running any more.");
     return { ok: true };
   }
-  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "task-start" || b?.type === "task-move" || b?.type === "task-rename") && typeof b.chat === "string") {
+  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "follow-up" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "task-start" || b?.type === "task-move" || b?.type === "task-rename") && typeof b.chat === "string") {
     // a task's row menu: its chat key is "<task>/worker" (or 2.1's "/Agent")
     const t = compat.taskOf(b.chat.split("/")[0]);
     if (!t) throw new Error("That task isn't here any more.");
@@ -795,6 +795,15 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "herdr-task refused it." };
+      return { ok: true };
+    }
+    case "follow-up": {
+      // dmalis/shepherdr#48: a merged task's commits after its merge, carried by a new task from its base
+      const { ref, folder, machine } = taskOf(b);
+      const r = await task(["follow-up", ref], folder, machine);
+      let out: any = null;
+      try { out = JSON.parse(r.stdout); } catch {}
+      if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "The follow-up didn't start." };
       return { ok: true };
     }
   }

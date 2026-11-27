@@ -15,7 +15,7 @@ import * as T from "../core/tasks.js";
 import { FIND } from "../core/chat-log.js";
 import { isHelper, subagentsOf } from "../core/chat-view.js";
 // The core is plain JavaScript; its defaults read as narrow types to TypeScript.
-const { place, refOf, taskKey, autoPrefix, reportOf, ownReport, secondLine, leftOf, queueReason, machineOf, inSpace } = T as any;
+const { place, refOf, taskKey, autoPrefix, reportOf, ownReport, secondLine, leftOf, queueReason, machineOf, inSpace, starting, STARTING_MS } = T as any;
 import * as S from "../core/spaces.js";
 const { sidebarOf, lastAssistantOf, isUnread, inOrder, byMachineOrder, machineOrderOf } = S as any;
 
@@ -340,7 +340,8 @@ export class Model {
     const rows = lists.flatMap((list) => list.tasks.map((task: any) => {
       if (task.prompt) prompts.set(taskKey(list, task), String(task.prompt));
       const live = this.agentsOf(list, task);
-      const p = place(list, task, { live, helpers: this.helpersOf(list, task, live) });
+      const helpers = this.helpersOf(list, task, live);
+      const p = place(list, task, { live, helpers });
       if (p.settles) settles = Math.min(settles, p.settles);
       // the % its agent's terminal reports itself (OSC 7501's progress, core ownReport), beside herdr-task status --done
       const own = live.map((a) => ownReport(this.hub.terminals.get(a.address))).find(Boolean) ?? null;
@@ -363,6 +364,14 @@ export class Model {
           merge_failed: task.merge_failed ?? null, attention_at: task.attention_at ?? null, after: task.after ?? null, closed_unmerged: !!task.closed_unmerged,
           // nothing to merge: what its card says and why it waits (dmalis/shepherdr#29)
           nothing_to_merge: !!task.nothing_to_merge, left_files: task.left_files ?? null, closed_alone: task.closed_alone ?? null, waits_why: task.waits_why ?? null,
+          // dmalis/shepherdr#48: commits on its branch after its merge (herdr_task/after_merge.py), and Working with no
+          // agent of its own busy (its live state): a still mark, never the turning ring
+          after_merge: task.after_merge ?? null,
+          // still unless an agent or helper of its own says it's working: an unknown state is still, and only an agent
+          // being launched (or one just handed a problem) turns it before it reports
+          idle: p.section === "working" && !(live.length ? Date.now() - (task.handed_at ?? 0) < STARTING_MS || (starting(task) && live.some((a) => !a.status)) : starting(task))
+            && !live.some((a) => a.status === "working" || a.status === "blocked") && !helpers.some((a) => a.status === "working" || a.status === "blocked")
+            ? (live.length ? "idle" : "none") : null,
           pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,

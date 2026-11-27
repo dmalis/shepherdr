@@ -24,6 +24,7 @@ from .launch import default_space
 from .store import locate, read_list, Store, store_files
 from .queues import machine_hold, refresh_ext, set_hold, waiting_ext, waiting_for
 from .archive import archive_pass
+from . import after_merge
 from .browsers import browser_pass
 from .output import progress_clock, say
 from .commands import back_to_work, begin, merge_failed, merge_now, merge_waits, MERGE_FAILED, restack, workers
@@ -172,6 +173,9 @@ def facts(s, t, report):
             if merge_held(s, t):
                 return
             t["merged"] = True
+            if v.get("headRefOid"):
+                # dmalis/shepherdr#48: the commit GitHub merged, so a commit made here since is kept and offered
+                t["merged_head"], t["merged_head_by"] = v["headRefOid"], "github"
             watch_main(s, t, (v.get("mergeCommit") or {}).get("oid"))
             if t.get("merge_queued"):
                 # Herdr queued it: its base here catches up and its branch on GitHub goes, as a merge
@@ -492,6 +496,11 @@ def tick_store(s, report):
 
 def tick_turn(s, report):
     for t in s.data["tasks"]:
+        try:
+            # dmalis/shepherdr#48: a merged task stays done, what came after its merge offered (after_merge.py)
+            after_merge.unstick(s, t, report) if t["state"] in ("running", "ready") else after_merge.watch(s, t, report)
+        except Exception as e:  # never stops the tick
+            report.setdefault("github_error", []).append(f"{s.ref(t)}: {e}")
         if t["state"] == "ready":
             back_pass(s, t, report)
         if t["state"] == "ready" and not t.get("waits_why"):
@@ -887,7 +896,9 @@ def cmd_tick(args):
         d = read_list(p)
         tasks = (d or {}).get("tasks") or []
         if not d or not os.path.isdir(d.get("folder") or "") or not (d.get("main_watch") or d.get("systemic") or any(
-                t.get("state") in ("queued", "scheduled", "ready") or (t.get("worktree") and t.get("state") == "running") for t in tasks)):
+                t.get("state") in ("queued", "scheduled", "ready") or (t.get("worktree") and t.get("state") == "running")
+                # dmalis/shepherdr#48: a merged task whose branch is kept: its commits after the merge are watched
+                or (t.get("worktree") and t.get("state") == "done" and t.get("merged")) for t in tasks)):
             continue
         with Store(locate(d["folder"])) as s:
             tick_store(s, report)

@@ -392,6 +392,9 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
       ...(x.nothing_to_merge ? { nothingToMerge: true, ...(Array.isArray(x.left_files) && x.left_files.length ? { leftFiles: x.left_files.slice(0, 20).map(String) } : {}) } : {}),
       ...(x.closed_alone && t.status === "done" ? { closedAlone: true } : {}),
       ...(x.waits_why && t.status === "ready" ? { waitsWhy: String(x.waits_why).slice(0, 200) } : {}),
+      // dmalis/shepherdr#48: what came after its merge, offered as a follow-up; Working with its agent idle
+      ...((am) => (am && t.status === "done" ? { afterMerge: am } : {}))(afterMergeOf(x.after_merge, t.id)),
+      ...(x.idle && t.status === "work" ? { agentIdle: true, ...(x.idle === "none" ? { agentGone: true } : {}) } : {}),
       ...(after ? { afterTitle: after, ...(waits.length > 1 ? { afterMore: waits.length - 1 } : {}) } : {}),
       ...(f.waiting?.includes(`task:${t.id}`) ? { waitsDesktop: true } : {}),
     };
@@ -408,6 +411,19 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
 /* ---------- schedules ---------- */
 
 const EVENT_WORDS: Record<string, string> = { added: "a task is added", ready: "a task is ready", failed: "a task fails", "needs-you": "a task needs you", merged: "a task is merged", stalled: "a task stalls", done: "a task is done", "checks-fail": "checks fail" };
+/** herdr-task's after_merge (dmalis/shepherdr#48) as the web reads it; its follow-up's id on the same machine as it */
+export function afterMergeOf(v: any, id: string): import("../web/shared/types.ts").AfterMerge | null {
+  if (!v || typeof v !== "object" || !(Number(v.n) > 0)) return null;
+  const machine = id.includes(":") ? id.slice(0, id.lastIndexOf(":") + 1) : "";
+  const f = v.follow_up && typeof v.follow_up === "object" && v.follow_up.ref ? v.follow_up : null;
+  return {
+    count: Number(v.n),
+    commits: (Array.isArray(v.commits) ? v.commits : []).slice(0, 20).map((c: any) => String(c?.s ?? "").slice(0, 200)).filter(Boolean),
+    onMain: !!v.on_main,
+    ...(f ? { followUp: { id: machine + String(f.ref), title: String(f.title ?? "").slice(0, 120), ...(f.picked === false ? { byHand: true } : {}) } } : {}),
+  };
+}
+
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 const clock = (d: Date) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 

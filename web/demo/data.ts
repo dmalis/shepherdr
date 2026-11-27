@@ -69,6 +69,11 @@ export const tasks: Task[] = [
   task('EV-12', 'Morning brief', EV, 'done', { doneAt: NOW - 4 * hour, quiet: 'told', doneNote: 'told you in Everything', schedule: 'Morning brief' }),
   task('BLOG-6', 'Broken link check', P.blog, 'done', { doneAt: NOW - 9 * hour, merged: true, doneNote: '1 link fixed', schedule: 'Broken link check' }),
   task('BLOG-13', 'Check the broken RSS link', P.blog, 'done', { doneAt: NOW - 40 * min, needsAtWas: NOW - 40 * min, repo: 'branch', worktree: true, branch: 'task/check-the-broken-rss-link', base: 'main', nothingToMerge: true, closedAlone: true, summary: 'The link works again: the host fixed it. Nothing to change.' }),
+  // dmalis/shepherdr#48: merged, then one more commit on its branch: Done, offered as a follow-up; one whose later
+  // commit main already has: Already on main, nothing offered; one Working whose agent sits idle: a still dot
+  task('SHOP-20', 'Reactions on reviews', P.shop, 'done', { doneAt: NOW - 25 * min, needsAtWas: NOW - 50 * min, merged: true, repo: 'branch', worktree: true, branch: 'task/reactions-on-reviews', base: 'main', pr: { number: 216, url: 'https://github.com/example/shop/pull/216' }, afterMerge: { count: 1, commits: ['Keep the reaction bar on one line on phones'], onMain: false } }),
+  task('BLOG-14', 'Tag pages', P.blog, 'done', { doneAt: NOW - 3 * hour, merged: true, repo: 'branch', worktree: true, branch: 'task/tag-pages', base: 'main', pr: { number: 58, url: 'https://github.com/example/blog/pull/58' }, afterMerge: { count: 1, commits: ['Sort tags by name'], onMain: true } }),
+  task('SHOP-21', 'Order confirmation email', P.shop, 'work', { started: NOW - 40 * min, agentIdle: true, repo: 'branch', worktree: true, branch: 'task/order-confirmation-email', base: 'main' }),
   task('SHOP-11', 'Fix cart rounding', P.shop, 'done', { doneAt: NOW - 7 * day, merged: true, repo: 'branch', worktree: true, branch: 'task/fix-cart-rounding', base: 'main', pr: { number: 205, url: 'https://github.com/example/shop/pull/205' } }),
   task('BLOG-8', 'New post template', P.blog, 'done', { doneAt: NOW - 7 * day, merged: true }),
   task('BLOG-7', 'Faster image loading', P.blog, 'done', { doneAt: NOW - 7 * day, merged: true }),

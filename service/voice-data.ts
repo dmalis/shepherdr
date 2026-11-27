@@ -58,8 +58,8 @@ export const NOT_DATA: Record<string, string> = {
 export const WRITES = [
   // chats: a message, a reaction, an answer to a question or permission card, a secret given, Stop, Restart, Recap
   "send", "held-now", "held-drop", "react", "answer", "secret", "secret-saved", "stop", "stop-job", "restart", "agent-update", "agent-restart", "assistant-close", "read", "keys", "text", "model", "effort", "call", "recap",
-  // tasks: the review card (Mark as done [and merge]), Start task, the row's menu
-  "accept", "close", "delete", "archive", "reopen", "task-start", "task-resume", "task-rename", "task-move", "schedule", "pause", "pin",
+  // tasks: the review card (Mark as done [and merge]), Start task, Start a follow-up, the row's menu
+  "accept", "close", "delete", "archive", "reopen", "task-start", "task-resume", "follow-up", "task-rename", "task-move", "schedule", "pause", "pin",
   // schedules: Run now, Pause, Resume, Edit
   "automation",
   // screens: Take over, Hand back, Skip, a screenshot kept, Open on the desktop instead

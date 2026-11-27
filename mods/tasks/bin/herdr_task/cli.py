@@ -26,6 +26,7 @@ from .home import cmd_home
 from .assistant_settings import cmd_session_note
 from .feedback import cmd_feedback
 from .sandbox import cmd_sandbox
+from .after_merge import cmd_follow_up
 
 # SHEP-370: a title a phone's task row shows uncut (only asked, never refused)
 TITLE_HELP = (f"at most {ROW_MAX} characters, so a phone's task row shows it uncut: the thing and the change in a few plain "
@@ -371,6 +372,9 @@ def main():
     agent_opts(c)
     c.add_argument("--space")
     cmd("reopen", lambda a: cmd_state(a, "reopen"), "undo done or ready; a queued or scheduled task goes back to to do")
+    # dmalis/shepherdr#48: a merged task's commits after its merge, as a task of their own
+    cmd("follow-up", cmd_follow_up, "a merged task's commits after its merge (ready refuses a second pull request): adds and "
+                                  "starts a follow-up task from its base with them cherry-picked on top, titled from them")
     cmd("unarchive", cmd_unarchive, "bring an archived task back into its list (only when the person asks; writing to it does too)")
     c = cmd("edit", cmd_edit, "change a task")
     c.add_argument("--title", help=TITLE_HELP)

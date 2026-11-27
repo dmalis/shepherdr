@@ -3115,6 +3115,252 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         self.assertEqual(self.tick_once(), ("done", True))
 
 
+class WorkAfterTheMerge(unittest.TestCase):
+    """dmalis/shepherdr#48: a task whose change merged stays done. Commits on its branch after the merge never take it
+    back to Working again (ready refused a second pull request and left it there for good): they're offered as a
+    follow-up task from main that carries them, and nothing is offered when main already has them. A throwaway git
+    repo; GitHub, hc and starting an agent are faked."""
+
+    setUp = MergedOnlyWithOwnWork.setUp
+    git, commit, change, squash_into_main, github, ready_now = (
+        MergedOnlyWithOwnWork.git, MergedOnlyWithOwnWork.commit, MergedOnlyWithOwnWork.change,
+        MergedOnlyWithOwnWork.squash_into_main, MergedOnlyWithOwnWork.github, MergedOnlyWithOwnWork.ready_now)
+
+    def merged(self, words="reactions on the left"):
+        """Its pull request (#704) squash-merged into main, GitHub deleted its branch: (its merged tip, GitHub's view)."""
+        from unittest import mock
+        import herdr_task.github as github
+        import herdr_task.after_merge as after_merge
+        self.after_merge = after_merge
+        tip = self.change(self.task["worktree"], words)
+        self.squash_into_main()
+        self.task["pr"] = {"number": 704, "url": "https://github.com/o/r/pull/704", "repo": "o/r"}
+        self.calls = self.github([{"number": 704, "url": self.task["pr"]["url"], "isCrossRepository": False,
+                                   "baseRefName": "main", "headRefOid": tip, "mergeCommit": {"oid": "f00"}}])
+        view = {"state": "MERGED", "headRefOid": tip, "mergeCommit": {"oid": "f00"}}
+        p = mock.patch.object(github, "pr_view", lambda t: view)
+        p.start()
+        self.addCleanup(p.stop)
+        self.store.save = lambda: None
+        return tip
+
+    def reopened(self):
+        """Reopened after its merge (as reply and reopen did): Working, kept open, its merge remembered."""
+        self.task.update(state="running", kept_open=True, was_merged=True)
+
+    def refused(self):
+        from herdr_task.base import Fail
+        with self.assertRaises(Fail) as e:
+            self.ready_now()
+        return str(e.exception)
+
+    def test_ready_after_a_merge_with_a_commit_since_is_done_and_offers_it(self):
+        tip = self.merged()
+        self.reopened()
+        self.change(self.task["worktree"], "one more rule")
+        said = self.refused()
+        self.assertEqual((self.task["state"], self.task.get("merged")), ("done", True))
+        for k in ("kept_open", "attention", "ready_turns"):
+            self.assertNotIn(k, self.task)
+        self.assertEqual(self.task["merged_head"], tip)
+        got = self.task["after_merge"]
+        self.assertEqual((got["n"], got["commits"][0]["s"], got["on_main"]), (1, "one more rule", False))
+        self.assertIn("never a second pull request", said)
+        self.assertIn("follow-up SHEP-1", said)
+        self.assertNotIn(("pr", "create"), self.calls)
+
+    def test_its_commits_already_on_main_offer_nothing(self):
+        self.merged()
+        self.reopened()
+        later = self.change(self.task["worktree"], "one more rule")
+        self.git(self.main, "cherry-pick", later)  # another task carried it already
+        said = self.refused()
+        self.assertEqual(self.task["state"], "done")
+        self.assertTrue(self.task["after_merge"]["on_main"])
+        self.assertIn("already on main", said)
+        self.assertNotIn("follow-up SHEP-1", said)
+
+    def test_ready_on_a_merged_done_task_names_the_follow_up(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        self.change(self.task["worktree"], "one more rule")
+        self.assertIn("follow-up SHEP-1", self.refused())
+
+    def test_a_task_stuck_working_again_is_done_at_the_next_tick(self):
+        self.merged()
+        self.reopened()
+        self.change(self.task["worktree"], "one more rule")
+        self.task.update(state="ready", attention="Pull request #704 for task/1 is already merged (GitHub deleted its branch), "
+                                                  "and task/1 has commits since. Put them on a new branch (a new task) rather than a second pull request.")
+        report = {"done": [], "attention": []}
+        self.after_merge.unstick(self.store, self.task, report)
+        self.assertEqual((self.task["state"], self.task.get("merged"), report["done"]), ("done", True, [1]))
+        self.assertNotIn("attention", self.task)
+        self.assertEqual(self.task["after_merge"]["n"], 1)
+
+    def test_a_merged_done_task_with_nothing_after_offers_nothing(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip)
+        self.assertIsNone(self.after_merge.record(self.store, self.task, force=True))
+        self.assertFalse(self.after_merge.unsaved(self.store, self.task))
+
+    def test_finish_keeps_the_commit_that_merged(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True)
+        self.task.pop("pr")
+        self.after_merge.note_merged(self.store, self.task)
+        self.assertEqual(self.task["merged_head"], tip)
+
+    def follow_up(self):
+        import argparse
+        from unittest import mock
+        import herdr_task.store as store
+        import herdr_task.output as output
+        import herdr_task.settings as settings
+        import herdr_task.queues as queues
+        started = []
+
+        def new(title, prompt="", mode="here"):
+            t = {"id": len(self.store.data["tasks"]) + 1, "title": title, "prompt": prompt, "mode": mode, "state": "todo", "agents": []}
+            self.store.data["tasks"].append(t)
+            return t
+        self.store.new = new
+        with mock.patch.object(store, "open_store", lambda args, write=True, wait=None: self.store), \
+                mock.patch.object(output, "say", lambda *a: None), mock.patch.object(output, "view", lambda s, t, live=None: dict(t)), \
+                mock.patch.object(settings, "worker_argv", lambda *a, **k: ["claude"]), \
+                mock.patch.object(settings, "check_automatic_agent", lambda argv: None), \
+                mock.patch.object(queues, "queue_reason", lambda s, t: None), \
+                mock.patch.object(self.commands, "begin", lambda s, t, argv, space, parent=None: started.append(t["id"]) or {"address": "t9"}):
+            self.after_merge.cmd_follow_up(argparse.Namespace(id="SHEP-1", json=True, folder=None))
+        return self.store.data["tasks"][-1], started
+
+    def test_a_follow_up_starts_from_main_with_the_commits_on_top(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        later = self.change(self.task["worktree"], "one more rule")
+        self.after_merge.record(self.store, self.task, force=True)
+        n, started = self.follow_up()
+        self.assertEqual(started, [2])
+        self.assertEqual((n["title"], n["mode"], n["base"], n["space"], n["follows"]), ("one more rule", "worktree", "main", "sp1", "SHEP-1"))
+        main_tip = self.git(self.main, "rev-parse", "main")
+        self.assertEqual(n["start"], main_tip)
+        self.assertEqual(self.git(self.main, "log", "--format=%s", f"main..{n['branch']}"), "one more rule")
+        self.assertEqual(self.git(self.main, "show", f"{n['branch']}:reactions.txt"), "one more rule")
+        self.assertIn("cherry-picked on top", n["prompt"])
+        self.assertIn(later[:9], n["prompt"])
+        follow = self.task["after_merge"]["follow_up"]
+        self.assertEqual((follow["ref"], follow["title"], follow["tip"]), ("SHEP-2", "one more rule", later))
+        # its follow-up has them: its card names it, and its worktree may go
+        self.assertEqual(self.after_merge.record(self.store, self.task, force=True)["follow_up"]["ref"], "SHEP-2")
+        self.assertFalse(self.after_merge.unsaved(self.store, self.task))
+        from herdr_task.base import Fail
+        with self.assertRaises(Fail):
+            self.follow_up()  # never a second one
+
+    def test_a_follow_up_that_doesnt_cherry_pick_leaves_it_to_its_agent(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        self.change(self.main, "main moved the same line")
+        n, _ = self.follow_up()
+        self.assertEqual(self.git(self.main, "rev-parse", n["branch"]), self.git(self.main, "rev-parse", "main"))
+        self.assertIn("git cherry-pick", n["prompt"])
+        self.assertIn("reactions.txt", n["prompt"])
+        self.assertEqual(self.git(self.main, "worktree", "list", "--porcelain").count("worktree "), 2)  # its scratch one went
+
+    def test_two_commits_make_one_title(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        self.change(self.task["worktree"], "one more rule")
+        self.change(self.task["worktree"], "and its test")
+        got = self.after_merge.record(self.store, self.task, force=True)
+        self.assertEqual(self.after_merge.follow_title(got), "one more rule and 1 more")
+
+    def test_a_commit_after_githubs_merge_keeps_its_branch(self):
+        """Review: the tick finds the merge after its agent committed once more: GitHub's merged commit is kept, so
+        that commit counts as after the merge and its branch isn't removed with its worktree."""
+        tip = self.merged()
+        self.change(self.task["worktree"], "one more rule")
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        self.after_merge.note_merged(self.store, self.task)
+        self.assertEqual(self.task["merged_head"], tip)  # never the local tip
+        self.assertTrue(self.after_merge.unsaved(self.store, self.task))
+
+    def test_a_follow_up_that_didnt_pick_keeps_its_source_branch(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        self.change(self.main, "main moved the same line")
+        self.follow_up()
+        self.assertNotIn("after_merge_carried", self.task)
+        self.assertIs(self.task["after_merge"]["follow_up"]["picked"], False)
+        self.assertTrue(self.after_merge.unsaved(self.store, self.task))  # its branch is all that has them
+        self.assertEqual(self.after_merge.record(self.store, self.task, force=True)["follow_up"]["ref"], "SHEP-2")
+
+    def test_a_commit_after_its_follow_up_is_offered_again(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        first = self.change(self.task["worktree"], "one more rule")
+        self.follow_up()
+        later = self.change(self.task["worktree"], "and one after that")
+        got = self.after_merge.record(self.store, self.task, force=True)
+        self.assertEqual((got["n"], got["commits"][0]["s"], got.get("follow_up")), (1, "and one after that", None))
+        n, _ = self.follow_up()  # a second follow-up, for that one alone (it edits the first's line: by hand here)
+        self.assertIn(f"- {later[:9]} and one after that", n["prompt"])
+        self.assertNotIn(first[:9], n["prompt"])
+
+    def test_main_that_took_the_very_commit_says_already_on_main(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github")
+        later = self.change(self.task["worktree"], "one more rule")
+        self.git(self.main, "merge", "--quiet", "-s", "ours", "--no-edit", later)  # main holds it as an ancestor
+        got = self.after_merge.record(self.store, self.task, force=True)
+        self.assertTrue(got["on_main"])
+        self.assertFalse(self.after_merge.unsaved(self.store, self.task))
+
+    def test_a_pull_request_its_agent_opened_itself_is_found(self):
+        """Review: ready never took its pull request (its agent opened it): found by its branch, done, offered."""
+        self.merged()
+        self.task.pop("pr")
+        self.reopened()
+        self.change(self.task["worktree"], "one more rule")
+        said = self.refused()
+        self.assertEqual((self.task["state"], self.task["pr"]["number"]), ("done", 704))
+        self.assertIn("follow-up SHEP-1", said)
+
+    def test_no_follow_up_where_worktrees_are_off(self):
+        from unittest import mock
+        import herdr_task.settings as settings
+        from herdr_task.base import Fail
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        with mock.patch.object(settings, "worktrees_on", lambda s, space=None: False), self.assertRaises(Fail) as e:
+            self.follow_up()
+        self.assertIn("Worktrees are off", str(e.exception))
+        self.assertEqual(len(self.store.data["tasks"]), 1)
+
+    def test_an_old_pull_request_on_a_reused_branch_name_is_not_this_tasks(self):
+        """Review 2: found by its branch name only when it holds this task's own work."""
+        self.merged()
+        self.task.pop("pr")
+        later = self.change(self.task["worktree"], "a new task's first commit")
+        self.task["start"] = later  # this task began after that pull request merged
+        self.change(self.task["worktree"], "and its second")
+        self.task["state"] = "running"
+        self.assertIsNone(self.after_merge.merged_before(self.store, self.task))
+        self.assertNotIn("pr", self.task)
+
+    def test_a_follow_up_pins_the_tip_it_carried(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        self.follow_up()
+        carried = self.task["after_merge"]["follow_up"]["tip"]
+        self.assertEqual(self.task["after_merge_carried"], carried)
+        self.assertEqual(carried, self.git(self.main, "rev-parse", f"refs/heads/{self.task['branch']}"))
+
+
 class TimeLeft(unittest.TestCase):
     """Every status gives the time left, a rough guess beats none (SHEP-13): the minutes show from
     the first one, one without --left asks for it, and every brief and template says so. In memory."""
@@ -10219,6 +10465,20 @@ class Next32(unittest.TestCase):
         self.assertEqual((v["resumed"], got["resume"], got["msg"]), (True, ["claude", "--resume", "S1"], self.commands.RESUME_NUDGE))
         self.assertNotIn("stopped_by", self.task(1))
 
+    def test_resuming_a_merged_task_keeps_it_done(self):
+        """dmalis/shepherdr#48: its agent starts again, the task stays Done (switch too)."""
+        self.begun()
+        self.live[:] = []
+        self.change(state="done", done_at=5, merged=True)
+        with self.mock.patch.object(self.commands, "launch", lambda s, t, argv, space, msg=None, parent=None, resume=None, **k: (
+                t["agents"].append({"address": "t10", "agent": "claude", "argv": argv, "at": 2}), t["agents"][-1])[1]), \
+                self.mock.patch.object(self.commands, "resume_argv", lambda argv, session, folder: [*argv, "--resume", session]), \
+                self.mock.patch.object(self.commands, "parent_for", lambda p, sp: None):
+            self.run_cmd(self.commands.cmd_resume, id="1")
+        t = self.task(1)
+        self.assertEqual((t["state"], t["merged"]), ("done", True))
+        self.assertGreater(t["ended_at"], t["done_at"])
+
     def test_a_person_stopping_it_is_no_news_but_a_crash_is(self):
         import herdr_task.news as news
         self.begun()
@@ -10237,7 +10497,7 @@ class Next32(unittest.TestCase):
 
     def test_a_reply_to_a_done_task_starts_its_agent_again(self):
         self.begun()
-        self.change(state="done", done_at=5, merged=True, closed_unmerged=True, quiet="told", told="x")
+        self.change(state="done", done_at=5, closed_unmerged=True, quiet="told", told="x")
         self.live[:] = []
         told = []
         with self.mock.patch.object(self.commands, "start_again", lambda s, t, space, key=None, argv_json=None, message=None, **k: (
@@ -10246,9 +10506,28 @@ class Next32(unittest.TestCase):
         self.assertEqual(told, [("sp1", "One more thing: the footer.")])
         self.assertEqual((v["state"], v["new_agent"], v["reopened"], v["terminal"]), ("running", True, True, "t10"))
         t = self.task(1)
-        self.assertTrue(t["kept_open"])  # its work merged before: it stays open until it says ready again
         for k in ("merged", "closed_unmerged", "quiet", "told"):
             self.assertNotIn(k, t)
+
+    def test_a_reply_to_a_merged_task_keeps_it_done(self):
+        """dmalis/shepherdr#48: its change merged: its agent gets the message and the task stays Done (before, it was
+        Working again until a ready that refused a second pull request, for good); its agent hears how what it commits
+        now goes on."""
+        self.begun()
+        self.change(state="done", done_at=5, merged=True)
+        self.live[:] = []
+        told = []
+        with self.mock.patch.object(self.commands, "start_again", lambda s, t, space, key=None, argv_json=None, message=None, **k: (
+                told.append(message), ({"address": "t10"}, True))[1]):
+            v = self.run_cmd(self.commands.cmd_reply, id="1", text="One more thing: the footer.")
+        self.assertTrue(told[0].startswith("One more thing: the footer."))
+        self.assertIn("stays done", told[0])
+        self.assertIn("follow-up ", told[0])
+        self.assertEqual((v["state"], v["reopened"]), ("done", False))
+        t = self.task(1)
+        self.assertEqual((t["state"], t["merged"]), ("done", True))
+        self.assertNotIn("kept_open", t)
+        self.assertGreater(t["ended_at"], t["done_at"])  # woken by the person: the end pass leaves its agent
 
     def test_a_reply_reaches_a_running_agent_and_clears_stopped(self):
         import herdr_task.news as news

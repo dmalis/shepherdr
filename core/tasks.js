@@ -172,7 +172,9 @@ export function place(list, task, { live = [], helpers = [], loaded = true, now 
   else if (st === "running" && task.review_out && live.length && !live.some((a) => a.status === "working" && a.role !== "reviewer")) need("reply", task.waits ?? "Out of review rounds");
   // Back at work after it said ready: no Accept until it says ready again.
   else if (busyAgain(task, live, now)) { section = "working"; why = WORKING_AGAIN; }
-  else if (fixing) { section = "working"; why = st === "ready" ? WORKING_AGAIN : null; }
+  // dmalis/shepherdr#48: "Working again" only while its agent works (or was just handed it); quiet, on it, its own
+  // status line says what
+  else if (fixing) { section = "working"; why = st === "ready" && (live.some((a) => a.status === "working") || now - (task.handed_at ?? 0) < STARTING_MS) ? WORKING_AGAIN : null; }
   else if (st === "ready") {
     // Nothing for the person yet (SHEP-175, readyWait()): Working, with what it waits for.
     const wait = readyWait(task, live);

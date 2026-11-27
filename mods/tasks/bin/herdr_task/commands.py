@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import sandbox, stack
+from . import after_merge, sandbox, stack
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -466,7 +466,8 @@ def begin(s, t, argv, space, parent=None):
     t["review_gate"] = True
     for k in ("queue", "queued_at", "attention", "held", "scheduled_for"):
         t.pop(k, None)
-    if t.get("mode") == "worktree" and not t.get("worktree") and not worktrees_on(s, space):
+    # dmalis/shepherdr#48: a follow-up never does: its prepared branch is its work
+    if t.get("mode") == "worktree" and not t.get("worktree") and not t.get("follows") and not worktrees_on(s, space):
         t["mode"] = "here"
     had = bool(t.get("mode") == "worktree" and t.get("worktree") and os.path.isdir(t["worktree"]))
     folder_for(s, t)
@@ -726,7 +727,12 @@ def cmd_ready(args):
         if me and any(a["address"] == me for a in t["agents"]):
             refresh_sessions(s, t, [k for k in live_agents(s.key(t)) if k["address"] == me])
         if t["state"] == "done":
-            raise Fail(f"{s.name(t)} is already done.")
+            # dmalis/shepherdr#48: merged, its agent committed more after a message: offered as a follow-up
+            if not t.get("merged"):
+                raise Fail(f"{s.name(t)} is already done.")
+            got = after_merge.record(s, t, ask=True)
+            s.save()
+            raise Fail(after_merge.ready_words(s, t, got))
         wt = t.get("worktree") if t.get("mode") == "worktree" else None
         pr = t.get("pr") or {}
         if pr.get("from_base") or (pr.get("branch") and (not pr.get("taken") or pr["branch"] == t.get("base"))):
@@ -769,6 +775,13 @@ def cmd_ready(args):
                 merged_pr = take_pr(s, t, args.pr, ready=True)
                 if not merged_pr:
                     raise Fail("The worktree is gone. Restore it before saying ready with an open pull request.")
+        # dmalis/shepherdr#48: its own pull request merged before, its branch has commits since (reopened, or worked on
+        # after it): done again, never a second pull request (Working again for good), nor a rebase onto what merged it;
+        # what came after is offered as a follow-up
+        after = after_merge.merged_before(s, t) if wt and os.path.isdir(wt) and t.get("start") and not merged_pr else None
+        if after is not None:
+            s.save()
+            raise Fail(after_merge.ready_words(s, t, after))
         refused = unmoved or collides or review_refusal(s, t, wt)
         if refused:
             # Kept (the task's line says why it waits); refused after the store is saved.
@@ -1685,7 +1698,9 @@ def cmd_resume(args):
         if t["state"] in ("todo", "scheduled", "queued"):
             raise Fail(f"{s.name(t)} hasn't started. Use start.")
         space = bare(args.space) if args.space else (t.get("space") or default_space())
-        if t["state"] == "done":
+        if t["state"] == "done" and t.get("merged"):
+            t["ended_at"] = now()  # dmalis/shepherdr#48: its change merged: it stays done, its agent left to run
+        elif t["state"] == "done":
             t["state"] = "running"
         gone = [k["address"] for k in live_agents(s.key(t))]  # its agents' terminals, none running an agent
         back_to_work(s, t, "resumed")
@@ -1728,7 +1743,9 @@ def cmd_switch(args):
         # A given --space wins: the task moves there (#837); else the old agent's own space.
         space = ((bare(args.space) if args.space else None) or labels.get("herdr.task.space") or labels.get("herdr.space")
                  or t.get("space") or default_space())
-        if t["state"] in ("todo", "scheduled", "queued", "done"):
+        if t["state"] == "done" and t.get("merged"):
+            t["ended_at"] = now()  # dmalis/shepherdr#48: its change merged: it stays done, its new agent left to run
+        elif t["state"] in ("todo", "scheduled", "queued", "done"):
             t["state"] = "running"
             t.setdefault("started", now())
             t.pop("queue", None)
@@ -1844,11 +1861,14 @@ def cmd_reply(args):
         if t["state"] in NOT_STARTED:
             raise Fail(f"{s.name(t)} hasn't started: change what it will do (herdr-task edit {s.ref(t)} --prompt \"…\") or start it.")
         was = t["state"]
-        if was == "done":
-            # as reopen: Working again, kept open though its work merged (until its agent says ready)
-            if t.get("merged"):
-                t["kept_open"] = True
-                t["was_merged"] = True  # SHEP-423, as reopen
+        # dmalis/shepherdr#48: a merged task stays done; what its agent commits now is offered as a follow-up
+        kept = was == "done" and bool(t.get("merged"))
+        if kept:
+            text = f"{text}\n\n{after_merge.reply_note(s, t)}"
+            t["ended_at"] = now()  # woken by the person: never ended again as a fresh Done (tick.end_done_pass)
+            s.dirty = True
+        elif was == "done":
+            # as reopen: Working again (not merged: closed without it, or nothing to merge)
             for k in ("reviews", "review", "auto_merge", "merged", "nothing_to_merge", "accepted_at", "merge_asked", "merge_queued", "closed_unmerged",
                       "quiet", "told", "told_sent", "waits_why", "closed_alone", "left_files", "attention"):
                 t.pop(k, None)
@@ -1858,8 +1878,10 @@ def cmd_reply(args):
         if clear_stopped(t):
             s.dirty = True
         v = view(s, t)
-    say(args, {**v, "terminal": sent, "new_agent": started, "reopened": was == "done"},
-        f"{s.name(t)}: sent to {sent}" + (" (its agent started again)" if started else "") + (". It is working again." if was == "done" else "."))
+    say(args, {**v, "terminal": sent, "new_agent": started, "reopened": was == "done" and not kept},
+        f"{s.name(t)}: sent to {sent}" + (" (its agent started again)" if started else "")
+        + (". It stays done (its change merged): what its agent commits now is offered as a follow-up." if kept else
+           ". It is working again." if was == "done" else "."))
 
 
 # ---- a merge that fails goes back to its agent (3.2, step 37) -------------------------------------
@@ -1990,6 +2012,9 @@ def merge_now(s, t, accept=False):
     # Its branch on GitHub goes now that it merged (the repo may have deleted it already: fine).
     drop_branch(s, t)
     t["merged"] = True
+    if v.get("headRefOid"):
+        # dmalis/shepherdr#48: the commit GitHub merged (--match-head-commit), so a later local commit is kept
+        t["merged_head"], t["merged_head_by"] = v["headRefOid"], "github"
     finish(s, t, even_if_busy=True)
     return None
 
