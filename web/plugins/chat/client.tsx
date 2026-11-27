@@ -50,7 +50,8 @@ import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.
 import { onPageReturn } from '@client/viewport.ts'
 import { keepAtEnd, rowEdges } from './stick.ts'
 import { OFF_PX, asksBelow, isOffEnd, newSince, onAsk, onEnd, questionsBelow, setOffEnd, toAsk, toEnd, useOffEnd } from './newest.ts'
-import { editedDraft, heldOf, isHeld, ownAsk } from './queued.ts'
+import { editedDraft, heldOf, isHeld } from './queued.ts'
+import { AskLine, afterOf, boxLine } from './asking-box.tsx'
 import { commandMode, commandOf, commandWord, type CommandState } from './command.ts'
 import { toggleSpaceTerm, toggleTaskTerm } from '@plugins/terminal/menu.ts'
 
@@ -890,9 +891,10 @@ function Held({ thread }: { thread: Thread }) {
           <I n="clock" c="s16 c-mute" />
           <span className="hw">
             <span className="ht">{o.text || o.files.map((f) => f.name).join(', ')}</span>
-            <span className="hs">Queued</span>
+            {/* waiting for its agent's answer (dmalis/shepherdr#59): it can't go before, so no Send now */}
+            <span className="hs">{o.waitsFor === 'answer' ? afterOf(chat) : 'Queued'}</span>
           </span>
-          <button type="button" className="fold" onClick={() => void tryAct({ type: 'held-now', cid: o.cid } as never)}>Send now</button>
+          {o.waitsFor !== 'answer' && <button type="button" className="fold" onClick={() => void tryAct({ type: 'held-now', cid: o.cid } as never)}>Send now</button>}
           <button type="button" className="fold" onClick={() => take(o, () => { setDraft(key, editedDraft(o.text, getDraft(key) ?? '')); focusBox(key) })}>Edit</button>
           <IB icon="x" label="Remove" onClick={() => take(o)} />
         </div>
@@ -1120,10 +1122,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const sug = sg && !repliesHidden({ dictating, call, working: busy, sending, spent: spent.has(sg.id) }) ? sg : null
   const machine = snap.places.find((p) => p.id === thread.place)?.machine ?? snap.host
   const pick = pickOf(snap, chat, thread)
-  // a question of its agent's is open: answer it on its card first (nothing closes its dialog for you, so a message
-  // sent now is refused: core/send.js ASKING)
-  const asked = !!ownAsk(chat)
-  const hint = asked ? 'Answer its question above first' : placeholder
+  // its agent asks something (a question, a permission, a plan): you can still write and send; it waits over the box
+  // and goes by itself once the card is answered (dmalis/shepherdr#59), and the line says so
+  const hint = placeholder
   // a message sent while the agent works goes in at once (it steers); only Ctrl/Cmd+Enter asks it to wait its turn.
   // The round button and Enter send only what is in the box, never a suggested reply (those are their own bubbles).
   // In a voice call the box takes no text (TEXT_IN_CALL).
@@ -1186,6 +1187,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     requestAnimationFrame(() => box.setSelectionRange(t.length, t.length))
   }
   const filled = !!text.trim() || !!files?.length || !!pastes.length
+  const after = boxLine(chat, filled)
   const BoxEnd = has('voice') ? registry.views.boxEnd : undefined
   const stop = busy && !filled
   /** a paste's chip opened to edit: its text goes into the box, at the end of what is there */
@@ -1254,6 +1256,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
       )}
       {ment.list}
       {slash.list}
+      {after && <AskLine id={`ask-${key}`} words={after} />}
       <div className="crow">
         <BoxLabel htmlFor={boxId} />
         <textarea
@@ -1266,6 +1269,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
           name="message"
           data-box={key}
           aria-label={hint}
+          aria-describedby={after ? `ask-${key}` : undefined}
           placeholder={hint}
           enterKeyHint="send"
           autoComplete="off"

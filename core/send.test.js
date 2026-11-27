@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ASKING, inputLine, sendBody, sendTyped } from "./send.js";
+import { ASKING_TERMINAL, inputLine, sendBody, sendTyped } from "./send.js";
 import { LOG, Conversation, records } from "./chat-log.js";
 
 // A Claude Code terminal as hc sees it: what its screen shows after each call.
@@ -139,7 +139,7 @@ test("a send to an agent on its own question is refused, with no key pressed", a
     };
     const r = await sendBody(io, `tb-${kind}`, kind, "hello");
     expect(r.code).toBe(1);
-    expect(r.stderr).toBe(ASKING);
+    expect(r.stderr).toBe(ASKING_TERMINAL);
     expect(calls.filter((c) => c.startsWith("keys"))).toEqual([]);
   }
 });

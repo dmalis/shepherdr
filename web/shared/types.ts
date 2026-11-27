@@ -691,8 +691,9 @@ export interface Message {
    *  it at once, so an ordinary message never has this) */
   waiting?: boolean
   /** why it waits: a menu is up (typed text could pick an option), the agent is starting, a CLI command waits for the
-   *  turn to end, it is in the CLI's own queue until its next step, or nothing here: its machine is out of reach */
-  waitsFor?: 'menu' | 'start' | 'turn' | 'queue'
+   *  turn to end, it is in the CLI's own queue until its next step, its agent's question (a card) waits for your answer
+   *  and it goes by itself after it (dmalis/shepherdr#59), or nothing here: its machine is out of reach */
+  waitsFor?: 'menu' | 'start' | 'turn' | 'queue' | 'answer'
   /** an attached file: each one is a message of its own, right after the text it came with; an agent's picture or
    *  video named in its words (core/chat-view.js mediaIn) comes the same way, with its Markdown words as alt */
   file?: { name: string; path: string; alt?: string }

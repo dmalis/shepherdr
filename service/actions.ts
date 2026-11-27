@@ -7,6 +7,7 @@ import { HOME, appHome, writable } from "./paths.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { sendBody, messageBody, refusal, reactionLine, mentionedIn, taskTag, inFront, NOT_TYPED } from "../core/send.js";
+import { askingWords, WAITS_ANSWER } from "../core/asking.js";
 import { kindOf } from "../core/chat-reader.js";
 import { WORDS } from "../core/chat-view.js";
 import { settle } from "../core/pending.js";
@@ -49,15 +50,24 @@ async function sendFromChat(...args: Parameters<typeof sendBody>) {
   }
 }
 
+/** dmalis/shepherdr#59: an agent's open question shows as a card in its chat (a hook ask: service/asks.ts), so the
+ *  person answers it there, not in its terminal. */
+export const carded = (compat: Compat, addr: string) => (compat.asks?.of(addr).length ?? 0) > 0;
+/** its agent waits on its own question: a card in its chat, or blocked on one only its terminal shows (a permission,
+ *  a menu). A message sent now waits for the answer (dmalis/shepherdr#59). */
+export const asking = (hub: Hub, compat: Compat, addr: string) => carded(compat, addr) || (hub.terminals.get(addr) as any)?.status?.state === "blocked";
+
 /** One page's message to its agent, its files' paths after its words. -> { ok, at } once it is in the agent's terminal
- *  (Claude Code's box clear: core/send.js settleBox), or { waiting } held for the agent's turn; else it throws. */
+ *  (Claude Code's box clear: core/send.js settleBox), or { waiting } held for the agent's turn or for the answer to
+ *  its question; else it throws. */
 async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   const a = addr(b.addr);
   const text = str(b.text ?? "").trim();
   if (!text && !(Array.isArray(b.attachments) && b.attachments.length)) throw new Error("nothing to send");
   const t = hub.terminals.get(a);
   if (!t || t.state !== "live") throw new Error("That agent isn't running.");
-  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null };
+  // card: its question shows as a card in its chat, so a refusal names "the question above" (dmalis/shepherdr#59)
+  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null, card: () => carded(compat, a) };
   // files sent with it: their paths after the words (copied first to another machine)
   const sent: string[] = Array.isArray(b.attachments) ? b.attachments : [];
   // never some of them quietly
@@ -75,19 +85,30 @@ async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   const body = [messageBody({ text, quote: typeof b.quote === "string" ? b.quote.slice(0, 2000) : null, tags: typeof b.tags === "string" ? b.tags : "", task: typeof b.quoteTask === "string" ? b.quoteTask : null }), ...files].filter(Boolean).join("\n\n");
   // held on purpose (Ctrl+Enter, a long press): it goes once the agent stops working
   const st = (hub.terminals.get(a) as any)?.status?.state;
+  const cid = typeof b.cid === "string" ? b.cid.slice(0, 80) : undefined;
+  // once it goes: the chat knows it again by its words (its id and files), so the page sees it went in
+  const note = () => { if (cid) compat.noteSend?.(a, { cid, text, files: sent, at: Date.now() }); };
   if (b.hold && (st === "working" || st === "blocked")) {
-    const cid = typeof b.cid === "string" ? b.cid.slice(0, 80) : undefined;
-    // once it goes: the chat knows it again by its words (its id and files), so the page sees it went in
-    const note = () => { if (cid) compat.noteSend?.(a, { cid, text, files: sent, at: Date.now() }); };
     held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note });
     drain();
     return { ok: true, waiting: true, waitsFor: "turn" };
   }
+  // dmalis/shepherdr#59: its agent asks something (a card in its chat, or its own menu): nothing is typed and no key
+  // closes it, so the message waits until it is answered and then goes by itself, never refused
+  const asks = () => asking(hub, compat, a);
+  const afterAnswer = () => {
+    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, answer: asks });
+    drain();
+    return { ok: true, waiting: true, waitsFor: WAITS_ANSWER };
+  };
+  if (asks()) return afterAnswer();
   // when it began to go in, by this clock: the page knows it again in the chat by it (web/src/outbox.ts sameAs)
   const at = Date.now();
   // what it was, so the chat knows it again while it waits in the CLI's queue
-  if (typeof b.cid === "string") compat.noteSend?.(a, { cid: b.cid.slice(0, 80), text, files: sent, at });
+  if (cid) compat.noteSend?.(a, { cid, text, files: sent, at });
   const r: any = await sendFromChat(io, a, kindOf(t) ?? "", body, again);
+  // it began to ask meanwhile (hc saw its question before its status said so): it waits for the answer too
+  if (r.code !== 0 && r.asking) return afterAnswer();
   // (stuck: it stayed in Claude Code's box; sent again with this id it gets only its Enter: send-once.ts)
   if (r.code !== 0) throw Object.assign(new Error(refusal(r).message), { stuck: !!r.stuck });
   return { ok: true, at };
@@ -112,7 +133,9 @@ export function arrived(b: any, compat: Compat): { ok: true; at: number; already
 const said = (v: string) => v.replace(/\s+/g, " ").trim();
 
 // Messages held until their agent is free, sent in order, each once.
-const held: { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void }[] = [];
+// answer: one sent while its agent asked (dmalis/shepherdr#59): it waits only while that is so, then goes at once
+// (a working agent takes it mid-turn, as any message; an answer that ended its turn gets it as the next message)
+const held: { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void; answer?: () => boolean }[] = [];
 let draining: ReturnType<typeof setInterval> | null = null, busy = false;
 function drain() {
   draining ??= setInterval(async () => {
@@ -123,7 +146,8 @@ function drain() {
       for (const m of [...held]) {
         const st = (m.hub.terminals.get(m.addr) as any)?.status?.state;
         const alive = m.hub.terminals.get(m.addr)?.state === "live";
-        if (alive && !m.now && (st === "working" || st === "blocked")) continue;
+        // (one waiting for an answer never goes while its agent still asks, Send now or not: it would be refused)
+        if (alive && (m.answer ? m.answer() : !m.now && (st === "working" || st === "blocked"))) continue;
         const i = held.indexOf(m);
         if (i < 0) continue;
         held.splice(i, 1);
@@ -132,6 +156,8 @@ function drain() {
         const r: any = alive
           ? await sendFromChat({ hc: asPerson(m.hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (m.hub.terminals.get(m.addr) as any)?.status?.state ?? null }, m.addr, m.kind, m.body).catch((e: Error) => ({ code: 1, stderr: e.message }))
           : { code: 1, stderr: "That agent isn't running." };
+        // it asks again (a next question right after the answer): back in its place, waiting for that answer too
+        if (r.code !== 0 && r.asking) { held.splice(Math.min(i, held.length), 0, { ...m, now: false, answer: m.answer ?? (() => (m.hub.terminals.get(m.addr) as any)?.status?.state === "blocked") }); continue; }
         if (r.code !== 0 && m.cid) noteFailed(m.addr, m.cid, refusal(r).message, !!r.stuck);
       }
     } finally {
@@ -384,7 +410,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     const item = r?.conv?.items?.find((x: any) => x.id === b.message);
     if (!item?.text) throw new Error("That message isn't in the chat any more.");
     const mine = (r.conv.reactions.get(b.message) ?? []).some((x: any) => x.by === "you" && x.emoji === b.emoji);
-    if ((hub.terminals.get(a) as any)?.status?.state === "blocked") throw new Error("It's asking you something: answer that first.");
+    if ((hub.terminals.get(a) as any)?.status?.state === "blocked") throw new Error(askingWords(carded(compat, a)));
     const res = await hub.send(a, reactionLine(b.emoji, item.text, !mine));
     if (res.code !== 0) throw new Error(refusal(res).message);
     return { ok: true };

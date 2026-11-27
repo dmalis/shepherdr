@@ -1,0 +1,5 @@
+/* dmalis/shepherdr#59: while its agent asks something, the box says what Send does in one quiet line over the words
+   (lined up with them): it sends after you answer the card above. Send stays as it is. */
+.askline{display:flex;align-items:flex-start;gap:6px;padding:10px 16px 0;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+.askline>.i{flex:none;margin-top:1px;color:var(--amber)}
+.askline+.crow textarea.cin{padding-top:4px}

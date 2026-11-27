@@ -1,13 +1,15 @@
 // Sending the person's words to an agent, the same way from the window's chat and from the web app:
 // the tag lines Herdr puts before them (the message it replies to, the tasks it mentions), then hc send. When
-// the agent waits on its own dialog in its terminal (a question, a permission), nothing is typed: the person answers
-// it there first (ASKING). Claude Code queues a message typed mid-turn itself; no key of ours pushes it in (AGENTS.md
+// the agent waits on its own dialog in its terminal (a question, a permission), nothing is typed: the refusal is
+// marked asking, and the service holds the message until it is answered (dmalis/shepherdr#59). Claude Code queues a message typed mid-turn itself; no key of ours pushes it in (AGENTS.md
 // "Nothing that risks a ban").
-// io = { hc(args) -> Promise<{ code, stdout, stderr }>, sleep(ms), status() -> the agent's status now }.
+// io = { hc(args) -> Promise<{ code, stdout, stderr }>, sleep(ms), status() -> the agent's status now,
+//        card?() -> a card in its chat shows the question it asks (dmalis/shepherdr#59) }.
 // Shared core: the source is core/send.js; bin/sync-shared copies it into the mods in lib/COPIES.
 
 import { excerpt } from "./chat-log.js";
 import { pickedHere, picks, sharedTitles, unpicked } from "./mention-picks.js";
+import { askingWords } from "./asking.js";
 
 // SHEP-324: what is in front of an agent's terminal, checked right before anything is typed into it. herdr-core keeps a
 // terminal whose program it lost (a core restart, a crash) as a plain shell, and one whose agent exited stays live too:
@@ -116,8 +118,8 @@ export function messageBody({ text, quote = null, tags = "", task = null }) {
 }
 
 // The agent waits on its own dialog (a question, a permission): nothing is typed and no key closes it (AGENTS.md
-// "Nothing that risks a ban"); the person answers it in its terminal first.
-export const ASKING = "It's asking you something. Answer that in its terminal first.";
+// "Nothing that risks a ban"); the person answers it first, on its card in the chat or in its terminal (core/asking.js).
+export { ASKING, ASKING_TERMINAL } from "./asking.js";
 
 // A picture's path on a line of its own, as a sent file goes after the words.
 
@@ -255,7 +257,8 @@ function inTurn(addr, run) {
 export function sendBody(io, addr, kind, body, again = false) {
   return inTurn(addr, async () => {
     let r = await sendTyped(io, addr, kind, body, SETTLE, again);
-    if (r.code !== 0 && refusal(r).kind === "blocked") return { code: 1, stdout: "", stderr: ASKING };
+    // asking: the service holds it until the question is answered, then sends it (dmalis/shepherdr#59)
+    if (r.code !== 0 && refusal(r).kind === "blocked") return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     if (r.code === 0) noteLately(addr, body);
     return r;
   });
