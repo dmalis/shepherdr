@@ -12,6 +12,9 @@ const KEY = 'alerts'
 
 export const setSpaceAlerts = (place: string, v: SpaceAlerts | null, done?: string) => tryAct({ type: 'config', place, key: KEY, value: v }, done)
 
+/** what Unmute alerts writes: back to Everything's when that is On, else this space's own On (Reset goes back) */
+export const unmuted = (snap: Snapshot): SpaceAlerts | null => (snap.config?.all?.alerts === 'Muted' ? 'On' : null)
+
 /** the space menu's row: Mute alerts, or Unmute alerts while it is muted */
 export function spaceAlertsRow(snap: Snapshot | null, p: Pick<Place, 'id'>, name: string): MenuRow[] {
   if (!snap?.config) return []
@@ -20,7 +23,7 @@ export function spaceAlertsRow(snap: Snapshot | null, p: Pick<Place, 'id'>, name
     {
       icon: 'bell',
       label: muted ? WORDS.unmute : WORDS.mute,
-      run: () => void setSpaceAlerts(p.id, muted ? null : 'Muted', muted ? WORDS.unmuted(name) : WORDS.muted(name)),
+      run: () => void setSpaceAlerts(p.id, muted ? unmuted(snap) : 'Muted', muted ? WORDS.unmuted(name) : WORDS.muted(name)),
     },
   ]
 }

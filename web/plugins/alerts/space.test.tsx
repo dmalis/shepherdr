@@ -9,7 +9,7 @@ import type { Snapshot } from '@shared/types.ts'
 import { notifyOf } from '@shared/alerts.ts'
 import { WORDS } from '@shared/reach.ts'
 
-const { spaceAlertsRow, SpaceAlertsRow } = await import('./space.tsx')
+const { spaceAlertsRow, SpaceAlertsRow, unmuted } = await import('./space.tsx')
 
 const all = { alerts: 'On' as const }
 const snapOf = (spaces: Record<string, unknown>) => ({ settings: [], config: { all, spaces } }) as unknown as Snapshot
@@ -46,4 +46,11 @@ test('pin: where the rows sit', () => {
   expect(read('plugins/alerts/page.tsx')).toMatch(/<Choice<Tell> label=\{WORDS\.reach\}[\s\S]*Ask me after[\s\S]*\{WORDS\.bell\}/)
   // a machine's warning never toasts
   expect(read('plugins/alerts/client.tsx')).toContain('if (!a.notify || a.ended || a.ops ||')
+})
+
+test('Unmute alerts under a muted Everything sets this space On; else it goes back to Everything', () => {
+  expect(unmuted(snapOf({ sp1: { alerts: 'Muted', own: ['alerts'] } }))).toBeNull()
+  const allMuted = { settings: [], config: { all: { alerts: 'Muted' }, spaces: {} } } as unknown as Snapshot
+  expect(spaceAlertsRow(allMuted, { id: 'sp1' }, '#shop').map((r) => r.label)).toEqual([WORDS.unmute])
+  expect(unmuted(allMuted)).toBe('On')
 })

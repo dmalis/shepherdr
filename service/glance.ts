@@ -11,6 +11,7 @@ import { needReason } from "../core/toasts.js";
 import { REASONS } from "../core/needs.js";
 import { suggestsOfMessage, suggestionsOn } from "../web/shared/suggest.ts";
 import { GROUPS } from "../web/shared/types.ts";
+import { DEFAULT_LEVEL, LEVELS, OFF } from "../web/shared/reach.ts";
 import { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, needsYou, unreadChats, waitingTasks } from "../web/shared/needs-you.ts";
 import { notifyOf, terminalQuestion, watchTitle } from "../web/shared/alerts.ts";
 import { kindWho, taskKind } from "../web/shared/kinds.ts";
@@ -386,8 +387,9 @@ export class GlanceFeed {
 
   /** fork Needs you 3/6: the spaces device D muted on Settings › Notifications before (push.ts mutedOn) */
   muted: (device: string) => string[] = () => [];
-  /** fork Needs you 3/6: device D chose Off on Settings › Notifications (push.ts offOn): its phone app notifies nothing */
-  off: (device: string) => boolean = () => false;
+  /** fork Needs you 3/6: device D's level on Settings › Notifications (push.ts levelOn): Off notifies nothing there, Needs
+   *  you and done a task done in the last 15 minutes too */
+  level: (device: string) => string = () => DEFAULT_LEVEL;
 
   /** the doc as device D's phone app hears it: what came while its page was on screen notifies nothing there; nor
    *  (fork Needs you 3/6) a machine's or a schedule's warning (the bell keeps those), nor a space that device muted */
@@ -395,12 +397,16 @@ export class GlanceFeed {
     if (!doc) return doc;
     const seen = device ? this.seen.get(device) : undefined;
     const muted = new Set(device ? this.muted(device) : []);
-    const off = !!device && this.off(device);
+    const level = device ? this.level(device) : DEFAULT_LEVEL;
+    const off = level === OFF;
+    const done = !off && !!LEVELS.find((l) => l.id === level)?.topics.some((t) => t === "done");
+    const fresh = this.clock() - ALERT_FRESH_MS;
+    const doneNow = (i: Item) => done && i.kind === "done" && !i.alert && (i.at ?? 0) >= fresh && !seen?.has(i.key);
     const placeOf = (url?: string) => { try { return new URLSearchParams(String(url ?? "").split("?")[1] ?? "").get("place"); } catch { return null; } };
     const quietItem = (i: Item) => !!i.alert && (off || !!seen?.has(i.key) || !!i.ops || muted.has(placeOf(i.url) ?? ""));
     const quietEvent = (e: Event) => !!e.alert;
-    if (!doc.items.some(quietItem) && !(doc.events ?? []).some(quietEvent)) return doc;
-    const items = doc.items.map((i) => (quietItem(i) ? { ...i, alert: false } : i));
+    if (!doc.items.some((i) => quietItem(i) || doneNow(i)) && !(doc.events ?? []).some(quietEvent)) return doc;
+    const items = doc.items.map((i) => (quietItem(i) ? { ...i, alert: false } : doneNow(i) ? { ...i, alert: true } : i));
     const events = (doc.events ?? []).map((e) => (quietEvent(e) ? { ...e, alert: false } : e));
     return { ...doc, items, events, urgent: urgentOf(doc.counts, items, events) };
   }

@@ -11,7 +11,7 @@ import { readyWords } from "../web/shared/ready-words.ts";
 import { fitWho } from "../web/shared/kinds.ts";
 import { excerpt } from "../web/shared/excerpt.ts";
 import { unread } from "../web/shared/needs-you.ts";
-import { PUSH_TTL_S } from "../web/shared/reach.ts";
+import { DEFAULT_LEVEL, levelOf, OFF, PUSH_TTL_S, REACH, type Reach } from "../web/shared/reach.ts";
 
 /** a push alert; its buttons (SHEP-243) and what each does: answer a card, accept a task, reply in its chat */
 type Out = {
@@ -84,6 +84,8 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const a of snap.alerts ?? []) now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
     ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(a.notify ? {} : { muted: true as const }) });
   // fork Needs you 3/6: a schedule whose run failed (its row in Schedules says so, as the glance feed's events): the bell only
+  // fork Needs you 3/6: a machine that can't be reached or is nearly out of memory: in the bell only (as the glance's events)
+  for (const w of machineWarnings(snap)) now.set(w.key, { title: w.title, body: w.body, tag: w.key, topic: "ops", muted: true });
   for (const s of schedulesFailed(snap)) now.set(s.key, { title: s.title, body: s.body, tag: s.key, topic: "ops", place: s.place, url: alertUrl({ place: s.place }), ...(s.muted ? { muted: true as const } : {}) });
   // short enough for a watch: its title on one line, its body in two
   for (const a of now.values()) {
@@ -100,6 +102,22 @@ export const waitingTags = (alerts: Map<string, Out>) => [...new Set([...alerts.
  *  waiting"): the next push's open tags, and the app when it opens (/api/waiting), close it on each device. */
 export function pushChanges(before: Map<string, Out>, now: Map<string, Out>, badge: number, open = waitingTags(now)) {
   return [...now].filter(([k, a]) => !before.has(k) && !a.muted).map(([, a]) => ({ ...a, badge, open }));
+}
+
+/** fork Needs you 3/6: the machine warnings the warnings line shows (can't reach it, memory nearly full), unless the
+ *  memory guard's own alert already says it */
+export function machineWarnings(snap: any): { key: string; title: string; body: string }[] {
+  const machines: any[] = snap.machines ?? [];
+  const memory = new Set((snap.alerts ?? []).filter((a: any) => a.memory && !a.task)
+    .map((a: any) => machines.find((x) => (a.machine ? x.machine === a.machine && !x.here : x.here))?.machine).filter(Boolean));
+  const out: { key: string; title: string; body: string }[] = [];
+  for (const w of snap.warnings ?? []) {
+    const m = /^m:(.+):(down|memory)$/.exec(String(w.id ?? ""));
+    if (w.kind !== "machine" || !m || (m[2] === "memory" && memory.has(m[1]))) continue;
+    const name = machines.find((x) => x.machine === m[1])?.name ?? m[1];
+    out.push({ key: `machine:${m[1]}:${m[2]}`, title: m[2] === "down" ? `Can't reach ${name}` : `${name}: memory nearly full`, body: String(w.text ?? "") });
+  }
+  return out;
 }
 
 /** fork Needs you 3/6: the schedules whose last run failed, as the glance feed's events (glance.ts eventsOf); muted:
@@ -252,7 +270,7 @@ export class Push {
   constructor(private subject: () => string, private file = join(DATA, "push.json")) {
     try { this.subs = JSON.parse(readFileSync(this.file, "utf8")); } catch {}
     try { this.removed = JSON.parse(readFileSync(this.removedFile, "utf8")); } catch {}
-    try { this.offNodes = JSON.parse(readFileSync(this.offFile, "utf8")); } catch {}
+    try { this.levels = JSON.parse(readFileSync(this.levelsFile, "utf8")) ?? {}; } catch {}
   }
 
   private save() { writeFileSync(this.file, JSON.stringify(this.subs), { mode: 0o600 }); }
@@ -278,7 +296,7 @@ export class Push {
     this.keepRemoved(this.removed.filter((h) => h !== hashOf(sub.endpoint)));
     // fork Needs you 3/6: alerts on there again
     const on = node ?? had?.node;
-    if (on) this.keepOff(this.offNodes.filter((n) => n !== on));
+    if (on && this.levels[on] === OFF) this.setLevel(on, levelOf(chose.topics) ?? DEFAULT_LEVEL);
     this.subs = [...this.subs.filter((s) => s.endpoint !== sub.endpoint && s !== had), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, device: String(device ?? "").slice(0, 200), at: Date.now(), ...chose,
       ...(node ? { node } : had?.node ? { node: had.node } : {}) }].slice(-20);
     this.save();
@@ -311,24 +329,28 @@ export class Push {
   }
 
   /** fork #96: the removed list, written only when it changed; a failed write never fails a remove or a turn on */
-  /** fork Needs you 3/6: the tailnet devices whose page chose Off (its own alerts off there), kept so their phone app's
-   *  glance feed notifies nothing either; a subscription there again takes it off */
-  private offNodes: string[] = [];
-  private get offFile() { return this.file.replace(/(\.json)?$/, "-off.json"); }
-  private keepOff(next: string[]) {
-    if (next.length === this.offNodes.length && next.every((h, i) => h === this.offNodes[i])) return;
-    this.offNodes = next;
-    try { writeFileSync(this.offFile, JSON.stringify(next), { mode: 0o600 }); } catch {}
+  /** fork Needs you 3/6: what each tailnet device chose on Settings › Notifications (a level or Off), told by its page
+   *  whether or not its browser has a subscription, so its phone app's glance feed follows it too */
+  private levels: Record<string, Reach> = {};
+  private get levelsFile() { return this.file.replace(/(\.json)?$/, "-levels.json"); }
+  setLevel(node: string | null | undefined, level: unknown) {
+    if (!node || !REACH.includes(level as Reach) || this.levels[node] === level) return;
+    const next = Object.entries({ ...this.levels, [node]: level as Reach }).slice(-50);
+    this.levels = Object.fromEntries(next);
+    try { writeFileSync(this.levelsFile, JSON.stringify(this.levels), { mode: 0o600 }); } catch {}
   }
   /** fork Needs you 3/6: the page's Off: this subscription goes, and its device is kept as off */
   turnOff(endpoint: string) {
     const node = this.subs.find((s) => s.endpoint === endpoint)?.node;
     this.unsubscribe(endpoint);
-    if (node && !this.subs.some((s) => s.node === node)) this.keepOff([...this.offNodes.filter((n) => n !== node), node].slice(-50));
+    if (node && !this.subs.some((s) => s.node === node)) this.setLevel(node, OFF);
   }
-  /** fork Needs you 3/6: a tailnet device turned Off on Settings › Notifications, with no subscription since */
-  offOn(node: string | null | undefined): boolean {
-    return !!node && this.offNodes.includes(node) && !this.subs.some((s) => s.node === node);
+  /** fork Needs you 3/6: device D's level: what its page chose, else its subscriptions' (the default with none) */
+  levelOn(node: string | null | undefined): Reach {
+    const subs = node ? this.subs.filter((s) => s.node === node) : [];
+    const chose = node ? this.levels[node] : undefined;
+    if (chose === OFF) return subs.length ? levelOf(subs.flatMap((s) => pushTopics(s.topics))) ?? DEFAULT_LEVEL : OFF;
+    return chose ?? (subs.length ? levelOf(subs.flatMap((s) => pushTopics(s.topics))) ?? DEFAULT_LEVEL : DEFAULT_LEVEL);
   }
 
   private keepRemoved(next: string[]) {

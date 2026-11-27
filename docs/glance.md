@@ -182,7 +182,9 @@ word; absent while Shepherdr is still reading it (it comes in a later frame). Op
 
 A device's own stream (fork Needs you 3/6) carries every event with `"alert": false`: a machine's or a schedule's
 warning shows in the list and the bell but notifies no device, as for web push. So does an item about a machine (a
-memory or restart alert), and anything from a space that device muted.
+memory or restart alert), and anything from a space that device muted. It follows the level that device chose on
+Settings › Notifications, kept by the service whether or not its browser has a push subscription (`POST
+/api/push/level`): Off notifies nothing, and Needs you and done also notifies a task done in the last 15 minutes.
 
 `key` stays while it lasts: a new key is a new alert, and one leaves when it's over (the schedule ran, the machine is
 back). Like items, an event with `alert` true notifies: a new one changes `urgent`, so it goes at once, and one that came

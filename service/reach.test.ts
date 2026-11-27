@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 const dir = mkdtempSync(join(tmpdir(), "reach-"));
 const settingsFile = join(dir, "settings.json");
 process.env.HERDR_TASK_SETTINGS = settingsFile;
-const { Push, alertsOf, agentAlerts, schedulesFailed, wants } = await import("./push.ts");
+const { Push, alertsOf, agentAlerts, machineWarnings, pushChanges, schedulesFailed, wants } = await import("./push.ts");
 const { GlanceFeed } = await import("./glance.ts");
 const { configOf, setConfig } = await import("./next.ts");
 const { canonical, levelOf, spaceAlertsOf, topicsOf, PUSH_TTL_S, REACH } = await import("../web/shared/reach.ts");
@@ -169,28 +169,64 @@ test("Space alerts: On by default, Muted kept as the space's own \"alerts\", and
   expect(() => setConfig("sp1", "alerts", "Off", { id: "sp1", name: "shop", machine: null })).toThrow("Not one of its choices.");
 });
 
-test("Off on a device reaches its phone app: nothing notifies there until alerts are on again", async () => {
+const glanceOne = (items: any[]) => {
+  const g = new GlanceFeed(() => 60 * 60_000, 0);
+  g.set({ format: 1, v: "1", urgent: "u", at: 1, counts: { needs: 1, working: 0, ready: 0, done: 1 }, order: [], groups: [], unread: 0, spaces: [], chats: [], usage: null, events: [], items });
+  return g;
+};
+const NEED = { key: "need:A", kind: "needs", type: "need", tag: "A", title: "A · Needs you", body: "", alert: true, url: "./?place=sp1&task=A" };
+const DONE = { key: "task:B", kind: "done", type: "task", tag: "B", title: "B · Done", body: "", alert: false, at: 59 * 60_000, url: "./?place=sp1&task=B" };
+
+test("a device's level reaches its phone app: Off notifies nothing, until alerts are on again there", async () => {
   const f = file();
   const p = new Push(() => "https://example.test", f);
   const [a, b] = [await fakeSub(1), await fakeSub(2)];
   p.subscribe(a, "pwa", undefined, "node1"); p.subscribe(b, "mac", undefined, "node2");
   // a subscription lost for another reason (gone at the push service) isn't Off
   p.unsubscribe(b.endpoint);
-  expect(p.offOn("node2")).toBe(false);
+  expect(p.levelOn("node2")).toBe("Needs you");
   p.turnOff(a.endpoint);
-  expect(p.offOn("node1")).toBe(true);
+  expect(p.levelOn("node1")).toBe("Off");
   // kept across a restart
-  expect(new Push(() => "https://example.test", f).offOn("node1")).toBe(true);
-  const g = new GlanceFeed(() => 1, 0);
-  g.set({ format: 1, v: "1", urgent: "u", at: 1, counts: { needs: 1, working: 0, ready: 0, done: 0 }, order: [], groups: [], unread: 0, spaces: [], chats: [], usage: null, events: [],
-    items: [{ key: "need:A", kind: "needs", type: "need", tag: "A", title: "A · Needs you", body: "", alert: true, url: "./?place=sp1&task=A" }] });
-  g.off = (d) => p.offOn(d);
+  expect(new Push(() => "https://example.test", f).levelOn("node1")).toBe("Off");
+  const g = glanceOne([NEED]);
+  g.level = (d) => p.levelOn(d);
   expect(g.docFor("node1").items[0].alert).toBe(false);
   expect(g.docFor("node2").items[0].alert).toBe(true);
   // on again there
   p.subscribe(a, "pwa", undefined, "node1", true);
-  expect(p.offOn("node1")).toBe(false);
+  expect(p.levelOn("node1")).toBe("Needs you");
   expect(g.docFor("node1").items[0].alert).toBe(true);
+});
+
+test("a device with only the phone app (no subscription) still sets its level: Off, or Needs you and done", () => {
+  const p = new Push(() => "https://example.test", file());
+  const g = glanceOne([NEED, DONE]);
+  g.level = (d) => p.levelOn(d);
+  // nothing chosen: the default, no done
+  expect(g.docFor("phone").items.map((i) => i.alert)).toEqual([true, false]);
+  p.setLevel("phone", "Needs you and done");
+  // a task done in the last 15 minutes notifies there
+  expect(g.docFor("phone").items.map((i) => i.alert)).toEqual([true, true]);
+  p.setLevel("phone", "Off");
+  expect(g.docFor("phone").items.map((i) => i.alert)).toEqual([false, false]);
+  // an unknown level changes nothing
+  p.setLevel("phone", "Everything");
+  expect(p.levelOn("phone")).toBe("Off");
+  // an older done task never notifies
+  p.setLevel("phone", "Needs you and done");
+  const old = glanceOne([{ ...DONE, at: 1 }]);
+  old.level = (d) => p.levelOn(d);
+  expect(old.docFor("phone").items[0].alert).toBe(false);
+});
+
+test("machine warnings are in the bell's alerts, quiet, pushed to no device", () => {
+  const snap = { machines: [{ machine: "vm", name: "vm" }], warnings: [{ kind: "machine", id: "m:vm:down", text: "No answer for 5 minutes." }] };
+  expect(alertsOf(snap).get("machine:vm:down")).toMatchObject({ title: "Can't reach vm", topic: "ops", muted: true });
+  expect(pushChanges(new Map(), alertsOf(snap))).toEqual([]);
+  // the memory guard's own alert says it already
+  const mem = { machines: [{ machine: "vm", name: "vm" }], alerts: [{ id: "g", memory: true, machine: "vm", title: "t", body: "b", ops: true }], warnings: [{ kind: "machine", id: "m:vm:memory", text: "x" }] };
+  expect(machineWarnings(mem)).toEqual([]);
 });
 
 test("a phone app's stream with no known device still never buzzes for a warning", async () => {

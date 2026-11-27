@@ -91,6 +91,7 @@ export async function turnOn(tell: Level = levelWanted()): Promise<string | void
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }))
   // turnOn (fork #96): asked for here, so a device removed from another one's list is on again
   await post('subscribe', { sub, device: navigator.userAgent, turnOn: true })
+  await post('level', { level: tell }).catch(() => undefined)
   // the spaces it mutes stay as they were: the server keeps them
   await post('choose', { endpoint: sub.endpoint, topics: topicsOf(tell), all: false })
   setPushEndpoint(sub.endpoint)
@@ -100,6 +101,8 @@ export async function turnOn(tell: Level = levelWanted()): Promise<string | void
 /** what reaches this device: one of the levels, or Off */
 export async function choose(tell: Tell, now: DeviceNow): Promise<string | void> {
   want(tell)
+  // the service keeps it for this device too, so its phone app follows it without a subscription here
+  await post('level', { level: tell }).catch(() => undefined)
   if (tell === OFF) {
     const sub = await browserSub()
     if (sub) {
