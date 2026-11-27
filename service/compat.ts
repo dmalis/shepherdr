@@ -32,6 +32,7 @@ import { HOME, appHome } from "./paths.ts";
 const { spaceName } = SPc as any;
 import type { Where } from "./worktree.ts";
 import { answeredLine, holdForPrompts, markAnswered, whyHeld } from "./prompts.ts";
+import { sentPictures } from "./sent-images.ts";
 import * as AGc from "../core/agents.js";
 const { liveAgent } = AGc as any;
 
@@ -791,13 +792,14 @@ export class Compat {
         const to = x.replyTo && !x.replyTask ? items.slice(0, i).reverse().find((y: any) => (y.kind === "user" || y.kind === "agent") && y.text && names(y.text, String(x.replyTo).slice(0, 60))) : null;
         if (x.text) messages.push({ id: x.id, who: "you", text: x.text, at: x.at, ...cid, ...(x.replyTo ? { reply: x.replyTask ? { text: x.replyTo, task: String(x.replyTask) } : { text: x.replyTo, ...(to ? { id: to.id, who: to.kind === "user" ? "you" : "agent" } : {}) } } : {}), ...reactions, ...mentions } as Message);
         // the images sent with it, under its words as the window shows them; only files a chat names are ever served
-        // (fileOf)
-        for (const [n, path] of (x.paths ?? []).entries()) {
-          (this.files.get(key) ?? this.files.set(key, new Set()).get(key)!).add(path);
-          messages.push({ id: `${x.id}:f${n}`, who: "you", at: x.at, ...cid, file: { name: path.split("/").pop() ?? "image", path } } as Message);
+        // (fileOf). One Claude Code didn't say the source of shows from its log (service/sent-images.ts).
+        const pics = sentPictures(x, reader.path ?? null, !machine);
+        for (const [n, file] of pics.files.entries()) {
+          (this.files.get(key) ?? this.files.set(key, new Set()).get(key)!).add(file.path);
+          messages.push({ id: `${x.id}:f${n}`, who: "you", at: x.at, ...cid, file } as Message);
         }
-        // images Claude Code didn't say the source of: how many, as the window's paperclip line
-        const unseen = (x.images ?? 0) - (x.paths?.length ?? 0);
+        // and any it can't show: how many, as the window's paperclip line
+        const unseen = pics.unseen;
         if (unseen > 0) messages.push({ id: `${x.id}:n`, who: "you", at: x.at, ...cid, images: unseen } as Message);
       }
       else if (x.kind === "sent" && x.text) {
