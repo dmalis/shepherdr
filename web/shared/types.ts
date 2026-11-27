@@ -119,6 +119,9 @@ export interface Section {
   machine?: string
   /** the spaces in it, in order */
   spaces: string[]
+  /** the spaces in no group above it, as the person last dragged it (web/shared/group-slots.ts); none kept: right
+   *  after the group before it */
+  after?: string[]
 }
 
 export interface Machine {

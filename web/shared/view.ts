@@ -3,6 +3,7 @@
 // row's words and time, a space's "needs you" count. The app, the alerts and the voice all read it from here.
 import type { Artifact, Automation, Machine, Place, Section, Snapshot, Task } from './types.ts'
 import { taskAlerts } from './needs-you.ts'
+import { inSlots, type Slotted } from './group-slots.ts'
 
 export type Space = Place
 
@@ -96,6 +97,8 @@ export interface ListGroup {
   id: string
   name: string
   spaces: Place[]
+  /** the loose spaces above it, as last dragged (web/shared/group-slots.ts) */
+  after?: string[]
 }
 /** which spaces a machine's heading shows */
 export type ListFilter = 'Active' | 'Archived' | 'All'
@@ -107,9 +110,11 @@ export interface ListMachine {
   /** what its filter shows, and how many of its spaces are archived (the filter's menu says) */
   filter: ListFilter
   archived: number
-  /** groups first as the person ordered them, then the spaces in no group */
+  /** the groups as the person ordered them, and the spaces in no group */
   groups: ListGroup[]
   spaces: Place[]
+  /** both in one order, as the list shows them (web/shared/group-slots.ts) */
+  items: Slotted<ListGroup>[]
 }
 
 /** why a machine carries a warning mark: out of reach, or disk or memory over 90% */
@@ -131,10 +136,12 @@ export function listOf(snap: Snapshot, filter: ListFilter | ((machine: string) =
     const mine = all.filter((p) => f === 'All' || (f === 'Archived') === !!p.archived)
     const groups = sections
       .filter((s) => (s.machine ?? snap.host) === machine.machine)
-      .map((s) => ({ id: s.id, name: s.name, spaces: s.spaces.map((id) => mine.find((p) => p.id === id)).filter((p): p is Place => !!p) }))
+      .map((s) => ({ id: s.id, name: s.name, spaces: s.spaces.map((id) => mine.find((p) => p.id === id)).filter((p): p is Place => !!p), ...(s.after ? { after: s.after } : {}) }))
     const grouped = new Set(groups.flatMap((g) => g.spaces.map((p) => p.id)))
     // the archived view lists spaces only
-    return { machine, warn: machineWarn(machine), filter: f, archived: all.filter((p) => p.archived).length, groups: f === 'Archived' ? [] : groups, spaces: mine.filter((p) => f === 'Archived' || !grouped.has(p.id)) }
+    const shown = f === 'Archived' ? [] : groups
+    const spaces = mine.filter((p) => f === 'Archived' || !grouped.has(p.id))
+    return { machine, warn: machineWarn(machine), filter: f, archived: all.filter((p) => p.archived).length, groups: shown, spaces, items: inSlots(shown, spaces) }
   })
 }
 

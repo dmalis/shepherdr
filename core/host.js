@@ -102,7 +102,8 @@ export function relocate(key, value, rename) {
   if (key === "spaces-chat" && isObj(value)) {
     const sections = Array.isArray(value.sections) ? value.sections.flatMap((s) => {
       const m = rename(s?.machine ?? null);
-      return m === undefined ? [] : [{ ...s, machine: m, spaces: keep(s.spaces ?? [], (id) => moveId(id, rename)) }];
+      // after: the loose spaces above it (core/group-slots.js), named like its spaces
+      return m === undefined ? [] : [{ ...s, machine: m, spaces: keep(s.spaces ?? [], (id) => moveId(id, rename)), ...(Array.isArray(s.after) ? { after: keep(s.after, (id) => moveId(id, rename)) } : {}) }];
     }) : value.sections;
     return { ...value, sections, icons: mapKeys(value.icons, (id) => moveId(id, rename)), pinned: keep(value.pinned, (id) => moveId(id, rename)),
       ...(isObj(value.machines) ? { machines: mapKeys(value.machines, machineKey("")(rename)) } : {}),

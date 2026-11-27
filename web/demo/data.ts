@@ -181,7 +181,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
       place(P.vmPortal, 'customer-portal-and-billing-redesign', 'vm', at('/home/sam/clients/northwind/portal')),
       // SHEP-429: every other machine's home space, its first row as ~; pi has nothing else
       place('p:mac-mini:tilde', 'home', 'mac-mini', at('/Users/sam', '~', { home: true, unnamed: true })), place('p:vm:home', 'home', 'vm', at('/home/sam', '~', { home: true, unnamed: true })), place('p:studio:home', 'home', 'studio', at('/Users/sam', '~', { home: true, unnamed: true })), place('p:pi:home', 'home', 'pi', at('/home/sam', '~', { home: true, unnamed: true }))],
-    sections: [{ id: 's:store', name: 'Store', machine: 'mac-mini', spaces: [P.shop, P.blog] }],
+    // two groups and spaces in no group on one machine (fork patch #31: a loose space can be dragged above or between them)
+    sections: [{ id: 's:store', name: 'Store', machine: 'mac-mini', spaces: [P.shop, P.blog] }, { id: 's:writing', name: 'Writing', machine: 'mac-mini', spaces: [P.docs] }],
     // #1560: blog's and garden-app's Assistants said something you haven't read: their rows are bold until opened
     last: empty ? {} : { [P.blog]: 3, [P.garden]: 2, [P.shop]: 5 },
     read: empty ? {} : { [P.blog]: 2, [P.garden]: 1, [P.shop]: 5 },

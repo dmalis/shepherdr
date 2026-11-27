@@ -11,6 +11,7 @@ import { screenParams, screenWords } from "../core/screen.js";
 import { planRows, windowWords, whyWords, healthWords } from "../core/machines.js";
 import { AGENT_USAGE, notRead } from "../core/agent-usage.js";
 import { artifactsIn, everything, isEverything, isTilde, listOf, machineLabel, machineWarn, needsCount, nowGroups, onBranch, scheduleLine, schedulesOf, spaceLabel, spacesOf, etaOf, leftWords, statusWord, taskInSpace, taskLine, taskWhen, tstate, unreachable, whereWords } from "../web/shared/view.ts";
+import { slottedSpaces } from "../web/shared/group-slots.ts";
 import { SOURCES, scrub, render, at, search, segments, type SourceArgs } from "./voice-data.ts";
 import { lookPage, type PageRead } from "./voice-page.ts";
 
@@ -387,7 +388,7 @@ function lookSpaces(snap: Snapshot) {
   const ev = everything(snap);
   if (ev) { const n = needsCount(snap); out.push(`Everything, the root chat${n ? `: ${n} ${n === 1 ? "needs" : "need"} you in all` : ""}.`); }
   for (const m of listOf(snap, "Active")) {
-    const rows = [...m.groups.flatMap((g) => g.spaces), ...m.spaces].map((p) => `${isTilde(snap, p) ? "its home space (~)" : `#${p.name}`}${counts(p.id) ? `: ${counts(p.id)}` : ""}`);
+    const rows = slottedSpaces(m.items).map((p) => `${isTilde(snap, p) ? "its home space (~)" : `#${p.name}`}${counts(p.id) ? `: ${counts(p.id)}` : ""}`);
     if (rows.length) out.push(`On ${m.machine.name}${unreachable(m.machine) ? " (can't reach it)" : ""}: ${rows.join("; ")}.`);
   }
   const arch = spacesOf(snap).filter((p) => p.archived);

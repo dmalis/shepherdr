@@ -17,6 +17,7 @@ import { steps as answerSteps } from "../core/asks.js";
 const { CHOICE_KEY, choiceOf, withChoice, speedOf } = AGa as any;
 import * as SP from "../core/spaces.js";
 import { iconValue } from "../core/space-icon.js";
+import { withGroupSlots } from "../core/group-slots.js";
 const { READ, assistantOf, withMove, withSection, withoutSection, withSectionName, withIcon, withMachineLook, withOrder, withMachineOrder, DELETED, deletedSection, withRestoredSection } = SP as any;
 import { type Compat } from "./compat.ts";
 import { noteFailed, once, wentIn } from "./send-once.ts";
@@ -420,11 +421,12 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       d.sections = [...order.map((id) => d.sections.find((y: any) => y.id === id)).filter(Boolean), ...d.sections.filter((y: any) => !order.includes(y.id))];
     } else if (b.under.startsWith("m:")) {
       // the order is the sidebar's own (core/spaces.js withOrder), so it holds on every device; the rest of the
-      // machine's stay where they were
+      // machine's stay where they were. Its groups (s:<id>) may be among them: one order for both (core/group-slots.js)
       const key = b.under.slice(2), machine = key === compat.host ? null : key;
       const all: any[] = compat.allSpaces?.() ?? [];
       const now = all.filter((s) => (s.machine ?? null) === machine).map((s) => s.id);
-      await sh.set("spaces-chat", withOrder(bar(), machine, ids, now));
+      const next = withOrder(bar(), machine, ids.filter((id) => !sec(id)), now);
+      await sh.set("spaces-chat", ids.some((id) => sec(id)) ? withGroupSlots(next, machine, ids.map((id) => (sec(id) ? { group: sec(id) } : id)), next.order?.[machine ?? ""] ?? now) : next);
       return { ok: true };
     } else if (b.under === "all") {
       // the machines (m:<key>, this computer by its name): their order in the sidebar's data, "" for this computer, so

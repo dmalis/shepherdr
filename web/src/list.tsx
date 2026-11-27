@@ -442,14 +442,15 @@ async function removeGroup(id: string, name: string) {
 }
 
 /** Spaces are dragged into the order you want: among those beside them, or onto another group of the same machine
- *  (its heading, or a row in it: before that one). `under`: the group's id, or its machine's ("m:<key>"). */
-function dragSpace(snap: Snapshot, p: Space, under: string, siblings: string[]) {
+ *  (its heading, or a row in it: before that one). `under`: the group's id, or its machine's ("m:<key>"). A space in
+ *  no group moves among its machine's groups too (level item: siblings are the groups' ids and the loose spaces'). */
+function dragSpace(snap: Snapshot, p: Space, under: string, siblings: string[], level: 'project' | 'item' = 'project') {
   return (e: React.PointerEvent<HTMLElement>) => {
     if ((e.target as HTMLElement).closest('.ib')) return
     press(e, {
       id: p.id,
       siblings,
-      level: 'project',
+      level,
       drop: (ids) => void tryAct({ type: 'order', under, ids }),
       into: {
         group: under,
@@ -460,14 +461,16 @@ function dragSpace(snap: Snapshot, p: Space, under: string, siblings: string[]) 
   }
 }
 
-function SpaceRow({ snap, p, sub, under, siblings, section }: { snap: Snapshot; p: Space; sub?: boolean; under: string; siblings: string[]; section?: string }) {
+/** item: the row of its machine's list it belongs to (its group's id, or its own when in no group: then it moves among
+ *  the groups, siblings being that list's) */
+function SpaceRow({ snap, p, sub, under, siblings, section, item }: { snap: Snapshot; p: Space; sub?: boolean; under: string; siblings: string[]; section?: string; item?: string }) {
   const at = useUI((u) => u.at)
   const n = needsCount(snap, p.id)
   const dim = !!placeDown(snap, p.id) || p.archived
   const tilde = isTilde(snap, p)
   const fresh = at !== p.id && spaceUnread(snap, p)
   return (
-    <div className="rowx" data-project={p.id} data-section={section} data-machine={p.machine} data-drop={under} onPointerDown={dragSpace(snap, p, under, siblings)}>
+    <div className="rowx" data-project={p.id} data-section={section} data-machine={p.machine} data-item={item} data-drop={under} onPointerDown={dragSpace(snap, p, under, siblings, item === p.id ? 'item' : 'project')}>
       <Row lead={<SpaceIcon snap={snap} id={p.id} />} label={tilde ? '~' : p.name} {...(tilde ? { 'aria-label': spaceLabel(snap, p.id) } : {})} className={[sub ? 'sub' : '', dim ? 'dim' : '', fresh ? 'unread' : ''].join(' ')} current={at === p.id} end={<Cnt n={n} />} onClick={() => go(p.id)} />
       <IB
         icon="dots"
@@ -698,7 +701,7 @@ export function List({ snap }: { snap: Snapshot }) {
         </div>
       )}
       {machines.flatMap((m) => {
-        const { machine, groups, spaces, filter } = m
+        const { machine, groups, spaces, filter, items } = m
         const key = machine.machine
         const shut = !!ui.shut[machine.id]
         const head = <MachineHead key={machine.id} snap={snap} m={m} keys={keys} shut={shut} needs={shut ? foldedNeeds(snap, m, ui.at) : 0} reorder={reorder} />
@@ -707,29 +710,35 @@ export function List({ snap }: { snap: Snapshot }) {
           const open = [...groups.flatMap((g) => g.spaces.map((p) => [p, g.id] as const)), ...spaces.map((p) => [p, `m:${key}`] as const)].find(([p]) => p.id === ui.at)
           return [head, ...(open ? [<SpaceRow key={open[0].id} snap={snap} p={open[0]} under={open[1]} siblings={[open[0].id]} />] : [])]
         }
+        const order = items.map((it) => (it.group ? it.group.id : it.space.id))
         return [
           head,
           ...(filter === 'Archived' && !spaces.length ? [<p key={`${machine.id}:empty`} className="hint mempty" data-machine={key}>No archived spaces.</p>] : []),
-          ...groups.flatMap((g) => [
-            // a group is dragged by its heading, among the groups of its machine; its spaces go with it
-            <div
-              className="rowx"
-              key={g.id}
-              data-section={g.id}
-              data-machine={key}
-              data-heading={g.id}
-              data-drop={g.id}
-              onPointerDown={(e) => {
-                if ((e.target as HTMLElement).closest('.ib')) return
-                press(e, { id: g.id, siblings: groups.map((x) => x.id), level: 'section', drop: (ids) => void tryAct({ type: 'order', under: `sections:m:${key}`, ids }) })
-              }}
-            >
-              <Row icon={ui.shut[g.id] ? 'right' : 'down'} label={g.name} expanded={!ui.shut[g.id]} onClick={() => setUI({ shut: { ...ui.shut, [g.id]: !ui.shut[g.id] } })} />
-              <IB icon="dots" label={`More for ${g.name}`} aria-haspopup="menu" onClick={(e) => groupMenu(e.currentTarget, g.id, g.name, g.spaces)} />
-            </div>,
-            ...(ui.shut[g.id] ? g.spaces.filter((p) => p.id === ui.at || spaceUnread(snap, p)) : g.spaces).map((p) => <SpaceRow key={p.id} snap={snap} p={p} sub under={g.id} siblings={g.spaces.map((x) => x.id)} section={g.id} />),
-          ]),
-          ...spaces.map((p) => <SpaceRow key={p.id} snap={snap} p={p} under={`m:${key}`} siblings={spaces.map((x) => x.id)} />),
+          // one order for its groups and its spaces in no group (web/shared/group-slots.ts): a group is dragged by its
+          // heading, its spaces go with it; a loose space moves among the groups, or into one
+          ...items.flatMap((it) => {
+            if (!it.group) return [<SpaceRow key={it.space.id} snap={snap} p={it.space} under={`m:${key}`} siblings={order} item={it.space.id} />]
+            const g = it.group
+            return [
+              <div
+                className="rowx"
+                key={g.id}
+                data-section={g.id}
+                data-machine={key}
+                data-heading={g.id}
+                data-drop={g.id}
+                data-item={g.id}
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).closest('.ib')) return
+                  press(e, { id: g.id, siblings: order, level: 'item', drop: (ids) => void tryAct({ type: 'order', under: `m:${key}`, ids }) })
+                }}
+              >
+                <Row icon={ui.shut[g.id] ? 'right' : 'down'} label={g.name} expanded={!ui.shut[g.id]} onClick={() => setUI({ shut: { ...ui.shut, [g.id]: !ui.shut[g.id] } })} />
+                <IB icon="dots" label={`More for ${g.name}`} aria-haspopup="menu" onClick={(e) => groupMenu(e.currentTarget, g.id, g.name, g.spaces)} />
+              </div>,
+              ...(ui.shut[g.id] ? g.spaces.filter((p) => p.id === ui.at || spaceUnread(snap, p)) : g.spaces).map((p) => <SpaceRow key={p.id} snap={snap} p={p} sub under={g.id} siblings={g.spaces.map((x) => x.id)} section={g.id} item={g.id} />),
+            ]
+          }),
         ]
       })}
       <span className="vh" role="status">{said}</span>
