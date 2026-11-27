@@ -2,9 +2,9 @@
 
 - `baseline`: reads what is installed (`installed.json`, the install folder's HEAD and its VERSION) and proves it
   matches the state's baseline; `--capture` writes it the first time.
-- `install`: the checks before anything moves, the before-pictures for health, then the install folder moved to the
-  candidate and the update asked for (`herdr-task update-shepherdr`), its outcome read from its JSON state, never
-  from an exit code.
+- `install`: the checks before anything moves, the before-pictures for health, the run's own sync hold, then the
+  install folder moved to the candidate and the update asked for (`herdr-task update-shepherdr`, with the hold
+  patch's variable), its outcome read from its JSON state, never from an exit code.
 - `health`: every line must hold, `shepherdr doctor` last. A pass makes the candidate the baseline.
 - `rollback`: the install step aimed at the baseline, with its own checks first, then health against the baseline.
   Only that health passing is "rolled back"; anything else is "broken".
@@ -33,6 +33,10 @@ RECORD = os.path.join(SHARE, "installed.json")
 HOOK_FILES = (".claude/settings.json", ".codex/hooks.json")
 HOOK_NAMES = {".claude/settings.json": "Claude Code's settings", ".codex/hooks.json": "Codex's hooks file"}
 HOLD_PATCH_TEST = "test_hold_patch.py"          # the hold patch's test, named in fork/patches.json (build task 5)
+# The run's own sync hold (Narrow exceptions, "Propagation to other machines"): no "install at <stamp>:", so
+# herdr-task's base.sync_held never clears it; only `shepherdr doctor` without HOLD_VAR lets go of it.
+HOLD_LINE = "held by the fork's sync until its health check passes: run shepherdr doctor"
+HOLD_VAR = "SHEPHERDR_KEEP_SYNC_HOLD"            # on the update only: the hold patch keeps the installer off the hold
 PIPELINE_CODE = ("fork/bin", "fork/sync")        # what a rehearsal covers
 UNKNOWN_AFTER_S = 40 * 60                         # an update still running this long after it began: unknown
 BUILT = ("web/dist/",)                            # installed files built, not tracked: health line 2 skips them
@@ -136,14 +140,19 @@ sys.path.insert(0, sys.argv[1])
 if sys.argv[2] == "path":
     from herdr_task import self_update
     print(json.dumps({"path": self_update.clean_env(dict(os.environ)).get("PATH", "")}))
+elif sys.argv[2] == "holds":
+    from herdr_task import layout
+    home = sys.argv[3]
+    w = layout.Where(home=home, env=None if sys.argv[4] == "live" else {})
+    print(json.dumps({"paths": [os.path.join(home, ".herdr", "sync-hold"), os.path.join(w.roots["state"], "sync-hold")]}))
 else:
     from herdr_task import base, scheduler
     print(json.dumps({"hash": scheduler.script_hash(), "store": base.STORE}))
 '''
 
 
-def probe(s, what):
-    code, out, _ = run([sys.executable, "-c", PROBE, s.tasks_bin, what], timeout=60)
+def probe(s, what, *args):
+    code, out, _ = run([sys.executable, "-c", PROBE, s.tasks_bin, what, *args], timeout=60)
     v = json_line(out) if code == 0 else None
     return v if isinstance(v, dict) else None
 
@@ -212,6 +221,38 @@ def carries_hold_patch(repo, sha):
             return any(walk(x) for x in v)
         return False
     return walk(data)
+
+
+def hold_paths(s):
+    """The two files that hold the sync to other machines, where the installed herdr-task's base.sync_held reads
+    them and `shepherdr doctor` takes them away (bin/shepherdr's hold_paths without HOLD_VAR): ~/.herdr/sync-hold
+    and Shepherdr's state folder's sync-hold. A scratch root's, like the installer's --root, ignores SHEPHERDR_HOME
+    and XDG_*. Refused (nothing moved) when the installed layout can't say."""
+    v = probe(s, "holds", s.home, "live" if s.live else "root")
+    paths = v.get("paths") if v else None
+    if not (isinstance(paths, list) and len(paths) == 2 and all(isinstance(x, str) and os.path.isabs(x) for x in paths)):
+        raise Refused("the installed herdr-task can't say where the sync hold goes; nothing moved", outcome="held",
+                      kind="install", gate="hold")
+    return paths
+
+
+def hold_sync(s):
+    """The run's own hold, in both files, before the install folder moves: the sync to other machines waits until
+    health's doctor lets go of it, whatever the update does meanwhile (the hold patch keeps the installer off it).
+    Shepherdr's own state, not an agent's. Refused when a file can't be written."""
+    for path in hold_paths(s):
+        tmp = None
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".fork-sync-", dir=os.path.dirname(path))
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(HOLD_LINE + "\n")
+            os.replace(tmp, path)
+        except OSError as e:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+            raise Refused(f"the sync hold can't be written ({e.strerror or type(e).__name__}); nothing moved",
+                          outcome="held", kind="install", gate="hold")
 
 
 # --- the agents' hook files: read, never written ---
@@ -383,9 +424,12 @@ def updater(s):
 
 
 def ask_update(s, run_key, folder):
-    """`herdr-task update-shepherdr <run> --folder <space> --no-wait`, from the run's own terminal. Its exit code
-    says little: the outcome is read from its state (read_outcome)."""
-    run([updater(s), "update-shepherdr", run_key, "--folder", folder, "--no-wait"], timeout=120)
+    """`herdr-task update-shepherdr <run> --folder <space> --no-wait`, from the run's own terminal, with HOLD_VAR:
+    the runner (self_update.clean_env) and the installer's hand_over keep it, so the hold patch keeps the update off
+    the run's hold. Only this call sets it. Its exit code says little: the outcome is read from its state
+    (read_outcome)."""
+    run([updater(s), "update-shepherdr", run_key, "--folder", folder, "--no-wait"], timeout=120,
+        env=dict(os.environ, **{HOLD_VAR: "1"}))
 
 
 def update_status(s, task, folder):
@@ -586,6 +630,11 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
             if why:
                 raise Refused(f"the install stopped before its update was asked for, and now {why}: nothing was "
                               "asked; the person looks", outcome="unknown", gate="resume")
+            try:
+                hold_sync(s)                      # written before the phase was; written again before the folder moves
+            except Refused as e:
+                raise Refused(f"the install stopped before its update was asked for, and now {e.why}: nothing was "
+                              "asked; the person looks", outcome="unknown", gate="resume")
             return move_and_ask(p, s, run_key, folder, sha, base=ins.get("baseline"), now=now, sleep=sleep)
         return outcome(p, s, ins["ask"], now=now, sleep=sleep)
     if phase == "installed":
@@ -606,6 +655,7 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
         state.owns_lease(st, run_key, folder)
         if st.get("phase") != phase or st.get("candidate") != sha:
             raise Refused("the state moved meanwhile", outcome="stop")
+        hold_sync(s)          # the run's own hold, before the phase says the folder may move: refused, nothing moved
         base = dict(st.get("baseline") or {})
         state.set_phase(st, "installing")
         st["install"] = {"sha": sha, "version": version_at(repo, sha), "baseline": base.get("sha"),
@@ -898,6 +948,10 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
             broken(p, cand, base_sha, "the install folder changed during the rollback")
             raise Refused("the install folder is at neither the candidate nor the baseline, or has changes: "
                           "someone else's change; nothing moved", outcome="broken")
+        try:
+            hold_sync(s)    # the install's hold stays through the rollback: the healthy baseline's doctor lets go
+        except Refused:
+            pass            # it is already there; never a reason to leave the failed candidate installed
         if not checkout(s, base_sha):
             broken(p, cand, base_sha, "the rollback's checkout")
             raise Refused(f"the install folder can't be checked out at the baseline {base_sha[:12]}",

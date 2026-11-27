@@ -196,6 +196,10 @@ HELD_NOTE = "the sync to other machines is held until `shepherdr doctor` finds t
 
 
 def hold_paths(root):
+    # dmalis/shepherdr#19: the fork's sync holds the sync itself until its health check passes, and sets this on its
+    # update, so the installer's own hold goes to a side file herdr-task never reads, and never touches the sync's.
+    if os.environ.get("SHEPHERDR_KEEP_SYNC_HOLD") == "1":
+        return [os.path.join(where_for(root).roots["state"], "sync-hold.install")]
     return [os.path.join(root, HOLD), os.path.join(where_for(root).roots["state"], "sync-hold")]
 
 

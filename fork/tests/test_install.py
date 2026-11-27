@@ -122,7 +122,14 @@ class BeforeAnythingMoves(World):
         st, head, hooks = self.st(), self.head(), self.read_hooks()
         self.assertEqual((st["phase"], st["install"], head, hooks), (before[0]["phase"], None, self.B, before[2]))
         self.assertEqual(self.asks(), [], "no update asked")
+        self.assertEqual(self.holds(), [None, None], "no sync hold written")
         return e.exception
+
+    def test_a_sync_hold_that_cant_be_written(self):
+        with open(os.path.join(self.root, ".herdr"), "w") as f:     # a file where the hold's folder goes
+            f.write("x\n")
+        e = self.refused()
+        self.assertEqual((e.fields["outcome"], e.fields["kind"], e.fields["gate"]), ("held", "install", "hold"))
 
     def test_the_rehearsal_gate(self):
         with state.locked(self.p) as st:
@@ -297,6 +304,34 @@ class Outcomes(World):
         # the run ends: finish says installed and lets go of the lease
         self.assertEqual(self.finish(says="3.2.22 with our patches")["outcome"], "installed")
         self.assertIsNone(self.st()["lease"])
+
+    def test_the_runs_sync_hold(self):
+        """The hold patch's other half (dmalis/shepherdr#19): the run's hold is in both files before the folder
+        moves, for the install and again for the rollback; the update, and only it, carries the hold variable;
+        doctor runs without it (and alone lets go: a fake here, the real one in test_hold_patch.py)."""
+        self.set(plan=["failed", "ok"])
+        real, seen = install.checkout, []
+
+        def checkout(s, sha):
+            seen.append((sha, self.holds()))
+            return real(s, sha)
+        line = install.HOLD_LINE + "\n"
+        with mock.patch.object(install, "checkout", checkout):
+            with self.assertRaises(Refused):
+                self.install()
+            with self.assertRaises(Refused):
+                self.health()
+            self.assertEqual(self.holds(), [line, line], "a failed health keeps it")
+            for p in (os.path.join(self.root, ".herdr", "sync-hold"),
+                      os.path.join(self.root, ".local", "state", "shepherdr", "sync-hold")):
+                os.remove(p)                                        # gone meanwhile: the rollback holds again
+            self.assertEqual(self.rollback()["outcome"], "rolled-back")
+        self.assertEqual(seen, [(self.C, [line, line]), (self.B, [line, line])])
+        asked = [(a["var"], a["holds"], a["head"]) for a in self.load_cfg()["asked_with"]]
+        self.assertEqual(asked, [("1", [line, line], self.C), ("1", [line, line], self.B)])
+        self.assertEqual(self.load_cfg().get("status_with_var", 0), 0, "status reads don't carry it")
+        self.assertNotIn(install.HOLD_VAR, os.environ, "set on the ask's own environment only")
+        self.assertEqual([c[2] for c in self.calls("doctor")], [None])
 
     def test_the_tag_counts_on(self):
         subprocess.run(["git", "-C", self.origin, "tag", "ours-3.2.22-1", self.B], check=True)
@@ -592,8 +627,12 @@ class Resume(World):
                 self.install()
         st = self.st()
         self.assertEqual((st["phase"], st["install"]["ask"], self.head()), ("installing", None, self.B))
+        line = install.HOLD_LINE + "\n"
+        self.assertEqual(self.holds(), [line, line], "held before the phase said the folder may move")
+        os.remove(os.path.join(self.root, ".herdr", "sync-hold"))
         self.assertEqual(self.install()["update"], "ok")
         self.assertEqual(len(self.asks()), 1)
+        self.assertEqual(self.load_cfg()["asked_with"][0]["holds"], [line, line], "the resume holds again")
 
     def test_a_resume_before_the_ask_checks_the_folder_again(self):
         self.set(plan=["ok"])
