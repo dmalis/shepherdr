@@ -71,41 +71,26 @@
 
 /* ---- a phone's safe areas: the notch or island, the rounded corners and the home bar, on every screen ----
    The frame keeps clear on every side (the sides matter with the phone turned); the bottom bar, sheets and the
-   full-screen views already keep clear of the home bar. A line at the very top still paints under the status bar.
-   --safe-top is the top that stays clear. On an iPhone's home screen (iOS 26) the system blurs and fades the page for
-   about 32pt below the status bar too, so a header right under it came out blurred: there the clear top takes that
-   band as well. It applies only where the status bar sits over the page (an inset on top): turned, it's nothing.
-   The band is the system's, so it stays 32PX at every app zoom (an iPad's home-screen app gets it too). */
-.app {
-  --safe-top: env(safe-area-inset-top);
-}
-@media (display-mode: standalone) {
-  @supports (-webkit-touch-callout: none) {
-    .app {
-      --safe-top: calc(env(safe-area-inset-top) + min(32PX, 100 * env(safe-area-inset-top)));
-    }
-  }
-}
+   full-screen views already keep clear of the home bar. A line at the very top still paints under the status bar. */
 .device {
-  padding-top: var(--safe-top, env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 .app.phone .device > .tline:first-child {
-  margin-top: calc(-1 * var(--safe-top));
-  padding-top: calc(4px + var(--safe-top));
+  margin-top: calc(-1 * env(safe-area-inset-top));
 }
 .app .drawer {
-  padding-top: calc(8px + var(--safe-top));
+  padding-top: calc(8px + env(safe-area-inset-top));
   padding-left: calc(8px + env(safe-area-inset-left));
   padding-bottom: calc(8px + env(safe-area-inset-bottom));
 }
 .app.phone .win {
-  padding: var(--safe-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 /* the settings window beside a pane-sized screen (a phone turned, a tablet): clear of the notch and the home bar */
 .app:not(.phone) .win {
-  top: max(16px, calc((100dvh - 640px) / 2), calc(8px + var(--safe-top)));
+  top: max(16px, calc((100dvh - 640px) / 2), calc(8px + env(safe-area-inset-top)));
   bottom: max(16px, calc((100dvh - 640px) / 2), calc(8px + env(safe-area-inset-bottom)));
   left: max(16px, calc((100% - 880px) / 2), calc(8px + env(safe-area-inset-left)));
   right: max(16px, calc((100% - 880px) / 2), calc(8px + env(safe-area-inset-right)));
@@ -123,23 +108,40 @@
   padding-right: calc(16px + env(safe-area-inset-right));
 }
 .app .toasts {
-  top: calc(60px + var(--safe-top));
+  top: calc(60px + env(safe-area-inset-top));
 }
-/* what the app pins to the top itself: the update chip under the header, a full-screen terminal's bar, the viewer */
-.app .upchip {
-  top: calc(var(--hd) + 8px + var(--safe-top));
-}
-.app .fbar {
-  padding-top: calc(4px + var(--safe-top));
-}
-.app .fpill {
-  top: calc(8px + var(--safe-top));
-}
-.app .lbox {
-  padding-top: var(--safe-top, env(safe-area-inset-top));
-}
-.app .lbody :is(img, video) {
-  max-height: calc(100dvh - 68px - var(--safe-top, env(safe-area-inset-top)) - env(safe-area-inset-bottom));
+
+/* ---- an iPhone's home screen (iOS 26 and later): the header is the app's top bar, sharp under the status bar ----
+   A home-screen app's page starts below the status bar (its safe area on top is 0 there). Under the status bar iOS 26
+   draws a soft "scroll edge effect" that blurs and fades the top of the page for a line or two below it, which is
+   where the header's first row sits. WebKit hides that effect, and paints the status bar in one solid colour instead,
+   when a fixed or sticky element sits at the very top of the page: at least 90% as wide as the screen, more than 10px
+   tall, with a background (WebKit's LocalFrameView::fixedContainerEdges; WKWebView's _shouldHideTopScrollPocket).
+   So the top row is pinned, the way a native app's navigation bar is: the header, or a line above it. Sticky doesn't
+   move it (nothing above it scrolls), and the header takes the canvas it already sits on, so it looks the same.
+   A full-screen layer on top (fixed, the screen's size) keeps the colour the status bar already has, so the picture
+   viewer pins its own bar too: the status bar turns dark over it, not the header's light. That bar names its colour,
+   black: without one WebKit samples the pixels, and while the viewer fades in it would take, and keep, the light page
+   behind it. The colour is painted only under the bar's own text (background-clip: text), where the white letters
+   cover it, so the viewer looks as before. Only the phone-width layout is that wide (an iPhone; an iPad's narrow
+   window or a high app zoom); a browser tab, Android and a desktop window never take these. */
+@media (display-mode: standalone) {
+  @supports (-webkit-touch-callout: none) {
+    .app.phone .device > .tline:not(.device > :not(.upchip) ~ *),
+    .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child,
+    .app.phone .lbox > .lbar:first-child {
+      position: sticky;
+      top: 0;
+    }
+    .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child {
+      background: var(--canvas);
+    }
+    .app.phone .lbox > .lbar:first-child {
+      background-color: #000;
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+  }
 }
 
 /* ---- installed: the frame doesn't rubber-band, a long press on a menu row or tab neither selects nor calls out ---- */

@@ -4,7 +4,6 @@
 import { expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { launchOf, launches, wantsCall, wantsNeeds, wantsNewTask, withoutAsks } from './launch.ts'
-import { zoomValue } from '../../zoom-css.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
@@ -172,47 +171,61 @@ test("the title bar rules apply only in the window controls overlay; the frame k
   expect(wco).toContain('env(titlebar-area-x')
   expect(wco).toContain('app-region: drag')
   expect(css.slice(0, css.indexOf('@media (display-mode: window-controls-overlay)'))).not.toContain('app-region')
-  for (const side of ['left', 'right']) expect(css).toMatch(new RegExp(`\\.device \\{[^}]*padding-${side}: env\\(safe-area-inset-${side}\\)`))
-  expect(css).toMatch(/\.device \{[^}]*padding-top: var\(--safe-top, env\(safe-area-inset-top\)\)/)
+  for (const side of ['top', 'left', 'right']) expect(css).toMatch(new RegExp(`\\.device \\{[^}]*padding-${side}: env\\(safe-area-inset-${side}\\)`))
   // a form sheet keeps its own 16px sides, the safe area added on top
   expect(css).toMatch(/\.app \.sheet\.form \{[^}]*padding-left: calc\(16px \+ env\(safe-area-inset-left\)\)/)
 })
 
-test("an iPhone's home screen: the top clears the status bar and the system's blur under it, nowhere else", () => {
+test("an iPhone's home screen: the top row is pinned, so iOS draws no blur over it; nothing else moves", () => {
   const css = read('web/plugins/installed/installed.css')
-  // everywhere: the clear top is the inset alone (a browser tab, Android, a desktop, the phone turned)
-  expect(css).toMatch(/\.app \{\s*--safe-top: env\(safe-area-inset-top\);\s*\}/)
-  // only installed on an iPhone (standalone, Safari's touch-callout), and only with an inset on top: 32pt more,
-  // the system's band, so the app's zoom leaves it as it is
-  const ios = 'calc(env(safe-area-inset-top) + min(32PX, 100 * env(safe-area-inset-top)))'
-  expect(css).toContain(`@media (display-mode: standalone) {\n  @supports (-webkit-touch-callout: none) {\n    .app {\n      --safe-top: ${ios};`)
-  expect(zoomValue(ios)).toBe(ios)
-  // the viewer's pictures fit between the clear top and the home bar
-  expect(css).toMatch(/\.app \.lbody :is\(img, video\) \{\s*max-height: calc\(100dvh - 68px - var\(--safe-top, env\(safe-area-inset-top\)\) - env\(safe-area-inset-bottom\)\);/)
-  // every top the app keeps clear takes it, so nothing starts inside the blur: the frame, a line on top, the drawer,
-  // the settings window, toasts, the update chip, a full-screen terminal's bar and the viewer
-  const top = css.slice(css.indexOf('.device {')).replaceAll('var(--safe-top, env(safe-area-inset-top))', 'var(--safe-top)')
-  expect(top).not.toContain('safe-area-inset-top)')
-  for (const r of [
-    /\.app\.phone \.device > \.tline:first-child \{\s*margin-top: calc\(-1 \* var\(--safe-top\)\);\s*padding-top: calc\(4px \+ var\(--safe-top\)\);/,
-    /\.app \.drawer \{\s*padding-top: calc\(8px \+ var\(--safe-top\)\)/,
-    /\.app\.phone \.win \{\s*padding: var\(--safe-top\) /,
-    /\.app:not\(\.phone\) \.win \{\s*top: max\([^;]*calc\(8px \+ var\(--safe-top\)\)\);/,
-    /\.app \.toasts \{\s*top: calc\(60px \+ var\(--safe-top\)\);/,
-    /\.app \.upchip \{\s*top: calc\(var\(--hd\) \+ 8px \+ var\(--safe-top\)\);/,
-    /\.app \.fbar \{\s*padding-top: calc\(4px \+ var\(--safe-top\)\);/,
-    /\.app \.fpill \{\s*top: calc\(8px \+ var\(--safe-top\)\);/,
-    /\.app \.lbox \{\s*padding-top: var\(--safe-top, env\(safe-area-inset-top\)\);/,
-  ])
-    expect(css).toMatch(r)
-  // upstream's own tops these replace: a sync that moves one fails here first
+  // no guessed band below the status bar: the clear top is the safe area alone, everywhere
+  expect(css).not.toContain('--safe-top')
+  expect(css).not.toMatch(/\d+PX/)
+  // only installed on an iPhone (standalone, WebKit's touch-callout) and only a phone's one column: a browser tab,
+  // Android and a desktop window never take it
+  const at = css.indexOf('@media (display-mode: standalone) {\n  @supports (-webkit-touch-callout: none) {')
+  expect(at).toBeGreaterThan(-1)
+  const block = css.slice(at, css.indexOf('\n}\n', at))
+  const hd = '.app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child'
+  const line = '.app.phone .device > .tline:not(.device > :not(.upchip) ~ *)'
+  // WebKit hides its soft top edge effect for a fixed or sticky element at the very top, as wide as the screen, more
+  // than 10px tall, with a background: the header (or a line above it), on the canvas it already sits on
+  // a full-screen layer keeps the colour the status bar already has (WebKit prefers it for a screen-sized layer), so
+  // the picture viewer pins its own bar: dark over the viewer, not the header's light
+  const lbar = '.app.phone .lbox > .lbar:first-child'
+  expect(block).toContain(`${line},\n    ${hd},\n    ${lbar} {\n      position: sticky;\n      top: 0;\n    }`)
+  expect(block).toContain(`${hd} {\n      background: var(--canvas);\n    }`)
+  // the viewer's bar names its colour (WebKit would otherwise sample, and keep, the light page as the viewer fades in),
+  // painted only under its own white text, so the viewer looks as before
+  expect(block).toContain(`${lbar} {\n      background-color: #000;\n      -webkit-background-clip: text;\n      background-clip: text;\n    }`)
+  expect(read('web/src/ds.css')).toContain('.lname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')
+  expect(read('web/src/ds.css')).toMatch(/\.lbox\{position:fixed;inset:0;[^}]*color:#fafafa;/)
+  expect(block).not.toMatch(/backdrop-filter|opacity|z-index|padding|margin|height/)
+  // nothing else pins or moves the top: the rest of the sheet keeps only the safe area on top
+  expect(css.replace(block, '')).not.toMatch(/position: (sticky|fixed)/)
+})
+
+/* the upstream seams the pinned top leans on: a sync that changes one fails here first */
+test('pinned: the page never scrolls, the header is a plain row on the canvas, a line on top has its own colour', () => {
+  const ds = read('web/src/ds.css')
   const up = read('web/src/styles.css')
-  expect(up).toContain('.app.phone .tline:first-child{padding-top:calc(4px + env(safe-area-inset-top))}')
-  expect(up).toMatch(/\.upchip\{position:fixed;[^}]*top:calc\(var\(--hd\) \+ 8px \+ env\(safe-area-inset-top\)\)/)
-  expect(up).toMatch(/\.fbar\{[^}]*padding:calc\(4px \+ env\(safe-area-inset-top\)\) /)
-  expect(up).toMatch(/\.fpill\{[^}]*top:calc\(8px \+ env\(safe-area-inset-top\)\)/)
-  expect(read('web/src/ds.css')).toMatch(/\.lbox\{[^}]*padding:env\(safe-area-inset-top\) /)
-  expect(read('web/src/ds.css')).toContain('.lbody img,.lbody video{max-width:100%;max-height:calc(100dvh - 68px - env(safe-area-inset-top) - env(safe-area-inset-bottom));')
+  // sticky doesn't move it: the page itself doesn't scroll (each column scrolls inside)
+  expect(ds).toContain('html,body{height:100%}body{padding:0;overflow:hidden}')
+  // the canvas behind the header is the page's own: nothing between them paints a background
+  expect(ds).toMatch(/body\{margin:0;background:var\(--canvas\)/)
+  expect(ds).toContain('.hd{display:flex;align-items:center;gap:4px;height:var(--hd);padding:0 12px;flex:none;min-width:0}')
+  for (const r of [/\.device\{[^}]*\}/g, /\.col\{[^}]*\}/g, /\.shell\{[^}]*\}/g]) for (const m of ds.match(r) ?? []) expect(m).not.toContain('background')
+  // a line on top paints its own colour, and the header's buttons keep their own boxes (a sticky header holds them)
+  expect(up).toMatch(/\.tline\{[^}]*background:var\(--raised\)/)
+  expect(ds).toMatch(/button\{position:relative;/)
+  // the phone's column and header are the ones the rule names
+  const app = read('web/src/App.tsx')
+  // the chat's header is its column's first child, the viewer's bar its first
+  expect(app).toMatch(/<section className="col chat"[^>]*>\s*<ChatHeader /)
+  expect(read('web/plugins/chat/thumbs.tsx')).toMatch(/openDialog\(\s*\(close\) => \(\s*<>\s*<div className="lbar">/)
+  expect(read('web/src/overlay.tsx')).toContain("className={layer.view ? 'lbox in'")
+  expect(app).toContain('<section className="col pane"')
+  expect(app).toMatch(/<div className="device">\s*\{registry\.topBars\.map/)
 })
 
 /* the upstream seams this leans on (fork #34): a sync that breaks one fails here first */
