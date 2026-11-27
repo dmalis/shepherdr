@@ -9,7 +9,9 @@ import { everything, folderOf, groupOf, isEverything, isHomeSpace, isTilde, list
 import { act, getState, go, notice, openSettings, registry, setUI, shownOn, tryAct, useUI, type Filter, type MenuRow } from './kernel.ts'
 import { confirm, openDialog, openForm, openMenu } from './overlay.tsx'
 import { AgentField, MachineField, pickFor, type Pick } from './picker.tsx'
-import { Btn, Cnt, I, IB, MenuGroup, Row, Tgl } from './ui.tsx'
+import { Btn, I, IB, MenuGroup, Row, Tgl } from './ui.tsx'
+import { NeedsCount, openNeeds } from './needs-count.tsx'
+import { needsItems } from '@shared/needs-open.ts'
 import { offersRepo, suggestions, tilde, untilde } from '@core/newspace.js'
 import { attr } from './attr.ts'
 import { copyText } from './copy.ts'
@@ -446,7 +448,7 @@ async function removeGroup(id: string, name: string) {
  *  no group moves among its machine's groups too (level item: siblings are the groups' ids and the loose spaces'). */
 function dragSpace(snap: Snapshot, p: Space, under: string, siblings: string[], level: 'project' | 'item' = 'project') {
   return (e: React.PointerEvent<HTMLElement>) => {
-    if ((e.target as HTMLElement).closest('.ib')) return
+    if ((e.target as HTMLElement).closest('.ib,.ncnt')) return
     press(e, {
       id: p.id,
       siblings,
@@ -471,7 +473,8 @@ function SpaceRow({ snap, p, sub, under, siblings, section, item }: { snap: Snap
   const fresh = at !== p.id && spaceUnread(snap, p)
   return (
     <div className="rowx" data-project={p.id} data-section={section} data-machine={p.machine} data-item={item} data-drop={under} onPointerDown={dragSpace(snap, p, under, siblings, item === p.id ? 'item' : 'project')}>
-      <Row lead={<SpaceIcon snap={snap} id={p.id} />} label={tilde ? '~' : p.name} {...(tilde ? { 'aria-label': spaceLabel(snap, p.id) } : {})} className={[sub ? 'sub' : '', dim ? 'dim' : '', fresh ? 'unread' : ''].join(' ')} current={at === p.id} end={<Cnt n={n} />} onClick={() => go(p.id)} />
+      <Row lead={<SpaceIcon snap={snap} id={p.id} />} label={tilde ? '~' : p.name} {...(tilde ? { 'aria-label': spaceLabel(snap, p.id) } : {})} className={[sub ? 'sub' : '', dim ? 'dim' : '', fresh ? 'unread' : ''].join(' ')} current={at === p.id} onClick={() => go(p.id)} />
+      <NeedsCount n={n} of={tilde ? spaceLabel(snap, p.id) : p.name} onOpen={() => openNeeds(needsItems(snap, p.id), [p.id], p.id)} />
       <IB
         icon="dots"
         label={`More for ${tilde ? spaceLabel(snap, p.id) : p.name}`}
@@ -521,7 +524,7 @@ function MachineTop({ name, real }: { name: string; real: string }) {
  *  for the finger. The filter and plus buttons keep their own taps, and the tap that ends a hold folds nothing. */
 let heldAt = 0
 const justHeld = () => Date.now() - heldAt < 800
-const onButton = (e: { target: EventTarget }) => !!(e.target as HTMLElement).closest?.('.ib')
+const onButton = (e: { target: EventTarget }) => !!(e.target as HTMLElement).closest?.('.ib,.ncnt')
 const anchorOf = (el: Element) => el.querySelector('.mn') ?? el
 export function headHold(key: string) {
   const open = (el: Element) => {
@@ -631,8 +634,8 @@ function MachineHead({ snap, m, keys, shut, needs, reorder }: { snap: Snapshot; 
         <span className="n">{name}</span>
         {filter !== 'Active' && <span className="mf">{filter}</span>}
         <I n="down" c="chev s16" />
-        {shut && <Cnt n={needs} />}
       </button>
+      {shut && <NeedsCount n={needs} of={name} onOpen={() => { const ids = foldedSpaces(m, getState().ui.at); openNeeds(ids.flatMap((id) => needsItems(snap, id)), ids) }} />}
       {warn && (
         <button type="button" className="ib" aria-label={`${machine.name}: ${warn}. Open Machines`} onClick={() => openSettings('all', 'Machines')}>
           <I n="warn" c="c-ask s16" />
@@ -658,6 +661,7 @@ function MachineHead({ snap, m, keys, shut, needs, reorder }: { snap: Snapshot; 
 export function foldedNeeds(snap: Snapshot, m: ListMachine, open?: string | null) {
   return [...m.groups.flatMap((g) => g.spaces), ...m.spaces].reduce((n, p) => n + (p.id === open ? 0 : needsCount(snap, p.id)), 0)
 }
+const foldedSpaces = (m: ListMachine, open?: string | null) => [...m.groups.flatMap((g) => g.spaces), ...m.spaces].flatMap((p) => (p.id === open ? [] : [p.id]))
 
 /** keys (the machines as they show) in the order `want` names; any it doesn't name keep their place after */
 export function inMachineOrder<T>(list: T[], keyOf: (x: T) => string, want: string[] | null): T[] {
@@ -698,6 +702,7 @@ export function List({ snap }: { snap: Snapshot }) {
       {ev && (
         <div className="rowx">
           <Row lead={<SpaceIcon snap={snap} id={ev.id} />} label="Everything" current={ui.at === ev.id} onClick={() => go(ev.id)} />
+          <NeedsCount n={needsCount(snap, ev.id)} of="Everything" onOpen={() => openNeeds(needsItems(snap, ev.id), [ev.id], ev.id)} />
         </div>
       )}
       {machines.flatMap((m) => {

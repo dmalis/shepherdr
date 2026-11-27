@@ -238,7 +238,7 @@ test("the heading opens the menu on a right click, never from its filter or plus
   const { headHold } = await import('./list.tsx')
   const h = headHold('vm')
   let stopped = false
-  const ev = (inButton: boolean) => ({ target: { closest: (q: string) => (inButton && q === '.ib' ? {} : null) }, currentTarget: { querySelector: () => null }, preventDefault: () => (stopped = true) })
+  const ev = (inButton: boolean) => ({ target: { closest: (q: string) => (inButton && q.split(',').includes('.ib') ? {} : null) }, currentTarget: { querySelector: () => null }, preventDefault: () => (stopped = true) })
   h.onContextMenu(ev(true) as never)
   expect(stopped).toBe(false)
   expect(layersNow()).toEqual([])
@@ -258,7 +258,7 @@ test("a folded machine hides its spaces, says so on its name, and rolls up what 
     expect(vm).toContain('aria-expanded="false"')
     expect(vm).not.toContain('data-project="garden"')
     expect(vm).not.toContain('data-project="vmh"')
-    expect(vm).toContain('<span class="cnt">2</span>')
+    expect(vm).toContain('<span class="cnt needs">2</span>')
     // the others stay open
     const mini = part(renderToStaticMarkup(<List snap={needy} />), 'mini')
     expect(mini).toContain('aria-expanded="true"')
@@ -275,7 +275,7 @@ test('the open space stays in sight under its folded machine, and its own count 
     const vm = part(renderToStaticMarkup(<List snap={needy} />), 'vm')
     expect(vm).toContain('data-project="garden"')
     expect(vm).not.toContain('data-project="vmh"')
-    expect(vm.split('data-project')[0]).toContain('<span class="cnt">1</span>')
+    expect(vm.split('data-project')[0]).toContain('<span class="cnt needs">1</span>')
   } finally {
     setUI({ shut: {}, at: '' })
   }

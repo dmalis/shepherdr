@@ -17,6 +17,7 @@ import { SettingsWindow } from './settings.tsx'
 import { cx, Empty, I, IB, useScrolled } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
 import { EverythingLine } from './everything-line.tsx'
+import { needsWords } from '@shared/needs-open.ts'
 import { MarkRead } from './read-marks.ts'
 import { pickFor, PickSummary, reportedPick, useCatalog } from './picker.tsx'
 
@@ -161,12 +162,13 @@ function Bar({ snap }: { snap: Snapshot }) {
             Chat
           </button>
           {registry.bar.map((b) => {
-            const n = b.count?.(snap, at) ?? 0
+            const red = b.needs?.(snap, at) ?? 0
+            const n = red || (b.count?.(snap, at) ?? 0)
             return (
-              <button type="button" key={b.pane} className="pt" aria-pressed={on === b.pane} onClick={() => setUI({ pane: b.pane, task: null, art: null, artWide: false })}>
+              <button type="button" key={b.pane} className="pt" aria-pressed={on === b.pane} aria-label={red ? `${b.label}, ${needsWords(red)}` : undefined} onClick={() => (red && b.openNeeds?.(snap, at)) || setUI({ pane: b.pane, task: null, art: null, artWide: false })}>
                 <span className="w">
                   <I n={b.icon} c="s22" />
-                  {n > 0 && <span className="cnt">{n}</span>}
+                  {n > 0 && <span className={cx('cnt', red > 0 && 'needs')}>{n}</span>}
                 </span>
                 {b.label}
               </button>

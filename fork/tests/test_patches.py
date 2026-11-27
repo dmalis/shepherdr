@@ -33,8 +33,8 @@ class TheList(unittest.TestCase):
         # #49 Everything's one plain line
         # #48 a merged task stays done; #62 the trust card's per-repo tip; #70 What's new; #80 busy Assistant: hold messages
         # #81 a change's tick that comes while one runs, runs right after it
-        # #68 Settings: one look on every page; #74 ready after a rebase waits for checks; #86 the phone keyboard's room
-        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 48, 49, 55, 56, 62, 68, 70, 74, 80, 81, 86])
+        # #68 Settings: one look on every page; #74 ready after a rebase waits for checks; #86 the phone keyboard's room; #78 Needs you 1/6, red counts
+        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 48, 49, 55, 56, 62, 68, 70, 74, 78, 80, 81, 86])
         self.assertTrue(any(os.path.basename(patches.split(t)[0]) == install.HOLD_PATCH_TEST
                             for x in self.lines for t in x["tests"]))
 

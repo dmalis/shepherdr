@@ -54,6 +54,12 @@ export const tasks: Task[] = [
   task('EV-13', 'New level select', EV, 'need', { needsAt: NOW - 20 * min, repo: 'branch', work: work('/Users/sam/dev/tor-gameboy', 'tor-gameboy'), report: { msg: 'Should locked levels show?' } }),
   task('SHOP-16', 'Dependency check', P.shop, 'work', { started: NOW - 10 * min, schedule: 'Dependency check', report: { msg: 'Updating 3 packages', progress: 85, eta: 2 } }),
   task('vm:ACME-7', 'Shipping rates by region', P.vmRoot, 'todo', { agent: undefined }),
+  // Needs you 1/6 (red counts and taps): docs has one question (a tap on its count opens the card), site has two things
+  // (a tap lists them), and / on vm has a task whose checks failed plus a message you haven't read (no red there)
+  task('DOCS-3', 'Rewrite the setup guide', P.docs, 'need', { needsAt: NOW - 4 * min, blocked: 'question', repo: 'branch', report: { msg: 'Which install command should the guide show first?', progress: 40, paused: true } }),
+  task('studio:SITE-5', 'Contact form spam filter', P.studioSite, 'need', { on: 'studio', needsAt: NOW - 7 * min, blocked: 'permission', repo: 'branch', work: work('/Users/sam/dev/site', 'site'), report: { msg: 'Wants to run a command', progress: 70, paused: true } }),
+  task('studio:SITE-6', 'Shorter cookie banner', P.studioSite, 'ready', { on: 'studio', needsAt: NOW - 50 * min, work: work('/Users/sam/dev/site', 'site'), summary: 'One short line, with Accept and Refuse side by side.', waitsWhy: 'Waits for you: Merge in this repo is When I mark it as done.' }),
+  task('vm:ROOT-3', 'Order export as CSV', P.vmRoot, 'work', { started: NOW - 25 * min, repo: 'branch', worktree: true, branch: 'task/order-export', base: 'main', pr: { number: 58, url: 'https://github.com/example/shop/pull/58', checks: 'failed' }, report: { msg: 'Fixing the test that failed', progress: 60, eta: 12 } }),
   task('vm:GARDEN-3', 'Watering reminders', P.garden, 'work', { started: NOW - 30 * min, repo: 'branch', worktree: true, branch: 'task/watering-reminders', base: 'main', pr: { number: 31, url: 'https://github.com/example/garden-app/pull/31', checks: 'running' }, report: { msg: 'Writing tests', progress: 25, eta: 110 } }),
   // SHEP-321: a task just started (no % yet: the turning ring) and one stopped by an error part way
   task('SHOP-18', 'Product page copy', P.shop, 'work', { started: NOW - 2 * min, report: { msg: 'Reading the product pages' } }),
@@ -203,8 +209,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     // two groups and spaces in no group on one machine (fork patch #31: a loose space can be dragged above or between them)
     sections: [{ id: 's:store', name: 'Store', machine: 'mac-mini', spaces: [P.shop, P.blog] }, { id: 's:writing', name: 'Writing', machine: 'mac-mini', spaces: [P.docs] }],
     // #1560: blog's and garden-app's Assistants said something you haven't read: their rows are bold until opened
-    last: empty ? {} : { [P.blog]: 3, [P.garden]: 2, [P.shop]: 5 },
-    read: empty ? {} : { [P.blog]: 2, [P.garden]: 1, [P.shop]: 5 },
+    last: empty ? {} : { [P.blog]: 3, [P.garden]: 2, [P.shop]: 5, [P.vmRoot]: 2 },
+    read: empty ? {} : { [P.blog]: 2, [P.garden]: 1, [P.shop]: 5, [P.vmRoot]: 1 },
     machines: [
       { id: 'm:mac-mini', machine: 'mac-mini', name: 'mac-mini', status: 'idle', here: true, limits: noUsage, health: { meters: [{ name: 'CPU', pct: 34, detail: '', level: 'ok' }, { name: 'Memory', pct: 71, detail: '', level: 'ok' }, { name: 'Disk', pct: 58, detail: '', level: 'ok' }], herdr: true, working: 5, held: 0, at: '' } },
       { id: 'm:vm', machine: 'vm', name: 'vm', status: down ? 'off' : 'idle', ...(down ? { unreachableSince: '14:02' } : {}), limits: noUsage, health: { meters: [{ name: 'CPU', pct: 12, detail: '', level: 'ok' }, { name: 'Memory', pct: 40, detail: '', level: 'ok' }, { name: 'Disk', pct: empty ? 40 : 91, detail: '', level: 'over' }], herdr: true, working: 2, held: 0, at: '' } },
@@ -218,7 +224,11 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     automations: empty ? {} : automations,
     artifacts: empty ? [] : artifacts,
     asks: {},
-    needs: [],
+    // what waits on you with a card, as the service lists it (Needs you 1/6: a tap on a count scrolls to its card)
+    needs: empty ? [] : [
+      { id: 'q-docs', chat: 'DOCS-3/worker', place: P.docs, task: 'DOCS-3', at: NOW - 4 * min, question: docsQ().at(-1)!.question! },
+      { id: 'q-spam', chat: 'studio:SITE-5/worker', place: P.studioSite, task: 'studio:SITE-5', at: NOW - 7 * min, question: spamQ().at(-1)!.question! },
+    ],
     // #1547: each machine's start limits, as the service's Machines section keeps them
     settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' })) },
       // Settings › Secrets: every kept secret by name and where, a machine's own too (#1560)
@@ -280,6 +290,8 @@ const opus = { kind: 'claude', model: 'opus', modelLabel: 'Opus 5.5', effort: 'h
 // a newer Codex is out: the chat shows Update Codex (plugins/chat/update.tsx)
 const gpt = { kind: 'codex', model: 'gpt-6.2-sol', modelLabel: 'GPT-6.2 Sol', effort: 'xhigh', speed: 'ultrafast', update: '0.172.0' }
 const payQ = () => [a("Which provider should I switch to, Stripe or Adyen? I'd go with Stripe."), ask('q-pay', '', undefined, ['Stripe', 'Adyen'])]
+const docsQ = () => [a('The install steps are rewritten for the new installer. Which install command should the guide show first?'), ask('q-docs', '', undefined, ['The one-line script', 'Homebrew'])]
+const spamQ = () => [a('The filter needs a library that scores messages for spam.'), ask('q-spam', 'Run a command', undefined, ['Allow once', 'Decline'], { command: 'npm install spamscore' })]
 const permQ = (by?: typeof byPhoto) => [a('I need an image library to resize the photos.'), ask('q-pil', 'Run a command', by, ['Allow once', 'Decline'], { command: 'pip install pillow' })]
 
 export const chats: Record<string, Chat> = Object.fromEntries(
@@ -344,7 +356,12 @@ export const chats: Record<string, Chat> = Object.fromEntries(
         tip: { key: 'mac-mini:claude:/Users/sam/dev/blog', machine: 'mac-mini', folder: '/Users/sam/dev/blog', lead: "Trust this repo once, so its next tasks don't ask:", command: 'cd /Users/sam/dev/blog && claude', then: 'answer “Yes, I trust this folder”, then type /exit.', covers: 'Its task folders are worktrees of it, so trusting it covers them.' } } })], opus),
     chat('BLOG-10/worker', [a('Fixed it straight in the blog folder, as this space is set up.')], opus),
     chat('NOTES-4/worker', [a('I read the three quotes in your notes folder and wrote up a comparison.')], opus),
-    chat('vm:GARDEN-4/worker', permQ().map((x, i) => (i ? x : { ...x, suggests: ['Allow it once'] })), opus),
+    chat('DOCS-3/worker', docsQ(), opus),
+    chat('studio:SITE-5/worker', spamQ(), opus),
+    chat('studio:SITE-6/worker', [a('The banner is one short line now, with Accept and Refuse side by side.')], opus),
+    chat('vm:ROOT-3/worker', [a('The export writes a CSV per day. One test failed on the date format; fixing it.')], opus),
+    chat(P.vmRoot, [a('Started Order export as CSV.'), a('Its checks failed on one test. It is fixing it, nothing for you yet.')], sonnet),
+    chat('vm:GARDEN-4/worker',permQ().map((x, i) => (i ? x : { ...x, suggests: ['Allow it once'] })), opus),
     chat('SHOP-17/worker', [a("I'm downloading October's invoices. The billing portal sent a sign-in code to your phone, so I need you for this one step.")], opus),
     chat('SHOP-15/worker', [brief('Bigger checkout button on phones', LONG_BRIEF, 'read', NOW - 10 * min), a('Started. Making the checkout button full width on phones.'), relay('from', 'Assistant', 'Keep the total above the fold on a 360 px screen too.', NOW - 9 * min), did(NOW - 8 * min, [['read', 'Read checkout.css', ''], ['edit', 'Edit checkout.css', '+6 −2'], ['run', 'Run bun test', 'passed'], ['edit', 'Edit checkout.test.ts', '+12']], 'Ran 4 commands · edited 2 files'), relay('to', 'Assistant', 'Done: the total stays above the fold at 360 px. Screenshot in my chat.', NOW - 2 * min, { how: 'hc', state: 'delivered' }), a('Changing the button now. About 10 minutes left.', { suggest: 'Show me a screenshot when it is done' })], opus, { working: true, doing: "Running python3 - <<'EOF' p='web/checkout.css'", live: { id: 'live', at: NOW, rows: [], steps: 0 },
       // what it left running in the background, over its box (chat/jobs.tsx)

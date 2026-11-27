@@ -1,11 +1,11 @@
 /* Shepherdr's design system (3.2): tokens, sizes and classes. Desktop by default, phone under .app.phone. */
-:root{color-scheme:light;--canvas:#fff;--well:#fafafa;--raised:#f5f5f5;--overlay:#fff;--control:rgb(0 0 0/.05);--control2:rgb(0 0 0/.1);--fg:#0a0a0a;--sub:#404040;--muted:#737373;--line:rgb(0 0 0/.08);--line2:rgb(0 0 0/.12);--mine:#e5e5e5;--rx:#fff;--scrim:rgb(0 0 0/.3);--green:#15803d;--blue:#0369a1;--link:#1d4ed8;--amber:#b45309;--red:#dc2626;--term:#0a0a0a;--shadow:0 8px 28px rgb(0 0 0/.14)}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--shadow:0 0 0 0 transparent}}
-:root[data-theme="dark"]{color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--shadow:0 0 0 0 transparent}
+:root{color-scheme:light;--canvas:#fff;--well:#fafafa;--raised:#f5f5f5;--overlay:#fff;--control:rgb(0 0 0/.05);--control2:rgb(0 0 0/.1);--fg:#0a0a0a;--sub:#404040;--muted:#737373;--line:rgb(0 0 0/.08);--line2:rgb(0 0 0/.12);--mine:#e5e5e5;--rx:#fff;--scrim:rgb(0 0 0/.3);--green:#15803d;--blue:#0369a1;--link:#1d4ed8;--amber:#b45309;--red:#dc2626;--needs-fill:#b91c1c;--needs-ink:#fff;--term:#0a0a0a;--shadow:0 8px 28px rgb(0 0 0/.14)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}}
+:root[data-theme="dark"]{color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}
 /* Night (#1505): true black for OLED, picked by hand. Not Dark with the canvas swapped: on #000 nothing sits lower
    than the page, so every layer steps up from it (well, then bubbles and cards, then menus), the hairlines are a
    little stronger to keep layers apart without shadows, and the scrim is darker so a sheet still lifts off the page */
-:root[data-theme="night"]{color-scheme:dark;--canvas:#000;--well:#0a0a0a;--raised:#171717;--overlay:#121212;--control:rgb(255 255 255/.12);--control2:rgb(255 255 255/.18);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.1);--line2:rgb(255 255 255/.16);--mine:rgb(255 255 255/.16);--rx:#1f1f1f;--scrim:rgb(0 0 0/.75);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--term:#0a0a0a;--shadow:0 0 0 0 transparent}
+:root[data-theme="night"]{color-scheme:dark;--canvas:#000;--well:#0a0a0a;--raised:#171717;--overlay:#121212;--control:rgb(255 255 255/.12);--control2:rgb(255 255 255/.18);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.1);--line2:rgb(255 255 255/.16);--mine:rgb(255 255 255/.16);--rx:#1f1f1f;--scrim:rgb(0 0 0/.75);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--term:#0a0a0a;--shadow:0 0 0 0 transparent}
 *{box-sizing:border-box}[hidden]{display:none!important}html{background:var(--canvas);-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--canvas);color:var(--fg);font:16px/24px InterVariable,ui-sans-serif,system-ui,sans-serif;font-feature-settings:"cv02","cv03","cv04","cv11";-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit;letter-spacing:inherit}
@@ -54,11 +54,16 @@ p,h2,h3{margin:0}small{font-size:inherit}
 @media(prefers-reduced-motion:reduce){.btn:active:not(:disabled),.chip:active:not(:disabled){transform:none}}
 .ib{display:inline-grid;place-items:center;width:var(--ib);height:var(--ib);border-radius:8px;color:var(--muted);flex:none}
 .ib:hover,.ib[aria-pressed="true"],.ib[aria-expanded="true"]{background:var(--control);color:var(--fg)}
+html{--cnt-quiet:color-mix(in srgb,var(--fg) 14%,var(--canvas))}
 .cnt{display:inline-block;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--control2);color:var(--fg);font-size:12px;line-height:18px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums;flex:none}
-.ib .cnt,.pt .cnt{position:absolute;top:-5px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:11px;line-height:16px;background:var(--fg);color:var(--canvas);box-shadow:0 0 0 2px var(--canvas)}
+.ib .cnt,.pt .cnt{position:absolute;top:-5px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:11px;line-height:16px;background:var(--cnt-quiet);color:var(--fg);box-shadow:0 0 0 2px var(--canvas)}
 /* a header button's count sits on its icon's corner, not the button's: on touch the button is nearly the header's height,
    so a badge on its edge crossed the header's top line (SHEP-387) */
 .ib .cnt{top:calc(50% - var(--ic)/2 - 8px);right:calc(50% - var(--ic)/2 - 10px)}
+/* Needs you 1/6 (dmalis/shepherdr, "Needs you: one happy path"): red is Needs you, the only red count; every other count
+   is quiet. Its own button beside the row it counts for (44px on touch), never inside the row's button. */
+.cnt.needs,.ib .cnt.needs,.pt .cnt.needs{background:var(--needs-fill);color:var(--needs-ink)}
+.ncnt{display:inline-grid;place-items:center;min-width:var(--ib);height:var(--ib);padding:0 2px;border-radius:8px;flex:none}@media(hover:hover){.ncnt:hover{background:var(--control)}}
 .row{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--row);padding:0 8px;border-radius:8px;color:var(--sub);min-width:0}
 button.row:hover,.row[aria-current="true"],.rowx:has(>.row[aria-current="true"]){background:var(--control);color:var(--fg)}
 .rowx:has(>.row[aria-current="true"])>.row{background:none}
@@ -411,7 +416,7 @@ button.fake .n span,button.fake>.i{color:var(--muted)}
    lines; its count is the messages that came since (the app's badge). A tap glides back to the newest. */
 .toend{position:absolute;right:4px;bottom:calc(100% + 12px);z-index:2;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--overlay);color:var(--sub);box-shadow:inset 0 0 0 1px var(--line2),var(--shadow);animation:fade .15s ease-out}
 .toend::after{content:"";position:absolute;inset:-4px;border-radius:50%}
-.toend .cnt{position:absolute;top:-6px;right:-6px;min-width:18px;background:var(--fg);color:var(--canvas);box-shadow:0 0 0 2px var(--canvas)}
+.toend .cnt{position:absolute;top:-6px;right:-6px;min-width:18px;background:var(--cnt-quiet);color:var(--fg);box-shadow:0 0 0 2px var(--canvas)}
 .toend.asks{width:auto;gap:8px;grid-auto-flow:column;padding:0 14px;border-radius:999px;color:var(--fg);font-size:14px;font-weight:500}.toend.asks::after{border-radius:999px}.toend.asks .dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
 .msgs>.ref.mine{justify-self:end}
 /* #1560: messages held for the agent's turn, a row each over the box: Send now, Edit, Remove */
