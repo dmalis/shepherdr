@@ -21,7 +21,7 @@ import { iconValue } from "../core/space-icon.js";
 import { withGroupSlots } from "../core/group-slots.js";
 const { READ, assistantOf, withMove, withSection, withoutSection, withSectionName, withIcon, withMachineLook, withOrder, withMachineOrder, DELETED, deletedSection, withRestoredSection } = SP as any;
 import { type Compat } from "./compat.ts";
-import { noteFailed, once, wentIn } from "./send-once.ts";
+import { noteFailed, noteWent, once, wentIn } from "./send-once.ts";
 import { execTemplate, ownId, withoutSpace } from "./spaces.ts";
 import * as MA from "../core/machine-add.js";
 import { exec } from "./model.ts";
@@ -66,8 +66,10 @@ async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   if (!text && !(Array.isArray(b.attachments) && b.attachments.length)) throw new Error("nothing to send");
   const t = hub.terminals.get(a);
   if (!t || t.state !== "live") throw new Error("That agent isn't running.");
-  // card: its question shows as a card in its chat, so a refusal names "the question above" (dmalis/shepherdr#59)
-  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null, card: () => carded(compat, a) };
+  // dmalis/shepherdr#59: asking, checked again right before it goes (it may have waited behind another send): its agent
+  // asks something, so nothing is typed; card: a card in its chat shows the question
+  const asks = () => asking(hub, compat, a);
+  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null, card: () => carded(compat, a), asking: asks };
   // files sent with it: their paths after the words (copied first to another machine)
   const sent: string[] = Array.isArray(b.attachments) ? b.attachments : [];
   // never some of them quietly
@@ -89,19 +91,19 @@ async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   // once it goes: the chat knows it again by its words (its id and files), so the page sees it went in
   const note = () => { if (cid) compat.noteSend?.(a, { cid, text, files: sent, at: Date.now() }); };
   if (b.hold && (st === "working" || st === "blocked")) {
-    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note });
+    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, asks, card: () => carded(compat, a) });
     drain();
     return { ok: true, waiting: true, waitsFor: "turn" };
   }
   // dmalis/shepherdr#59: its agent asks something (a card in its chat, or its own menu): nothing is typed and no key
-  // closes it, so the message waits until it is answered and then goes by itself, never refused
-  const asks = () => asking(hub, compat, a);
+  // closes it, so the message waits until it is answered and then goes by itself, never refused. One sent after
+  // another that waits so goes after it, never before
   const afterAnswer = () => {
-    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, answer: asks });
+    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, asks, card: () => carded(compat, a), answer: true });
     drain();
     return { ok: true, waiting: true, waitsFor: WAITS_ANSWER };
   };
-  if (asks()) return afterAnswer();
+  if (asks() || held.some((h) => h.addr === a && h.answer) || inFlight.has(a)) return afterAnswer();
   // when it began to go in, by this clock: the page knows it again in the chat by it (web/src/outbox.ts sameAs)
   const at = Date.now();
   // what it was, so the chat knows it again while it waits in the CLI's queue
@@ -133,9 +135,12 @@ export function arrived(b: any, compat: Compat): { ok: true; at: number; already
 const said = (v: string) => v.replace(/\s+/g, " ").trim();
 
 // Messages held until their agent is free, sent in order, each once.
-// answer: one sent while its agent asked (dmalis/shepherdr#59): it waits only while that is so, then goes at once
-// (a working agent takes it mid-turn, as any message; an answer that ended its turn gets it as the next message)
-const held: { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void; answer?: () => boolean }[] = [];
+// asks: its agent asks something now (dmalis/shepherdr#59): none goes then, Send now or not, as it would be typed into
+// its question. answer: one sent while it asked: it waits only while that is so, then goes at once (a working agent
+// takes it mid-turn, as any message; an answer that ended its turn gets it as the next message)
+const held: { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void; asks: () => boolean; card: () => boolean; answer?: boolean }[] = [];
+/** agents a held message is going to right now: a new send waits behind it (dmalis/shepherdr#59) */
+const inFlight = new Set<string>();
 let draining: ReturnType<typeof setInterval> | null = null, busy = false;
 function drain() {
   draining ??= setInterval(async () => {
@@ -146,19 +151,22 @@ function drain() {
       for (const m of [...held]) {
         const st = (m.hub.terminals.get(m.addr) as any)?.status?.state;
         const alive = m.hub.terminals.get(m.addr)?.state === "live";
-        // (one waiting for an answer never goes while its agent still asks, Send now or not: it would be refused)
-        if (alive && (m.answer ? m.answer() : !m.now && (st === "working" || st === "blocked"))) continue;
+        if (alive && (m.asks() || (!m.answer && !m.now && (st === "working" || st === "blocked")))) continue;
         const i = held.indexOf(m);
         if (i < 0) continue;
         held.splice(i, 1);
         // one that can't go now is told to its page (Chat.failed: Not sent, with Retry), never dropped quietly
         if (alive) m.note?.();
+        if (alive && m.answer) inFlight.add(m.addr);
+        const at = Date.now();
         const r: any = alive
-          ? await sendFromChat({ hc: asPerson(m.hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (m.hub.terminals.get(m.addr) as any)?.status?.state ?? null }, m.addr, m.kind, m.body).catch((e: Error) => ({ code: 1, stderr: e.message }))
+          ? await sendFromChat({ hc: asPerson(m.hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (m.hub.terminals.get(m.addr) as any)?.status?.state ?? null, card: m.card, asking: m.asks }, m.addr, m.kind, m.body).catch((e: Error) => ({ code: 1, stderr: e.message })).finally(() => { if (m.answer) inFlight.delete(m.addr); })
           : { code: 1, stderr: "That agent isn't running." };
         // it asks again (a next question right after the answer): back in its place, waiting for that answer too
-        if (r.code !== 0 && r.asking) { held.splice(Math.min(i, held.length), 0, { ...m, now: false, answer: m.answer ?? (() => (m.hub.terminals.get(m.addr) as any)?.status?.state === "blocked") }); continue; }
+        if (r.code !== 0 && r.asking) { held.splice(Math.min(i, held.length), 0, { ...m, now: false }); continue; }
         if (r.code !== 0 && m.cid) noteFailed(m.addr, m.cid, refusal(r).message, !!r.stuck);
+        // it went: asked again with its id (a page that lost its answer, or checking on it), it says so, across a restart
+        if (r.code === 0 && m.cid) noteWent(m.cid, at);
       }
     } finally {
       busy = false;

@@ -5,7 +5,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Compat } from "./compat.ts";
 import { act, asking, carded } from "./actions.ts";
-import { forgetAll } from "./send-once.ts";
+import { forgetAll, wentIn } from "./send-once.ts";
 import { ASKING, ASKING_TERMINAL, WAITS_ANSWER } from "../core/asking.js";
 
 const SPACE = { "herdr.role": "coordinator", "herdr.coordinator.space": "sp1", "herdr.space": "sp1", "herdr.agent": "codex" };
@@ -14,7 +14,7 @@ const tick = () => Bun.sleep(1300);
 
 /** a hub whose Assistant t1 asks something until it is answered: hc refuses a send as blocked meanwhile. status: what
  *  Shepherdr's status says (a race: still "working" while hc already sees the question) */
-function world(card: boolean, status = "blocked") {
+function world(card: boolean, status = "blocked", refuses = true) {
   const sent: string[] = [], calls: string[] = [];
   let asks = true;
   const t: any = { address: "t1", state: "live", argv: ["codex"], foreground: { name: "codex" }, status: { state: status }, labels: { ...SPACE } };
@@ -25,7 +25,7 @@ function world(card: boolean, status = "blocked") {
     call: async (m: string) => { calls.push(m); throw new Error("no machine.exec here"); },
     keys: async () => { calls.push("keys"); return { code: 0, stdout: "", stderr: "" }; },
     send: async (_addr: string, text: string) => {
-      if (asks) return { code: 1, stdout: "", stderr: JSON.stringify({ error: { kind: "blocked", message: "terminal is blocked" } }) };
+      if (asks && refuses) return { code: 1, stdout: "", stderr: JSON.stringify({ error: { kind: "blocked", message: "terminal is blocked" } }) };
       sent.push(text);
       return { code: 0, stdout: "{}", stderr: "" };
     },
@@ -115,4 +115,39 @@ test("carded: only the agent's own open asks count", () => {
   expect(carded(compat, "t1")).toBe(true);
   expect(carded(compat, "t2")).toBe(false);
   expect(carded({ asks: null } as any, "t1")).toBe(false);
+});
+
+// review round 1: Codex reports "working" while its permission hook waits, and hc doesn't refuse a send then
+test("a card open while it says working: no send goes, Ctrl+Enter's and Send now's included", async () => {
+  const w = world(true, "working", false);
+  expect(await act(w.hub, { type: "send", chat: "p:sp1", text: "plain", cid: "asking-r1" }, w.compat)).toMatchObject({ waitsFor: WAITS_ANSWER });
+  expect(await act(w.hub, { type: "send", chat: "p:sp1", text: "later", cid: "asking-r2", hold: true }, w.compat)).toMatchObject({ waitsFor: "turn" });
+  await act(w.hub, { type: "held-now", cid: "asking-r2" }, w.compat);
+  await tick();
+  expect(w.sent).toEqual([]);
+  w.answer("idle");
+  await tick();
+  expect(w.sent).toEqual(["plain", "later"]);
+});
+
+test("one sent right after the answer never overtakes one that waited for it", async () => {
+  const w = world(true);
+  await act(w.hub, { type: "send", chat: "p:sp1", text: "A", cid: "asking-o1" }, w.compat);
+  w.answer();
+  // before the held line's next look
+  expect(await act(w.hub, { type: "send", chat: "p:sp1", text: "B", cid: "asking-o2" }, w.compat)).toMatchObject({ waitsFor: WAITS_ANSWER });
+  await tick();
+  expect(w.sent).toEqual(["A", "B"]);
+});
+
+test("once it went, asked again with its id it says so, across a restart: never twice", async () => {
+  const w = world(true);
+  await act(w.hub, { type: "send", chat: "p:sp1", text: "once", cid: "asking-w1" }, w.compat);
+  w.answer();
+  await tick();
+  expect(wentIn("asking-w1")).toEqual(expect.any(Number));
+  expect(await act(w.hub, { type: "send", chat: "p:sp1", text: "once", cid: "asking-w1" }, w.compat)).toMatchObject({ ok: true, at: expect.any(Number) });
+  forgetAll();
+  expect(await act(w.hub, { type: "send", chat: "p:sp1", text: "once", cid: "asking-w1" }, w.compat)).toMatchObject({ ok: true, at: expect.any(Number) });
+  expect(w.sent).toEqual(["once"]);
 });

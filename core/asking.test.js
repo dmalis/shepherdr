@@ -49,6 +49,14 @@ test("hc refusing a send while it asks: marked asking, no key pressed", async ()
   }
 });
 
+test("it began to ask while the send waited its turn: nothing is sent, marked asking", async () => {
+  const calls = [];
+  const io = { sleep: async () => {}, status: () => "working", card: () => true, asking: () => true, hc: async (args) => (calls.push(args[0]), { code: 0, stdout: "" }) };
+  const r = await sendBody(io, "tq", "codex", "hello");
+  expect(r).toEqual({ code: 1, stdout: "", stderr: ASKING, asking: true });
+  expect(calls).toEqual([]);
+});
+
 test("a send that went in is not marked asking", async () => {
   const io = { sleep: async () => {}, status: () => "idle", card: () => true, hc: async (args) => (args[0] === "send" ? { code: 0, stdout: '{"started":true}', stderr: "" } : { code: 0, stdout: "" }) };
   const r = await sendBody(io, "tok", "codex", "hello");
@@ -59,7 +67,7 @@ test("a send that went in is not marked asking", async () => {
 // the service's seams: a send while it asks waits for the answer (never thrown), a reaction says the same words
 test("service seams use core/asking.js", () => {
   const actions = readFileSync(new URL("../service/actions.ts", import.meta.url), "utf8");
-  expect(actions).toContain("if (asks()) return afterAnswer();");
+  expect(actions).toContain("if (asks() || held.some((h) => h.addr === a && h.answer) || inFlight.has(a)) return afterAnswer();");
   expect(actions).toContain("if (r.code !== 0 && r.asking) return afterAnswer();");
   expect(actions).toContain("waitsFor: WAITS_ANSWER");
   expect(actions).toContain("throw new Error(askingWords(carded(compat, a)))");

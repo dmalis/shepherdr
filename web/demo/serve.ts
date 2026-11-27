@@ -378,7 +378,7 @@ Bun.serve<Sock['data'], never>({
       return Response.json({ path: p, exists: !!repo || p === '~/notes', dir: true, repo: repo ? `~/dev/${repo[1]}` : null, entries: [] })
     }
     if (path === '/api/action') {
-      const out = action((await req.json()) as Record<string, any>) ?? { ok: true }
+      const out = (action((await req.json()) as Record<string, any>) ?? { ok: true }) as Record<string, unknown>
       // a refusal as the service gives it: its words, plain, with its status
       return typeof out.status === 'number' && typeof out.text === 'string' ? new Response(out.text, { status: out.status }) : Response.json(out)
     }

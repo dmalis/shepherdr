@@ -89,6 +89,9 @@ export function detach(key: string, index: number) {
   setBox(key, (fs) => fs.filter((_, i) => i !== index))
 }
 
+/** what the server is asked: the message, by its id (asked again, the same id gets the same answer) */
+const sendOf = (o: Outgoing) => ({ type: 'send', chat: o.chat, text: o.text, attachments: o.files.map((f) => f.path), cid: o.cid, ...(o.reply?.task ? { replyTask: o.reply.task } : { reply: o.reply?.id }), human: true, ...(o.hold ? { hold: true } : {}), ...(o.was ? { was: o.was } : {}), ...(o.how ? { how: o.how } : {}) })
+
 async function deliver(cid: string, pending: Promise<string>[]) {
   const first = getState().outbox.find((x) => x.cid === cid)
   if (!first || first.state !== 'sending') return
@@ -112,7 +115,7 @@ async function deliver(cid: string, pending: Promise<string>[]) {
     let r: { waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }
     try {
       r = await retrying(
-        () => act<typeof r>({ type: 'send', chat: o.chat, text: o.text, attachments: files.map((f) => f.path), cid, ...(o.reply?.task ? { replyTask: o.reply.task } : { reply: o.reply?.id }), human: true, ...(o.hold ? { hold: true } : {}), ...(o.was ? { was: o.was } : {}), ...(o.how ? { how: o.how } : {}) }, AbortSignal.timeout(SEND_TIMEOUT)),
+        () => act<typeof r>(sendOf({ ...o, files }), AbortSignal.timeout(SEND_TIMEOUT)),
         first.at,
         { onWait: (offline) => patch((x) => (!!x.offline === offline ? {} : { offline: offline || undefined })) },
       )
@@ -186,3 +189,20 @@ export function resumeSending() {
   for (const o of getState().outbox) if (o.state === 'sending' && !gates.has(o.cid) && o.files.every((f) => f.path)) void deliver(o.cid, [])
 }
 if (typeof window !== 'undefined') setTimeout(resumeSending, 0)
+
+/** dmalis/shepherdr#59: ones waiting for their agent's answer are asked about again now and then, by their own id. The
+ *  server answers what it knows (still waiting, or it went in) and, after a restart forgot it, holds it again: never
+ *  sent twice (service/send-once.ts). A failed ask changes nothing; the next one tries again. */
+export async function recheckWaiting() {
+  for (const o of getState().outbox) {
+    if (o.state !== 'sent' || !o.waiting || o.waitsFor !== 'answer' || gates.has(o.cid)) continue
+    try {
+      const r = await act<{ waiting?: boolean; waitsFor?: Outgoing['waitsFor']; at?: number }>(sendOf(o), AbortSignal.timeout(SEND_TIMEOUT))
+      setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sent' && x.waitsFor === 'answer' ? { ...x, waiting: r?.waiting || undefined, waitsFor: (r?.waiting && r.waitsFor) || undefined, serverAt: typeof r?.at === 'number' ? r.at : x.serverAt } : x)))
+    } catch {
+      /* out of reach: asked again next time */
+    }
+  }
+}
+export const RECHECK = 30_000
+if (typeof window !== 'undefined') setInterval(() => void recheckWaiting(), RECHECK)

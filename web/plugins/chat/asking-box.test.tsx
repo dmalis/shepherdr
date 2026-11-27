@@ -1,7 +1,7 @@
 // dmalis/shepherdr#59: the message box while its agent asks something (a question, a permission, a plan). You can always
 // write and send: with words in the box one quiet line says "Sends after you answer the card above."; sent, the
 // message waits over the box with the same words and no Send now, until the card is answered. Fake data.
-import { expect, test } from 'bun:test'
+import { afterEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat, Question } from '@shared/types.ts'
@@ -9,6 +9,9 @@ import type { Outgoing } from '@client/outbox.ts'
 import { AFTER, AFTER_TERMINAL } from '@core/asking.js'
 import { AskLine, afterOf, boxLine, openCard } from './asking-box.tsx'
 import { heldOf, isHeld } from './queued.ts'
+import { expire } from '@client/outbox.ts'
+import { getState, setOutbox } from '@client/kernel.ts'
+import { recheckWaiting } from '@client/send.ts'
 
 const q = (p: Partial<Question>): Question => ({ id: 'q', title: 'Which one?', kind: 'Question', to: 'p:sp1', choices: [{ label: 'A' }, { label: 'B' }], other: true, ...p })
 const permission = (p: Partial<Question> = {}) => q({ title: 'Run a command', other: undefined, command: 'npm test', choices: [{ label: 'Allow once' }, { label: 'Decline' }], ...p })
@@ -28,6 +31,8 @@ test('words typed while a card waits: the line says it sends after the answer; n
 test('only its terminal can answer: a CLI menu, or the chat saying it asks in its terminal', () => {
   expect(boxLine(chat(q({ press: true, other: undefined })), true)).toBe(AFTER_TERMINAL)
   expect(boxLine({ ...chat(), blocked: 'It asks in its terminal' } as Chat, true)).toBe(AFTER_TERMINAL)
+  // Codex's own question: its card opens the terminal (cards.tsx TerminalCard)
+  expect(boxLine(chat(q({ id: 'cq:1', other: undefined })), true)).toBe(AFTER_TERMINAL)
   // a message that raced the card: the card above, before and after it reaches the page
   expect(afterOf(chat())).toBe(AFTER)
   expect(afterOf(chat(permission()))).toBe(AFTER)
@@ -67,4 +72,34 @@ test('the box: Send stays, the line describes the words, a held row waiting for 
   expect(src).not.toContain('Answer its question above first')
   const css = readFileSync(new URL('./asking.css', import.meta.url), 'utf8')
   expect(css).toContain('var(--muted)')
+})
+
+const waiting = { cid: 'w1', chat: 'p:sp1', text: 'later', files: [], at: 0, state: 'sent', waiting: true, waitsFor: 'answer' } as unknown as Outgoing
+
+test('one waiting for an answer waits as long as the question: never failed after 30 minutes', () => {
+  expect(expire([waiting], 2 * 60 * 60_000)[0]!.state).toBe('sent')
+  expect(expire([{ ...waiting, waitsFor: 'turn' }], 2 * 60 * 60_000)[0]!.state).toBe('failed')
+})
+
+const realFetch = globalThis.fetch
+afterEach(() => {
+  globalThis.fetch = realFetch
+  setOutbox(() => [])
+})
+test('the page asks the server about one waiting, by its id: it went in, or it waits again', async () => {
+  const asked: any[] = []
+  let answer: object = { ok: true, waiting: true, waitsFor: 'answer' }
+  globalThis.fetch = (async (_u: string, init?: RequestInit) => (asked.push(JSON.parse(String(init?.body))), Response.json(answer))) as unknown as typeof fetch
+  setOutbox(() => [waiting])
+  await recheckWaiting()
+  expect(asked).toMatchObject([{ type: 'send', cid: 'w1', text: 'later' }])
+  expect(getState().outbox[0]).toMatchObject({ waiting: true, waitsFor: 'answer' })
+  answer = { ok: true, at: 5 }
+  await recheckWaiting()
+  expect(getState().outbox[0]).toMatchObject({ state: 'sent', waiting: undefined, waitsFor: undefined, serverAt: 5 })
+  // out of reach: nothing changes
+  setOutbox(() => [waiting])
+  globalThis.fetch = (async () => { throw new TypeError('offline') }) as unknown as typeof fetch
+  await recheckWaiting()
+  expect(getState().outbox[0]).toEqual(waiting)
 })

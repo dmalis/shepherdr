@@ -5,16 +5,17 @@
 // the line says its terminal instead.
 import type { Chat, Question } from '@shared/types.ts'
 import { AFTER, AFTER_TERMINAL } from '@core/asking.js'
+import { terminalQuestion } from '@shared/alerts.ts'
 import { I } from '@client/ui.tsx'
 import './asking.css'
 
 /** an open card of the chat's own agent that it waits on (not one answered while it works, nor a task worker's copied
- *  here). here: only one answered in the chat (a question, a permission, a plan), not a CLI's own menu whose card
- *  opens its terminal */
+ *  here). here: only one answered in the chat (a question, a permission, a plan), not one the chat shows to answer in its
+ *  terminal (a CLI's menu, Codex's own questions: cards.tsx TerminalCard) */
 export function openCard(chat?: Chat, here = true): Question | undefined {
   for (let i = (chat?.messages.length ?? 0) - 1; i >= 0; i--) {
     const q = chat!.messages[i]!.question
-    if (q && !q.queued && !q.by && q.sent === undefined && !q.closed && (!here || (!q.press && !q.terminal))) return q
+    if (q && !q.queued && !q.by && q.sent === undefined && !q.closed && (!here || (!terminalQuestion(q) && !q.terminal))) return q
   }
   return undefined
 }

@@ -4,7 +4,8 @@
 // marked asking, and the service holds the message until it is answered (dmalis/shepherdr#59). Claude Code queues a message typed mid-turn itself; no key of ours pushes it in (AGENTS.md
 // "Nothing that risks a ban").
 // io = { hc(args) -> Promise<{ code, stdout, stderr }>, sleep(ms), status() -> the agent's status now,
-//        card?() -> a card in its chat shows the question it asks (dmalis/shepherdr#59) }.
+//        card?() -> a card in its chat shows the question it asks, asking?() -> it asks something now: nothing is typed
+//        (dmalis/shepherdr#59) }.
 // Shared core: the source is core/send.js; bin/sync-shared copies it into the mods in lib/COPIES.
 
 import { excerpt } from "./chat-log.js";
@@ -256,6 +257,8 @@ function inTurn(addr, run) {
 // again: its last send stayed in Claude Code's box (sendTyped).
 export function sendBody(io, addr, kind, body, again = false) {
   return inTurn(addr, async () => {
+    // its agent began to ask while this waited its turn: nothing is typed, it waits for the answer (dmalis/shepherdr#59)
+    if (io.asking?.()) return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     let r = await sendTyped(io, addr, kind, body, SETTLE, again);
     // asking: the service holds it until the question is answered, then sends it (dmalis/shepherdr#59)
     if (r.code !== 0 && refusal(r).kind === "blocked") return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };

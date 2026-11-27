@@ -69,6 +69,14 @@ export function wentIn(cid: string): number | null {
   return typeof r.at === "number" ? r.at : was.at;
 }
 
+/** a held message went in after its first answer said waiting (dmalis/shepherdr#59): asked again with its id, the
+ *  answer is now that it went in (kept on disk, so a restart never sends it twice) */
+export function noteWent(cid: string, at: number) {
+  const d = load();
+  d.set(cid, { at: Date.now(), result: { ok: true, at } });
+  save();
+}
+
 /** held messages that couldn't go once the agent was free, by agent address: the page shows them failed with Retry */
 const heldFailed = new Map<string, { cid: string; error: string; at: number }[]>();
 export function noteFailed(addr: string, cid: string, error: string, stayed = false) {
