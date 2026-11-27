@@ -710,6 +710,8 @@ code is the same, and the run that rehearses a candidate (Installing our own mer
 What the rehearsal can't show, the first real installing run shows: `update-shepherdr`'s runner, the service restart,
 and the live health lines (Assistants, service answering).
 
+The rehearsal skips the live terminal check (`may_ask`: its updater is its own), so unit tests in `fork/tests/` cover it instead.
+
 ## Open questions
 
 1. **The run's reviewer and its trust prompt.** Each run has a new worktree. A reviewer CLI may ask to trust it, and
