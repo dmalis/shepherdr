@@ -151,7 +151,8 @@ whether it goes into theirs.
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
     it here like any other fix. Explaining it away closes nothing.
-  - They don't know the process yet: explain it briefly.
+  - They don't know the process yet: explain it briefly. When the screen could have taught it, that is friction too
+    (below): propose its fix in the same reply.
 - **Every friction is a candidate fix.** The Assistant watches for friction all the time, not only when the person
   asks. Friction is when:
   - the person is confused, misreads a screen or asks "what is this";
@@ -165,8 +166,8 @@ whether it goes into theirs.
   - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
     product fix that makes the miss impossible or visible.
   - On a yes, the usual way: an issue here (labelled `patch` when it changes upstream files), a task with a brief
-    (shaping-a-request, then fork-patch), an install right after the merge, then `not-filed` until the person
-    decides about upstream.
+    (shaping-a-request, then fork-patch), an install right after the merge. A patch then gets `not-filed` until the
+    person decides about upstream; a fix to only our own files has nothing to file.
   - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
     opening a new one, and says so.
 - **Collect what's left.** When the person asks "what else did we find", the Assistant lists every friction from the
