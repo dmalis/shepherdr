@@ -235,7 +235,8 @@ git -C <install folder> cat-file -e <sha>^{commit}
 git -C <install folder> checkout --detach <sha>
 ```
 
-The folder's `main` branch is left where it was. Only this step and rollback move HEAD.
+The run writes its own sync hold first ([Narrow exceptions](#narrow-exceptions)). The folder's `main` branch is left
+where it was. Only this step and rollback move HEAD.
 
 ### Asking for the update
 
@@ -323,16 +324,24 @@ FORK.md lets this schedule's run install. This is everything that permission cov
 - **Propagation to other machines.** While the installer replaces helpers it holds the sync to other machines
   (`sync-hold`), and at its end it lets go when the install is whole (`finish_install` calls `release_hold`;
   `base.sync_held` also clears a hold whose stamp is a whole install's). Our health check runs after that, so without a
-  change the candidate's helpers could reach linked machines before it passes. One fork patch, at one call site,
-  `bin/shepherdr`'s `release_hold`: with `SHEPHERDR_KEEP_SYNC_HOLD=1` in its environment it doesn't remove the hold
-  files, it writes both with the line `held by the fork's sync until its health check passes`. That line has no
-  install stamp, so `base.sync_held` keeps it (`_install_done` is false) and `remote_run` and `machines.sync` copy
-  nothing. The run sets the variable when it calls `update-shepherdr` (the runner keeps the run's environment,
-  `self_update.clean_env`), so the installer the update hands over to keeps the hold. Health's last line, `shepherdr
-  doctor` without the variable, lets go. A failed health keeps it through the rollback's update too; the baseline's
-  doctor lets go once the baseline is healthy. An unknown outcome keeps the hold until the person looks.
-  - A rollback to a baseline without the patch (the first install's, v3.2.20) lets go at the end of its own update:
-    what goes out then is the baseline, the code that ran before.
+  change the candidate's helpers could reach linked machines before it passes. The installer's own stamped hold can't do it: `finish_install` saves the candidate's
+  stamp before its whole check, while `whole` still reads `true` from the last install, and in that gap
+  `base.sync_held` clears a stamped hold. So the run holds the sync itself, and one fork patch keeps the installer off
+  that hold:
+  1. Before the install folder moves, the run writes both hold paths (`~/.herdr/sync-hold` and the state folder's
+     `sync-hold`) with the line `held by the fork's sync until its health check passes: run shepherdr doctor`. It has no
+     `install at <stamp>:`, so `base.sync_held` never clears it (`_install_done` is false), and `machines.sync` and
+     `cli.remote_run` copy nothing while it is there. This is Shepherdr's own state file, not an agent's.
+  2. The patch, at one call site, `bin/shepherdr`'s `hold_paths`: with `SHEPHERDR_KEEP_SYNC_HOLD=1` in its
+     environment it returns one side file, the state folder's `sync-hold.install`, which herdr-task never reads. So the
+     installer writes its stamped hold there and removes it there, and never touches the run's hold, wherever it stops.
+  3. The run sets the variable only on its `update-shepherdr` call. The runner keeps the run's environment
+     (`self_update.clean_env`) and `hand_over` keeps it for the install folder's installer.
+  4. Health's last line, `shepherdr doctor` without the variable, reads the real paths and lets go when the install is
+     whole. A failed health keeps the hold through the rollback; the baseline's doctor lets go once the baseline is
+     healthy. An unknown outcome keeps it until the person looks.
+  - A rollback to a baseline without the patch (the first install's, v3.2.20) writes and releases the real paths
+    itself: what goes out then is the baseline, the code that ran before.
   - The patch has its own `patch` issue and tests (build task 5), and `install` refuses a candidate without it.
 
 Nothing in this path reads plan usage, uses an agent's sign-in, drives an agent's interface, or edits an agent's config.
@@ -605,7 +614,7 @@ yes, a separate one.
 | 1 | A failed candidate becomes the recorded install | Baseline in state; first run captures the live SHA and source; tag pushed only after health; failed SHA quarantined | [First run's baseline](#the-first-runs-baseline-codex-point-1), [Rollback](#rollback); `fork/sync/state.py` |
 | 2 | Updater may install another checkout or machine | Machine, installed CLI, recorded source and candidate checked before anything moves | [Before anything moves](#before-anything-moves); `install.py` |
 | 3 | Failure, unknown outcome, failed rollback | JSON state read, not exit codes; 40-minute unknown; health; rollback verified separately; `unknown` and `broken` outcomes | [Reading the outcome](#reading-the-outcome), [Health](#health-codex-point-3), [Outcomes](#outcomes) |
-| 4 | Install vs live-service and agent-config rules | One restart, by the update only; hook writes simulated on copies and held; propagation held until health by one patch at `release_hold` | [Narrow exceptions](#narrow-exceptions); build task 5 |
+| 4 | Install vs live-service and agent-config rules | One restart, by the update only; hook writes simulated on copies and held; propagation held by the run's own hold until health, the installer kept off it by one patch at `hold_paths` | [Narrow exceptions](#narrow-exceptions); build task 5 |
 | 5 | Two runs move the same checkout | `flock` plus a lease by task; phases resume | [Serialised runs](#serialised-runs), [Phases](#phases) |
 | 6 | Trial isolation incomplete | Named core and session, clean env, scratch templates and worktree root, candidate executables, localhost, no machines, made-list cleanup | [fork/bin/trial](#forkbintrial) |
 | 7 | Alternate GitHub write paths | `-R` on every call; no `ready` PR for syncs; feedback never filed by the run | [GitHub destinations](#github-destinations-and-public-text-codex-points-7-and-8) |
@@ -641,11 +650,13 @@ import `test/home_guard.py` first (`sys.path` gets `test/`). No upstream file ch
    subcommands. Tests with `update-shepherdr` and `shepherdr doctor` faked: every outcome row, resume from each phase,
    the hooks check, quarantine, and the refusal to install without a passing rehearsal recorded for the candidate's
    pipeline code. A pin test on `installed.json`'s keys and `update-shepherdr --status --json`'s fields.
-5. **The hold patch**, the one upstream edit: `bin/shepherdr`'s `release_hold` ([Narrow exceptions](#narrow-exceptions)),
-   with its own `patch` issue (the fork-patch skill). Tests in `fork/tests/test_hold_patch.py`, on a throwaway root:
-   with `SHEPHERDR_KEEP_SYNC_HOLD=1` a whole update leaves both hold files with the fork's line, and `base.sync_held`
-   returns it instead of clearing it; without it, the hold goes as upstream's does; `shepherdr doctor` without it lets
-   go. Also `fork/patches.json`, its first line this patch.
+5. **The hold patch**, the one upstream edit: `bin/shepherdr`'s `hold_paths` ([Narrow exceptions](#narrow-exceptions)),
+   with its own `patch` issue (the fork-patch skill), and the run's own hold in `fork/sync/install.py`. Tests in
+   `fork/tests/test_hold_patch.py`, on a throwaway root, with the run's hold written first and
+   `SHEPHERDR_KEEP_SYNC_HOLD=1` on the update: after a whole update, after an update stopped between `finish_install`'s
+   first `save_record` and its `release_hold`, and after a failed one, both real hold files still carry the run's line
+   and `base.sync_held` returns it; without the variable the hold behaves as upstream's; `shepherdr doctor` without it
+   lets go. Also `fork/patches.json`, its first line this patch.
 6. **The rehearsal** (below), as `fork/bin/rehearse <sha>`, with its test.
 7. **The skill.** Rewrite `.agents/skills/upstream-sync/SKILL.md` steps 1–7 around these commands; take out its
    "draft" status. The fork-patch skill's step to add a line to `fork/patches.json`.
@@ -668,7 +679,7 @@ scratch root; nothing touches the live install, the real home's files or the liv
 4. Install `<sha>` the live way, except the update itself: `<root>/.local/bin/shepherdr update --root <root>` (the
    installed copy, which hands over to the clone's installer, as live), because `update-shepherdr` only runs inside a
    real schedule's run. With `SHEPHERDR_KEEP_SYNC_HOLD=1`, as live.
-5. Before health: both hold files under `<root>` carry the fork's line. `health <sha> --root <root>`: must pass, and
+5. Before health: both hold files under `<root>` carry the run's line, and `sync-hold.install` is gone. `health <sha> --root <root>`: must pass, and
    after its doctor the hold files are gone. The hooks simulation ran against `<root>`'s hook files and found nothing
    to write.
 6. A forced failure: health is told to fail (a test flag), so `rollback` runs: back to the baseline, updated, and
