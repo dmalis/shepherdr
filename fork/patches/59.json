@@ -1,0 +1,26 @@
+{
+  "issue": 59,
+  "name": "sends while asked: never lost",
+  "files": [
+    "core/asking.js",
+    "core/send.js",
+    "service/actions.ts",
+    "web/shared/types.ts",
+    "web/plugins/chat/queued.ts",
+    "web/plugins/chat/asking-box.tsx",
+    "web/plugins/chat/asking.css",
+    "web/plugins/chat/client.tsx",
+    "service/send-once.ts",
+    "web/src/send.ts",
+    "web/src/outbox.ts",
+    "web/demo/serve.ts",
+    "docs/agents-and-terms.md",
+    "service/voice-data.ts"
+  ],
+  "tests": [
+    "core/asking.test.js",
+    "core/send.test.js",
+    "service/asking.test.ts",
+    "web/plugins/chat/asking-box.test.tsx"
+  ]
+}
