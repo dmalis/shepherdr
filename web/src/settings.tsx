@@ -12,6 +12,7 @@ import { newerServed, notice, openSettings, registry, setUI, tryAct, updateNow, 
 import { confirm, openDialog, openForm } from './overlay.tsx'
 import { openPicker, PickerHead, pickFor, PickSummary, useCatalog, type Role } from './picker.tsx'
 import { MOTIONS, setPref, THEMES, usePrefs, WIDTHS } from './prefs.ts'
+import { SizeRows } from './size-rows.tsx'
 import { canKeepAwake, setAwake, useAwake } from './awake.ts'
 import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
 import { OWN_VERSION } from './update.ts'
@@ -178,6 +179,7 @@ function General() {
     <>
       <h3>Appearance</h3>
       <SRow label="Theme"><Seg label="Theme" values={THEMES} value={p.theme} onChange={(v) => setPref('theme', v)} /></SRow>
+      <SizeRows />
       <SRow label="Chat width" wrap><Seg label="Chat width" values={WIDTHS} value={p.width} onChange={(v) => setPref('width', v)} /></SRow>
       <SRow label="Motion"><Seg label="Motion" values={MOTIONS} value={p.motion} onChange={(v) => setPref('motion', v)} /></SRow>
       <SidesRow {...sides} />

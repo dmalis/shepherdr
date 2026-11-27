@@ -33,6 +33,25 @@ p,h2,h3{margin:0}small{font-size:inherit}
 .app.tap{--ui:16px;--uil:24px;--sec:14px;--secl:20px;--hd:56px;--row:44px;--row2:56px;--btn:40px;--btns:36px;--ib:44px;--tab:44px;--ic:20px;--h1:18px;--chip:40px;
   --field:44px;--side:288px;--side-min:232px;--tgw:44px;--tgh:24px;--key:36px;--send:40px;--rz:16px;--ath:80px}
 .app.phone{--hd:52px;--row:48px}
+/* the chat's reading text: Chat text size (Settings › General › Appearance; data-text on <html>, none for Default).
+   --chat and --chatl are the messages (a step over the interface's 14 px on a computer, 16 px on touch, where the
+   interface is 16 px too), --chat2 the chat's smaller lines (quotes, a task's row, chips, tables, a card's second line,
+   never under 14 px on touch), --chatm its code. Line heights stay on whole pixels and the bubble's padding and
+   corners follow --chatl, so Larger isn't cramped and Small isn't loose. Large is the 16/24 every chat had before. */
+.app{--chat:15px;--chatl:22px;--chat2:13px;--chat2l:20px;--chatm:13px;--chatml:20px}
+.app.tap{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="small"] .app{--chat:14px;--chatl:20px;--chat2:13px;--chat2l:18px;--chatm:12px;--chatml:18px}
+:root[data-text="small"] .app.tap{--chat:15px;--chatl:22px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="large"] .app{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="large"] .app.tap{--chat:18px;--chatl:26px;--chat2:15px;--chat2l:22px;--chatm:14px;--chatml:22px}
+:root[data-text="larger"] .app{--chat:18px;--chatl:28px;--chat2:16px;--chat2l:24px;--chatm:15px;--chatml:22px}
+:root[data-text="larger"] .app.tap{--chat:20px;--chatl:30px;--chat2:17px;--chat2l:24px;--chatm:16px;--chatml:24px}
+/* Zoom (web/zoom-css.ts): every px of the app's CSS is times --zoom, rem too. A capital PX stays out of it (a phone's
+   text box keeps 16 px, under which iOS zooms the page in on a tap). A double tap never zooms the page; a pinch still
+   does, for anyone who needs it. */
+:root{--zoom:1;font-size:calc(100% * var(--zoom))}
+html{touch-action:manipulation}
+:root:is([data-zoom="67"],[data-zoom="75"],[data-zoom="80"],[data-zoom="90"]) .app.tap :is(input,textarea,select){font-size:16PX}
 
 /* atoms */
 .i{width:var(--ic);height:var(--ic);flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
@@ -154,12 +173,12 @@ button.row:hover,.row[aria-current="true"],.rowx:has(>.row[aria-current="true"])
 
 /* chat */
 .chat .scroll,.chat>.foot{padding-inline:max(var(--gut),calc((100% - var(--chat-w,720px))/2))}
-.msgs{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;justify-items:start;align-content:start;padding-block:8px 16px;font-size:16px;line-height:24px}
-.b{max-width:min(82%,560px);padding:6px 14px;border-radius:18px;background:var(--raised);overflow-wrap:anywhere;text-wrap:pretty}
-.b.mine{justify-self:end;background:var(--mine)}.gap{margin-top:8px}
+.msgs{display:grid;grid-template-columns:minmax(0,1fr);gap:calc(var(--chatl) / 6);justify-items:start;align-content:start;padding-block:8px 16px;font-size:var(--chat);line-height:var(--chatl)}
+.b{max-width:min(82%,560px);padding:calc(var(--chatl) / 4) calc(var(--chat) * .875);border-radius:calc(var(--chatl) * .75);background:var(--raised);overflow-wrap:anywhere;text-wrap:pretty}
+.b.mine{justify-self:end;background:var(--mine)}.gap{margin-top:calc(var(--chatl) / 3)}
 button.b{cursor:pointer}
 .time{justify-self:center;margin:12px 0 4px;color:var(--muted);font-size:12px;line-height:16px}
-.ref{display:inline-flex;align-items:center;gap:6px;margin-top:12px;color:var(--muted);font-size:14px;line-height:20px}
+.ref{display:inline-flex;align-items:center;gap:6px;margin-top:12px;color:var(--muted);font-size:var(--chat2);line-height:var(--chat2l)}
 /* a link in words (SHEP-439): one link blue, --link, on every bubble in both themes (at least 6:1 on its background,
    test/link-color.test.ts checks), its own hue apart from --blue's sky and the amber and red of a status. Always
    underlined, the line fainter until a hover; no visited colour; a press dims it, a focus ring in its own blue */
@@ -178,11 +197,11 @@ button.b{cursor:pointer}
 .tslide,.rowx.tsl{position:relative;isolation:isolate}.tslide{touch-action:pan-y pinch-zoom}.rowx.tsl>.row.tk{touch-action:pan-y pinch-zoom}
 .tslide>.tmv{display:inline-flex;align-items:center;gap:inherit;min-width:0;max-width:100%}
 :is(.tslide,.rowx.tsl)>.rpl{flex-direction:row;gap:6px;border-radius:8px;z-index:-1}
-.quote.qtask{display:flex;align-items:center;gap:6px;max-width:100%;border:0;border-left:2px solid var(--line2);background:none;font:inherit;font-size:14px;line-height:20px;text-align:start;cursor:pointer}
+.quote.qtask{display:flex;align-items:center;gap:6px;max-width:100%;border:0;border-left:2px solid var(--line2);background:none;font:inherit;font-size:var(--chat2);line-height:var(--chat2l);text-align:start;cursor:pointer}
 .quote.qtask>.qt1{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}.quote.qtask>.qt2{flex:0 4 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.quote.qtask>.qt2::before{content:"· "}
 .quote.qtask>.tring{flex:none}.quote.qtask>.tring>.i{width:16px;height:16px}
 .app.tap button.quote{min-width:var(--hit);min-height:var(--hit)}
-.rpl{position:absolute;inset-block:0;left:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden;border-radius:18px;background:var(--control2);color:var(--fg);font-size:var(--sec);line-height:var(--secl);font-weight:600;white-space:nowrap;pointer-events:none}
+.rpl{position:absolute;inset-block:0;left:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden;border-radius:calc(var(--chatl) * .75);background:var(--control2);color:var(--fg);font-size:var(--sec);line-height:var(--secl);font-weight:600;white-space:nowrap;pointer-events:none}
 .rpl.on{background:var(--fg);color:var(--canvas)}
 .qb{position:absolute;z-index:3;display:flex;align-items:center;gap:8px;transform:translateY(-50%)}
 .qb.r{left:100%;padding-left:8px}.qb.l{right:100%;padding-right:8px;flex-direction:row-reverse}
@@ -221,11 +240,12 @@ button.b{cursor:pointer}
 .b[data-menu]{touch-action:pan-y pinch-zoom}
 .chat .scroll{overflow-x:hidden}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
-.chip{height:var(--chip);padding:0 12px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2);font-size:14px;line-height:20px;font-weight:500}
+.chip{height:var(--chip);padding:0 12px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2);font-size:var(--chat2);line-height:var(--chat2l);font-weight:500}
 .oth{flex-basis:100%;display:grid;gap:8px}
 .chip:hover{background:var(--control)}
 .card{display:grid;gap:8px;width:min(82%,560px);padding:12px 16px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line2);font-size:var(--ui);line-height:var(--uil)}
 .pane .card,.pane .b{max-width:92%}.pane .card{width:92%}
+.msgs .card{font-size:var(--chat);line-height:var(--chatl)}.msgs .card .s{font-size:var(--chat2);line-height:var(--chat2l)}
 .card .t{font-weight:600}.card .s{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 .acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .bars{display:grid;gap:8px;padding:12px;border-radius:8px;background:var(--raised);color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
@@ -236,18 +256,21 @@ button.b{cursor:pointer}
 .quietb{display:grid;gap:6px;max-width:min(92%,640px);max-height:min(50vh,360px);overflow:auto;overscroll-behavior:contain;margin-inline-start:20px;padding:8px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line);color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .quietb .qw{margin:0}.quietb .qt{white-space:pre-wrap;overflow-wrap:anywhere}
 .quietb .qf{display:grid;gap:2px;margin:0;padding:0;color:var(--muted)}.quietb .qf li{display:flex;align-items:center;gap:4px;overflow-wrap:anywhere}.quietb .qf .i{flex:none}
-.files{display:grid;gap:2px;color:var(--sub);font:13px/20px ui-monospace,SFMono-Regular,Menlo,monospace}
+.files{display:grid;gap:2px;color:var(--sub);font:var(--chatm)/var(--chatml) ui-monospace,SFMono-Regular,Menlo,monospace}
 .files :is(span,button){display:flex;justify-content:space-between;gap:12px;text-align:start}.files button{color:inherit;font:inherit;border-radius:4px}.files button:hover{color:var(--fg)}.files em{font-style:normal;color:var(--muted);white-space:nowrap}
 .code{display:flex;align-items:center;gap:4px;max-width:100%;min-height:36px;padding:4px 4px 4px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line);font:13px/20px ui-monospace,SFMono-Regular,Menlo,monospace}
+.msgs .code{font-size:var(--chatm);line-height:var(--chatml)}
 .code code{flex:1;min-width:0;overflow-wrap:anywhere}.card .code{width:100%}
-.donerow{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;line-height:20px;padding:2px 0}
+.donerow{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:var(--chat2);line-height:var(--chat2l);padding:2px 0}
 .banner{display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:max(40px,var(--row));margin-bottom:8px;padding:0 4px 0 12px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line2);font-size:14px;line-height:20px}
 .banner .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .banner>button.n{text-align:left;align-self:stretch;margin-block:-4px}
 .app.tap .banner{padding-right:0}.app.tap .banner>.ib{width:var(--hit);height:100%;border-radius:0 12px 12px 0}
 .cbox{display:grid;container-type:inline-size;border-radius:16px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line2)}
 .cbox:focus-within{box-shadow:inset 0 0 0 1px var(--muted)}
-.cin{width:100%;height:max(44px,var(--row));padding:0 16px;border:0;background:none;font-size:16px;line-height:24px}
+.cin{width:100%;height:max(44px,var(--row));padding:0 16px;border:0;background:none;font-size:var(--chat);line-height:var(--chatl)}
+/* the box writes at the chat's size; on touch never under 16 px at any zoom (capital PX: out of Zoom), else iOS zooms in */
+.app.tap .cin{font-size:max(16PX,var(--chat))}
 .cbar{display:flex;align-items:center;gap:4px;min-width:0;padding:0 6px 6px}.sp{flex:1}
 .agent{display:inline-flex;align-items:center;gap:6px;min-width:0;height:var(--btns);padding:0 6px;border-radius:8px;font-size:14px;line-height:20px}
 .agent:hover{background:var(--control)}.agent .m{min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -325,6 +348,9 @@ button.b{cursor:pointer}
 .app.phone .win{left:0;right:0;grid-template-columns:minmax(0,1fr);border-radius:0;box-shadow:none}
 .app.phone .win .pg{padding:0 16px 24px}.app.phone .win .nav{padding:0 8px 16px;background:none}.app.phone .win .hd{padding:0 4px}
 .srow{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:var(--row2);padding:8px 0;border-top:1px solid var(--line)}
+/* Zoom: − its value + and Reset; Chat text size: one message at that size, under its row */
+.zoomc{display:inline-flex;align-items:center;gap:4px}.zoomc .btn{margin-left:4px}.zoomv{min-width:5ch;text-align:center;font-variant-numeric:tabular-nums}
+.tsize{display:flex;padding-block:4px 8px;font-size:var(--chat);line-height:var(--chatl)}
 h3+.srow,.hint+.srow,.banner+.srow,.promise+.srow{border-top:0}
 .srow .n{flex:1;min-width:0}.srow .n small{display:block;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 .srow .val{color:var(--muted);font-size:var(--sec);line-height:var(--secl);text-align:right;min-width:0}
@@ -520,7 +546,7 @@ html,body{height:100%}body{padding:0;overflow:hidden}
 @keyframes turn{to{transform:rotate(1turn)}}
 @keyframes calm{50%{opacity:.45}}
 /* the working sign at a chat's end (SHEP-313, SHEP-343, SHEP-357): an agent bubble sized to three dots like a one-line
-   message (the bubble's own 6px 14px padding round one 24px line), the dots centred both ways and their rise kept
+   message (the bubble's own padding round one --chatl line), the dots centred both ways and their rise kept
    inside that padding; the step beside it as quiet text, top-aligned with the bubble, wrapping onto up to three lines
    (SHEP-421: an ellipsis only after the third), each new step fading in over the last; it comes in a beat after words land, so the bubble
    seems to become them; reduced motion: the dots only brighten in turn, slowly, and it fades in without moving.
@@ -531,9 +557,9 @@ html,body{height:100%}body{padding:0;overflow:hidden}
    grow-in. It sits at the row's right end, centred on the bubble's line (so a longer step never moves it), centred over the box's round button: the chat column and the box share their
    edges (main chat and panel alike) and that button is the box bar's 6px padding in from the right */
 .wrow{display:flex;align-items:flex-start;gap:8px;justify-self:stretch;min-width:0;margin-top:12px}.wrow>.wsign{margin-top:0}
-.wrow>.wstop{flex:none;margin-top:calc((36px - var(--ib))/2);margin-left:auto;border-radius:50%;margin-right:calc(6px + (var(--send) - var(--ib))/2);animation:fade .24s ease-out .35s both}
-.wsign .wbub{display:flex;align-items:center;justify-content:center;flex:none;max-width:none;padding:6px 14px;line-height:24px}
-.wdots{display:flex;align-items:center;gap:5px;height:24px;color:var(--sub)}
+.wrow>.wstop{flex:none;margin-top:calc((var(--chatl) * 1.5 - var(--ib))/2);margin-left:auto;border-radius:50%;margin-right:calc(6px + (var(--send) - var(--ib))/2);animation:fade .24s ease-out .35s both}
+.wsign .wbub{display:flex;align-items:center;justify-content:center;flex:none;max-width:none;line-height:var(--chatl)}
+.wdots{display:flex;align-items:center;gap:5px;height:var(--chatl);color:var(--sub)}
 .wdots i{flex:none;width:7px;height:7px;border-radius:50%;background:currentColor;animation:rise 1.2s ease-in-out infinite}
 .wdots i:nth-child(2){animation-delay:.15s}.wdots i:nth-child(3){animation-delay:.3s}
 .wstep{min-width:0;padding-top:8px;overflow:hidden;overflow-wrap:anywhere;text-wrap:pretty;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;animation:fade .2s ease-out both}
