@@ -1,0 +1,13 @@
+{
+  "issue": 94,
+  "name": "friction loop 1: every feedback report is kept",
+  "files": [
+    "mods/tasks/bin/herdr_task/feedback.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/launch.py"
+  ],
+  "tests": [
+    "test/test_feedback_found.py",
+    "test/test_herdr_task.py::Feedback"
+  ]
+}

@@ -631,8 +631,8 @@ def closing_line(s, task, parent=None, argv=None):
     from .feedback import feedback_on
     if feedback_on(task.get("space")):
         text += (f" A problem in Shepherdr itself, not this task's code: `{ht} feedback \"<one line>\" --details \"<goal, what was "
-                 f"tried, what went wrong, expected, suggested fix>\"` returns at once and your Assistant offers the person to file "
-                 f"it; carry on.")
+                 f"tried, what went wrong, expected>\" --fix \"<the fix for every Shepherdr user, one line>\"` returns at once, is kept "
+                 f"for the person, and your Assistant offers the person to file it; carry on.")
     text += (f" Your herdr-task command is {ht}: write that full path each time (never the bare name), as one plain command; "
              f"then its {', '.join(OWN)} commands run without asking.")
     text += browser_line()

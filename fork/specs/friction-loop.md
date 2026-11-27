@@ -111,7 +111,8 @@ record reads as before):
 |---|---|
 | `id` | Stable for the problem's life: its first key ([Identity](#identity)). Later reports with the same key count on it. |
 | `space` | The origin: the space of its first report. Its Feedback offers setting governs the row's checks, following and posting, and its Assistant gets File it and Write it up. |
-| `reports` | Each report: `{at, space, machine, from, line, details}`. `from` is `{task: "<title>"}`, `{chat: true}`, `{person: true}` or `{action: "<label>"}`, never a key. Nothing is merged away. |
+| `reports` | Each report: `{at, space, machine, from, line, details}`. `from` is `{task: "<title>"}`, `{chat: true}`, `{person: true}`, `{action: "<label>"}` or `{agent: true}` (an agent that isn't a task's, such as an agent tab), never a key. Nothing is merged away, and every report is kept; `count` counts them. A row an older version wrote gets its one report so far from its own fields when it takes a new one. |
+| `state` | Upstream's, plus `found` (kept, not told to an Assistant yet: none ran, or the hand-off couldn't start) and `telling` (handed to the background `_hold-news`; it is `told` once the news is held, and a hand-off that never held it is sent again by a report after two minutes). The next report with an Assistant running tells a found one, and upstream's `--list` shows both. |
 | `fix`, `kind` | The proposed fix in one line, for every user; and `bug`, `confusing`, `workaround`, `manual` or `miss`, for the page's words. Written by the reporter (`--fix`, `--kind`) or the Assistant shaping it. |
 | `search` | The public words a duplicate search may use, written by the agent that shapes it (component and action names, never the person's project). |
 | `related` | Problems or issues an agent or the person linked (`--same-as`, Follow). Never set by word matching. |
@@ -146,9 +147,9 @@ reopened upstream updates `outcome` and leaves the person's decision alone.
 
 Upstream's key (`key_of`) drops "not" with its stop words and keeps only ASCII words, so opposite reports, and any
 two reports in a script without Latin letters, collide. A new problem's id is a new key: Unicode word characters,
-lower-cased, upstream's stop words except the negations (no, not, never, nothing, and the `n't` words, which are kept
+lower-cased, after Unicode normalization (NFKC), each word keeping its marks (a Devanagari vowel sign, an accent), upstream's stop words except the negations (no, not, never, nothing, and the `n't` words, which are kept
 as `not`), and, when no words are left, a hash of the whole line as written. Every old id still works in `--key`.
-A new report joins an old problem (one keyed the old way) only when the new key of the report equals the new key of
+A new report joins an old problem (one keyed the old way, under any old key: "can't" and "can not" had two) only when the new key of the report equals the new key of
 that problem's stored line: an old collision never absorbs a different problem, nor inherits its Never. Tests, each
 with a declined old row seeded: "Reply context is shown" declined, then "Reply context is not shown" reported, is a
 new, found problem; two different Japanese lines are two problems; an old row still takes a report of its own line.
@@ -500,9 +501,11 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **What the person gets:** nothing visible yet; no report is ever dropped, and the next slice can show them all.
 - **Files:** `mods/tasks/bin/herdr_task/feedback.py` (save the report before telling; keep it with no Assistant
   running; the new identity, matched with upstream's key; `id`, `space`, `reports`, `fix`, `kind`; a report only from
-  a space with offers on; `--list --all --json` read-only, no pruning on read; an unreadable record kept aside;
+  a space with offers on; `--space <id>` for a report from outside any space (the web app; a caller in a space
+  can't name another); `--list --all --json` read-only, no pruning on read; an unreadable record kept aside;
   nothing undecided expires), `cli.py` (flags), `launch.py` (the brief's feedback line mentions `--fix`),
-  `fork/patches/<n>.json`.
+  `fork/patches/<n>.json`. Built: the slice's own tests needed `--space` here, so it moved from slice 2, which adds
+  `--person` to it.
 - **Tests:** a new `test/test_feedback_found.py`: a report with no Assistant is kept; a repeat adds a report and sends
   news once; with an old declined row seeded for each, "is not shown" after a declined "is shown" is a new found
   problem, and a second Japanese line after a declined first is too; an old row still takes a report of its own
@@ -519,7 +522,7 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **What the person gets:** the Feedback row's count; the page with Found, Filed (upstream's filed ones, with their
   links), Not now, Said no; Not now, Never, Undo; Write it up. No File it yet: filing stays upstream's chat flow until
   slice 4.
-- **Files:** `feedback.py` (`--later`, the person's `--no`, `--undo`, and `--person --space <id>` for what they
+- **Files:** `feedback.py` (`--later`, the person's `--no`, `--undo`, and `--person` (with slice 1's `--space <id>`) for what they
   write in the box, each refused in an agent's terminal), `web/plugins/feedback/`
   (`client.tsx`, `rows.tsx`, `words.ts`, `feedback.css`), `web/plugins.json`, `service/next.ts` (its switch),
   `service/feedback.ts` (reads the list on the service's tick; the actions), one case in `service/actions.ts`,
