@@ -283,7 +283,9 @@ const unattr = (v) => String(v ?? "").replace(/&quot;/g, '"').replace(/&(?:apos|
 function newsOf(t) {
   const s = String(t), code = codeRanges(s);
   return [...s.matchAll(/<herdr-news\b([^>]*)>([\s\S]*?)<\/herdr-news\s*>/g)].filter((m) => !inCode(code, m.index)).map(([, a, text]) => ({
-    ref: unattr(/\btask="([^"]*)"/.exec(a)?.[1]), event: unattr(/\bevent="([^"]*)"/.exec(a)?.[1]), text: text.trim() })).filter((n) => n.ref && n.event);
+    ref: unattr(/\btask="([^"]*)"/.exec(a)?.[1]), event: unattr(/\bevent="([^"]*)"/.exec(a)?.[1]), text: text.trim(),
+    // #114: the wait's kind (reply, attention, stopped, asks), on a line that has one
+    ...((k) => (k ? { needs: unattr(k) } : {}))(/\bneeds="([^"]*)"/.exec(a)?.[1]) })).filter((n) => n.ref && n.event);
 }
 
 // An Autopilot wake in an older log (3.1's herdr-task sent <herdr-autopilot reason=…>; 3.2 has no Autopilot):
@@ -673,7 +675,7 @@ function codexStep(name, args) {
 //   (images: how many were sent; paths: where the ones Claude Code read from files came from;
 //   replyTo: the start of the message it answers; replyTask: the task it answers, when it replies to a task)
 //   { kind: "mark", id }  (a message of only reactions: ends the turn, shows nothing)
-//   { kind: "news", id, at, ref, event, text }  (one line of task news Herdr told an Assistant)
+//   { kind: "news", id, at, ref, event, text, needs? }  (one line of task news Herdr told an Assistant)
 //   { kind: "recap", id, at, text, own? }  (a short recap of what happened: Claude Code's own (own), or the reply to
 //   Shepherdr's Recap ask)   { kind: "heads", id, at, text }  (a heads-up note Claude Code wrote, not a message)
 //   { kind: "sent", id, at, to, text, how, call?, state?, why? }  (a message the agent sent another agent: sendsOf();

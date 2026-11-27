@@ -324,7 +324,7 @@ export function taskBrief({ title = "", prompt = "", launch = "", from = "Assist
 // "HERD-4 is ready: Fix login · summary"), ...: without the title (and the id), split at its first ": ".
 // e: { ref, event, text, made } (made: from the task's own record, not a line Herdr sent); x: the task.
 export function newsWords(e, x) {
-  const mark = { started: "started", "working-again": "started", "needs-you": "needs", failed: "needs", ready: "ready", done: "done" }[e.event] ?? "other";
+  const mark = { started: "started", "working-again": "started", "needs-you": "needs", waiting: "needs", failed: "needs", ready: "ready", done: "done" }[e.event] ?? "other";
   const title = x?.title ?? "", one = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
   if (e.made) return { mark, what: e.event, text: e.event === "ready" ? one(x?.summary) || title : title };
   let s = one(e.text), named = title;
@@ -360,7 +360,7 @@ export function newsWords(e, x) {
 // The lines a space's tasks make in its Assistant's chat, in time order, each { id, at, ref, event, text, made }:
 // Herdr's news in the conversation (items of kind "news") as said, and a start, ready or done it never said here
 // (before this log's first page, or not sent) from the task's own started / ready_at / done_at. tasks: Map ref -> task.
-// Each comes with live (needs you still, red) and accept (the newest ready line of a task still Ready).
+// Each comes with live (its newest wait line while it still waits) and accept (the newest ready line of a task still Ready).
 export function newsTimeline(items, tasks, { start = null } = {}) {
   const all = [], said = new Set();
   for (const it of items) if (it.kind === "news") { said.add(`${it.ref}:${it.event}`); all.push(it); }
@@ -376,7 +376,7 @@ export function newsTimeline(items, tasks, { start = null } = {}) {
   for (const e of all) { last.set(e.ref, e); if (e.event === "ready") lastReady.set(e.ref, e); }
   return all.map((e) => {
     const x = tasks.get(e.ref);
-    return { ...e, ...newsWords(e, x), live: last.get(e.ref) === e && (e.event === "needs-you" || e.event === "failed") && x?.status === "needs",
+    return { ...e, ...newsWords(e, x), live: last.get(e.ref) === e && ["needs-you", "waiting", "failed"].includes(e.event) && x?.status === "needs",
       accept: lastReady.get(e.ref) === e && x?.status === "ready" };
   });
 }

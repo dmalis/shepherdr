@@ -405,7 +405,7 @@ class NoTaskNumbers(unittest.TestCase):
         self.assertIn("never write it in anything the person reads", a)
         self.assertIn("which wait, by title.", a)
         # the news it gets: the title in its words, the key only in the tag
-        for line in re.findall(r"<herdr-news task=\"[A-Z]+-\d+\" event=\"[a-z-]+\">([^<]*)</herdr-news>", a):
+        for line in re.findall(r"<herdr-news task=\"[A-Z]+-\d+\" event=\"[a-z-]+\"[^>]*>([^<]*)</herdr-news>", a):
             self.assertNotRegex(line, r"\b[A-Z]{2,}-\d+\b", line)
         # what it says to the person, in its examples, never holds a key
         for said in re.findall(r'\("([^"]+)"\)', a):

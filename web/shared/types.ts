@@ -746,8 +746,10 @@ export interface Message {
   /** a task's brief, the first message of its chat (SHEP-330): what its agent was given, from the moment the task exists */
   taskBrief?: TaskBrief
   /** 3.0's task news line in an Assistant's chat (core/chat-view.js newsWords): its mark, what happened, the rest;
-   *  live: still needs you (red); accept: the newest ready line of a task still Ready */
-  news?: { task: string; ref: string; event?: string; mark: 'started' | 'needs' | 'ready' | 'done' | 'other'; what: string; text: string; live?: boolean; accept?: boolean }
+   *  live: the task's newest wait line while it still waits; accept: the newest ready line of a task still Ready */
+  news?: { task: string; ref: string; event?: string; mark: 'started' | 'needs' | 'ready' | 'done' | 'other'; what: string; text: string; live?: boolean; accept?: boolean;
+    /** the wait's kind on a waiting, needs-you or failed line (herdr-task's needs: reply, attention, stopped, asks; #114) */
+    needs?: string }
   /** the agent's own question as the log has it (3.0's "Asked you" box): open, answered, or closed without one */
   asked?: 'open' | 'answered' | 'dismissed'
   /** a short recap of what happened while you were away (the CLI's own, or its answer to the Recap ask), or a

@@ -512,10 +512,12 @@ class HomeLead(unittest.TestCase):
         world["mini"]["news"] = [{"to": "t9", "space": "sp-shop", "folder": "~/shop", "lines": [
             line("SHOP-1", "ready", "SHOP-1 is ready"), line("SHOP-2", "done", "SHOP-2 is done"),
             line("SHOP-3", "working-again", "SHOP-3 is working again"), line("SHOP-4", "stalled", "SHOP-4 looks stuck"),
-            line("SHOP-5", "needs-you", "SHOP-5 needs you"), line("SHOP-6", "failed", "SHOP-6 stopped")]}]
+            line("SHOP-5", "needs-you", "SHOP-5 needs you"), line("SHOP-6", "failed", "SHOP-6 stopped"),
+            # dmalis/shepherdr#114: a wait its Assistant handles, as a needs-you line was before
+            line("SHOP-7", "waiting", "SHOP-7 is waiting")]}]
         sent = self.round(world, "mini")
         self.assertEqual([l.split(">", 1)[1].split("<")[0] for _, l in self.overview(sent)],
-                         ["~/shop: SHOP-5 needs you", "~/shop: SHOP-6 stopped"])
+                         ["~/shop: SHOP-5 needs you", "~/shop: SHOP-6 stopped", "~/shop: SHOP-7 is waiting"])
 
     def test_two_way_ties_agree(self):
         """Both link to each other and as many machines link to each: the lower core id leads, seen from either."""
@@ -9281,6 +9283,54 @@ class AcceptCommandNews(unittest.TestCase):
                 self.assertIn("its earlier question or wait has cleared", resumed[0])
 
 
+class WaitChangesHands(unittest.TestCase):
+    """dmalis/shepherdr#114: a wait its Assistant handles, then a prompt only the person may answer, then a stop: each is
+    told (its status reads Needs you all along), so the chat's newest row never keeps an older wait's words."""
+    setUp = AcceptCommandNews.setUp
+
+    def test_each_hand_is_told_once(self):
+        self.news.news_pass({})  # a first look
+        self.task.update(state="running", merged=False)
+        v = {"status": "working", "needs": None, "why": None}
+        events = []
+        with self.mock.patch.object(self.news, "live_agents", return_value=[]), \
+                self.mock.patch.object(self.news, "view", lambda s, t, live=None: dict(v)), \
+                self.mock.patch.object(self.news, "stall_of", lambda *a: None):
+            for needs, why in ((None, None), ("reply", "Waits for your reply"), ("reply", "Waits for your reply"),
+                               ("asks", "Asks permission"), ("stopped", "Agent stopped")):
+                v.update(status="needs" if needs else "working", needs=needs, why=why)
+                self.sent.clear()
+                self.news.news_pass({})
+                events.append([re.search(r'event="([^"]+)"', line).group(1) for _, text in self.sent for line in text.split("\n")])
+                if needs == "reply" and self.sent:
+                    # the stock reason says "your" to whoever reads it: news of the Assistant's wait says it plainly
+                    self.assertIn('is waiting: Waits for a reply</herdr-news>', self.sent[0][1])
+        self.assertEqual(events, [[], ["waiting"], [], ["needs-you"], ["failed"]])
+
+    def test_a_record_from_before_still_sees_the_hand_change(self):
+        # an upgrade's first tick: the saved wait on a reply has no event yet, then a permission prompt comes
+        self.news.news_pass({})
+        self.task.update(state="running", merged=False)
+        v = {"status": "needs", "needs": "reply", "why": "Waits for your reply"}
+        with self.mock.patch.object(self.news, "live_agents", return_value=[]), \
+                self.mock.patch.object(self.news, "view", lambda s, t, live=None: dict(v)), \
+                self.mock.patch.object(self.news, "stall_of", lambda *a: None):
+            self.news.news_pass({})
+            with open(self.news.NEWS) as f:
+                state = json.load(f)
+            for rec in state["seen"].values():
+                for r in rec.values():
+                    if isinstance(r, dict):
+                        r.pop("event", None)
+            with open(self.news.NEWS, "w") as f:
+                json.dump(state, f)
+            self.sent.clear()
+            v.update(needs="asks", why="Asks permission")
+            self.news.news_pass({})
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('event="needs-you" needs="asks"', self.sent[0][1])
+
+
 class TildeNewsGoesToEverything(AcceptCommandNews):
     """3.2.8: this computer's own ~ space sits beside Everything in the home folder. A task in it is told to Everything,
     which keeps every task's news, once; never to the ~ space's own Assistant too. Throwaway files; hc is never run."""
@@ -11178,6 +11228,39 @@ class Next32(unittest.TestCase):
             v, event, _ = news.news_state(s, t, list(self.live))
             self.assertEqual(event, "failed")
             self.assertIn('"Fix login" failed: Out of allowance until 3pm', news.news_line(s, t, v, event))
+            self.assertIn('event="failed" needs="stopped">', news.news_line(s, t, v, event))
+
+    def test_news_of_a_wait_is_written_for_the_assistant(self):
+        """dmalis/shepherdr#114: "needs you" in news read as the person. A wait its Assistant handles first is "is
+        waiting"; only a prompt on its agent's own screen says it needs the person. Each line names the wait's kind."""
+        import herdr_task.news as news
+        self.begun()
+        self.agent("idle", turn=4)
+        cases = [("reply", "Waits for your reply", "waiting", '"Fix login" is waiting: Waits for a reply'),
+                 ("attention", "Checks failing: test", "waiting", '"Fix login" is waiting: Checks failing: test'),
+                 ("asks", "Asks permission", "needs-you", '"Fix login" needs the person: Asks permission'),
+                 ("asks", "Asks to trust this folder", "needs-you", '"Fix login" needs the person: Asks to trust this folder')]
+        with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
+            t = s.find(1)
+            for needs, why, event, words in cases:
+                v = {"status": "needs", "needs": needs, "why": why}
+                with self.mock.patch.object(news, "view", lambda s, t, live=None, v=v: v):
+                    got = news.news_state(s, t, list(self.live))[1]
+                line = news.news_line(s, t, v, got)
+                self.assertEqual(got, event, needs)
+                self.assertIn(words, line)
+                self.assertIn(f'event="{event}" needs="{needs}">', line)
+                if event == "waiting":
+                    self.assertNotIn("needs you", line.lower())
+        # Out of review rounds, from the real status: its Assistant's (#784), never "needs you"
+        self.change(review_out=True)
+        with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
+            t = s.find(1)
+            v, event, _ = news.news_state(s, t, list(self.live))
+            self.assertEqual((v["needs"], event), ("reply", "waiting"))
+            self.assertIn('"Fix login" is waiting: ', news.news_line(s, t, v, event))
+            # a line of another kind names none
+            self.assertNotIn("needs=", news.news_line(s, t, {}, "done"))
 
     # ---- replying ----
 
@@ -11696,6 +11779,19 @@ class Schedules32(unittest.TestCase):
         self.assertEqual(d([f(id=3)], seen), [("added", f(id=3))])
         self.assertEqual(d([f(id=3, state="done", status="done", quiet="nothing")], seen), [])
         self.assertEqual(self.au.EVENTS, ["added", "ready", "failed", "checks-fail", "needs-you", "done", "merged", "stalled"])
+
+    def test_needs_you_still_sets_off_a_schedule_for_every_wait(self):
+        """dmalis/shepherdr#114: news calls a wait its Assistant handles "waiting" now, but a schedule's "needs-you"
+        reads the task's status, not news: it fires for a wait on a reply as for a prompt, once each, as before."""
+        d = self.au.diff_events
+        seen = {}
+        f = lambda **kw: {"id": 1, "ref": "APP-1", "title": "x", "state": "running", "status": "working", "needs": None, "attention": None,
+                          "attention_head": None, "merged": False, "automation": None, "quiet": None, **kw}
+        d([f(), f(id=2)], seen)
+        self.assertEqual([(e, x["id"]) for e, x in d([f(status="needs", needs="reply"), f(id=2, status="needs", needs="asks")], seen)],
+                         [("needs-you", 1), ("needs-you", 2)])
+        self.assertEqual(d([f(status="needs", needs="asks"), f(id=2, status="needs", needs="asks")], seen), [])
+        self.assertIn("needs-you", self.au.EVENTS)
 
     def ready(self, **kw):
         base = dict(summary=None, details=None, proof=None, agents_md=None, pr=None, pr_title=None, pr_body=None, draft=False, nothing=False, told=None)

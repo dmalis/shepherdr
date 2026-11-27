@@ -41,6 +41,24 @@ export const ALERT_FRESH_MS = 15 * 60_000
 /** a memory guard's alert is over once its machine's memory is back under this (herdr-task tick GUARD_BACK_UNDER) */
 export const MEMORY_BACK_UNDER = 75
 
+/**
+ * Who a task's wait is for first, by its kind (herdr-task's needs: attention, reply, stopped, asks): only a prompt on
+ * its agent's own screen (a question card, a permission, trust or sign-in) is the person's at once; every inferred wait
+ * (a question in chat, checks, a conflict, rounds out, an error stop) goes to its space's Assistant first. One rule for
+ * the service's needs (assistantFirst, service/compat.ts) and the chat's news rows (dmalis/shepherdr#114).
+ */
+export const forAssistant = (needs: string | null | undefined) => needs !== 'asks'
+
+/**
+ * Does this task wait on the person right now, by the same records as needsYou: a card or prompt of its own that isn't
+ * its Assistant's first (a question, a permission, a secret ask), or an alert of its that stands (the Assistant's hand-up,
+ * herdr-task alert --task). An inferred wait alone (assistantFirst) is not (dmalis/shepherdr#114).
+ */
+export function waitsOnPerson(snap: Pick<NeedsSnap, 'tasks' | 'needs' | 'alerts' | 'machines'>, task: string, now = Date.now()): boolean {
+  if (snap.needs.some((n) => n.task === task && !n.assistantFirst)) return true
+  return taskAlerts(snap, now).has(task)
+}
+
 /** has the chat something you haven't read ('*': since when read marks are kept, anything older counts as read) */
 export function unread(snap: Pick<Snapshot, 'last' | 'read'>, key: string | undefined): boolean {
   const last = key ? snap.last?.[key] : undefined

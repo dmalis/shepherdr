@@ -14,7 +14,7 @@ from .base import guard, hc_json, now, run, STORE
 from .settings import bare
 from .agents import (
     agent_log, agent_running, asking, detail, from_person, front, live_agents, log_tail, said, starting, status_word,
-    STATUSES, startup_asked,
+    REASONS, STATUSES, startup_asked,
 )
 from .sessions import session_of
 from .launch import coordinator_in, core_spaces, everything_of, tilde_of
@@ -68,6 +68,13 @@ def stall_of(task, v, live):
     return None
 
 
+# #114: the stock reason of a wait on a reply ("Waits for your reply") said "your" to whoever read it; news of a wait
+# the Assistant handles says it plainly.
+WAITS_REPLY = "Waits for a reply"
+# the news event of each wait kind (news_state): the person's prompt, a stop, else a wait its Assistant handles
+WAIT_EVENTS = {"asks": "needs-you", "stopped": "failed", "reply": "waiting", "attention": "waiting"}
+
+
 def news_line(s, t, v, event, words=None):
     # SHEP-322: the words name the task by its title; its key rides only in the tag, for commands.
     ref, title = s.ref(t), s.name(t)
@@ -75,7 +82,11 @@ def news_line(s, t, v, event, words=None):
     note = " ".join(str(t.get("agents_md") or "").split())
     said = " ".join(str(t.get("summary") or "").split())
     text = {"ready": f"{title} is ready" + (f" · {said}" if said else "") + (f" · For AGENTS.md: {note}" if note else ""),
-            "needs-you": f"{title} needs you: {v.get('why') or 'Needs you'}",
+            # dmalis/shepherdr#114: news is written for the Assistant, and "needs you" read as the person. A wait it
+            # handles first (a question in chat, checks, a conflict, rounds out) is "waiting"; only a prompt on the
+            # agent's own screen (a question card, a permission, trust or sign-in) is the person's, and says so.
+            "waiting": f"{title} is waiting: {WAITS_REPLY if v.get('why') in (None, '', REASONS['reply']) else v['why']}",
+            "needs-you": f"{title} needs the person: {v.get('why') or 'Needs you'}",
             "failed": f"{title} failed: {v.get('why') or 'Agent stopped'}",
             "stalled": f"{title} {words}",
             "working-again": f"{title} is working again: {words or (t.get('back') or {}).get('why') or 'its agent is at work again'}",
@@ -88,7 +99,10 @@ def news_line(s, t, v, event, words=None):
                                           f": nothing to merge, closed by its Merge setting" + (f" · {said}" if said else "")
                                           if t.get("closed_alone") else ": nothing to merge" if t.get("nothing_to_merge")
                                           else ": accepted" if t.get("accepted_at") else "")}[event]
-    return f'<herdr-news task="{attr(ref)}" event="{event}">{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
+    # The wait's kind (attention, reply, stopped, asks) rides along, so the chat tells the Assistant's from the person's
+    # (web/shared/needs-you.ts forAssistant).
+    kind = f' needs="{attr(v["needs"])}"' if event in ("waiting", "needs-you", "failed") and v.get("needs") else ""
+    return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 
 
 def untold(t):
@@ -122,6 +136,8 @@ def news_state(s, t, live):
     if event == "needs-you" and (v["needs"] == "stopped" or str(v.get("why") or "").startswith("Couldn't start")):
         # Stopped by the person themselves (herdr-task stop) is no news to their Assistant.
         event = None if v.get("stopped_by") == "you" else "failed"
+    elif event == "needs-you" and v["needs"] != "asks":
+        event = "waiting"  # #114: the Assistant's to handle first, never "needs you" (as service/compat.ts assistantFirst)
     stall = stall_of(t, v, live) if v["status"] == "working" else None
     return v, event, stall
 
@@ -202,7 +218,8 @@ def news_pass(report, folder=None):
                 current[key] = cur
                 prev = mine.get(str(t["id"]))
                 mine[str(t["id"])] = {"status": cur["status"], "stall": cur["stall"] or (prev or {}).get("stall"),
-                                      **({"needs": v["needs"]} if v.get("needs") else {})}
+                                      **({"needs": v["needs"]} if v.get("needs") else {}),
+                                      **({"event": event} if v["status"] == "needs" and event else {})}
                 # Its "When a task is accepted" command failed (after_accept.py): told once, even on a first look.
                 failed = s.write and accept_failed(t)
                 if failed:
@@ -226,7 +243,12 @@ def news_pass(report, folder=None):
                                                  or wait_cleared):
                     event = "working-again"
                 # A schedule's run that ended quietly (ready --nothing / --told) is no "done" news: nothing, or its own words.
-                if event and (prev or {}).get("status") != v["status"] and not t.get("quiet"):
+                # #114: a wait that changes hands (its Assistant's, the person's prompt, a stop) is news too, though it
+                # still reads Needs-you status: else a prompt after a wait on a reply never reaches the Assistant.
+                # A record from before #114 has no event: its wait's kind says which it was.
+                was = (prev or {}).get("event") or WAIT_EVENTS.get((prev or {}).get("needs"))
+                handed = v["status"] == "needs" and (prev or {}).get("status") == "needs" and was not in (None, event)
+                if event and ((prev or {}).get("status") != v["status"] or handed) and not t.get("quiet"):
                     words = "its earlier question or wait has cleared" if event == "working-again" and wait_cleared else None
                     lines.append((event, news_line(s, t, v, event, words)))
                 if stall and stall[0] != (prev or {}).get("stall"):

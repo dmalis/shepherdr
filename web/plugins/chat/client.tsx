@@ -48,6 +48,7 @@ import { BoxLabel } from './box-label.tsx'
 import { folderRows } from './folder-row.tsx'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
+import { waitsOnPerson } from '@shared/needs-you.ts'
 import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.ts'
 import { onPageReturn } from '@client/viewport.ts'
 import { keepAtEnd, rowEdges } from './stick.ts'
@@ -810,7 +811,7 @@ function Messages({ thread }: { thread: Thread }) {
       // Herdr's news of a task, never a message (SHEP-365): one quiet row under the task's line, or nothing for what
       // the app shows by itself from the task's status (its review card, its Done line)
       const t = taskOf(snap, m.news.task)
-      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')
+      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '', !!t && !!m.news.live && waitsOnPerson(snap, t.id))
       if (!row) continue
       if (t && !thread.task && t.id !== lastRef) out.push(<TaskRef key={`r:${k}`} id={t.id} title={t.name} t={t} />)
       if (t) lastRef = t.id
