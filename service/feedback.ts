@@ -40,6 +40,12 @@ function answer(out: string): any {
   return null;
 }
 
+/** an issue or comment on GitHub, the only link a filed row shows as "On GitHub" */
+export function githubUrl(u: unknown): boolean {
+  if (typeof u !== "string") return false;
+  try { const x = new URL(u); return x.protocol === "https:" && x.hostname === "github.com" && !x.username && !x.password && /^\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(x.pathname); } catch { return false; }
+}
+
 /** Feedback offers in a space: its own, else Everywhere's, else on (herdr-task's feedback_on) */
 export function offersOn(d: any, space?: string | null): boolean {
   const own = space ? d?.spaces?.[space.split("/").pop()!]?.agents?.feedback : undefined;
@@ -79,7 +85,7 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...(typeof p.space === "string" && p.space ? { space: p.space } : {}),
       ...(from && Object.keys(from).length ? { from } : {}),
       ...(section === "later" ? { until: typeof p.until === "number" ? p.until : null } : {}),
-      ...(typeof p.url === "string" && /^https:\/\//.test(p.url) ? { url: p.url } : {}),
+      ...(githubUrl(p.url) ? { url: p.url } : {}),
       ...(!offersOn(settings, p.space) ? { off: true } : {}),
     });
   }
@@ -107,10 +113,12 @@ export class Feedback {
     let ticks = 0;
     // once a minute the snapshot is built again too: a Not now whose time came shows under Found
     this.timer = setInterval(() => {
+      // switched off in Settings › Plugins: nothing read; switched on again, the next tick reads (seen is cleared)
+      if (!this.on()) { this.seen = ""; return; }
       if (++ticks % 20 === 0) void this.read().then(() => this.changed());
       else if (this.stamp() !== this.seen) void this.read();
     }, every);
-    void this.read();
+    if (this.on()) void this.read();
   }
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
@@ -158,6 +166,8 @@ export class Feedback {
     const out = answer(r.stdout);
     await this.read();
     if (r.code !== 0 || !out || out.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "That didn't work." };
+    // a decision already made (another device, a list that was old): said as it is, no Undo that would reverse theirs
+    if (b.do !== "report" && out.changed === false) return { ok: false, error: "That was already decided: the list shows it as it is now." };
     if (b.do === "report" && out.why === "off") return { ok: false, off: true, error: "Feedback offers are off in that space, so nothing was kept. Settings › Agents › Feedback offers turns them on." };
     return { ok: true, key: out.key, changed: out.changed };
   }

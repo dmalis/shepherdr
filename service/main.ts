@@ -483,7 +483,7 @@ let desktopsOf: () => string[] = () => (pluginOn("screens") ? screens.desktops()
 // the Feedback page (plugin feedback, friction loop #94): what this machine kept, read when its record changes
 const withFeedback = (snap: Snapshot): Snapshot => { const f = pluginOn("feedback") ? feedback.list() : null; return f ? { ...snap, feedback: f } : snap; };
 feedback.changed = () => model.rebuild();
-if (pluginOn("feedback")) feedback.start();
+feedback.start(); // reads only while the plugin is on
 const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withNext(compat.snapshot({
   host: me?.host ?? "this machine", user: me?.name ?? "You", spaces: b.spaces, sections: b.sections, rows: b.rows, artifacts: artifacts.list, automations: b.automations,
   settings: [...settings.sections(webNow ?? ownLink(), b.spaces.map((s: any) => ({ id: s.id, name: s.name, machine: s.machine ?? null, repo: spaceRepo(s) })), b.machines, me?.host ?? "this machine"),

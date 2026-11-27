@@ -196,6 +196,10 @@ def main():
         sys.stderr.write(r.stderr or "")
         return r.returncode
     if argv[:1] == ["--on"] and len(argv) > 1:
+        if "feedback" in argv[2:] and any(a.split("=")[0] in ("--person", "--later", "--undo") for a in argv[2:]):
+            # the person's own calls (#94) are made on that machine's Feedback page, never sent there from here
+            print("herdr-task: The person decides feedback on that machine's own Feedback page: nothing sent.", file=sys.stderr)
+            return 1
         try:
             return remote(argv[1], argv[2:])
         except Fail as e:

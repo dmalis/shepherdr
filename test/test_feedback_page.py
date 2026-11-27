@@ -3,8 +3,11 @@
 terminal, stay local (nothing is filed), and Not now ends when the problem is reported again. Slice 1's throwaway
 store, settings file and fakes (test_feedback_found.World); hc and gh are faked, nothing is sent or filed."""
 import home_guard  # noqa: F401  (first: every test on a throwaway home, never the real one)
+import contextlib
+import io
 import json
 import os
+import sys
 import unittest
 from unittest import mock
 
@@ -179,6 +182,49 @@ class Person(World):
             code, out = self.say("--key", key, "--no", "--json")
         self.assertEqual(code, 0, out)
         self.assertEqual(self.one(key)["state"], "declined")
+
+    # ---- what the chat sees (review round 1) ----------------------------------------------------
+
+    def assistant(self, *argv):
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}, "name": "assistant"}
+        with mock.patch("herdr_task.launch.is_coordinator", lambda k: True):
+            return self.say(*argv)
+
+    def test_not_now_keeps_it_out_of_the_chat_until_it_comes_back(self):
+        key = self.report()
+        self.assertEqual(self.person("--key", key, "--later", "week", "--json")[0], 0)
+        code, out = self.assistant("--list", "--json")
+        self.assertEqual((code, [r["key"] for r in json.loads(out)]), (0, []))
+        code, out = self.assistant("--key", key, "--json")
+        self.assertEqual((code, json.loads(out)["why"]), (0, "later"))
+        self.assertNotEqual(self.one(key).get("state"), "offered")
+        # its week is over: listed and offered again, nothing rewritten in the meantime
+        with mock.patch.object(fb, "now", lambda: self.one(key)["until"] + 1), mock.patch.object(page, "now", lambda: self.one(key)["until"] + 1):
+            self.assertEqual([r["key"] for r in json.loads(self.assistant("--list", "--json")[1])], [key])
+            self.assertTrue(json.loads(self.assistant("--key", key, "--json")[1])["offer"])
+
+    def test_a_said_no_from_the_page_is_not_listed_in_chat(self):
+        key = self.report()
+        self.assertEqual(self.person("--key", key, "--no", "--person", "--json")[0], 0)
+        self.assertEqual(json.loads(self.assistant("--list", "--json")[1]), [])
+
+    def test_a_box_report_from_another_machines_space_goes_to_no_chat_here(self):
+        # this core's sp2 is another space than vm's sp2: kept for the page, never handed to the local sp2's chat
+        with mock.patch("herdr_task.launch.coordinator_in", lambda sp: self.assistants.get(sp.split("/")[-1])):
+            code, out = self.person("Feedback page needs a search", "--person", "--space", "vm/sp2", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((json.loads(out)["why"], self.held), ("no-assistant", []))
+        self.assertEqual(self.listed()[0]["space"], "vm/sp2")
+
+    def test_the_persons_calls_are_never_sent_to_another_machine(self):
+        from herdr_task import cli
+        for argv in (["--key", "k1", "--later", "week"], ["--key", "k1", "--undo"], ["--key", "k1", "--no", "--person"],
+                     ["The page needs a search", "--person", "--space", "sp1"], ["--key", "k1", "--later=week"]):
+            with mock.patch.object(cli, "remote", side_effect=AssertionError("sent")):
+                out = io.StringIO()
+                with mock.patch.object(sys, "argv", ["herdr-task", "--on", "vm", "feedback", *argv]), contextlib.redirect_stderr(out):
+                    self.assertEqual(cli.main(), 1, argv)
+                self.assertIn("own Feedback page", out.getvalue())
 
 
 class Pins(unittest.TestCase):

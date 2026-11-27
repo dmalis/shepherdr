@@ -121,6 +121,37 @@ test("a call reads the list again, and passes herdr-task's own no", async () => 
   expect(f.calls.length).toBe(n);
 });
 
+test("a decision someone already made (another device, an old list) is said as it is, with no Undo to reverse theirs", async () => {
+  const f = fake([{ stdout: JSON.stringify({ key: "a1", changed: false, state: "declined" }) }, { stdout: "[]" }]);
+  const fb = new Feedback(f.run, () => "/nonexistent", () => ({}), () => true);
+  expect(await fb.act({ do: "later", key: "a1", when: "week" })).toEqual({ ok: false, error: "That was already decided: the list shows it as it is now." });
+  expect(f.calls[1]).toEqual(["--list", "--all", "--json"]);
+});
+
+test("On GitHub links only to an issue or pull request on github.com", () => {
+  const urls = ["https://github.com/acme/shep/issues/42", "https://github.com/acme/shep/issues/42#issuecomment-1", "https://evil.example/acme/shep/issues/42",
+    "https://github.com.evil.example/a/b/issues/1", "http://github.com/a/b/issues/1", "https://github.com/acme", "https://user@github.com/a/b/issues/1"];
+  const l = rowsOf(urls.map((url, i) => row({ id: `u${i}`, url, state: "filed", at: NOW - i })), {}, NOW);
+  expect(l.rows.filter((r) => r.url).map((r) => r.id)).toEqual(["u0", "u1"]);
+});
+
+test("polling follows the plugin switch: nothing read while it is off, read again once it is on", async () => {
+  let on = false;
+  const f = fake([{ stdout: JSON.stringify([row({})]) }]);
+  const fb = new Feedback(f.run, () => "/nonexistent", () => ({}), () => on);
+  let changed = 0;
+  fb.changed = () => changed++;
+  fb.start(5);
+  await Bun.sleep(30);
+  expect(f.calls.length).toBe(0);
+  on = true;
+  await Bun.sleep(30);
+  fb.stop();
+  expect(f.calls.length).toBeGreaterThan(0);
+  expect(fb.list(NOW)!.rows.length).toBe(1);
+  expect(changed).toBeGreaterThan(0);
+});
+
 test("herdr-task runs outside any agent's terminal: its terminal id never reaches the person's calls", async () => {
   const dir = mkdtempSync(join(tmpdir(), "fb-"));
   const bin = join(dir, "herdr-task");

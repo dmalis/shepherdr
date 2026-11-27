@@ -45,6 +45,11 @@ def comes_back(p, at=None):
     return p.get("decision") == "later" and isinstance(u, (int, float)) and u <= (now() if at is None else at)
 
 
+def snoozed(p, at=None):
+    """The person's Not now, still running: the problem isn't listed or offered in chat until it comes back."""
+    return p.get("decision") == "later" and not comes_back(p, at)
+
+
 def decide(args):
     """The person's Not now, Never or Undo on one problem, under the record's lock: True once said. None when these
     arguments aren't one of them (a report from the box goes on as any report, marked from the person)."""
