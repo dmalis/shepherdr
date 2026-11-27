@@ -1,0 +1,15 @@
+{
+  "issue": 100,
+  "name": "a task's project always in sight, on its page and in the list",
+  "files": [
+    "web/plugins/tasks/where.tsx",
+    "web/plugins/tasks/where.css",
+    "web/plugins/tasks/client.tsx",
+    "web/src/ui.tsx",
+    "web/demo/data.ts"
+  ],
+  "tests": [
+    "web/plugins/tasks/where.test.tsx",
+    "web/plugins/tasks/repo-line.test.tsx"
+  ]
+}
