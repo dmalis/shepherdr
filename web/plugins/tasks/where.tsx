@@ -3,9 +3,9 @@
 // breadcrumb; a row in the list puts its repo line first (where.css). A row's model line shows only when the task runs
 // on something else than its setting, so the usual case says nothing and the exception stands out.
 import { I } from '@client/ui.tsx'
-import { pickFor, samePick, type Pick } from '@client/picker.tsx'
+import { samePick, type Pick } from '@client/picker.tsx'
 import type { Catalog, Snapshot, Task } from '@shared/types.ts'
-import { isEverything, machineLabel, workName } from '@shared/view.ts'
+import { machineLabel, workName } from '@shared/view.ts'
 import './where.css'
 
 /** the words over a task's title: its project and its machine when there are several; a task outside a repo or folder
@@ -32,10 +32,17 @@ export function TaskWhere({ snap, t, onShow }: { snap: Snapshot; t: Task; onShow
   )
 }
 
-/** whether a row says its agent: only when it isn't what the task's setting picks (its repo's, its space's, else
- *  Everywhere's). Before the machine's catalog is read, aliases can't be matched, so it says it, as before. */
+/** the Tasks setting a task starts with: its working folder's on its machine (a local repo has no machine), else
+ *  Everywhere's, as the service picks it (service/next.ts defaultsForTask); never the space that asked for it */
+export function taskSetting(snap: Snapshot, t: Task): Pick {
+  const c = snap.config
+  const repo = t.work && c?.repos?.find((r) => r.folder === t.work!.folder && (r.machine ?? snap.host) === t.on)
+  return repo?.agents.Tasks ?? c?.all.agents.Tasks ?? { agent: 'claude' }
+}
+
+/** whether a row says its agent: only when it isn't what the task's setting picks. Before the machine's catalog is
+ *  read, aliases can't be matched, so it says it, as before. */
 export function showsAgent(snap: Snapshot, t: Task, pick: Pick, cat?: Catalog): boolean {
   if (!cat) return true
-  const setting = pickFor(snap, isEverything(snap, t.place) ? 'all' : t.place, 'Tasks')
-  return !samePick(pick, setting, cat)
+  return !samePick(pick, taskSetting(snap, t), cat)
 }
