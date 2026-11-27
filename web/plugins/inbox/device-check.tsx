@@ -138,7 +138,7 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
               {x.mine ? 'This device' : x.seen ? `Seen ${ago(x.seen)}` : `Turned on ${ago(x.at)}`} · {lastWords(x.last, ago)}
             </span>
           </span>
-          <span className="val">{x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
+          <span className="val">Alerts: {x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
           <Btn small aria-label={`Remove ${x.mine ? 'this device' : deviceName(x.device)}`} onClick={() => remove(x)}>
             Remove
           </Btn>

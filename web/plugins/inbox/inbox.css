@@ -29,5 +29,7 @@
 .dchk .note.warn{box-shadow:inset 3px 0 0 var(--amber)}
 
 .dchk .dev .n{flex:1;min-width:0}.dchk .dev .l2{white-space:normal}
+/* fork #96: a device with its Remove (GitHub's Sessions): its name and lines on the left, what it gets the last of them */
+.win .pg .dchk .srow.dev>.n+.val{margin-left:0}
 
 .dchk .me{color:var(--fg);font-weight:500}
