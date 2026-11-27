@@ -175,13 +175,14 @@ class Merge(World):
         def merged_with(checks):
             self.set_gh(checks={self.head: GREEN, "*": checks})
             return self.sync("merge", "7")
-        code, out = merged_with([GREEN[0], dict(GREEN[1], conclusion="failure")])
-        self.assertEqual((code, out["gate"]), (1, "main-checks"), out)
-        self.assertEqual(self.st()["phase"], "merged", "merged: the install waits on main's checks")
-        # a cancelled run is no verdict: it waits for the newer run, never holds as failed
         code, out = merged_with([GREEN[0], dict(GREEN[1], conclusion="cancelled")])
+        self.assertEqual((code, out["gate"]), (1, "main-checks"), out)
+        self.assertIn("fork-check failed: cancelled", out["why"], "fork-check runs per SHA: no newer push cancels it")
+        self.assertEqual(self.st()["phase"], "merged", "merged: the install waits on main's checks")
+        # upstream's check cancelled is no verdict: it waits for the newer run, never holds as failed
+        code, out = merged_with([dict(GREEN[0], conclusion="cancelled"), GREEN[1]])
         self.assertEqual(out["outcome"], "wait", out)
-        self.assertIn("fork-check waiting for the newer run", out["why"])
+        self.assertIn("check waiting for the newer run", out["why"])
         self.assertNotIn("cancelled", out["why"])
         code, out = merged_with(RUNNING)
         self.assertEqual(out["outcome"], "wait")
@@ -294,9 +295,13 @@ class MainChecks(World):
         _, code = self.candidate("bin/tool.py")
         old, sha = self.candidate("docs/more.md")
         self.assertEqual(gate.check_expected(self.wt, sha, old)[0], False)
+        # nothing newer yet: it waits while its fork-check runs (a newer push may still land), then holds as today
+        self.set_gh(checks={code: self.CANCELLED, sha: [RUNNING[0] | {"name": "fork-check"}], "*": []})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "wait")
         self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], "*": []})
-        with self.assertRaises(state.Refused):
-            gate.main_checks(self.p, self.wt, sha, old)    # nothing newer yet: held as today
+        with self.assertRaises(state.Refused) as e:
+            gate.main_checks(self.p, self.wt, sha, old)
+        self.assertIn("no check run comes", e.exception.why)
         _, newer = self.candidate("bin/other.py")
         self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], newer: RUNNING, "*": []})
         self.assertEqual(gate.main_checks(self.p, self.wt, sha, old), ("wait", {"check": gate.NEWER,
@@ -308,11 +313,19 @@ class MainChecks(World):
             gate.main_checks(self.p, self.wt, sha, old)
         self.assertIn(f"check failed: failure on {newer[:12]}", e.exception.why)
 
-    def test_the_candidates_own_pass_isnt_undone_by_a_newer_failure(self):
+    def test_a_newer_failure_holds_and_a_newer_pass_never_clears_a_failure(self):
         old, sha = self.candidate("bin/tool.py")
         _, newer = self.candidate("bin/other.py")
-        self.set_gh(checks={sha: GREEN, newer: self.RED})
-        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "pass")
+        for own, after, words in ((GREEN, self.RED, f"check failed: failure on {newer[:12]}"),
+                                  (self.RED, GREEN, "check failed: failure,"),
+                                  ([GREEN[0], dict(GREEN[1], conclusion="cancelled")], GREEN,
+                                   "fork-check failed: cancelled")):
+            with self.subTest(words):
+                self.set_gh(checks={sha: own, newer: after})
+                with self.assertRaises(state.Refused) as e:
+                    gate.main_checks(self.p, self.wt, sha, old)
+                self.assertIn(words, e.exception.why)
+        self.assertFalse(state.checks_passed(self.st(), sha))
 
     def test_a_sync_prs_cancelled_head_check_still_holds(self):
         # the PR gate reads the exact head: a newer push there is a new head, so a cancelled run stays a failure

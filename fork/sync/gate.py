@@ -6,9 +6,9 @@
 - `merge`: the only way a sync PR merges. Its gates (the pull request, the review round on the exact head, up to
   date, the release's ancestry, the head's checks, the trial) pass or the run is held; then a merge commit pinned to
   the head, verified after, and main's checks on it.
-- `main_checks`: `fork-check` always, `check` when upstream's push trigger would run it, on the exact SHA. A run
-  cancelled there (main's newer push cancels an older `check`) counts as never run: the newest finished run on a later
-  commit of main's first-parent line decides instead.
+- `main_checks`: `fork-check` always, `check` when upstream's push trigger would run it, on the exact SHA, and the
+  newest finished run on a later commit of main's first-parent line that contains it. A `check` run cancelled on the
+  SHA (main's newer push cancels an older one) counts as never run: the newer run decides.
 - `finish`: the exact `herdr-task ready` command for the run's outcome, after checking the branch is in a state that
   command accepts.
 
@@ -29,8 +29,14 @@ CHECKS_WAIT_S = 30 * 60                 # how long a gate waits on checks still 
 CHECK_YML = ".github/workflows/check.yml"
 WALK = 30                               # how far back main's checks look for the last commit whose `check` passed
 REVIEW_DIR = "sync-review"
-NO_VERDICT = ("cancelled",)             # main's run that ended without one: a newer push cancelled it (concurrency)
+# Main's runs that ended without a verdict, by check: upstream's `check` shares one concurrency group per branch, so
+# main's newer push cancels an older run. `fork-check` runs once per SHA on main and is never cancelled that way: a
+# cancelled one stays a failure.
+NO_VERDICT = {"check": ("cancelled",)}
 NEWER = "waiting for the newer run"     # a needed check whose own run had no verdict, and no newer run finished yet
+UNCOVERED = "not covered"               # a docs-only candidate's check: no same-code pass before it, nothing after it
+UNREAD = "unread"
+FETCH_S = 60                            # main's fetch while the gate polls, kept well inside one call's wait
 
 
 def poll_s():
@@ -239,64 +245,91 @@ def check_expected(repo, sha, old):
     return not only_ignored(repo, old, sha, pats), pats
 
 
+def no_verdict(name):
+    return NO_VERDICT.get(name, ())
+
+
 def newer_line(repo, sha):
     """main's first-parent commits after `sha` that contain it, newest first, read from origin/main fetched now (the
     ref already fetched when it can't be). [] when there are none."""
-    try:
-        tip = release.fetch_main(repo)
-    except Refused:
-        tip = rev(repo, "refs/remotes/origin/main")
+    if release.remote_repo(repo, "origin") == state.REPO:
+        git(repo, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", timeout=FETCH_S)
+    tip = rev(repo, "refs/remotes/origin/main")
     if not is_ancestor(repo, sha, tip):
         return []
     ok, out, _ = git(repo, "rev-list", "--first-parent", f"--max-count={WALK}", f"{sha}..{tip}")
     return [c for c in out.splitlines() if c and c != sha and is_ancestor(repo, sha, c)] if ok else []
 
 
-def newer_state(line, name):
-    """A check's state from the newest finished run on `line` (newer commits that contain the candidate, newest
-    first): "success", "failed: <conclusion> on <commit>", or NEWER while none has finished (or can be read)."""
+def newer_verdict(line, name, runs_of):
+    """The newest finished run of a check on `line` (newer commits that contain the candidate, newest first):
+    "success", "failed: <conclusion> on <commit>", None when none has finished, or UNREAD."""
     for c in line:
-        runs = check_runs(c)
+        runs = runs_of(c)
         if runs is None:
-            return NEWER
-        v = runs_state(runs, (name,), skip=NO_VERDICT)[name]
+            return UNREAD
+        v = runs_state(runs, (name,), skip=no_verdict(name))[name]
         if v == "success":
             return v
         if v.startswith("failed"):
             return f"{v} on {c[:12]}"
-    return NEWER
+    return None
+
+
+def covered(own, newer):
+    """A check's state from the candidate's own (`own`, from runs_state) and the newest finished run after it
+    (`newer`): a failure on either holds, so a newer pass never clears the candidate's own failure and a newer
+    failure counts over the candidate's own pass; own runs all cancelled (NEWER) take the newer verdict; own runs
+    still to come keep their state."""
+    if own.startswith("failed"):
+        return own
+    if newer and newer.startswith("failed"):
+        return newer
+    if own == NEWER:
+        return newer or NEWER
+    return own
 
 
 def main_checks(p, repo, sha, old, known_passed=(), now=time.time, sleep=time.sleep):
     """Main's checks on a candidate (a sync's merge commit, or main's tip): "pass", or "wait" (call again), or a
     Refused hold (kind gate). `old` is main's tip before the candidate; `known_passed` are commits whose `check` is
-    known to have passed (the sync PR's head). A run cancelled on the candidate counts as never run: the newest
-    finished run of that check on a later commit of main's line decides, and until one finishes the gate waits."""
+    known to have passed (the sync PR's head). The newest finished run on a later commit of main's line that contains
+    the candidate counts too (`covered`); a `check` run cancelled on the candidate counts as never run, and until a
+    newer one finishes the gate waits for it."""
     expected, pats = check_expected(repo, sha, old)
     names = ("check", "fork-check")
-    from_newer = set()          # checks only a newer commit's run can cover
+    same = None
     if not expected:
         # no `check` run comes: the diff from the last commit whose `check` passed touches only ignored paths, or a
         # newer commit's run covers it (the older one was cancelled by that newer push)
         last = last_check_passed(repo, sha, known_passed)
-        if last and only_ignored(repo, last, sha, pats):
-            names = ("fork-check",)
-        elif newer_line(repo, sha):
-            from_newer.add("check")
-        else:
-            raise Refused(f"no check run comes for {sha[:12]}, and its diff from the last commit whose check passed "
-                          "isn't only the paths that check skips", outcome="held", kind="gate", gate="main-checks")
+        same = bool(last and only_ignored(repo, last, sha, pats))
 
     def read():
-        runs = check_runs(sha)
+        cache = {}
+
+        def runs_of(c):
+            if c not in cache:
+                cache[c] = check_runs(c)
+            return cache[c]
+
+        runs = runs_of(sha)
         if runs is None:
             return None
-        got = runs_state(runs, names, skip=NO_VERDICT)
-        line = None
+        line = newer_line(repo, sha)
+        got = {}
         for n in names:
-            if n in from_newer or got[n] == NEWER:
-                line = newer_line(repo, sha) if line is None else line
-                got[n] = newer_state(line, n)
+            if n == "check" and not expected:
+                own = "success" if same else NEWER if line else UNCOVERED
+            else:
+                own = runs_state(runs, (n,), skip=no_verdict(n))[n]
+            nv = newer_verdict(line, n, runs_of)
+            if nv == UNREAD:
+                return None
+            got[n] = covered(own, nv)
+        if got.get("check") == UNCOVERED and got.get("fork-check") == "success":
+            raise Refused(f"no check run comes for {sha[:12]}, and its diff from the last commit whose check passed "
+                          "isn't only the paths that check skips", outcome="held", kind="gate", gate="main-checks")
         return got
 
     key = f"main:{sha}"
@@ -318,7 +351,7 @@ def last_check_passed(repo, sha, known_passed=()):
     ok, out, _ = git(repo, "rev-list", "--first-parent", f"--max-count={WALK}", f"{sha}^")
     for c in list(known_passed) + (out.splitlines() if ok else []):
         runs = check_runs(c)
-        if runs is not None and runs_state(runs, ("check",), skip=NO_VERDICT)["check"] == "success":
+        if runs is not None and runs_state(runs, ("check",), skip=no_verdict("check"))["check"] == "success":
             return c
     return None
 
