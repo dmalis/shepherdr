@@ -200,15 +200,19 @@ list; it never globs.
 `install <sha>` checks, in order, and stops with nothing changed when one fails:
 
 1. The machine is the config's machine.
-2. The installed CLI: `shepherdr` on the run's `PATH` (what `update-shepherdr`'s runner will call) resolves into
-   `~/.local/share/shepherdr/bin/`.
+2. The installed CLI: `shepherdr`, looked up on the `PATH` the runner will have, resolves into
+   `~/.local/share/shepherdr/bin/`. That `PATH` is the run's own with the guard's folder taken out, built by the
+   installed herdr-task's own `self_update.clean_env`, not the run's `PATH` (whose first `shepherdr` is the guard's).
 3. The recorded source: `~/.local/share/shepherdr/installed.json`'s `source` is the config's install folder (realpath),
    and its `root` is the home. `shepherdr update` installs from exactly that folder (`cmd_install`, `hand_over`).
 4. The install folder is clean (`git status --porcelain` empty) and its HEAD is the baseline SHA.
 5. The candidate: not quarantined; its tree equals the tree the trial passed; the release SHA is its ancestor; its
-   `check` passed ([Merge and finish](#merge-and-finish)).
-6. The hooks the candidate would write are ones already installed ([Narrow exceptions](#narrow-exceptions)).
-7. Before-pictures for health: the Assistants (`herdr-task assistants --json`, their targets).
+   checks passed ([Main's checks](#mains-checks)).
+6. The candidate's installer would write nothing to an agent's config ([Narrow exceptions](#narrow-exceptions)).
+7. The candidate carries the hold patch ([Narrow exceptions](#narrow-exceptions)), checked by its test's name in
+   `fork/patches.json` at that SHA.
+8. Before-pictures for health: the Assistants (`herdr-task assistants --json`, their targets), and the sha256 of the
+   two agent hook files (read only).
 
 ### The first run's baseline (Codex point 1)
 
@@ -259,20 +263,33 @@ Exit codes say little: `--status` always exits 0, and the installer can print `N
 2. The installed files are the candidate's: each file `installed.json` lists under `.local/share/shepherdr/` that comes
    from a tracked file has that file's content at the SHA (`git show <sha>:<path>`). Built files (`web/dist`) are
    skipped.
-3. `shepherdr doctor` exits 0. It checks the files, links, helpers, the service unit and that the service answers.
+3. `herdr-task assistants --json` lists every target the before-picture had.
+4. The scheduler runs the new code: within 30 s (it re-execs within 15 s when its code changes), the `hash` in
+   herdr-task's `.scheduler.json` equals `scheduler.script_hash()` computed by the installed herdr-task itself.
+   (`herdr-task --version` is no use here: it prints the bundle's own `VERSION`, `1`.)
+5. The two agent hook files have the sha256 they had before. A change is not undone by the pipeline (it never writes
+   them): **unknown**, with an alert that says which file.
+6. `shepherdr doctor` exits 0. It checks the files, links, helpers, the service unit and that the service answers.
    Its words stay private.
-4. `herdr-task assistants --json` lists every target the before-picture had.
-5. `herdr-task --version` prints the candidate's `VERSION`, and so does the scheduler within 30 s (it re-execs within
-   15 s when its code changes).
 
-Doctor runs last: it releases the sync hold when the install is whole, and everything else should pass first.
+Doctor runs last, and without the hold variable: it lets go of the sync hold when the install is whole, so the
+candidate reaches other machines only after every other line passed.
 
 ### Rollback
 
-`rollback` is the install step aimed at the baseline: the same checks (the candidate's checks are skipped), `checkout
---detach <baseline sha>`, a second `update-shepherdr` from the same run (allowed: its last update is no longer
-`running`), the same outcome reading, then `health <baseline sha>`. Only that passing makes **rolled back**. Anything
-else is **unknown: rollback failed**.
+`rollback` is the install step aimed at the baseline, with its own checks before it moves anything:
+
+1. The machine, the runner's CLI and the recorded source, as for an install.
+2. The state's phase is `installing`, `installed` or `rolling-back`, and names the candidate.
+3. The install folder's HEAD is that candidate or the baseline (a rollback that died after its checkout), and
+   `git status --porcelain` is empty. Anything else is someone else's change: **unknown: rollback failed**, nothing
+   moved.
+4. The baseline SHA is in the folder (`cat-file -e`).
+
+Then it writes phase `rolling-back`, runs `checkout --detach <baseline sha>`, asks for a second `update-shepherdr`
+from the same run (allowed: its last update is no longer `running`), reads the outcome the same way, and runs
+`health <baseline sha>`. The hooks check isn't needed: the baseline's installer is the one that ran last time. Only
+health passing makes **rolled back**. Anything else is **unknown: rollback failed**.
 
 Then the failed SHA goes into quarantine with the step that failed, and the `pipeline` issue gets a comment in
 sanitized words (which step, which check failed, the versions), never the installer's output or its log path.
@@ -287,26 +304,40 @@ FORK.md lets this schedule's run install. This is everything that permission cov
   (`stop_service`, `install_service`; it waits for a voice call to end). That restart, through `herdr-task
   update-shepherdr` only, is the one allowed. The pipeline never runs `systemctl`, `launchctl`, `kill`, `pkill`, `hc
   server` or `hc update`. herdr-core and the agents keep running (docs/upgrading.md, "Later updates").
-- **Agents' hooks.** The installer puts its question and permission hooks into `~/.claude/settings.json` and
-  `~/.codex/hooks.json` (`set_hooks`), but only when an entry of its own is missing; on an install that has them it
-  writes nothing there. Hooks are a documented feature of both CLIs (docs/agents-and-terms.md, "Approvals, trust and
-  reviews"), and the person's own install put these in. Still, an unattended run must not be what edits an agent's
-  config: before installing, `install` compares the candidate's `HOOKS` (read from its `bin/shepherdr`, the home path
-  filled in) with `installed.json`'s `hooks`. Any entry not already recorded means the update would write to an
-  agent's settings: **held**, and the person installs that release themselves or says yes for it. So the scheduled
-  install changes no agent config. If upstream changes the installer so it always writes those files, this check
-  holds every release, which is the safe failure.
+- **Agents' hooks.** The installer edits `~/.claude/settings.json` and `~/.codex/hooks.json` (`set_hooks`) whenever
+  one of its entries is missing from the file, or a 3.1 entry (`OLD_HOOK`) is in it. Which entries `installed.json`
+  records says nothing about what the files hold now. An unattended run must not be what edits an agent's config, so
+  before installing, `install` runs the candidate's own rule on copies:
+  1. It reads the two files (read only, as `shepherdr doctor`'s hook check does) and copies them into scratch.
+  2. It loads the candidate's `bin/shepherdr` as a module, from `git show <sha>:bin/shepherdr`, and calls its
+     `set_hooks(r, {}, add=True)` with an `r` whose paths point at the copies and whose share path is the real one,
+     so the command strings are the ones a real update would compare.
+  3. Any byte of either copy changed: the update would write an agent's config. **Held** (kind `hooks`).
+
+  Health's line 5 checks the real files after the update as a tripwire. So the scheduled install changes no agent
+  config. If upstream changes the installer so it always writes those files, every release holds, which is the safe
+  failure. Hooks are a documented feature of both CLIs (docs/agents-and-terms.md, "Approvals, trust and reviews"), and
+  the person's own install put these in; adding or removing one stays the person's own `shepherdr update`.
 - **Codex's hook trust.** A new Codex hook asks once to be trusted. That is a prompt for the person; nothing answers it.
   The check above means a scheduled install never adds one.
-- **Propagation to other machines.** While the installer replaces helpers it holds the sync to other machines, and it
-  lets go at its own end when the install is whole (`finish_install`; `base.sync_held` also clears a hold a whole
-  install left). So the candidate's helpers can reach linked machines after upstream's own whole check and before ours
-  finishes. Upstream's check covers files, links, `sync-shared --check`, herdr-task compiling and the hooks; the trial
-  and the rehearsal ran the same files. A rollback reinstalls the baseline, which the next sync sends out again. Holding
-  it until our check passes needs a patch to upstream's installer ([Open questions](#open-questions), 1).
+- **Propagation to other machines.** While the installer replaces helpers it holds the sync to other machines
+  (`sync-hold`), and at its end it lets go when the install is whole (`finish_install` calls `release_hold`;
+  `base.sync_held` also clears a hold whose stamp is a whole install's). Our health check runs after that, so without a
+  change the candidate's helpers could reach linked machines before it passes. One fork patch, at one call site,
+  `bin/shepherdr`'s `release_hold`: with `SHEPHERDR_KEEP_SYNC_HOLD=1` in its environment it doesn't remove the hold
+  files, it writes both with the line `held by the fork's sync until its health check passes`. That line has no
+  install stamp, so `base.sync_held` keeps it (`_install_done` is false) and `remote_run` and `machines.sync` copy
+  nothing. The run sets the variable when it calls `update-shepherdr` (the runner keeps the run's environment,
+  `self_update.clean_env`), so the installer the update hands over to keeps the hold. Health's last line, `shepherdr
+  doctor` without the variable, lets go. A failed health keeps it through the rollback's update too; the baseline's
+  doctor lets go once the baseline is healthy. An unknown outcome keeps the hold until the person looks.
+  - A rollback to a baseline without the patch (the first install's, v3.2.20) lets go at the end of its own update:
+    what goes out then is the baseline, the code that ran before.
+  - The patch has its own `patch` issue and tests (build task 5), and `install` refuses a candidate without it.
 
 Nothing in this path reads plan usage, uses an agent's sign-in, drives an agent's interface, or edits an agent's config.
-The update itself is upstream's installer doing what it does for the person by hand.
+The two hook files are read, never written. The update itself is upstream's installer doing what it does for the
+person by hand.
 
 ## Release selection (Codex point 9)
 
@@ -351,12 +382,25 @@ The reviewer reviews only our side. Upstream's own commits are not reviewed.
 8. Verify: the PR's `mergeCommit`, after `git fetch origin main`, is origin/main's tip or its ancestor; its parents are
    the old main tip and the head; its tree is the head's tree; the release SHA is its ancestor. The state records it as
    the candidate and the release as merged.
-9. **Main's check**: when a push run of `check` exists for the merge commit, it must end `success` before install. The
-   push trigger skips Markdown-only changes, so none may come; the tree equality above is then what ties the install
-   to a checked tree.
+9. **Main's checks** on the merge commit, as below, before install.
 
 A failed ancestry check says only what it found ("<release sha> is not an ancestor of <sha>"), never a guess at why.
 Nothing repairs main by force.
+
+### Main's checks
+
+Any candidate on main (a sync's merge commit, or main's tip for [Installing our own merges](#installing-our-own-merges))
+installs only after its checks on that exact SHA, read from `gh api repos/dmalis/shepherdr/commits/<sha>/check-runs`:
+
+- `fork-check` always. Our workflow has no `paths-ignore`, so a push run always comes.
+- `check` when a run is expected. Upstream's push trigger skips a push whose every changed file matches its
+  `paths-ignore` (`**/*.md`, `docs/**`, read from the candidate's own `check.yml`). The run lists the files changed
+  between main's old tip and the candidate. Any file outside those patterns means a run is expected.
+- An expected run that hasn't appeared or ended after 30 minutes, ended other than `success` (a `cancelled` run
+  included: upstream's workflow cancels a push run when main moves again), or can't be read: **held** (kind `gate`).
+- No `check` run expected: the candidate's diff from the last SHA whose `check` passed touches only those ignored
+  paths, and the trial still runs on the candidate. For a sync, the merge commit's tree is also the PR head's, whose
+  `check` passed (step 5).
 
 ### Finishing the run (Codex points 10 and 14)
 
@@ -370,6 +414,12 @@ The sync PR is not the task's own pull request, so the run can't finish through 
 What works: `git fetch origin main` in the run's worktree after the merge, then `ready --told "<report>"`. The
 branch's commits are then in `origin/main`, the run counts as unchanged, and it is done without review or merge
 (`quiet_ready`). The review gate was ours (`merge`, step 2).
+
+`commands.in_base` also accepts the local `main`, which herdr-task fast-forwards after merges, and `merged_here` reads
+the task's recorded own work. So in some histories `--told` would pass without the fetch, or `--summary` would finish
+at once. The fetch makes the route the same in all of them, and the run never uses `--summary`. Build task 3's tests
+run the table with local main stale and fast-forwarded, with and without recorded own work, and through
+`tick.facts` as the tick would see the run.
 
 #### Completion commands
 
@@ -491,9 +541,12 @@ space's own folder.
 3. The rehearsal passed on main's exact SHA.
 4. The machine: the schedule's runs show the config's hostname; `date +%Z` there gives the config's time zone; `herdr-task
    auto show <it> --json`'s `next_run` is the next 06:00 or 18:00 in that zone.
-5. One real scheduled run, permission off, ended "nothing new" in one line.
+5. One real scheduled run, permission off, ended **held** "`<version>` is ready to install", naming main's SHA as the
+   candidate and the captured baseline (the live install is behind main today, so "nothing new" can't come first).
+   Its trial passed and nothing moved. The "nothing new" path is proven by build task 3's tests on throwaway state,
+   and for real by the first run after the first healthy install, which must end `--nothing` in one line.
 6. A real reviewer started in a sync run's worktree, with the run's reviewer settings, came up without a prompt nobody
-   answered ([Open questions](#open-questions), 2).
+   answered ([Open questions](#open-questions), 1).
 7. The install folder is clean, the baseline is captured, and the repo allows merge commits.
 8. The person says yes.
 
@@ -523,7 +576,7 @@ its runs never take a release.
    `.claude/`, `.github/`, `test/`, or is a Markdown file at the root, there is nothing to install. The run ends
    `--nothing` and the baseline stays. A test pins this list against the installer's `share_items` and
    `source_items`, so a new shipped folder breaks it.
-4. Then exactly the release sync's steps from the trial on: main's `check` and `fork-check` on that SHA, `fork/bin/trial
+4. Then exactly the release sync's steps from the trial on: [main's checks](#mains-checks) on that SHA, `fork/bin/trial
    <sha>`, `install`, `health`, `rollback`, quarantine, tag, report. The same outcomes and completion commands.
 5. After a healthy install, if `pending` is set and origin/main moved past what was just installed, the same run goes
    again from step 2, within the limits below. Otherwise it clears `pending` and ends.
@@ -552,7 +605,7 @@ yes, a separate one.
 | 1 | A failed candidate becomes the recorded install | Baseline in state; first run captures the live SHA and source; tag pushed only after health; failed SHA quarantined | [First run's baseline](#the-first-runs-baseline-codex-point-1), [Rollback](#rollback); `fork/sync/state.py` |
 | 2 | Updater may install another checkout or machine | Machine, installed CLI, recorded source and candidate checked before anything moves | [Before anything moves](#before-anything-moves); `install.py` |
 | 3 | Failure, unknown outcome, failed rollback | JSON state read, not exit codes; 40-minute unknown; health; rollback verified separately; `unknown` and `broken` outcomes | [Reading the outcome](#reading-the-outcome), [Health](#health-codex-point-3), [Outcomes](#outcomes) |
-| 4 | Install vs live-service and agent-config rules | One restart, by the update only; no hook writes unattended; propagation stated plainly | [Narrow exceptions](#narrow-exceptions); open question 1 |
+| 4 | Install vs live-service and agent-config rules | One restart, by the update only; hook writes simulated on copies and held; propagation held until health by one patch at `release_hold` | [Narrow exceptions](#narrow-exceptions); build task 5 |
 | 5 | Two runs move the same checkout | `flock` plus a lease by task; phases resume | [Serialised runs](#serialised-runs), [Phases](#phases) |
 | 6 | Trial isolation incomplete | Named core and session, clean env, scratch templates and worktree root, candidate executables, localhost, no machines, made-list cleanup | [fork/bin/trial](#forkbintrial) |
 | 7 | Alternate GitHub write paths | `-R` on every call; no `ready` PR for syncs; feedback never filed by the run | [GitHub destinations](#github-destinations-and-public-text-codex-points-7-and-8) |
@@ -588,19 +641,20 @@ import `test/home_guard.py` first (`sys.path` gets `test/`). No upstream file ch
    subcommands. Tests with `update-shepherdr` and `shepherdr doctor` faked: every outcome row, resume from each phase,
    the hooks check, quarantine, and the refusal to install without a passing rehearsal recorded for the candidate's
    pipeline code. A pin test on `installed.json`'s keys and `update-shepherdr --status --json`'s fields.
-5. **The rehearsal** (below), as `fork/bin/rehearse <sha>`, with its test.
-6. **The skill.** Rewrite `.agents/skills/upstream-sync/SKILL.md` steps 1–7 around these commands; take out its
-   "draft" status. `fork/patches.json` with today's patches (none yet), and the fork-patch skill's step to add a line.
-7. **Turn on.** No code: the person's Assistant writes the config, creates the schedule (permission off), and the
+5. **The hold patch**, the one upstream edit: `bin/shepherdr`'s `release_hold` ([Narrow exceptions](#narrow-exceptions)),
+   with its own `patch` issue (the fork-patch skill). Tests in `fork/tests/test_hold_patch.py`, on a throwaway root:
+   with `SHEPHERDR_KEEP_SYNC_HOLD=1` a whole update leaves both hold files with the fork's line, and `base.sync_held`
+   returns it instead of clearing it; without it, the hold goes as upstream's does; `shepherdr doctor` without it lets
+   go. Also `fork/patches.json`, its first line this patch.
+6. **The rehearsal** (below), as `fork/bin/rehearse <sha>`, with its test.
+7. **The skill.** Rewrite `.agents/skills/upstream-sync/SKILL.md` steps 1–7 around these commands; take out its
+   "draft" status. The fork-patch skill's step to add a line to `fork/patches.json`.
+8. **Turn on.** No code: the person's Assistant writes the config, creates the schedule (permission off), and the
    conditions in [The schedule](#the-schedule-codex-point-13) are checked one by one. Then the person's yes.
-
-8. **Install merged.** The `settle` subcommand, `pending`, the skip list with its pin test, the per-run and per-day
+9. **Install merged.** The `settle` subcommand, `pending`, the skip list with its pin test, the per-run and per-day
    limits, and the rehearsal-hash gate in `install` (that gate is in task 4 from the start; this task adds the run's
    own rehearsal). The skill's install-merged steps. Then the person's Assistant creates the "Install merged" schedule,
    permission off, and later on with the person's yes.
-
-If open question 1 is answered "hold until our check", one more task before 7: the hold patch, with its own `patch`
-issue.
 
 ## The rehearsal
 
@@ -613,8 +667,10 @@ scratch root; nothing touches the live install, the real home's files or the liv
 3. `baseline --capture` against `<root>` (the commands take `--root`, used only here and in tests).
 4. Install `<sha>` the live way, except the update itself: `<root>/.local/bin/shepherdr update --root <root>` (the
    installed copy, which hands over to the clone's installer, as live), because `update-shepherdr` only runs inside a
-   real schedule's run.
-5. `health <sha> --root <root>`: must pass.
+   real schedule's run. With `SHEPHERDR_KEEP_SYNC_HOLD=1`, as live.
+5. Before health: both hold files under `<root>` carry the fork's line. `health <sha> --root <root>`: must pass, and
+   after its doctor the hold files are gone. The hooks simulation ran against `<root>`'s hook files and found nothing
+   to write.
 6. A forced failure: health is told to fail (a test flag), so `rollback` runs: back to the baseline, updated, and
    `health <baseline>` passes. `installed.json`'s version and files are the baseline's again.
 7. A second rehearsal where the update itself fails (a candidate commit that breaks `herdr-task`'s compile): the
@@ -626,28 +682,22 @@ and the live health lines (Assistants, service answering).
 
 ## Open questions
 
-1. **Hold the sync to other machines until our health check passes?** Upstream's installer lets the candidate's
-   helpers go to linked machines once its own whole check passes, a minute or so before ours ends. Holding them needs a
-   small patch at two upstream call sites (`finish_install`'s release of the hold, and `base.sync_held`), switched on
-   by an environment variable the update passes through. **Recommendation:** no patch while no other machine runs tasks
-   from this one; add it, as its own patch, the day one does. The trial and rehearsal already ran the same files, and a
-   rollback sends the old ones back.
-2. **The run's reviewer and its trust prompt.** Each run has a new worktree. A reviewer CLI may ask to trust it, and
+1. **The run's reviewer and its trust prompt.** Each run has a new worktree. A reviewer CLI may ask to trust it, and
    nothing may answer that for the person (AGENTS.md). docs/agents-and-terms.md also took out pre-trusting a Codex
    reviewer with `-c projects=…`. **Recommendation:** before update permission goes on, start the run's real
    reviewer once in a sync worktree and see. If it asks, the person picks, in the CLI itself, a documented way that
    covers every run's worktree (for example trusting the worktrees' parent folder, if that CLI documents it); until
    then a run that meets the prompt is **held** at review. Never a pre-trust flag or written trust.
-3. **When the rounds run out on a sync.** Ordinary tasks may merge a last fix unreviewed. **Recommendation:** a sync
+2. **When the rounds run out on a sync.** Ordinary tasks may merge a last fix unreviewed. **Recommendation:** a sync
    never does: no round on the exact head means held, and the person is asked. The sync installs itself onto the
    tool they use every day.
-4. **Built-in feedback's repo.** It defaults to upstream. **Recommendation:** set the person's `feedback_repo` to
+3. **Built-in feedback's repo.** It defaults to upstream. **Recommendation:** set the person's `feedback_repo` to
    dmalis/shepherdr, so Shepherdr feedback lands in our issues first and reaches upstream only through the
    upstream-issue skill.
-5. **How soon, and how often, merged work installs.** Each install restarts the service for a few seconds.
+4. **How soon, and how often, merged work installs.** Each install restarts the service for a few seconds.
    **Recommendation:** 10 quiet minutes after the last merge, at least 30 minutes between installs, at most 8 a day
    from "Install merged"; the rest waits for the next 06:00 or 18:00. Shorter makes the app blink more often; longer
    makes a fix wait.
-6. **A hooks change in a release.** When a release adds a hook, the scheduled run holds it. **Recommendation:** the
+5. **A hooks change in a release.** When a release adds a hook, the scheduled run holds it. **Recommendation:** the
    held message tells the person to run `shepherdr update` once themselves after reading what the hook does; a yes in
    the chat is not enough, because the run must not write an agent's config.
