@@ -4,6 +4,7 @@
 import type { Artifact, Automation, Machine, Place, Section, Snapshot, Task } from './types.ts'
 import { taskAlerts } from './needs-you.ts'
 import { inSlots, type Slotted } from './group-slots.ts'
+import { answeredWords } from './answered.ts'
 
 export type Space = Place
 
@@ -197,7 +198,10 @@ export function doneWords(t: Task): string {
 /** A report that says the agent needs a decision is only a waiting line when it actually stops. */
 export const waitingReport = (text?: string | null) => /^needs\b/i.test(text?.trim() ?? '')
 
-export function taskLine(t: Task): string {
+/** a task's row words; just after its prompt was answered, that answer first (dmalis/shepherdr#45) */
+export const taskLine = (t: Task): string => answeredWords(t, rowLine(t))
+
+function rowLine(t: Task): string {
   const s = tstate(t)
   if (s === 'done' || s === 'archived') return doneWords(t)
   if (t.status === 'merging' || t.accepting) return 'Merging…'

@@ -1,0 +1,5 @@
+/* a permission card's body (prompt-body.tsx; dmalis/shepherdr#45): the hook's reason, in the card's own text, and the
+   command folded to FOLDED_LINES lines of its 20px code line while long */
+.card .pwhy{overflow-wrap:anywhere;text-wrap:pretty}
+.card .pbody{display:grid;min-width:0}
+.card .pbody.clip .code code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;line-clamp:5;overflow:hidden}

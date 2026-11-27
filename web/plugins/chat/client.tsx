@@ -820,7 +820,8 @@ function Messages({ thread }: { thread: Thread }) {
     else if (m.ended !== undefined) {
       const line = endedLine(m.ended, lastEnded)
       if (!line) continue
-      out.push(<DoneRow key={k}>{line}</DoneRow>)
+      // dmalis/shepherdr#45: an answered permission says when, in the reader's clock; one nobody answered here, a warning
+      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span>{line}{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
     }
     // a recap of what happened (the agent's own, or its answer to Recap), and a heads-up its CLI wrote: never bubbles
     else if (m.recap === 'heads') out.push(<QuietRow key={k} kind="heads" icon="info" label={m.text ?? ''} meta={m.at ? [{ word: clock(m.at) }] : []} />)
@@ -842,7 +843,8 @@ function Messages({ thread }: { thread: Thread }) {
     // In the fictional shop conversation the review follows the mock-up, before the later task messages.
     if (snap.demo && !thread.task && m.artifact?.id === 'a-mock') cardsUntil(Infinity)
     if (!m.activity) prev = who
-    lastEnded = m.ended ?? ''
+    // dmalis/shepherdr#45: a line with its own time (an answered permission) is never the same line twice
+    lastEnded = m.endedAt ? '' : m.ended ?? ''
   }
   const empty = !rows.length && (!chat || chat.fresh || chat.notice === 'none' || chat.top !== false)
   const every = isEverything(snap, thread.place)

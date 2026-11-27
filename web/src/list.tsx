@@ -736,7 +736,8 @@ export function List({ snap }: { snap: Snapshot }) {
                 <Row icon={ui.shut[g.id] ? 'right' : 'down'} label={g.name} expanded={!ui.shut[g.id]} onClick={() => setUI({ shut: { ...ui.shut, [g.id]: !ui.shut[g.id] } })} />
                 <IB icon="dots" label={`More for ${g.name}`} aria-haspopup="menu" onClick={(e) => groupMenu(e.currentTarget, g.id, g.name, g.spaces)} />
               </div>,
-              ...(ui.shut[g.id] ? g.spaces.filter((p) => p.id === ui.at || spaceUnread(snap, p)) : g.spaces).map((p) => <SpaceRow key={p.id} snap={snap} p={p} sub under={g.id} siblings={g.spaces.map((x) => x.id)} section={g.id} item={g.id} />),
+              // dmalis/shepherdr#45: a folded group still shows a space that needs you (a waiting prompt), with its count
+              ...(ui.shut[g.id] ? g.spaces.filter((p) => p.id === ui.at || spaceUnread(snap, p) || needsCount(snap, p.id) > 0) : g.spaces).map((p) => <SpaceRow key={p.id} snap={snap} p={p} sub under={g.id} siblings={g.spaces.map((x) => x.id)} section={g.id} item={g.id} />),
             ]
           }),
         ]

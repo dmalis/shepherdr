@@ -87,6 +87,7 @@ status() {
 how() {
   sleep 0.5
   r=$(python3 "$(dirname "$0")/ask-end.py" "$req" 2>/dev/null)
+  [ "$r" = answered ] && { echo "Allowed in the terminal"; return; }  # dmalis/shepherdr#45: Claude's log shows it ran
   case "${r:-$1}" in
     declined) echo "Declined or interrupted in the terminal" ;;
     *) echo "Answered in the terminal" ;;

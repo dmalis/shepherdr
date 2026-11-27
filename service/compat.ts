@@ -30,6 +30,7 @@ const { machineLabel } = MNc as any;
 import { HOME, appHome } from "./paths.ts";
 const { spaceName } = SPc as any;
 import type { Where } from "./worktree.ts";
+import { answeredLine, holdForPrompts, markAnswered, whyHeld } from "./prompts.ts";
 import * as AGc from "../core/agents.js";
 const { liveAgent } = AGc as any;
 
@@ -379,7 +380,9 @@ export class Compat {
       ? { id: a.id, title: w.title, kind: "Plan", to: key, plan: `${w.detail ?? ""}${w.cut ? cut : ""}`, choices: [{ label: "Approve" }, { label: "Keep planning" }], noteRequiredFor: 1 }
       : { id: a.id, title: /^Run: /.test(w.title) ? "Run a command" : w.title, kind: "Question", to: key, ...(detail ? { plan: detail } : {}),
         // 3.2's permission card: the request in the agent's own words, Decline and Allow once
-        command: `${w.detail || w.title}${w.cut ? cut : ""}`, choices: [{ label: "Allow once" }, { label: "Decline" }] };
+        command: `${w.detail || w.title}${w.cut ? cut : ""}`, choices: [{ label: "Allow once" }, { label: "Decline" }],
+        // dmalis/shepherdr#45: why a hook (a guard) held it, above the command
+        ...((why: string) => (why ? { why } : {}))(whyHeld(a.id, a.req, a.terminal, this.questionScreen)) };
   }
   last: Snapshot | null = null;
   /** chat key -> the files its messages show (a chat's images): the only ones /api/file serves for it */
@@ -552,6 +555,11 @@ export class Compat {
     }
 
     const startup = new Map<string, Need & { question: Question }>();
+    // dmalis/shepherdr#45: a task whose agent waits on a hook ask (a permission, a guard's confirmation, a Codex
+    // approval) is held under Needs you as a start screen is, whatever its agent's own status says yet; and one whose
+    // ask was just answered says so on its row
+    holdForPrompts(tasks, needs, this.asks?.open ?? new Map());
+    markAnswered(tasks, (t) => { const a = chats.get(`${t.id}/worker`); return a ? (this.asks as any)?.endsOf?.(a) ?? [] : []; });
     for (const card of (this as any).watch?.openCards?.() ?? []) {
       const w = this.trustWho(card.addr, chats);
       if (!w) continue;
@@ -887,7 +895,7 @@ export class Compat {
     // its "Asked you" box, from the log
     const watch = (this as any).watch;
     const quiet = (id: string, at: number, text: string): Message => ({ id, who: "agent", at, ended: text });
-    if (addr) for (const e of (this.asks as any)?.endsOf?.(addr) ?? []) if (e.kind !== "questions") messages.push(quiet(`ae:${e.id}`, e.at, `${e.title} · ${e.how}`));
+    if (addr) for (const e of (this.asks as any)?.endsOf?.(addr) ?? []) if (e.kind !== "questions") messages.push(answeredLine(e) ?? quiet(`ae:${e.id}`, e.at, `${e.title} · ${e.how}`));
     // secret asks that closed by themselves (withdrawn, their agent gone, their task finished): "No longer needed"
     if (addr) for (const e of this.secrets?.endsOf?.(addr) ?? []) messages.push(quiet(`ae:${e.id}`, e.at, `A secret: ${e.name} · ${e.how}`));
     // its start screens (core/screens.js): an open one as its card, the rest a line saying how they went
@@ -917,7 +925,7 @@ export class Compat {
       else for (const s of (this.secrets?.asks() ?? []).filter((x) => x.address === r.worker)) messages.push({ id: s.id, who: "agent", at: s.at, secret: { ...this.secretAsk(s), by } } as Message);
       for (const e of this.secrets?.endsOf?.(r.worker) ?? []) messages.push(quiet(`ae:${e.id}`, e.at, `${r.title} · A secret: ${e.name} · ${e.how}`));
       // SHEP-322: by its title, never its key
-      for (const e of (this.asks as any)?.endsOf?.(r.worker) ?? []) messages.push(quiet(`ae:${e.id}`, e.at, `${r.title} · ${e.title} · ${e.how}`));
+      for (const e of (this.asks as any)?.endsOf?.(r.worker) ?? []) messages.push(answeredLine(e, `${r.title} · `) ?? quiet(`ae:${e.id}`, e.at, `${r.title} · ${e.title} · ${e.how}`));
       screens(r.worker, r.title, by);
       signIn(r.worker, by);
     }
