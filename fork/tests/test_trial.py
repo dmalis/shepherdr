@@ -332,8 +332,20 @@ class CoreAndService(Base):
         with open(self.log) as f:
             return f.read().splitlines()
 
+    def up_until_stopped(self, restarts=0):
+        """session_up for the fake core: up until a `server stop` is logged; `restarts` times a straggler's call
+        starts it again right after."""
+        asked = {}
+
+        def up(env, name):
+            stops = sum(1 for c in self.calls() if c.endswith(" server stop")) if os.path.exists(self.log) else 0
+            asked[stops] = asked.get(stops, 0) + 1
+            # down right after each stop; after a stop that a straggler undoes, up again from its second look on
+            return stops == 0 or (stops <= restarts and asked[stops] >= 2)
+        return mock.patch.object(trial, "session_up", up)
+
     def test_every_core_call_names_the_throwaway_session(self):
-        with self.env():
+        with self.env(), self.up_until_stopped(), mock.patch.object(trial.time, "sleep"):
             self.t.core()
             self.t.stop_core()
         calls = self.calls()
@@ -342,6 +354,46 @@ class CoreAndService(Base):
         self.assertTrue(all(c.startswith(self.t.name + " ") for c in calls), calls)
         # its state folder didn't exist before: it is on the made list, so cleanup removes it
         self.assertIn(self.t.core_dir, [m["path"] for m in self.t.made_list()])
+
+    def test_a_stopped_core_is_never_called_again(self):
+        # hc starts a core on any call: a core that is already down gets no `server stop`
+        with self.env(), mock.patch.object(trial, "session_up", lambda env, name: False), \
+                mock.patch.object(trial.time, "sleep"):
+            self.t.core_started = True
+            self.t.stop_core()
+        self.assertFalse(os.path.exists(self.log))
+
+    def test_a_core_a_straggler_started_again_is_stopped_again(self):
+        with self.env(), self.up_until_stopped(restarts=1), mock.patch.object(trial.time, "sleep"):
+            self.t.core_started = True
+            self.t.stop_core()
+        self.assertEqual([c.split(" ", 1)[1] for c in self.calls()], ["server stop", "server stop"])
+
+    def test_the_trials_other_processes_are_ended_and_no_one_elses(self):
+        mine = subprocess.Popen(["sleep", "60"], env={**self.t.env, "PATH": "/usr/bin:/bin"}, start_new_session=True)
+        other = subprocess.Popen(["sleep", "60"], env={"HOME": self.home, "PATH": "/usr/bin:/bin",
+                                                       "HC_SESSION": "fork-trial-00000000"}, start_new_session=True)
+        self.addCleanup(lambda: [(p.kill(), p.wait()) for p in (mine, other) if p.poll() is None])
+        self.assertEqual(trial.marked_pids(self.t.name), {mine.pid: False})
+        self.t.stop_strays()
+        self.assertIsNotNone(mine.wait(5))
+        self.assertIsNone(other.poll())
+        self.assertEqual(trial.marked_pids(self.t.name), {})
+
+    def test_runtime_folders_are_found_by_their_own_words(self):
+        run = os.path.join(self.tmp, "run")
+        for d, session in (("hc-serve-aaaa", self.t.name), ("hc-hold-bbbb", self.t.name),
+                           ("hc-serve-cccc", "shepherdr"), ("other-dddd", self.t.name)):
+            os.makedirs(os.path.join(run, d))
+            with open(os.path.join(run, d, "environment"), "w") as f:
+                f.write(f'HOME="/x"\nHC_SESSION="{session}"\n')
+        got = trial.hc_runtime_dirs({"XDG_RUNTIME_DIR": run}, self.t.name)
+        self.assertEqual(got, [os.path.join(run, "hc-hold-bbbb"), os.path.join(run, "hc-serve-aaaa")])
+        with self.env(XDG_RUNTIME_DIR=run):
+            for d in got:
+                self.t.mark(d, "hc runtime")
+            self.assertEqual(self.t.remove_made(), [])
+        self.assertEqual(sorted(os.listdir(run)), ["hc-serve-cccc", "other-dddd"])
 
     def test_a_core_with_linked_machines_fails(self):
         machines = os.path.join(self.tmp, "machines.json")
@@ -381,7 +433,7 @@ class Live(Base):
     def test_ended_terminals_are_allowed_and_the_trials_own_are_not(self):
         before = {"t1": {"address": "t1"}, "t2": {"address": "t2"}}
         after = {"t1": {"address": "t1"}, "t3": {"address": "t3", "cwd": "/tmp/fork-trial-ab12cd34-x/repo"},
-                 "t4": {"address": "t4", "cwd": "/home/someone", "name": "unrelated"}}
+                 "t4": {"address": "t4", "cwd": "/srv/elsewhere", "name": "unrelated"}}
         changes, ended = trial.live_changes(before, after, ["fork-trial-ab12cd34", "/tmp/fork-trial-ab12cd34-x"])
         self.assertEqual(ended, ["t2"])
         self.assertEqual(changes, ["live terminal t3 is the trial's"])

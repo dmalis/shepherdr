@@ -194,6 +194,59 @@ def hc_calls(log, name, sock):
     return out
 
 
+def marked_pids(name, proc="/proc"):
+    """{pid: is a herdr-core} of the processes whose environment names the trial's session exactly (HC_SESSION or
+    SHEPHERDR_SESSION is its unique name): every child of the trial, whatever they started, detached or not, and the
+    throwaway core itself."""
+    wants = {f"HC_SESSION={name}", f"SHEPHERDR_SESSION={name}"}
+    out = {}
+    if os.path.isdir(proc):
+        for d in os.listdir(proc):
+            if not d.isdigit():
+                continue
+            try:
+                with open(os.path.join(proc, d, "environ"), "rb") as f:
+                    env = set(f.read().decode("utf-8", "replace").split("\0"))
+                with open(os.path.join(proc, d, "cmdline"), "rb") as f:
+                    argv0 = f.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+            except OSError:
+                continue
+            if env & wants:
+                out[int(d)] = os.path.basename(argv0) == "herdr-core"
+        return out
+    # no /proc (macOS): ps prints each process's environment after its command
+    r = subprocess.run(["ps", "-A", "-E", "-ww", "-o", "pid=,command="], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, universal_newlines=True)
+    for line in r.stdout.splitlines():
+        pid, _, rest = line.strip().partition(" ")
+        if pid.isdigit() and any(f" {w} " in f" {rest} " for w in wants):
+            out[int(pid)] = os.path.basename(rest.split(" ", 1)[0]) == "herdr-core"
+    return out
+
+
+def hc_runtime_dirs(env, name):
+    """herdr-core's per-start runtime folders (systemd's hc-serve-*/hc-hold-*, each with its `environment`) that are
+    the trial's session's: herdr-core leaves them after the core stops. Found by reading each one's own words for the
+    session, never by a name pattern alone."""
+    root = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    want = f'HC_SESSION="{name}"'
+    out = []
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for e in entries:
+        if not e.startswith(("hc-serve-", "hc-hold-")):
+            continue
+        try:
+            with open(os.path.join(root, e, "environment")) as f:
+                if want in f.read().splitlines():
+                    out.append(os.path.join(root, e))
+        except OSError:
+            continue
+    return out
+
+
 def live_changes(before, after, trial_marks):
     """What the trial did to the live session, as (changes, ended): `before` is {id: terminal} of its live terminals
     then; `after` is {id: terminal} from `hc ls --all` now. A new terminal that is the trial's (its name or folder names
@@ -618,13 +671,42 @@ class Trial:
             pass
         return out
 
+    def stop_strays(self):
+        """Ends the trial's other processes by their own pids: whatever still carries its session, the core's aside.
+        herdr-task starts background jobs of its own (start's `_track`, accept's `_after-accept`, ...) in sessions of
+        their own: one that outlives the core and calls hc would start the core again (hc starts one on any call)."""
+        pids = [p for p, core in marked_pids(self.name).items() if not core and p != os.getpid()]
+        for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 2)):
+            for p in pids:
+                try:
+                    os.kill(p, sig)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            deadline = time.time() + wait
+            while time.time() < deadline and any(p in marked_pids(self.name) for p in pids):
+                time.sleep(0.2)
+            pids = [p for p in pids if p in marked_pids(self.name)]
+            if not pids:
+                return
+
     def stop_core(self):
+        """`hc server stop` on the trial's own session, only while it answers (a call to a stopped one starts it),
+        and again if something started it after, until it stays down."""
         if not self.core_started:
             return
-        self.run(["hc", "server", "stop"], "cleanup", ok=False, timeout=60)
-        deadline = time.time() + 15
-        while time.time() < deadline and session_up(self.env, self.name):
-            time.sleep(0.3)
+        for _ in range(3):
+            self.stop_strays()
+            if session_up(self.env, self.name):
+                self.run(["hc", "server", "stop"], "cleanup", ok=False, timeout=60)
+                deadline = time.time() + 15
+                while time.time() < deadline and session_up(self.env, self.name):
+                    time.sleep(0.3)
+            time.sleep(2)   # a straggler's call lands in this time, or never
+            if not session_up(self.env, self.name) and not marked_pids(self.name):
+                break
+        for d in hc_runtime_dirs(self.env, self.name):
+            if not any(m["path"] == d for m in self.made_list()):
+                self.mark(d, "hc runtime")
 
     def remove_made(self):
         problems = []
@@ -637,7 +719,13 @@ class Trial:
             p = m.get("path")
             if not p or not os.path.isabs(p) or os.path.realpath(p) in ("/", os.path.realpath(self.home)):
                 continue
-            if not os.path.basename(p).startswith(self.name):
+            if m.get("what") == "hc runtime":
+                # herdr-core's runtime folder for a start of the trial's session: removed only while it still names it
+                if p not in hc_runtime_dirs(self.env, self.name):
+                    if os.path.exists(p):
+                        problems.append(f"made.json names {p}, which isn't the trial's")
+                    continue
+            elif not os.path.basename(p).startswith(self.name):
                 problems.append(f"made.json names {p}, which isn't the trial's")
                 continue
             if os.path.islink(p) or os.path.isfile(p):
@@ -660,11 +748,17 @@ class Trial:
             out.append("the service")
         if self.service and self.listeners():
             out.append(f"a listener on port {self.port}")
+        procs = marked_pids(self.name)
+        if procs:
+            out.append(f"{len(procs)} process(es) with its session ({', '.join(map(str, sorted(procs)[:5]))})")
+        dirs = hc_runtime_dirs(self.env, self.name)
+        if dirs:
+            out.append(f"{len(dirs)} herdr-core runtime folder(s) of its session")
         return out
 
     def cleanup(self):
         problems = []
-        for what, fn in (("service", self.stop_service), ("core", self.stop_core)):
+        for what, fn in (("service", self.stop_service), ("other processes", self.stop_strays), ("core", self.stop_core)):
             try:
                 fn()
             except Exception as e:  # noqa: BLE001 - cleanup goes on, and says what it couldn't do
