@@ -33,6 +33,7 @@ import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
 import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPastes, sizeOf, usePastes, type Paste } from './fold.ts'
 import { fineOnly, touch } from './clip.ts'
+import { AddButtons } from './attach.tsx'
 import { landLaunchShare, putAway, useLanded, watchLastChat } from './share.ts'
 import { openSendTo } from './sendto.tsx'
 import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './suggest.ts'
@@ -1095,7 +1096,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   // #1538: what Send just sent, so the keyboard writing it back into the empty box is dropped
   const sentRef = useRef<Sent | null>(null)
   const composing = useRef(false)
-  // a finger (a phone, a tablet): + opens a menu with Photos and Files
+  // a finger (a phone, a tablet): + opens the camera, photos and files (attach.tsx)
   const finger = useMemo(touch, [])
   const shared = useLanded() === key
   useGrow(ref, text)
@@ -1330,35 +1331,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   )
 }
 
-/** +: on a desktop it opens files; on a phone or tablet a menu first: Photos, Files. Photos opens Android's
- *  photo picker straight away, newest first, and one tap on a picture attaches it (one at a time: picking several needs an
- *  Add tap more, measured on Android 15); Files takes several pictures at once */
-export function AddButtons({ finger, onFiles }: { finger: boolean; onFiles: (f: File[]) => void }) {
-  const pickFile = useRef<HTMLInputElement>(null)
-  const pickPhoto = useRef<HTMLInputElement>(null)
-  const take = (e: { target: HTMLInputElement }) => {
-    onFiles([...(e.target.files ?? [])])
-    e.target.value = ''
-  }
-  const plus = (e: { currentTarget: Element }) =>
-    finger
-      ? openMenu(
-          e.currentTarget,
-          [
-            { icon: 'image', label: 'Photos', run: () => pickPhoto.current?.click() },
-            { icon: 'doc', label: 'Files', run: () => pickFile.current?.click() },
-          ],
-          { label: 'Add' },
-        )
-      : pickFile.current?.click()
-  return (
-    <>
-      <IB icon="plus" label={finger ? 'Add' : 'Add files'} onClick={plus} />
-      <input ref={pickFile} type="file" multiple hidden onChange={take} />
-      {finger && <input ref={pickPhoto} type="file" accept="image/*" hidden data-photo="" onChange={take} />}
-    </>
-  )
-}
+// + (attach.tsx): files at once on a desktop, Apple's menu at once on iOS, a Camera / Photos / Files sheet on Android
+export { AddButtons }
 
 /** what Android's Share sheet put in this box: where it goes, and Change to send it to another space or task */
 function SharedChip({ chat, thread }: { chat: string; thread: Thread }) {

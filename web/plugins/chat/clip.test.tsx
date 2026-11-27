@@ -1,5 +1,5 @@
 // SHEP-345: + › Photos opens the phone's photo picker (an image-only file input, one tap attaches); a picture on the
-// clipboard goes in as any paste does. The menu has no Paste image item.
+// clipboard goes in as any paste does. The menu has no Paste image item. + › Camera and the iPhone's way: attach.test.tsx.
 import { expect, mock, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { pasted } from './paste.ts'
@@ -17,24 +17,26 @@ test('a pasted screenshot (long-press, Paste) attaches as a picture', () => {
 })
 
 test('no photo button: on a phone + is the only button, and its Photos opens an image-only picker where one tap attaches', () => {
-  const phone = renderToStaticMarkup(<AddButtons finger onFiles={() => undefined} />)
+  // an Android phone (attach.tsx: an iPhone opens Apple's menu at once instead)
+  const phone = renderToStaticMarkup(<AddButtons finger apple={false} onFiles={() => undefined} />)
   expect(phone).not.toContain('Add photos')
   expect(phone.match(/<button/g)?.length).toBe(1)
   expect(phone).toContain('aria-label="Add"')
   // + › Photos: one picture, so a tap on it in Android's picker attaches it (no Add tap)
-  expect(phone).toMatch(/<input type="file" accept="image\/\*" hidden="" data-photo=""/)
-  expect(phone).not.toContain('data-photos')
+  expect(phone).toMatch(/<input type="file" accept="image\/\*" hidden="" data-pick="photos"/)
   // a desktop: + opens files straight away
   const desk = renderToStaticMarkup(<AddButtons finger={false} onFiles={() => undefined} />)
   expect(desk).toContain('aria-label="Add files"')
   expect(desk).not.toContain('accept=')
 })
 
-test('the plus menu is Photos then Files: no Paste image item, and no chip that reads the clipboard by itself', async () => {
-  const src = await Bun.file(new URL('./client.tsx', import.meta.url)).text()
-  expect(src).not.toContain('Paste image')
-  expect(src).not.toContain('Paste copied picture')
-  expect(src).not.toContain('clipboard.read')
-  const menu = src.slice(src.indexOf('export function AddButtons'), src.indexOf("{ label: 'Add' }"))
-  expect([...menu.matchAll(/label: '([^']+)'/g)].map((m) => m[1])).toEqual(['Photos', 'Files'])
+test('the plus sheet is Camera, Photos, Files: no Paste image item, and no chip that reads the clipboard by itself', async () => {
+  for (const f of ['./client.tsx', './attach.tsx']) {
+    const src = await Bun.file(new URL(f, import.meta.url)).text()
+    expect(src).not.toContain('Paste image')
+    expect(src).not.toContain('Paste copied picture')
+    expect(src).not.toContain('clipboard.read')
+  }
+  const { PICKS } = await import('./attach.tsx')
+  expect(PICKS.map((p) => p.label)).toEqual(['Camera', 'Photos', 'Files'])
 })
