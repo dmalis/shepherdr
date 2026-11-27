@@ -71,6 +71,8 @@ def stall_of(task, v, live):
 # #114: the stock reason of a wait on a reply ("Waits for your reply") said "your" to whoever read it; news of a wait
 # the Assistant handles says it plainly.
 WAITS_REPLY = "Waits for a reply"
+# the news event of each wait kind (news_state): the person's prompt, a stop, else a wait its Assistant handles
+WAIT_EVENTS = {"asks": "needs-you", "stopped": "failed", "reply": "waiting", "attention": "waiting"}
 
 
 def news_line(s, t, v, event, words=None):
@@ -243,8 +245,9 @@ def news_pass(report, folder=None):
                 # A schedule's run that ended quietly (ready --nothing / --told) is no "done" news: nothing, or its own words.
                 # #114: a wait that changes hands (its Assistant's, the person's prompt, a stop) is news too, though it
                 # still reads Needs-you status: else a prompt after a wait on a reply never reaches the Assistant.
-                handed = v["status"] == "needs" and (prev or {}).get("status") == "needs" and \
-                    (prev or {}).get("event") not in (None, event)
+                # A record from before #114 has no event: its wait's kind says which it was.
+                was = (prev or {}).get("event") or WAIT_EVENTS.get((prev or {}).get("needs"))
+                handed = v["status"] == "needs" and (prev or {}).get("status") == "needs" and was not in (None, event)
                 if event and ((prev or {}).get("status") != v["status"] or handed) and not t.get("quiet"):
                     words = "its earlier question or wait has cleared" if event == "working-again" and wait_cleared else None
                     lines.append((event, news_line(s, t, v, event, words)))

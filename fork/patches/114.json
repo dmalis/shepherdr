@@ -11,6 +11,7 @@
     "web/shared/types.ts",
     "service/compat.ts",
     "web/plugins/chat/news.ts",
+    "web/plugins/chat/client.tsx",
     "templates/assistant.md",
     "web/demo/data.ts"
   ],

@@ -9300,6 +9300,29 @@ class WaitChangesHands(unittest.TestCase):
                     self.assertIn('is waiting: Waits for a reply</herdr-news>', self.sent[0][1])
         self.assertEqual(events, [[], ["waiting"], [], ["needs-you"], ["failed"]])
 
+    def test_a_record_from_before_still_sees_the_hand_change(self):
+        # an upgrade's first tick: the saved wait on a reply has no event yet, then a permission prompt comes
+        self.news.news_pass({})
+        self.task.update(state="running", merged=False)
+        v = {"status": "needs", "needs": "reply", "why": "Waits for your reply"}
+        with self.mock.patch.object(self.news, "live_agents", return_value=[]), \
+                self.mock.patch.object(self.news, "view", lambda s, t, live=None: dict(v)), \
+                self.mock.patch.object(self.news, "stall_of", lambda *a: None):
+            self.news.news_pass({})
+            with open(self.news.NEWS) as f:
+                state = json.load(f)
+            for rec in state["seen"].values():
+                for r in rec.values():
+                    if isinstance(r, dict):
+                        r.pop("event", None)
+            with open(self.news.NEWS, "w") as f:
+                json.dump(state, f)
+            self.sent.clear()
+            v.update(needs="asks", why="Asks permission")
+            self.news.news_pass({})
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('event="needs-you" needs="asks"', self.sent[0][1])
+
 
 class TildeNewsGoesToEverything(AcceptCommandNews):
     """3.2.8: this computer's own ~ space sits beside Everything in the home folder. A task in it is told to Everything,
