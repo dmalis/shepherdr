@@ -20,6 +20,7 @@ export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault
   { id: "search", name: "Search", always: true }, { id: "alerts", name: "Alerts", always: true },
   { id: "files", name: "Files", offByDefault: true },
   { id: "diff", name: "Diff viewer", offByDefault: true },
+  { id: "feedback", name: "Feedback" },
 ];
 
 function file(): any { try { return readSettings(); } catch { return {}; } }

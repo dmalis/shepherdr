@@ -230,6 +230,8 @@ def add_report(ps, key, report, fix=None, kind=None):
          "reports": reports, "count": count, **({"fix": fix} if fix else {}), **({"kind": kind} if kind else {})}
     p.setdefault("state", "found")
     p.setdefault("at", report["at"])
+    if p.get("decision") == "later":  # Not now ends when it happens again (feedback_page.py)
+        p = {k: v for k, v in p.items() if k not in ("decision", "until", "was", "decided")}
     ps[key] = p
     return p
 
@@ -506,6 +508,10 @@ def cmd_feedback(args):
     from .launch import caller_space, is_coordinator
     from .output import say
     from . import reactions
+    from .feedback_page import decide
+    decided = decide(args)  # the person's Not now, Never or Undo (the Feedback page, #94): refused in an agent's terminal
+    if decided is not None:
+        return decided
     line = one_line(args.line)
     if getattr(args, "all", False) and not args.list:
         raise Fail("--all goes with --list: herdr-task feedback --list --all --json")
@@ -548,7 +554,7 @@ def cmd_feedback(args):
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
                 p = add_report(ps, key, {"at": now(), "space": space, "machine": d.get("here") or socket.gethostname(),
-                                         "from": from_of(k, labels, assistant), "line": line,
+                                         "from": {"person": True} if getattr(args, "person", False) else from_of(k, labels, assistant), "line": line,
                                          "details": trim(args.details) if args.details else None},
                                one_line(args.fix) if getattr(args, "fix", None) else None, getattr(args, "kind", None))
             answer, news = offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space)

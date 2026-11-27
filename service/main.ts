@@ -34,6 +34,7 @@ import { catalogOf, configOf, enrich, offPlugins, pluginOn, plansOf, reposOf, sc
 import { ensureShell, type ShellAt } from "./shells.ts";
 import { Chats } from "./chats.ts";
 import { act, findMachines, hc as hcRun } from "./actions.ts";
+import { feedback } from "./feedback.ts";
 import { analyticsAction, howOf, noteVersion, record as note } from "./analytics.ts";
 import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
@@ -479,7 +480,11 @@ const screens = createScreens({
 });
 if (pluginOn("screens")) screens.start();
 let desktopsOf: () => string[] = () => (pluginOn("screens") ? screens.desktops() : []);
-const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(alertNewAnd(withNext(compat.snapshot({
+// the Feedback page (plugin feedback, friction loop #94): what this machine kept, read when its record changes
+const withFeedback = (snap: Snapshot): Snapshot => { const f = pluginOn("feedback") ? feedback.list() : null; return f ? { ...snap, feedback: f } : snap; };
+feedback.changed = () => model.rebuild();
+if (pluginOn("feedback")) feedback.start();
+const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withNext(compat.snapshot({
   host: me?.host ?? "this machine", user: me?.name ?? "You", spaces: b.spaces, sections: b.sections, rows: b.rows, artifacts: artifacts.list, automations: b.automations,
   settings: [...settings.sections(webNow ?? ownLink(), b.spaces.map((s: any) => ({ id: s.id, name: s.name, machine: s.machine ?? null, repo: spaceRepo(s) })), b.machines, me?.host ?? "this machine"),
     // Secrets (Everywhere's and each space's own): every kept secret and where, and the agents waiting on one
@@ -489,7 +494,7 @@ const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live
   // in the order the person dragged them into (SHEP-153): this computer first until then
   machines: (SPm.byMachineOrder as any)([{ name: me?.host ?? "this machine", here: true, state: "connected" }, ...b.known.map((m) => ({ name: m.name, here: false, state: m.state, why: m.why }))],
     (SPm.machineOrderOf as any)(model.value("spaces-chat")), (m: { name: string; here: boolean }) => (m.here ? null : m.name)),
-}), b)));
+}), b))));
 // a task that moved on (accepted, done) changes its news lines in its Assistant's chat, whose conversation may not move:
 // open chats are told again (compat.chat reads the rows the snapshot just took)
 let newsWas: string | null = null;

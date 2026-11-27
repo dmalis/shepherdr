@@ -346,12 +346,15 @@ def main():
     g.add_argument("--file", action="store_true", help="Assistant, after the person's yes: search open issues for a duplicate, then file it")
     g.add_argument("--no", action="store_true", help="Assistant: the person said no; never offered again")
     g.add_argument("--list", action="store_true", help="what waits to be offered in this space")
+    g.add_argument("--later", choices=["tomorrow", "week", "again"], help="the person's Not now, from the Feedback page (never an agent)")
+    g.add_argument("--undo", action="store_true", help="the person's Undo or Restore of a Not now or a No, from the Feedback page (never an agent)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
                      ("expected", "what should have happened"), ("fix", "a suggested fix"), ("repro", "minimal steps to reproduce")):
         c.add_argument(f"--{f}", help=(f"--file: {words}" if f != "fix" else "a suggested fix in one line, for every Shepherdr user: kept with the report; --file puts it in the issue"))
     c.add_argument("--kind", choices=FEEDBACK_KINDS, help="what kind of problem it is")
     c.add_argument("--all", action="store_true", help="--list: every problem kept, in every space and state (read only)")
     c.add_argument("--space", help="the space a report comes from, for a caller outside any space (the web app)")
+    c.add_argument("--person", action="store_true", help="the person's own report or No, from the Feedback page (never an agent)")
     c.add_argument("--title", help="--file: the issue's title (default: the one line)")
     c.add_argument("--surface", choices=["web", "window", "both"], help="--file: where the person used Shepherdr")
     c.add_argument("--repo", help=argparse.SUPPRESS)  # a test's throwaway repo; Settings' otherwise

@@ -1490,6 +1490,45 @@ export interface Snapshot {
   /** the sidebar's sections, as Slack's, each with its spaces in the human's order: the top ones first (Pinned, id
    *  'pinned', among them), then each machine's, its machine in order (shared/order.ts) */
   sections?: Section[]
+  /** the Feedback page (plugin feedback, friction loop #94): every problem in Shepherdr this machine kept */
+  feedback?: FeedbackList
+}
+
+/** One problem in Shepherdr itself, as the Feedback page shows it (service/feedback.ts, from herdr-task's record) */
+export interface FeedbackRow {
+  /** its id, stable for its life (herdr-task feedback --key) */
+  id: string
+  line: string
+  /** the fix proposed for every user, one line */
+  fix?: string
+  kind?: 'bug' | 'confusing' | 'workaround' | 'manual' | 'miss'
+  /** where the page shows it: found (waits for the person), filed, later (Not now), declined (Said no) */
+  section: 'found' | 'filed' | 'later' | 'declined'
+  /** herdr-task's own state (filing: being filed now) */
+  state: string
+  /** its origin: the bare space id of its first report */
+  space?: string
+  /** who noticed it first, never a key */
+  from?: { task?: string; chat?: true; person?: true; action?: string; agent?: true }
+  count: number
+  /** its newest report (ms) */
+  at: number
+  /** Not now's end (ms); null: when it happens again */
+  until?: number | null
+  /** the issue, once filed */
+  url?: string
+  /** Feedback offers is off in its origin: kept and shown, nothing more but Never */
+  off?: boolean
+}
+
+export interface FeedbackList {
+  rows: FeedbackRow[]
+  /** how many wait under Found: the sidebar row's quiet count */
+  found: number
+  /** Feedback offers is off for every space (Everywhere's): the page links the setting */
+  off: boolean
+  /** the record couldn't be read just now: the rows are the last ones read */
+  error?: string
 }
 
 export type Action =

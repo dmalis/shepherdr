@@ -23,6 +23,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | schedules | yes | Tasks › Scheduled | No Scheduled tab |
 | reactions | yes | Emoji reactions on messages | No emoji row in a message's menu |
 | recaps | yes | Recap in a chat's menu and the palette: a short recap, asked only when you pick it | No Recap row (an agent's own recaps still show) |
+| feedback | yes | The Feedback page: problems in Shepherdr itself that your agents and you noted, under Found, Filed, Not now and Said no; the list's Feedback row counts what waits under Found, and the box at the top keeps what you write (fork #94) | The Feedback row opens the old Feedback box |
 | files | yes, off until switched on | Files: the shown space's folder as a tree, on its machine ([below](#files)) | No Files button, pane or bar item |
 | diff | yes, off until switched on | Diff viewer: the Changes pane beside Tasks and Artifacts. What a task changed against its base, or what isn't committed in a space's folder, file by file; read only. A Ready card's files open there | No Changes button, pane or menu row |
 
@@ -70,7 +71,7 @@ Settings › Plugins has the switches. They are kept as `everywhere.plugins_off`
 
 | Place | What goes there |
 |---|---|
-| `views` | The parts of a thread: `messages`, `box`, `taskHead`, `taskTop`, `scheduled`, `tile`, `search`; and `about`, under Settings › About's version rows |
+| `views` | The parts of a thread: `messages`, `box`, `taskHead`, `taskTop`, `scheduled`, `tile`, `search`; and `about`, under Settings › About's version rows; and `feedbackRow`, the list's Feedback row |
 | `header`, `taskHeader` | Buttons in a chat's or a task's header (Artifacts, then Tasks last where its pane's Close lands; Terminal and Screen are menu rows) |
 | `panes` | What the right-hand pane can show |
 | `bar` | The phone's bottom bar |

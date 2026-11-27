@@ -1,0 +1,195 @@
+"""Friction loop, slice 2 (#94): the person's own calls on a kept problem, from the Feedback page. Not now
+(`--later`), Never (`--no --person`), Undo and the box's report (`--person --space`) work only outside an agent's
+terminal, stay local (nothing is filed), and Not now ends when the problem is reported again. Slice 1's throwaway
+store, settings file and fakes (test_feedback_found.World); hc and gh are faked, nothing is sent or filed."""
+import home_guard  # noqa: F401  (first: every test on a throwaway home, never the real one)
+import json
+import os
+import unittest
+from unittest import mock
+
+from test_feedback_found import DAY, World, fb  # noqa: E402  (World has no tests of its own: none run twice)
+import herdr_task.feedback_page as page  # noqa: E402
+
+
+class Person(World):
+    """The service runs these for the person's tap: no agent's terminal (no HC_TERMINAL_ID), no caller labels."""
+
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("HC_TERMINAL_ID", None)
+        os.environ.pop("HC_TERMINAL_SOCKET", None)
+        foreign = mock.patch("herdr_task.base.FOREIGN_TERMINAL", False, create=True)
+        foreign.start()
+        self.addCleanup(foreign.stop)
+
+    def report(self, line="The reply bubble doesn't show which message it answers", space="sp1"):
+        """An agent's report from sp1's task, then back to the person's side."""
+        was, self.caller = self.caller, dict(self.caller or {})
+        try:
+            code, out = self.say(line, "--details", "Seen twice today.", "--json")
+        finally:
+            self.caller = was
+        self.assertEqual(code, 0, out)
+        return json.loads(out)["key"]
+
+    def person(self, *argv):
+        self.caller = {}
+        return self.say(*argv)
+
+    def one(self, key):
+        return next(p for p in self.listed() if p["key"] == key)
+
+    # ---- the box ------------------------------------------------------------------------------
+
+    def test_the_boxs_report_is_kept_from_the_person_and_told(self):
+        code, out = self.person("Feedback page needs a search", "--person", "--space", "sp2", "--json")
+        self.assertEqual(code, 0, out)
+        (p,) = self.listed()
+        self.assertEqual((p["space"], p["reports"][0]["from"], p["count"]), ("sp2", {"person": True}, 1))
+        self.assertEqual([to for to, _ in self.held], ["t6"])  # saved first, then told to that space's Assistant
+        self.assertEqual(self.gh, [])
+
+    def test_the_boxs_report_from_a_space_with_offers_off_is_refused_even_with_everywhere_on(self):
+        self.settings({"everywhere": {"agents": {"feedback": True}}, "spaces": {"sp2": {"agents": {"feedback": False}}}})
+        code, out = self.person("Feedback page needs a search", "--person", "--space", "sp2", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["why"], "off")
+        self.assertFalse(os.path.exists(self.state))
+
+    def test_the_boxs_report_names_its_space(self):
+        code, out = self.person("Feedback page needs a search", "--person")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--space", out)
+        self.assertFalse(os.path.exists(self.state))
+
+    # ---- Not now, Never, Undo ------------------------------------------------------------------
+
+    def test_not_now_tomorrow_keeps_the_state_and_ends_on_a_new_report(self):
+        key = self.report()
+        before = self.one(key)["state"]
+        code, out = self.person("--key", key, "--later", "tomorrow", "--json")
+        self.assertEqual(code, 0, out)
+        p = self.one(key)
+        self.assertEqual((p["decision"], p["state"]), ("later", before))
+        self.assertAlmostEqual(p["until"], fb.now() + DAY, delta=60000)
+        self.assertFalse(page.comes_back(p))
+        self.assertTrue(page.comes_back(p, at=p["until"] + 1))
+        self.report()  # reported again: back under Found, its count grown
+        p = self.one(key)
+        self.assertEqual((p.get("decision"), p.get("until"), p["count"]), (None, None, 2))
+        self.assertEqual(self.gh, [])
+
+    def test_not_now_when_it_happens_again_has_no_time(self):
+        key = self.report()
+        code, out = self.person("--key", key, "--later", "again", "--json")
+        self.assertEqual(code, 0, out)
+        p = self.one(key)
+        self.assertEqual((p["decision"], p["until"]), ("later", None))
+        self.assertFalse(page.comes_back(p, at=fb.now() + 365 * DAY))
+
+    def test_undo_puts_a_not_now_back(self):
+        key = self.report()
+        state = self.one(key)["state"]
+        self.person("--key", key, "--later", "week")
+        code, out = self.person("--key", key, "--undo", "--json")
+        self.assertEqual(code, 0, out)
+        p = self.one(key)
+        self.assertEqual((p.get("decision"), p.get("until"), p["state"], "was" in p), (None, None, state, False))
+
+    def test_never_is_declined_keeps_counting_and_undo_puts_it_back(self):
+        key = self.report()
+        state = self.one(key)["state"]
+        code, out = self.person("--key", key, "--no", "--person", "--json")
+        self.assertEqual(code, 0, out)
+        p = self.one(key)
+        self.assertEqual((p["state"], p["decision"]), ("declined", "declined"))
+        held = len(self.held)
+        self.report()  # reported again after Never: stays declined, told to nobody, but counted
+        p = self.one(key)
+        self.assertEqual((p["state"], p["count"], len(self.held)), ("declined", 2, held))
+        code, out = self.person("--key", key, "--undo", "--json")
+        self.assertEqual(code, 0, out)
+        p = self.one(key)
+        self.assertEqual((p["state"], p.get("decision")), (state, None))
+
+    def test_undo_of_a_no_said_in_chat_brings_it_back_as_found(self):
+        self.seed({"abc123": {"id": "abc123", "line": "Old one", "state": "declined", "at": fb.now()}})
+        code, out = self.person("--key", "abc123", "--undo", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.one("abc123")["state"], "found")
+
+    def test_nothing_to_undo_changes_nothing(self):
+        key = self.report()
+        raw = self.raw()
+        code, out = self.person("--key", key, "--undo", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(json.loads(out)["changed"])
+        self.assertEqual(self.raw(), raw)
+
+    def test_a_filed_problem_has_nothing_to_decide(self):
+        self.seed({"abc123": {"id": "abc123", "line": "Old one", "state": "filed", "url": "https://github.com/acme/shep/issues/4"}})
+        raw = self.raw()
+        code, out = self.person("--key", "abc123", "--later", "week", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["why"], "filed")
+        self.assertEqual(self.raw(), raw)
+
+    def test_an_unknown_key_is_refused(self):
+        self.report()
+        code, out = self.person("--key", "nope", "--later", "week")
+        self.assertNotEqual(code, 0)
+        self.assertIn("No problem", out)
+
+    # ---- refused in an agent's terminal --------------------------------------------------------
+
+    def test_every_person_call_is_refused_in_an_agents_terminal(self):
+        key = self.report()
+        raw = self.raw()
+        os.environ["HC_TERMINAL_ID"] = "t9"
+        for argv in (["--key", key, "--later", "tomorrow"], ["--key", key, "--undo"], ["--key", key, "--no", "--person"],
+                     ["Feedback page needs a search", "--person", "--space", "sp1"]):
+            code, out = self.person(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertIn("Only the person", out)
+        self.assertEqual(self.raw(), raw)
+
+    def test_another_sessions_terminal_is_an_agents_terminal_too(self):
+        """base drops a terminal id from another core session (FOREIGN_TERMINAL): still refused, as a bare socket is."""
+        key = self.report()
+        raw = self.raw()
+        with mock.patch("herdr_task.base.FOREIGN_TERMINAL", True, create=True):
+            code, out = self.person("--key", key, "--undo")
+        self.assertNotEqual(code, 0)
+        self.assertIn("Only the person", out)
+        os.environ["HC_TERMINAL_SOCKET"] = "/tmp/a-terminal.sock"
+        code, out = self.person("--key", key, "--later", "week")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.raw(), raw)
+        self.assertFalse(page.in_agent_terminal({}))
+
+    def test_the_assistants_own_no_still_works(self):
+        key = self.report()
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.coordinator.space": "sp1"}, "name": "assistant"}
+        with mock.patch("herdr_task.launch.is_coordinator", lambda k: True):
+            os.environ["HC_TERMINAL_ID"] = "t5"
+            code, out = self.say("--key", key, "--no", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.one(key)["state"], "declined")
+
+
+class Pins(unittest.TestCase):
+    """The upstream seams this slice relies on (#94): their names and arguments."""
+
+    def test_the_seams(self):
+        import inspect
+        self.assertEqual(list(inspect.signature(fb.add_report).parameters), ["ps", "key", "report", "fix", "kind"])
+        self.assertTrue(callable(fb.problems) and callable(fb.list_all))
+        self.assertIn('"from":', inspect.getsource(fb.cmd_feedback))
+
+
+if __name__ == "__main__":
+    unittest.main()

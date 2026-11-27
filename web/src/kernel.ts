@@ -112,6 +112,8 @@ export interface Registry {
     search?: FC<{ close: () => void }>
     /** under Settings › About's version rows (whatsnew: What's new, fork patch #70) */
     about?: FC
+    /** the list's Feedback row (feedback: its count, and it opens the Feedback page); without it, the old box */
+    feedbackRow?: FC
     /** the picker row a dialog shows for an agent choice lives in picker.tsx; the settings window in settings.tsx */
   }
   /** buttons at the right of a chat's header, in order: Artifacts, Tasks (Tasks last: it opens where its pane's Close lands). Terminal and Screen are rows of the space's
@@ -287,6 +289,8 @@ export interface UI {
   banner: { what: string } | null
   /** the Changes pane (diff plugin): whose changes (task:<id>, space:<id>) and the file open in it */
   diff?: { src: string; file: string | null } | null
+  /** a plugin's page in the middle (the feedback plugin's "feedback"), a step Back closes */
+  page?: string | null
 }
 
 interface State {
@@ -346,6 +350,7 @@ let state: State = {
     // a phone has no middle beside a pane: a maximized task opens as its pane
     max: MQ?.matches ? null : params.get('max'),
     art: params.get('artifact'),
+    page: params.get('page'),
     artV: null,
     artBack: null,
     artWide: false,
@@ -392,7 +397,7 @@ export const getState = () => state
 
 /** what makes a step in the browser's history: Back closes a task, a pane, the settings */
 const ART_ROUTE = ['at', 'pane', 'task', 'art', 'max'] as const
-const STEPS: (keyof UI)[] = ['at', 'pane', 'task', 'art', 'max', 'artWide', 'scrFull', 'settings', 'drawer', 'search']
+const STEPS: (keyof UI)[] = ['at', 'pane', 'task', 'art', 'max', 'artWide', 'scrFull', 'settings', 'drawer', 'search', 'page']
 
 export function setUI(patch: Partial<UI> | ((ui: UI) => Partial<UI>)) {
   const ui = state.ui
@@ -469,8 +474,8 @@ if (typeof window !== 'undefined')
 
 /* ---------- the address bar and Back ---------- */
 
-type Step = Pick<UI, 'at' | 'pane' | 'task' | 'art' | 'max' | 'artWide' | 'scrFull' | 'settings' | 'drawer' | 'search'>
-const stepOf = (ui: UI): Step => ({ at: ui.at, pane: ui.pane, task: ui.task, art: ui.art, max: ui.max, artWide: ui.artWide, scrFull: ui.scrFull, settings: ui.settings, drawer: ui.drawer, search: ui.search })
+type Step = Pick<UI, 'at' | 'pane' | 'task' | 'art' | 'max' | 'artWide' | 'scrFull' | 'settings' | 'drawer' | 'search' | 'page'>
+const stepOf = (ui: UI): Step => ({ at: ui.at, pane: ui.pane, task: ui.task, art: ui.art, max: ui.max, artWide: ui.artWide, scrFull: ui.scrFull, settings: ui.settings, drawer: ui.drawer, search: ui.search, page: ui.page ?? null })
 
 function urlOf(s: Step) {
   const q = new URLSearchParams()
@@ -479,6 +484,7 @@ function urlOf(s: Step) {
   if (s.task) q.set('task', s.task)
   else if (s.art) q.set('artifact', s.art)
   else if (s.pane) q.set('pane', s.pane)
+  if (s.page) q.set('page', s.page)
   const t = q.toString()
   return location.pathname + (t ? `?${t}` : '')
 }
@@ -497,7 +503,7 @@ function writeUrl(replace: boolean) {
   if (deeper) history.pushState({ shep: 2, step }, '', urlOf(step))
   else history.replaceState({ shep: 2, step }, '', urlOf(step))
 }
-const depth = (s: Step) => (s.drawer || s.search ? 1 : 0) + (s.settings ? 1 + (s.settings.sec ? 1 : 0) : 0) + (s.pane ? 1 : 0) + (s.task || s.art ? 1 : 0) + (s.max ? 1 : 0) + (s.artWide ? 1 : 0) + (s.scrFull && s.pane === 'screen' ? 1 : 0)
+const depth = (s: Step) => (s.drawer || s.search ? 1 : 0) + (s.settings ? 1 + (s.settings.sec ? 1 : 0) : 0) + (s.pane ? 1 : 0) + (s.task || s.art ? 1 : 0) + (s.max ? 1 : 0) + (s.artWide ? 1 : 0) + (s.scrFull && s.pane === 'screen' ? 1 : 0) + (s.page ? 1 : 0)
 
 if (typeof window !== 'undefined') {
   // The chat and terminal position themselves when a history entry comes back.
@@ -505,8 +511,8 @@ if (typeof window !== 'undefined') {
   addEventListener('popstate', (e) => {
     const st = (e as PopStateEvent).state as { shep?: number; step?: Step } | null
     const q = new URLSearchParams(location.search)
-    const step: Partial<Step> = st?.shep === 2 && st.step ? st.step : { at: q.get('place') ?? state.ui.at, task: taskOfUrl(q), art: q.get('artifact'), pane: paneOfUrl(q), max: MQ?.matches ? null : q.get('max'), artWide: false, scrFull: false, settings: null, drawer: false, search: false }
-    state = { ...state, ui: { ...state.ui, ...step, artBack: null, jump: q.get('focus'), chatLink: null } }
+    const step: Partial<Step> = st?.shep === 2 && st.step ? st.step : { at: q.get('place') ?? state.ui.at, task: taskOfUrl(q), art: q.get('artifact'), pane: paneOfUrl(q), max: MQ?.matches ? null : q.get('max'), artWide: false, scrFull: false, settings: null, drawer: false, search: false, page: q.get('page') }
+    state ={ ...state, ui: { ...state.ui, ...step, artBack: null, jump: q.get('focus'), chatLink: null } }
     written = JSON.stringify(stepOf(state.ui))
     stayOnShown()
     watchVisible()
@@ -549,6 +555,7 @@ export function openLink(href: string, step = false) {
       max: max && !state.ui.phone ? max : clearMax ? null : state.ui.max,
       artWide: false,
       scrFull: false,
+      page: q.get('page'),
       jump: focus,
       chatLink,
       ...(chat && state.ui.aterm[chat] ? { aterm: { ...state.ui.aterm, [chat]: false } } : {}),
@@ -895,6 +902,7 @@ export function go(place: string) {
     // any space's chat in the middle: a maximized task gives it back
     max: null,
     artWide: false,
+    page: null,
     search: false,
     jump: null,
     chatLink: null,

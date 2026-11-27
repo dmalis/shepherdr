@@ -1,7 +1,7 @@
 // A fictional day for the demo (bun web/demo/serve.ts): Sam, the machines mac-mini, vm, studio and pi, the spaces
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
-import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem } from '../shared/types.ts'
+import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList } from '../shared/types.ts'
 import { demoFacts } from './machine-facts.ts'
 import * as CW from '../../core/checks-wait.js'
 import { plainSuggests } from '../../core/plain-suggests.js'
@@ -23,6 +23,21 @@ const P = { shop: 'p:mac-mini:shop', blog: 'p:mac-mini:blog', notes: 'p:mac-mini
 const FOLDER: Record<string, [string, string]> = { [EV]: ['/Users/sam', '~'], [P.shop]: ['/Users/sam/dev/shop', 'shop'], [P.blog]: ['/Users/sam/dev/blog', 'blog'], [P.notes]: ['/Users/sam/notes', 'notes'], [P.garden]: ['/home/sam/dev/garden-app', 'garden-app'], [P.vmShop]: ['/home/sam/clients/acme/shop', 'shop'], [P.vmRoot]: ['/home/sam/clients/acme/shop', 'shop'] }
 const work = (folder: string, name: string): Task['work'] => ({ name, folder, short: folder.replace(/^\/(Users|home)\/[^/]+/, '~'), repo: !['~', 'notes'].includes(name) })
 const task = (id: string, name: string, pl: string, status: Task['status'], x: Partial<Task> = {}): Task => ({ id, name, place: pl, asked: pl, status, state: status, on: pl === P.garden || pl === P.vmShop || pl === P.vmRoot ? 'vm' : 'mac-mini', created: '', age: '', work: FOLDER[pl] && work(...FOLDER[pl]), ...(FOLDER[pl] ? { taskFolder: FOLDER[pl][0] } : {}), agent: { chat: `${id}/worker`, role: 'worker', cli: pl === P.garden ? 'codex' : 'claude', status: status === 'need' ? 'need' : 'work', running: true, age: '', note: '' }, ...x })
+
+/** the Feedback page (friction loop #94, service/feedback.ts): problems in Shepherdr itself, a fictional few */
+export const feedback: FeedbackList = {
+  found: 3,
+  off: false,
+  rows: [
+    { id: 'a1f0c2', line: "The reply bubble doesn't show which message it answers", fix: 'Show the first line of the message it answers above it', kind: 'confusing', section: 'found', state: 'told', space: 'mac-mini/shop', from: { task: 'Sticker book' }, count: 3, at: NOW - 2 * hour },
+    { id: 'b2e1d3', line: 'Needs you showed a task with nothing for you to do', section: 'found', state: 'found', space: 'mac-mini/~', from: { chat: true }, count: 1, at: NOW - 26 * hour },
+    { id: 'c3d2e4', line: 'Scheduled tasks start twice after the machine wakes up', fix: 'Skip a start the last hour already made', kind: 'bug', section: 'found', state: 'found', space: 'vm/garden-app', from: { agent: true }, count: 2, at: NOW - 3 * day, off: true },
+    { id: 'd4c3f5', line: 'A mention resolved to eleven tasks', fix: 'Mention a task by its title and open that one', kind: 'bug', section: 'filed', state: 'filed', space: 'mac-mini/blog', from: { task: 'Fix typo on the About page' }, count: 1, at: NOW - 4 * day, url: 'https://github.com/example/shepherdr/issues/12' },
+    { id: 'e5b4a6', line: 'The terminal pane scrolls to the top when a task finishes', section: 'later', state: 'found', space: 'mac-mini/shop', from: { person: true }, count: 1, at: NOW - 5 * hour, until: NOW + 20 * hour },
+    { id: 'f6a5b7', line: 'Settings › Agents takes two taps to open on a phone', section: 'later', state: 'found', space: 'mac-mini/notes', from: { chat: true }, count: 1, at: NOW - 2 * day, until: null },
+    { id: 'a7f6c8', line: 'The window asks which space twice when a task starts', section: 'declined', state: 'declined', space: 'mac-mini/docs', from: { task: 'Website copy' }, count: 4, at: NOW - 6 * day },
+  ],
+}
 
 /** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
 const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
@@ -274,6 +289,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     config,
     // the bell's list (fork #37): what the push alerts said this week, some read, some still waiting
     inbox: empty ? [] : inbox,
+    feedback: empty ? { rows: [], found: 0, off: false } : feedback,
     warnings: empty ? [] : down ? [{ id: 'm:vm', kind: 'machine', text: "Can't reach vm · last seen 14:02" }] : [{ id: 'u:elevenlabs', kind: 'usage', text: "You've used 76% of your ElevenLabs plan" }, { id: 'm:vm', kind: 'machine', text: 'vm: disk nearly full' }, ...(mode === 'more' ? [{ id: 'm:mini', kind: 'machine' as const, text: 'mac-mini: memory nearly full' }] : [])],
     screens: empty ? {} : {
       'task:SHOP-17': { b: { url: 'https://billing.example.com/login' }, d: { of: 'mac-mini', own: false, busy: 'Bigger checkout button on phones' }, active: true, driver: 'agent', hands: { what: 'Enter the sign-in code' } },
