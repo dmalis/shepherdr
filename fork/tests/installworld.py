@@ -3,7 +3,8 @@
 - A bare repo stands in for the fork on GitHub (reached by its real URL through an `insteadOf` rule). Its main holds
   the baseline B (version 3.2.21) and the candidate C (3.2.22) on top. Both carry a small Shepherdr: upstream's real
   `bin/shepherdr` (its real VERSION line rewritten, its real set_hooks and HOOKS kept, its `main` swapped for a fake
-  doctor), a tiny herdr_task package (base.STORE, scheduler.script_hash, self_update.clean_env), fork/patches.json.
+  doctor), a tiny herdr_task package (base.STORE, scheduler.script_hash, self_update.clean_env, the real layout),
+  fork/patches.json.
 - A scratch root is the home: Shepherdr is installed under it from the install folder (a clone at B), with the
   agents' hook files written by the real set_hooks, a `.local/bin/shepherdr` link and a scheduler file.
 - A fake `herdr-task` first on PATH answers show, auto show, assistants and update-shepherdr. Its update does what
@@ -88,9 +89,20 @@ if a[:1] == ["assistants"]:
 if a[:1] == ["update-shepherdr"]:
     key = a[1]
     if "--status" in a:
+        if os.environ.get("SHEPHERDR_KEEP_SYNC_HOLD"):
+            cfg["status_with_var"] = cfg.get("status_with_var", 0) + 1
+            save()
         print(json.dumps(cfg["updates"].get(key) or {})); sys.exit(0)
     if cfg.get("refuse"):
         sys.exit("Refused: only a run of a schedule the person let update Shepherdr can ask for it")
+    # what the ask carried and found: the hold variable, and the run's hold already in both files
+    holds = [os.path.join(cfg["root"], ".herdr", "sync-hold"),
+             os.path.join(cfg["root"], ".local", "state", "shepherdr", "sync-hold")]
+    cfg.setdefault("asked_with", []).append({
+        "var": os.environ.get("SHEPHERDR_KEEP_SYNC_HOLD"),
+        "holds": [open(p).read() if os.path.exists(p) else None for p in holds],
+        "head": subprocess.run(["git", "-C", cfg["folder"], "rev-parse", "HEAD"], capture_output=True,
+                               text=True).stdout.strip()})
     plan = cfg["plan"].pop(0) if cfg["plan"] else "ok"
     now = int(time.time() * 1000)
     u = {"state": "running", "at": now}
@@ -259,6 +271,8 @@ class World(unittest.TestCase):
         self.put(w, f"{pkg}/base.py", BASE_PY)
         self.put(w, f"{pkg}/scheduler.py", SCHEDULER_PY.format(v=version))
         self.put(w, f"{pkg}/self_update.py", SELF_UPDATE_PY)
+        with open(os.path.join(ROOT, pkg, "layout.py"), encoding="utf-8") as f:
+            self.put(w, f"{pkg}/layout.py", f.read())       # the real one: where the sync hold goes
         self.put(w, "fork/bin/sync", f"# pipeline {pipeline or 1}\n")
         self.put(w, "fork/sync/state.py", "# state\n")
         if patches:
@@ -341,6 +355,18 @@ class World(unittest.TestCase):
 
     def asks(self):
         return [c for c in self.calls("herdr-task", "update-shepherdr") if "--status" not in c]
+
+    def holds(self):
+        """The two sync hold files' contents (None: not there): ~/.herdr's and the state folder's."""
+        out = []
+        for p in (os.path.join(self.root, ".herdr", "sync-hold"),
+                  os.path.join(self.root, ".local", "state", "shepherdr", "sync-hold")):
+            try:
+                with open(p) as f:
+                    out.append(f.read())
+            except OSError:
+                out.append(None)
+        return out
 
     # --- state ---
     def ready_to_install(self, sha=None, phase="merged"):

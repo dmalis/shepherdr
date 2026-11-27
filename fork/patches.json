@@ -1,0 +1,3 @@
+{"patches": [
+  {"issue": 19, "name": "the hold patch", "files": ["bin/shepherdr", "fork/sync/install.py"], "tests": ["fork/tests/test_hold_patch.py"]}
+]}
