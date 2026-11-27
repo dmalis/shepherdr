@@ -9,18 +9,18 @@ import { join } from "node:path";
 import { DATA, appHome, writable } from "./paths.ts";
 import * as A from "../core/asks.js";
 import type { Hub } from "./hub.ts";
+import { SEEN, MACHINE, parseList, connected, run, each } from "./asks-there.ts";
 
 const { words, allow, deny, answers, annotationsOf, howAnswered, release, chatAbout, dismiss, stepWords } = A as any;
 const dir = () => join(appHome(), "data", "chat-asks");
 const ID = /^[\w.-]+$/;
-const MACHINE = /^[\w.-]+$/;
 // On another machine (its folder by its own home): each request still waiting, one line each ("req", its id, its JSON;
-// marked seen/<id>, so its hook knows a card shows it), then how each id given has ended ("end", its id, the hook's or a card's words).
+// marked seen/<id> only once a card here shows it: asks-there.ts SEEN), then how each id given has ended ("end", its
+// id, the hook's or a card's words).
 const THERE = 'd="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/data/chat-asks"';
-const LIST = `${THERE}
-mkdir -p "$d/seen" 2>/dev/null
+export const LIST = `${THERE}
 for f in "$d"/req/*.json; do [ -f "$f" ] || continue; n=\${f##*/}; n=\${n%.json}; [ -f "$d/ans/$n.json" ] && continue
-  : > "$d/seen/$n" 2>/dev/null; printf 'req\\t%s\\t' "$n"; tr '\\n\\t' '  ' < "$f"; echo; done
+  printf 'req\\t%s\\t' "$n"; tr '\\n\\t' '  ' < "$f"; echo; done
 for n in "$@"; do [ -f "$d/end/$n" ] && printf 'end\\t%s\\t%s\\n' "$n" "$(head -n 1 "$d/end/$n")"; done; exit 0`;
 // An answer there, as answer() writes one here: how it went (end/<id>), then the answer (stdin) in place at once.
 const ANSWER = `${THERE}; mkdir -p "$d/ans" "$d/end"; [ -f "$d/req/$1.json" ] || exit 3
@@ -45,6 +45,15 @@ export class Asks {
   private hub: Hub | null = null;
   private watched: () => string[] = () => [];
   private polling = false;
+  /** dmalis/shepherdr#108: whether an agent's ask has somewhere to show (its chat here: Compat's), set by main. Its
+   *  seen/<id> waits for one, so a Codex ask no card shows goes back to Codex's terminal; unset, every ask has one. */
+  destination: ((terminal: string) => boolean) | null = null;
+  /** the asks marked seen/<id>, here or there */
+  private marked = new Set<string>();
+  /** every connected machine (machine.list), read with no page open: as last known */
+  private linked: string[] = [];
+  private ticks = 0;
+  private shown = (a: Ask) => !this.destination || this.destination(a.terminal);
 
   /** The closed asks of an agent, for its chat's quiet lines. */
   endsOf(terminal: string) { return this.ends.filter((e) => e.terminal === terminal); }
@@ -66,7 +75,8 @@ export class Asks {
     this.read();
   }
 
-  /** Also another machine's asks: of the agents whose chats pages show (watched: their addresses), every 3 s. */
+  /** Also another machine's asks: of the agents whose chats pages show (watched: their addresses) and the machines with
+   *  one open, every 3 s; of every connected machine, page or not, every 6 s (dmalis/shepherdr#108). */
   remote(hub: Hub, watched: () => string[]) {
     this.hub = hub;
     this.watched = watched;
@@ -82,21 +92,18 @@ export class Asks {
       // one open from a machine no page shows any more still closes once it says so
       for (const a of this.open.values()) if (a.machine) machines.add(a.machine);
       for (const e of this.ends) if (recent(e)) machines.add(e.id.split("/")[0]);
+      // dmalis/shepherdr#108: and every machine herdr-core reaches, so an ask there shows with no page open
+      if (this.ticks++ % 2 === 0) this.linked = (await connected(this.hub)) ?? this.linked;
+      for (const m of this.linked) machines.add(m);
       let changed = false;
-      for (const m of machines) {
-        if (!MACHINE.test(m)) continue;
+      // a few machines at once, each read bounded: one out of reach never holds up the rest
+      await each([...machines].filter((m) => MACHINE.test(m)), 4, async (m) => {
         const asked = [...this.open.values()].filter((a) => a.machine === m).map((a) => a.local!);
         const late = this.ends.filter((e) => recent(e) && e.id.startsWith(`${m}/`)).map((e) => e.id.slice(m.length + 1));
-        const r = await this.hub.call<{ code: number; stdout: string }>("machine.exec", { on: m, argv: ["sh", "-c", LIST, "sh", ...asked, ...late], timeout: 10 }, 15_000).catch(() => null);
-        // out of reach: what is open stays as it was
-        if (r?.code !== 0) continue;
-        const reqs = new Map<string, string>(), ends = new Map<string, string>();
-        for (const line of Buffer.from(r.stdout, "base64").toString("utf8").split("\n")) {
-          const [kind, id, ...rest] = line.split("\t");
-          if (!id || !ID.test(id)) continue;
-          if (kind === "req") reqs.set(id, rest.join("\t"));
-          else if (kind === "end" && rest.join("\t").trim()) ends.set(id, rest.join("\t").trim());
-        }
+        const out = await run(this.hub!, m, LIST, [...asked, ...late]);
+        // out of reach, or the read failed: what is open stays as it was
+        if (out === null) return;
+        const { reqs, ends } = parseList(out);
         for (const [local, body] of reqs) {
           const id = `${m}/${local}`;
           if (this.open.has(id)) continue;
@@ -114,11 +121,23 @@ export class Asks {
           changed = true;
         }
         for (const e of this.ends) if (recent(e) && e.id.startsWith(`${m}/`) && ends.get(e.id.slice(m.length + 1))) { e.how = ends.get(e.id.slice(m.length + 1))!; changed = true; }
-      }
+      });
       if (changed) for (const fn of this.listeners) fn();
+      await this.markThere();
     } finally {
       this.polling = false;
     }
+  }
+
+  /** seen/<id> on its machine for each ask there that a card here shows now (dmalis/shepherdr#108); a mark that
+   *  didn't reach it is tried again on the next poll. */
+  private async markThere() {
+    const due = new Map<string, string[]>();
+    for (const a of this.open.values()) if (a.machine && !this.marked.has(a.id) && this.shown(a)) due.set(a.machine, [...(due.get(a.machine) ?? []), a.local!]);
+    await each([...due], 4, async ([m, locals]) => {
+      if (await run(this.hub!, m, SEEN, locals) !== null) for (const l of locals) this.marked.add(`${m}/${l}`);
+    });
+    for (const id of this.marked) if (!this.open.has(id)) this.marked.delete(id);
   }
 
   /** What waits now. The id is <terminal>.<seconds>.<pid> (ask-hook.sh). */
@@ -134,10 +153,13 @@ export class Asks {
       if (old) { next.set(id, old); continue; }
       try {
         const req = JSON.parse(readFileSync(join(dir(), "req", n), "utf8"));
-        // seen/<id>: a card shows it, so a Codex hook keeps waiting for its answer (else Codex asks in its terminal)
-        try { mkdirSync(join(dir(), "seen"), { recursive: true }); writeFileSync(writable(join(dir(), "seen", id)), ""); } catch {}
         next.set(id, { id, terminal: id.split(".")[0], at: statSync(join(dir(), "req", n)).mtimeMs, req, words: words(req) });
       } catch {}
+    }
+    // seen/<id>: a card shows it, so a Codex hook keeps waiting for its answer (else Codex asks in its terminal); only
+    // once it has a chat to show in (dmalis/shepherdr#108), never a 30-minute wait on a card nobody can see
+    for (const a of next.values()) if (!a.machine && !this.marked.has(a.id) && this.shown(a)) {
+      try { mkdirSync(join(dir(), "seen"), { recursive: true }); writeFileSync(writable(join(dir(), "seen", a.id)), ""); this.marked.add(a.id); } catch {}
     }
     const changed = next.size !== this.open.size || [...next.keys()].some((k) => !this.open.has(k));
     // gone: its quiet line, with how it went
@@ -147,6 +169,7 @@ export class Asks {
       try { const how = readFileSync(join(dir(), "end", e.id), "utf8").trim(); if (how) e.how = how; } catch {}
     }
     this.open = next;
+    for (const id of this.marked) if (!next.has(id)) this.marked.delete(id);
     if (changed) for (const fn of this.listeners) fn();
   }
 

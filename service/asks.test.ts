@@ -107,7 +107,7 @@ test("another machine's ask: a card here, answered there", async () => {
   expect(a.req.tool_input.command).toBe("npm\ttest");
   // #1078: marked seen there, so a Codex hook knows a card shows it and keeps waiting
   expect(existsSync(join(td, "seen", "t12.1700000000.7"))).toBe(true);
-  expect(calls[0]).toMatchObject({ method: "machine.exec", on: "m3" });
+  expect(calls.find((c) => c.method === "machine.exec")).toMatchObject({ method: "machine.exec", on: "m3" });
   // what is open here stays across a read of this machine's own
   (asks as any).read();
   expect(asks.of("m3/t12").length).toBe(1);

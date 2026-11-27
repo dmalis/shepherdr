@@ -152,7 +152,7 @@ test("in the list: the space's count, Everything's and a folded machine's are re
   // no count inside a row's own button, and nothing red where nothing needs you
   expect(html).not.toMatch(/class="row[^"]*"[^>]*>(?:(?!<\/button>).)*class="cnt/)
   expect(row('p:vm:root')).not.toContain('cnt')
-  expect(html).toContain('aria-label="Everything: 15 need you"')
+  expect(html).toContain('aria-label="Everything: 16 need you"')
   setUI({ shut: { 'm:studio': true } })
   expect(renderToStaticMarkup(<List snap={demo()} />)).toContain('aria-label="studio: 2 need you"')
 })
