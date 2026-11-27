@@ -390,6 +390,8 @@ class ForcedFailure(unittest.TestCase):
                 mock.patch.object(install, "version_at", return_value="1"), \
                 mock.patch.object(install, "same_path", return_value=True), \
                 mock.patch.object(install, "installed_files_differ", return_value=None), \
+                mock.patch.object(install, "web_served", return_value=None), \
+                mock.patch.object(install, "tasks_answer", return_value=None), \
                 mock.patch.object(install, "assistants", return_value=[]), \
                 mock.patch.object(install, "scheduler_runs_new_code", return_value=True), \
                 mock.patch.object(install, "doctor", return_value=None) as doctor, \

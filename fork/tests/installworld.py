@@ -135,6 +135,14 @@ def head_version(folder):
     return re.search(r'^VERSION = "([^"]+)"', text, re.M).group(1)
 
 
+# The toy's own herdr-task: `list --json` answers as the real one does (health's tasks line runs it in a scratch store)
+TOY_HT = """#!/usr/bin/env python3
+import json, os, sys
+if sys.argv[1:2] == ["list"] and os.environ.get("HERDR_TASK_STORE") and not os.environ.get("FAKE_HT_BROKEN"):
+    print(json.dumps({"folder": "f", "kind": "folder", "tasks": [], "archived": 0}))
+"""
+
+
 def fake_update(cfg):
     """What `shepherdr update` does to what health reads: Shepherdr's folder replaced with the install folder's HEAD,
     installed.json written whole, the scheduler re-execed on the new code (unless the test keeps it stale), and the
@@ -265,6 +273,10 @@ class World(unittest.TestCase):
             "FORK_SYNC_HEALTH_WAIT_S": "0"})
         self.env.start()
         self.addCleanup(self.env.stop)
+        # the live service's page: no service runs here (test_merged reads the real check against a page of its own)
+        self.page = mock.patch.object(install, "service_page", side_effect=lambda s, timeout=5: self.cfg.get("page"))
+        self.page.start()
+        self.addCleanup(self.page.stop)
         with state.locked(self.p) as st:
             state.take_lease(st, self.RUN, self.space, owner=lambda *a: "done")
 
@@ -276,7 +288,7 @@ class World(unittest.TestCase):
         self.put(w, "service/main.ts", f"// {version}\n")
         self.put(w, "hooks/session-note.sh", "#!/bin/sh\n")
         pkg = "mods/tasks/bin/herdr_task"
-        self.put(w, "mods/tasks/bin/herdr-task", "#!/usr/bin/env python3\n")
+        self.put(w, "mods/tasks/bin/herdr-task", TOY_HT)
         self.put(w, f"{pkg}/__init__.py", "")
         self.put(w, f"{pkg}/base.py", BASE_PY)
         self.put(w, f"{pkg}/scheduler.py", SCHEDULER_PY.format(v=version))
@@ -300,6 +312,11 @@ class World(unittest.TestCase):
             f.write(text)
         os.chmod(full, mode)
         git(repo, "add", rel)
+
+    def put_share(self, rel, text):
+        """A file of the installed Shepherdr changed in place (a spoiled install)."""
+        with open(os.path.join(self.share, rel), "w") as f:
+            f.write(text)
 
     def clone(self, dest):
         subprocess.run(["git", "clone", "-q", self.origin, dest], check=True, capture_output=True)

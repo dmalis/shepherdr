@@ -148,6 +148,10 @@ elif sys.argv[2] == "holds":
     home = sys.argv[3]
     w = layout.Where(home=home, env=None if sys.argv[4] == "live" else {})
     print(json.dumps({"paths": [os.path.join(home, ".herdr", "sync-hold"), os.path.join(w.roots["state"], "sync-hold")]}))
+elif sys.argv[2] == "service":
+    from herdr_task import layout
+    w = layout.Where(home=sys.argv[3], env=None if sys.argv[4] == "live" else {})
+    print(json.dumps({"dir": w.path("service")}))
 else:
     from herdr_task import base, scheduler
     print(json.dumps({"hash": scheduler.script_hash(), "store": base.STORE}))
@@ -374,6 +378,75 @@ def scheduler_runs_new_code(s):
     return running == v["hash"]
 
 
+WEB_INDEX = os.path.join("web", "dist", "index.html")
+NO_BUILD = "FORK_REHEARSE_NO_BUILD"                # the rehearsal installed without a build: no web app to read
+
+
+def web_served(s, timeout=5):
+    """The installed web app: its built page is in Shepherdr's folder and (live) the running service serves it, not
+    its "isn't built" page. The service is asked on 127.0.0.1 with its own token, as the CLI asks it. None, or why
+    not."""
+    if s.live or os.environ.get(NO_BUILD) != "1":
+        if not os.path.isfile(os.path.join(s.share, WEB_INDEX)):
+            return "the built web app isn't installed (web/dist/index.html)"
+    return service_page(s, timeout) if s.live else None
+
+
+def service_page(s, timeout=5):
+    """The running service serves the built page at / (live only). None, or why not."""
+    v = probe(s, "service", s.home, "live")
+    if not v or not v.get("dir"):
+        return "the installed herdr-task can't say where the service's files are"
+    try:
+        with open(os.path.join(v["dir"], "service.json"), encoding="utf-8") as f:
+            info = json.load(f)
+        port, sid = int(info["port"]), info["id"]
+        with open(os.path.join(v["dir"], "token"), encoding="utf-8") as f:
+            token = f.read().strip()
+    except (OSError, ValueError, KeyError, TypeError):
+        return "the service's port or token can't be read"
+    import urllib.request
+    auth = {"Authorization": f"Bearer {token}"}
+
+    def get(path):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=auth)
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return res.status, res.read(200_000)
+    try:
+        _, body = get("/api/health")
+        if (json.loads(body) or {}).get("id") != sid:
+            return f"another app answers on port {port}, not the Shepherdr service"
+        code, page = get("/")
+    except (OSError, ValueError, AttributeError) as e:
+        return f"the service doesn't serve the web app ({type(e).__name__})"
+    if code != 200 or b"<html" not in page[:4000].lower():
+        return "the service doesn't serve the built web app"
+    return None
+
+
+def tasks_answer(s, timeout=30):
+    """The installed herdr-task answers: `herdr-task list` in a scratch store and folder of its own (what the trial
+    covered for our merges, which skip it). Never the person's task lists, never hc. None, or why not."""
+    entry = os.path.join(s.tasks_bin, "herdr-task")
+    if not os.path.isfile(entry):
+        return "the installed herdr-task isn't there"
+    scratch = tempfile.mkdtemp(prefix="fork-sync-tasks-")
+    try:
+        folder = os.path.join(scratch, "folder")
+        os.makedirs(folder)
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("HERDR_TASK_", "HC_"))}
+        env.update(HERDR_TASK_STORE=os.path.join(scratch, "store"),
+                   HERDR_TASK_SETTINGS=os.path.join(scratch, "settings.json"), SHEPHERDR_NO_MIGRATE="1")
+        code, out, _ = run([sys.executable, entry, "list", "--folder", folder, "--json"], env=env, timeout=timeout,
+                           cwd=scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    v = json_line(out) if code == 0 else None
+    if not isinstance(v, dict) or not isinstance(v.get("tasks"), list):
+        return f"herdr-task list didn't answer (exit {code})"
+    return None
+
+
 def until(check, wait, sleep=time.sleep):
     """Calls check() until it is truthy or `wait` seconds passed. Returns its last value."""
     deadline = time.monotonic() + wait
@@ -553,9 +626,26 @@ def baseline(p, run_key, folder, capture=False, live=True, hostname=None):
 
 # --- install ---
 
-def before_checks(s, st, repo, sha, run_key, folder, env=None):
+OURS = "install-merged"     # Installing our own merges (fork/sync/merged.py)
+
+
+def policy(st, run_key):
+    """The install policy this run's state asks for: "ours" (Installing our own merges: settle pinned main's tip,
+    phase settled; no trial, no wait on main's checks, since this space's merges go in before CI reports) or
+    "release" (a release sync: phase tried or merged, its trial and main's checks on that exact SHA). None: neither,
+    nothing installs."""
+    r = st.get("run") or {}
+    if r.get("key") != run_key:
+        return None
+    if r.get("path") == OURS:
+        return "ours" if st.get("phase") == "settled" else None
+    return "release" if st.get("phase") in ("tried", "merged") else None
+
+
+def before_checks(s, st, repo, sha, run_key, folder, env=None, ours=False):
     """Install's checks, in order (Before anything moves). Each one that fails stops with nothing changed. Returns
-    the before-pictures for health."""
+    the before-pictures for health. `ours`: our merges' policy, which has no trial and no main's checks gate; a
+    commit whose shipped files are a quarantined one's stays out like that one."""
     # 1 the machine: site() checked it
     updater(s)                                                    # a scratch root names its own updater, or stops
     installed_cli(s)                                                                                  # 2
@@ -568,17 +658,22 @@ def before_checks(s, st, repo, sha, run_key, folder, env=None):
         raise Refused(f"the install folder is at {str(head)[:12]}, not the baseline {str(base)[:12]}",
                       outcome="held", kind="install", gate="folder")
     q = state.quarantined(st, sha)                                                                      # 5
+    if not q and ours:
+        from . import merged
+        q = merged.quarantined_like(st, repo, sha)
     if q:
-        raise Refused(f"{sha[:12]} is quarantined (it failed at {q.get('step')})", outcome="held", kind="install",
-                      gate="quarantine")
-    t = tree(repo, sha)
-    if not t or not any(x.get("tree") == t for x in st.get("trials") or []):
-        raise Refused(f"no trial passed on {sha[:12]}'s tree", outcome="held", kind="install", gate="trial")
+        like = f" ships the same files as {q['like'][:12]}, which" if q.get("like") else ""
+        raise Refused(f"{sha[:12]}{like} is quarantined (it failed at {q.get('step')})", outcome="held",
+                      kind="install", gate="quarantine")
+    if not ours:
+        t = tree(repo, sha)
+        if not t or not any(x.get("tree") == t for x in st.get("trials") or []):
+            raise Refused(f"no trial passed on {sha[:12]}'s tree", outcome="held", kind="install", gate="trial")
     rel = (st.get("release") or {}).get("sha")
     if not rel or not is_ancestor(repo, rel, sha):
         raise Refused(f"{rel or 'the release'} is not an ancestor of {sha}", outcome="held", kind="install",
                       gate="ancestry")
-    if not state.checks_passed(st, sha):
+    if not ours and not state.checks_passed(st, sha):
         raise Refused(f"main's checks haven't passed on {sha[:12]}", outcome="held", kind="install", gate="checks")
     h = pipeline_hash(repo, sha)                                          # the rehearsal gate (Installing our merges)
     if not state.rehearsal_passed(st, h):
@@ -629,6 +724,7 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
         state.owns_lease(st, run_key, folder)
         phase, cand, ins = st.get("phase"), st.get("candidate"), dict(st.get("install") or {})
         r = st.get("run") or {}
+        how = policy(st, run_key)
     if phase == "installing":
         if ins.get("sha") != sha:
             raise Refused(f"the install under way is {str(ins.get('sha'))[:12]}, not {sha[:12]}", outcome="stop")
@@ -647,17 +743,21 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
         return outcome(p, s, ins["ask"], now=now, sleep=sleep)
     if phase == "installed":
         raise Refused("the update already ended: run health", outcome="stop")
-    if phase not in ("tried", "merged"):
+    if r.get("key") == run_key and r.get("path") == OURS and phase != "settled":
+        raise Refused(f"the phase is {phase or 'none'}: our merges install from settle (phase settled)",
+                      outcome="stop")
+    if how is None:
         raise Refused(f"the phase is {phase or 'none'}: a candidate installs after its trial (and its merge)",
                       outcome="stop")
-    if r.get("key") != run_key or cand != sha:
+    if cand != sha:
         raise Refused(f"this run's candidate is {str(cand)[:12]}, not {sha[:12]}", outcome="stop")
-    waiting = ensure_checks(p, repo, sha, now=now, sleep=sleep)
-    if waiting:
-        raise Refused(waiting, outcome="wait")
+    if how == "release":
+        waiting = ensure_checks(p, repo, sha, now=now, sleep=sleep)
+        if waiting:
+            raise Refused(waiting, outcome="wait")
     with state.locked(p) as st:
         snap = json.loads(json.dumps(st))
-    before = before_checks(s, snap, repo, sha, run_key, folder, env)
+    before = before_checks(s, snap, repo, sha, run_key, folder, env, ours=how == "ours")
     fetch_candidate(s, sha)
     with state.locked(p) as st:
         state.owns_lease(st, run_key, folder)
@@ -787,6 +887,11 @@ def health_lines(s, repo_folder, sha, ins, update, candidate=True, sleep=time.sl
         return out
     if not line("files", installed_files_differ(s, repo_folder, sha, rec)):
         return out
+    # what the trial covered, read in seconds (our merges skip the trial): the web app built and served, herdr-task
+    if not line("web", web_served(s)):
+        return out
+    if not line("tasks", tasks_answer(s)):
+        return out
     if s.live:
         had = ins.get("before", {}).get("assistants") or []
 
@@ -907,8 +1012,13 @@ def passed(p, s, run_key, folder, repo, sha, words, want_tag):
         st["install"] = dict(st.get("install") or {}, health=words, tag=pushed)
         st["baseline"] = {"sha": sha, "branch": None, "version": rec.get("version"), "source": s.p.show(s.folder),
                           "at": rec.get("at"), "whole": rec.get("whole"), "installed": state.stamp(), "tag": pushed}
+        r = st.get("run") or {}
         st["installs"] = (st.get("installs") or [])[-(state.KEEP - 1):] + [
-            {"sha": sha, "version": rec.get("version"), "at": state.stamp(), "tag": pushed}]
+            {"sha": sha, "version": rec.get("version"), "at": state.stamp(), "tag": pushed,
+             "run": r.get("key"), "path": r.get("path")}]
+        if r.get("path") != OURS:
+            # a release sync's install passed main's checks before it went in: a point the person can go back to
+            st["recovery"] = {"sha": sha, "version": rec.get("version"), "tag": pushed, "at": state.stamp()}
         state.set_phase(st, "healthy")
     return {"outcome": "installed", "version": rec.get("version"), "tag": pushed, "lines": words, "held_over": over}
 
