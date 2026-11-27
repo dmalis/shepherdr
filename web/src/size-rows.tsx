@@ -13,9 +13,11 @@ export function SizeRows() {
     <>
       <SRow label="Zoom" wrap>
         <span className="zoomc">
-          <IB icon="minus" label="Zoom out" disabled={z <= minZoom()} onClick={() => zoomOut()} />
-          <span className="zoomv" aria-live="polite">{z}%</span>
-          <IB icon="plus" label="Zoom in" disabled={z === ZOOMS[ZOOMS.length - 1]} onClick={() => zoomIn()} />
+          <span className="zooms">
+            <IB icon="minus" label="Zoom out" disabled={z <= minZoom()} onClick={() => zoomOut()} />
+            <span className="zoomv" aria-live="polite">{z}%</span>
+            <IB icon="plus" label="Zoom in" disabled={z === ZOOMS[ZOOMS.length - 1]} onClick={() => zoomIn()} />
+          </span>
           <Btn small disabled={z === 100} onClick={() => setZoom(100)}>Reset</Btn>
         </span>
       </SRow>
