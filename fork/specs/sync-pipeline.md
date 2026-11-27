@@ -525,7 +525,7 @@ state's `issue_cursor`:
 
 - Every `gh` call in `fork/` names `-R dmalis/shepherdr`. The only exception is the read-only search above
   (`-R eliasstravik/shepherdr`). Nothing in the run writes to upstream; posting there stays with the upstream-issue
-  skill and the person's yes.
+  skill, which says what needs the person's yes.
 - The run never says ready with a summary, so herdr-task's cached repo (`github.py`'s `github()`) opens no pull request
   for it. Other fork tasks: `preflight`'s repo check is the same one their briefs ask for.
 - Built-in feedback (`herdr-task feedback`) goes to the Assistant, who asks the person; its repo is the person's
