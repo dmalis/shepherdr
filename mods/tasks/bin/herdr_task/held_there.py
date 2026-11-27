@@ -9,6 +9,7 @@ A receiver whose herdr-task is older (no _receive) is sent to as before (machine
 import json
 import os
 import subprocess
+import sys
 
 from .base import Fail, guard
 
@@ -21,8 +22,11 @@ def receive_there(names, hows, address, text):
     from .machines import _hops
     guard(["hc"])
     env = {k: v for k, v in os.environ.items() if k != "HC_TERMINAL_ID"}
-    r = subprocess.run(_hops(names, hows, ["sh", "-c", RECEIVE, "sh", address, text]), env=env, stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
+    try:
+        r = subprocess.run(_hops(names, hows, ["sh", "-c", RECEIVE, "sh", address, text]), env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise Fail(UNKNOWN.format("in 30 s")) from None
     for line in reversed((r.stdout or "").strip().splitlines()):
         try:
             got = json.loads(line)
@@ -32,7 +36,11 @@ def receive_there(names, hows, address, text):
             return got
     if r.returncode == 127 or "invalid choice: '_receive'" in f"{r.stdout}{r.stderr}":
         return OLDER
-    raise Fail(f"no answer from that machine's herdr-task ({(r.stderr or '').strip()[-200:] or f'exit {r.returncode}'})")
+    # it may have been held there before something failed: never "not delivered", so nobody sends it twice
+    raise Fail(UNKNOWN.format(f"({(r.stderr or '').strip()[-200:] or f'exit {r.returncode}'})"))
+
+
+UNKNOWN = "no answer from that machine's herdr-task {}, so it may have arrived or be held there; check that Assistant before sending again"
 
 
 def deliver(names, hows, address, text):
@@ -51,7 +59,35 @@ def deliver(names, hows, address, text):
 
 def cmd_receive(args):
     """On the receiving machine: send it now or hold it (news.send_or_hold), and say which, one JSON line."""
-    from .machines import _held_why
     from .news import send_or_hold
     got = send_or_hold(args.address, args.text, "news")
-    print(json.dumps({"got": got, "why": _held_why(args.address) if got == "held" else None}))
+    why = None
+    if got == "held":
+        # once held it is held: what follows only helps, and never turns it into a failure the sender would retry
+        try:
+            from .machines import _held_why
+            why = _held_why(args.address)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            ensure_runner()
+        except Exception:  # noqa: BLE001
+            pass
+    print(json.dumps({"got": got, "why": why}))
+
+
+def ensure_runner():
+    """held_pass runs in the scheduler. Shepherdr keeps one only where tasks, automations or the web app are
+    (scheduler.ensure_scheduler): an Assistant's machine with none of them, reached over more than one hop (the web
+    app ticks only its direct links), would hold the message for good. So one is started here, the way
+    ensure_scheduler starts it; once running it keeps going."""
+    from .base import ENTRY, HOME, hc_json, run
+    from .scheduler import SCHEDULER, ensure_scheduler
+    if ensure_scheduler(quiet=True).get("running"):
+        return
+    k = hc_json("get", SCHEDULER)
+    if k:  # its program was lost (a restart left a shell): replace it, as ensure_scheduler does
+        run(["hc", "kill", SCHEDULER])
+        run(["hc", "rm", SCHEDULER])
+    run(["hc", "run", "--bg", "--json", "--keep", "--no-parent", "--no-notify", "--name", SCHEDULER, "--cwd", HOME,
+         "--", sys.executable, ENTRY, "scheduler"])

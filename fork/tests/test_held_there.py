@@ -33,9 +33,11 @@ if a[:1] == ["get"] and a[1:2] == ["t3"]:
     print(open(os.path.join(d, "t3.json")).read())
 elif a[:2] == ["attach", "--observe"]:
     sys.stdout.write("─" * 40 + "\n❯ \n" + "─" * 40 + "\n")
-elif a[:1] == ["send"]:
-    with open(os.path.join(d, "sent.jsonl"), "a") as f:
+elif a[:1] in (["send"], ["run"]):
+    with open(os.path.join(d, a[0] + ".jsonl"), "a") as f:
         f.write(json.dumps(a[1:]) + "\n")
+    if a[:1] == ["run"]:
+        print(json.dumps({"address": "t9", "state": "live"}))
 else:
     sys.exit(1)
 '''
@@ -73,9 +75,9 @@ class HeldOnAnotherMachine(unittest.TestCase):
             json.dump({"address": "t3", "state": "live", "turn": 4, "status": {"app": "claude-code", "state": word},
                        "labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}, "foreground": {"name": "claude"}}, f)
 
-    def sent(self):
+    def sent(self, what="send"):
         try:
-            with open(os.path.join(self.bin, "sent.jsonl")) as f:
+            with open(os.path.join(self.bin, what + ".jsonl")) as f:
                 return [json.loads(x) for x in f]
         except OSError:
             return []
@@ -137,6 +139,32 @@ class HeldOnAnotherMachine(unittest.TestCase):
         self.assertEqual(len(self.sent()), 1)
         self.held_pass()
         self.assertEqual(len(self.sent()), 1, "nothing held besides")
+        self.assertEqual(self.sent("run"), [], "nothing held: no scheduler started")
+
+    def test_a_hold_starts_the_scheduler_where_nothing_else_would(self):
+        self.assertTrue(self.tell()["held"])
+        runs = self.sent("run")
+        self.assertEqual(len(runs), 1, runs)
+        self.assertIn("herdr-automations", runs[0])
+        self.assertEqual(runs[0][-1], "scheduler")
+
+    def test_a_held_message_is_said_held_even_when_its_reason_cant_be_read(self):
+        import argparse
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        with mock.patch.object(news, "send_or_hold", lambda a, t, how: "held"), \
+                mock.patch.object(machines, "_held_why", side_effect=OSError("Resource temporarily unavailable")), \
+                mock.patch.object(held_there, "ensure_runner", side_effect=OSError("no hc")), redirect_stdout(out):
+            held_there.cmd_receive(argparse.Namespace(address="t3", text="hi"))
+        self.assertEqual(json.loads(out.getvalue()), {"got": "held", "why": None})
+
+    def test_no_answer_in_time_is_never_said_not_delivered(self):
+        with mock.patch.object(held_there, "guard", lambda a: None), \
+                mock.patch.object(held_there.subprocess, "run", side_effect=subprocess.TimeoutExpired(["hc"], 30)):
+            with self.assertRaises(machines.Fail) as e:
+                held_there.deliver(["vmb"], ["herdr-core"], "t3", "hi")
+        self.assertIn("may have arrived or be held there", str(e.exception))
 
     def test_an_assistant_asking_something_holds_it_too(self):
         self.state("blocked")
@@ -186,6 +214,14 @@ class Seams(unittest.TestCase):
         self.assertEqual(list(inspect.signature(machines._hops).parameters), ["route_names", "hows", "inner"])
         self.assertTrue(callable(machines._held_why))
         self.assertIn("held_pass(report)", inspect.getsource(news))
+
+    def test_the_scheduler_starts_as_ensure_runner_starts_it(self):
+        from herdr_task import scheduler
+        start = '"--name", SCHEDULER, "--cwd", HOME,'
+        self.assertIn(start, inspect.getsource(scheduler.ensure_scheduler))
+        self.assertIn(start, inspect.getsource(held_there.ensure_runner))
+        self.assertIn('"--", sys.executable, ENTRY, "scheduler"', inspect.getsource(scheduler.ensure_scheduler))
+        self.assertIn("while True:", inspect.getsource(__import__("herdr_task.automations", fromlist=["x"]).cmd_scheduler))
 
 
 if __name__ == "__main__":
