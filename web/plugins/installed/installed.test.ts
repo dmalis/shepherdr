@@ -4,6 +4,7 @@
 import { expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { launchOf, launches, wantsCall, wantsNeeds, wantsNewTask, withoutAsks } from './launch.ts'
+import { zoomValue } from '../../zoom-css.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
@@ -171,9 +172,47 @@ test("the title bar rules apply only in the window controls overlay; the frame k
   expect(wco).toContain('env(titlebar-area-x')
   expect(wco).toContain('app-region: drag')
   expect(css.slice(0, css.indexOf('@media (display-mode: window-controls-overlay)'))).not.toContain('app-region')
-  for (const side of ['top', 'left', 'right']) expect(css).toMatch(new RegExp(`\\.device \\{[^}]*padding-${side}: env\\(safe-area-inset-${side}\\)`))
+  for (const side of ['left', 'right']) expect(css).toMatch(new RegExp(`\\.device \\{[^}]*padding-${side}: env\\(safe-area-inset-${side}\\)`))
+  expect(css).toMatch(/\.device \{[^}]*padding-top: var\(--safe-top, env\(safe-area-inset-top\)\)/)
   // a form sheet keeps its own 16px sides, the safe area added on top
   expect(css).toMatch(/\.app \.sheet\.form \{[^}]*padding-left: calc\(16px \+ env\(safe-area-inset-left\)\)/)
+})
+
+test("an iPhone's home screen: the top clears the status bar and the system's blur under it, nowhere else", () => {
+  const css = read('web/plugins/installed/installed.css')
+  // everywhere: the clear top is the inset alone (a browser tab, Android, a desktop, the phone turned)
+  expect(css).toMatch(/\.app \{\s*--safe-top: env\(safe-area-inset-top\);\s*\}/)
+  // only installed on an iPhone (standalone, Safari's touch-callout), and only with an inset on top: 32pt more,
+  // the system's band, so the app's zoom leaves it as it is
+  const ios = 'calc(env(safe-area-inset-top) + min(32PX, 100 * env(safe-area-inset-top)))'
+  expect(css).toContain(`@media (display-mode: standalone) {\n  @supports (-webkit-touch-callout: none) {\n    .app {\n      --safe-top: ${ios};`)
+  expect(zoomValue(ios)).toBe(ios)
+  // the viewer's pictures fit between the clear top and the home bar
+  expect(css).toMatch(/\.app \.lbody :is\(img, video\) \{\s*max-height: calc\(100dvh - 68px - var\(--safe-top, env\(safe-area-inset-top\)\) - env\(safe-area-inset-bottom\)\);/)
+  // every top the app keeps clear takes it, so nothing starts inside the blur: the frame, a line on top, the drawer,
+  // the settings window, toasts, the update chip, a full-screen terminal's bar and the viewer
+  const top = css.slice(css.indexOf('.device {')).replaceAll('var(--safe-top, env(safe-area-inset-top))', 'var(--safe-top)')
+  expect(top).not.toContain('safe-area-inset-top)')
+  for (const r of [
+    /\.app\.phone \.device > \.tline:first-child \{\s*margin-top: calc\(-1 \* var\(--safe-top\)\);\s*padding-top: calc\(4px \+ var\(--safe-top\)\);/,
+    /\.app \.drawer \{\s*padding-top: calc\(8px \+ var\(--safe-top\)\)/,
+    /\.app\.phone \.win \{\s*padding: var\(--safe-top\) /,
+    /\.app:not\(\.phone\) \.win \{\s*top: max\([^;]*calc\(8px \+ var\(--safe-top\)\)\);/,
+    /\.app \.toasts \{\s*top: calc\(60px \+ var\(--safe-top\)\);/,
+    /\.app \.upchip \{\s*top: calc\(var\(--hd\) \+ 8px \+ var\(--safe-top\)\);/,
+    /\.app \.fbar \{\s*padding-top: calc\(4px \+ var\(--safe-top\)\);/,
+    /\.app \.fpill \{\s*top: calc\(8px \+ var\(--safe-top\)\);/,
+    /\.app \.lbox \{\s*padding-top: var\(--safe-top, env\(safe-area-inset-top\)\);/,
+  ])
+    expect(css).toMatch(r)
+  // upstream's own tops these replace: a sync that moves one fails here first
+  const up = read('web/src/styles.css')
+  expect(up).toContain('.app.phone .tline:first-child{padding-top:calc(4px + env(safe-area-inset-top))}')
+  expect(up).toMatch(/\.upchip\{position:fixed;[^}]*top:calc\(var\(--hd\) \+ 8px \+ env\(safe-area-inset-top\)\)/)
+  expect(up).toMatch(/\.fbar\{[^}]*padding:calc\(4px \+ env\(safe-area-inset-top\)\) /)
+  expect(up).toMatch(/\.fpill\{[^}]*top:calc\(8px \+ env\(safe-area-inset-top\)\)/)
+  expect(read('web/src/ds.css')).toMatch(/\.lbox\{[^}]*padding:env\(safe-area-inset-top\) /)
+  expect(read('web/src/ds.css')).toContain('.lbody img,.lbody video{max-width:100%;max-height:calc(100dvh - 68px - env(safe-area-inset-top) - env(safe-area-inset-bottom));')
 })
 
 /* the upstream seams this leans on (fork #34): a sync that breaks one fails here first */
