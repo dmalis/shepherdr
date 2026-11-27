@@ -1,0 +1,49 @@
+/* fork #109: sheets, menus and dialogs, one system. overlay.tsx draws every one as .ovl > .scrim + its panel: a
+   popover (.pop) at its button on a desktop, a sheet (.pop.sheet) from the bottom on a phone, a dialog (.dlg) in the
+   middle. Motion lives in motion.ts (enter/leave); the drag in sheet-drag.ts. Apple's HIG sheets and action sheets,
+   Material 3's bottom sheets and menus, Radix and Vaul. */
+
+/* the layer is as tall as what shows: on an iPhone with the keyboard up the app takes the visible height (--app-h,
+   viewport.ts), so a sheet's bottom sits on the keyboard, not behind it */
+.layer{bottom:auto;height:var(--app-h,100dvh)}
+.ovl{position:absolute;inset:0}
+/* the shade takes no scroll: the page behind never moves under a sheet or a dialog */
+.scrim{touch-action:none;overscroll-behavior:none}
+.pop,.dlg,.sheet{overscroll-behavior:contain}
+.pop:focus,.dlg:focus,.sheet:focus{outline:0}
+
+/* ---- a sheet: grabber, then an optional title, the content, the actions ---- */
+/* as tall as its content, up to the screen less the status bar; it scrolls inside itself */
+.sheet{position:absolute;top:auto!important;bottom:0;max-height:calc(100% - max(40px, env(safe-area-inset-top) + 16px));overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding-top:6px;padding-bottom:calc(12px + env(safe-area-inset-bottom));border-radius:16px 16px 0 0;box-shadow:0 -1px 0 var(--line2),0 -8px 28px rgb(0 0 0/.12)}
+/* the grabber: iOS's 36 × 5, a little room over it to take a finger */
+.sheet::before{width:36px;height:5px;margin:2px auto 10px;border-radius:3px}
+/* a form or a confirmation: its own padding, and the home bar's band under it too */
+.sheet.form{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+/* the keyboard covers the home bar: no band for it */
+.kb-up .sheet,.kb-up .sheet.form{padding-bottom:12px}
+/* its title: what the sheet is for, quiet, as an action sheet's */
+.sheet>.shd{padding:0 12px 6px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* a menu's rows: 52 px, a 20 px icon 16 px from its words (Material's list item, iOS's 44 pt and more) */
+.sheet .row[role^="menuitem"]{min-height:52px;gap:16px;padding:0 12px;border-radius:12px;color:var(--fg)}
+.sheet .row[role^="menuitem"] .i:not([class*="c-"]){color:var(--sub)}
+.sheet .row[role^="menuitem"].danger,.sheet .row[role^="menuitem"].danger .i{color:var(--red)}
+.sheet .row[role^="menuitem"]:active{background:var(--control)}
+.sheet>hr,.sheet>div>hr{margin:6px 12px}
+.sheet>.cap{padding:0 12px 6px}
+/* iOS: Cancel on its own, last, as an action sheet's */
+.sheet>.scancel{justify-content:center;min-height:52px;margin-top:8px;border-radius:12px;background:var(--control);color:var(--fg);font-weight:600}
+.sheet>.scancel:active{background:var(--control2)}
+/* a dialog as a sheet: its buttons share the width and are a thumb's height */
+.sheet.form>.acts{flex-wrap:nowrap}
+.sheet.form>.acts>.btn{flex:1;height:var(--hit)}
+
+/* ---- a popover: grows out of its button (its transform-origin, overlay.tsx) ---- */
+.pop:not(.sheet){max-height:calc(100% - 16px);overflow-y:auto}
+.pop:not(.sheet):has(>.emo:only-child){overflow:visible}
+
+/* ---- a dialog: in the middle, its own scroll ---- */
+.dlg{overflow-y:auto}
+
+/* in a ghost (motion.ts: the still copy that plays the exit), the panel keeps the place it had */
+[data-ghost] .ovl{position:absolute}
