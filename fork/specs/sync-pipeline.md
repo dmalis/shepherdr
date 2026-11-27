@@ -687,11 +687,24 @@ scratch root; nothing touches the live install, the real home's files or the liv
 5. Before health: both hold files under `<root>` carry the run's line, and `sync-hold.install` is gone. `health <sha> --root <root>`: must pass, and
    after its doctor the hold files are gone. The hooks simulation ran against `<root>`'s hook files and found nothing
    to write.
-6. A forced failure: health is told to fail (a test flag), so `rollback` runs: back to the baseline, updated, and
-   `health <baseline>` passes. `installed.json`'s version and files are the baseline's again.
+6. A forced failure: health is told to fail (a test flag, `FORK_SYNC_FORCE_HEALTH_FAIL=1`, which only a scratch root
+   obeys), so `rollback` runs: back to the baseline, updated, and `health <baseline>` passes. `installed.json`'s
+   version and files are the baseline's again.
 7. A second rehearsal where the update itself fails (a candidate commit that breaks `herdr-task`'s compile): the
-   outcome is read as failed, rollback is verified.
+   outcome is read, health fails, rollback is verified. The installer prints `NOT DONE` and exits 0 for that commit,
+   so the runner reads it as `ok`, as live; health's `whole` line is what fails it.
 8. Remove `<root>` and the clone.
+
+Steps 6, 7 and 4–5 run in that order on the one root, each a first run of the pipeline (a fresh sync state under
+`<root>`, with the gates the rehearsal isn't about, the trial, the checks and the release, recorded there), since a
+healthy install makes the candidate the baseline. The stand-in for `update-shepherdr` runs the update the way its
+runner does (`self_update.run_update`: in its own process session, `ok` only on exit 0), and the fork's main is
+fetched from the space through an `insteadOf` rule, not from GitHub.
+
+The pipeline code that runs is the checkout's own `fork/bin/sync`. A pass is recorded in the state's `rehearsals`
+under that code's hash, as committed (`install.pipeline_hash`), with the commit it installed; code with uncommitted
+changes is rehearsed but never recorded. So a pull request's rehearsal covers main after the merge, whose pipeline
+code is the same, and the run that rehearses a candidate (Installing our own merges) runs the candidate's own code.
 
 What the rehearsal can't show, the first real installing run shows: `update-shepherdr`'s runner, the service restart,
 and the live health lines (Assistants, service answering).
