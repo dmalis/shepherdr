@@ -56,8 +56,8 @@ export const NOT_DATA: Record<string, string> = {
 /** The web app's actions that change something (act, send or screen do them), not data to read: every one the page
  *  sends (web/src, web/plugins) or the Action type lists, and the service answers. */
 export const WRITES = [
-  // chats: a message, a reaction, an answer to a question or permission card, a secret given, Stop, Restart, Recap
-  "send", "held-now", "held-drop", "react", "answer", "secret", "secret-saved", "stop", "stop-job", "restart", "agent-update", "agent-restart", "assistant-close", "read", "keys", "text", "model", "effort", "call", "recap",
+  // chats: a message, a reaction, an answer to a question or permission card, a trust tip copied, a secret given, Stop, Restart, Recap
+  "send", "held-now", "held-drop", "react", "answer", "trust-tip", "secret", "secret-saved", "stop", "stop-job", "restart", "agent-update", "agent-restart", "assistant-close", "read", "keys", "text", "model", "effort", "call", "recap",
   // tasks: the review card (Mark as done [and merge]), Start task, Start a follow-up, the row's menu
   "accept", "close", "delete", "archive", "reopen", "task-start", "task-resume", "follow-up", "task-rename", "task-move", "schedule", "pause", "pin",
   // schedules: Run now, Pause, Resume, Edit

@@ -13,6 +13,7 @@ import type { Question, SecretAsk, Snapshot } from '@shared/types.ts'
 import { terminalQuestion } from '@shared/alerts.ts'
 import { machineLabel, placeDown, placeOf, spaceLabel } from '@shared/view.ts'
 import { SignInCard } from './sign-in.tsx'
+import { TrustTip } from './trust-tip.tsx'
 import { Markdown } from './markdown.tsx'
 import { PromptBody } from './prompt-body.tsx'
 
@@ -68,6 +69,7 @@ function TerminalCard({ q, chat }: { q: Question; chat: string }) {
         </div>
       ) : <span className="s">Answer in the terminal.</span>}
       {showTerminal && <Term stream={terminal} />}
+      <TrustTip q={q} />
     </div>
   )
 }

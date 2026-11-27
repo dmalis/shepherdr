@@ -27,6 +27,7 @@ import { exec } from "./model.ts";
 import { FIND } from "../core/chat-log.js";
 import { spawn } from "./spawn.ts";
 import { askRecap } from "./recap.ts";
+import { tipCopied } from "./trust-tip.ts";
 
 const attachDir = () => join(appHome(), "data", "chat-attach");
 /** files in one message at most (the page says so before it sends: web/plugins/chat/client.tsx) */
@@ -688,6 +689,8 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
   }
   // a call started or ended on the page: its audio goes over /api/voice; nothing to keep here
   if (b?.type === "call") return { ok: true };
+  // the trust card's tip copied: not shown again for that repo (service/trust-tip.ts)
+  if (b?.type === "trust-tip") return tipCopied(compat.shared, b);
   if (b?.type === "artifact-delete" && typeof b.artifact === "string") {
     // an artifact deleted from its ⋯, as herdr-artifact rm (it and its versions)
     if (!/^\w[\w.-]{0,119}$/.test(b.artifact)) throw new Error("Not an artifact.");

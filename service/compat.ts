@@ -6,6 +6,7 @@ import { signInWords } from "./sign-in-screen.ts";
 //   a space's chat (its Assistant):  p:<space id, "/" as ":">     a task's chat:  <task id>/worker
 // A task id is its ref ("SHEP-7"), "<machine>:<ref>" on another machine, as 2.1 wrote them.
 import { failedOf } from "./send-once.ts";
+import { SEEN_KEY as TIP_SEEN, trustTip, type TrustTip } from "./trust-tip.ts";
 import type { Snapshot, Place, Task, Need, Section, Machine, Chat, Message, Status, TaskStatus, StepKind, ActivityAnswer, Question, Artifact, SettingSection, Job } from "../web/shared/types.ts";
 import * as T from "../core/tasks.js";
 import { STALE_LINK, staleLink } from "../web/shared/view.ts";
@@ -669,6 +670,14 @@ export class Compat {
       login: { ...card.need, how: card.choices ? "Choose how to sign in from its terminal." : how, terminal } };
   }
 
+  /** The trust card's per-repo tip (service/trust-tip.ts), for its task's repo on its task's machine. */
+  private trustTipOf(c: any, folder: string | null): { tip?: TrustTip } {
+    const w = this.trustWho(c.addr);
+    const row = w?.task ? this.rows.find((r) => taskId(r) === w.task) : null;
+    const tip = trustTip({ cli: c.cli, screen: folder, all: c.all, row, here: this.host, card: c.id, seen: this.shared?.value(TIP_SEEN) });
+    return tip ? { tip } : {};
+  }
+
   /** Show what the CLI asks and open the exact terminal where the person can answer. */
   screenQuestion(c: any, key: string, by?: Question["by"], terminalChat?: string): Question {
     const trust = trustOf(c);
@@ -676,7 +685,7 @@ export class Compat {
     const common = { id: c.id, kind: "Question" as const, to: key, press: true, choices, ...(by ? { by } : {}), ...(terminalChat ? { terminalChat } : {}) };
     if (trust) {
       return { ...common, title: TRUST.title,
-        trust: { cli: c.cli, ...(trust.folder ? { folder: trust.folder } : {}), waits: TRUST.waits(c.cli, trust.folder), allows: TRUST.allows } };
+        trust: { cli: c.cli, ...(trust.folder ? { folder: trust.folder } : {}), waits: TRUST.waits(c.cli, trust.folder), allows: TRUST.allows, ...this.trustTipOf(c, trust.folder) } };
     }
     const hooks = c.cli === "Codex" && /^\s*Hooks need review\s*$/m.test(c.all);
     return { ...common, title: hooks ? "Hooks need review" : c.dialog ? SCREEN.dialog(c.cli) : SCREEN.title(c.cli), ...(c.words ? { screen: c.words } : {}) };

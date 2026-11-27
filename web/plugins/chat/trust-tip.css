@@ -1,0 +1,5 @@
+/* the trust card's per-repo tip (trust-tip.tsx): a quiet part under the card's own answer, set off by a hairline */
+.ttip{display:grid;gap:8px;min-width:0;margin-top:4px;padding-top:12px;box-shadow:inset 0 1px 0 var(--line)}
+/* a task folder's path is one long word: it wraps inside the card instead of widening it past its pane */
+.card:has(> .ttip){grid-template-columns:minmax(0,1fr)}
+.card:has(> .ttip) > span,.ttip > span{overflow-wrap:anywhere}
