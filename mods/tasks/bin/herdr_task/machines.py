@@ -1327,8 +1327,11 @@ def _deliver(names, hows, address, text):
                                          universal_newlines=True, timeout=20)
     # Not into words the person is writing to it (HERD-71): half a minute for them to finish (all of it within TELL_WAIT).
     for i in range(6):
-        if not typing(address, there=there):
+        why = typing(address, there=there)
+        if not why:
             break
+        if why == "asking":  # #12: a question open there is no one writing, and hc send would answer it
+            raise Fail("not sent: that Assistant is asking the person something right now; try again once they've answered it")
         if i == 5:
             raise Fail("not sent: the person is writing to that Assistant right now; try again in a few minutes")
         time.sleep(5)
@@ -1393,7 +1396,7 @@ def tell(target, text, sender=None):
     if back is None and me:
         # it can't reach this machine: its answer waits there, and this machine fetches it (replies_pass)
         _await(to["route"], to["how"], (receiver.get("core") or {}).get("name") or to["route"].split(">")[-1], here.get("name"))
-    return {"to": to["target"], "space": to.get("space_name"), "can_reply": attrs["can-reply"] == "yes", "from": attrs["from"], "held": held,
+    return {"to": to["target"], "space": to.get("space_name"), "can_reply": attrs["can-reply"] == "yes", "from": attrs["from"], "held": held, "why": held and _held_why(to["address"]),
             **({"restarted": restarted} if restarted else {})}
 
 
@@ -1555,6 +1558,21 @@ def sandbox_blocks_hc():
     return None
 
 
+# #12: why tell-assistant's message waits, said truly (it said "the person is writing to it" for every hold)
+HELD_WHY = {"chat": "the person is writing to it; it goes once they've sent or cleared that",
+            "asking": "it's asking the person something; it goes once they've answered or declined it",
+            "working": "it's in the middle of a turn; it goes once that ends",
+            "other": "another program than its agent is in front of its terminal; it goes once that's closed",
+            None: "it can't take messages yet; it goes as soon as it can"}
+
+
+def _held_why(address):
+    from .agents import status_word
+    k = hc_json("get", address) or {}
+    why = "other" if front(k) == "other" else typing(address, k) or status_word(k)
+    return HELD_WHY.get("chat" if why == "input" else why, HELD_WHY[None])
+
+
 def _timed(fn, seconds):
     """fn() in a thread; Fail when it hasn't ended in `seconds` (its hc calls may still finish after)."""
     box = {}
@@ -1593,5 +1611,5 @@ def cmd_tell(args):
         return
     say(args, r, ("Not delivered yet, held for" if r.get("held") else "Delivered to") + f" {r['to']}" + (f" ({r['space']})" if r.get("space") else "") +
         (f": its agent had stopped, so it started again ({r['restarted']}) with this as its first message" if r.get("restarted") else "") +
-        (": the person is writing to it; it goes once they've sent or cleared that" if r.get("held") else "") +
+        (f": {r.get('why') or HELD_WHY[None]}" if r.get("held") else "") +
         ("." if r["can_reply"] else ". It can't reach this machine back, so it can't reply."))

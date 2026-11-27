@@ -415,6 +415,7 @@ HELD = os.path.join(STORE, ".held.json")  # {address: [{text, how, at}]}: held_p
 ESCAPES = re.compile(r"\x1b(?:\[([0-9;:?<=>!]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|P[^\x1b]*\x1b\\|[()*+][0-9A-Za-z]|.)"
                      r"|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]|[\r\n]|[^\x1b\x00-\x1f\x7f]+", re.S)
 PROMPT = re.compile(r"^\s*[❯›>]\s")   # Claude Code's input line, Codex's
+OPTION = re.compile(r"\d+\.\s")        # after the mark: a dialog's numbered option, not the input line
 RULE = re.compile(r"^\s*[─━]{8,}")     # Claude Code's box edge
 
 
@@ -500,7 +501,8 @@ def typed_input(raw):
 
 def typing(address, k=None, there=None):
     """Why the person is writing to this agent now, else None: "chat" (its chat box holds unsent
-    words) or "input" (its CLI's input line holds text they typed). k: its hc get, when at hand."""
+    words), "input" (its CLI's input line holds text they typed) or "asking" (#12: a question or permission dialog is
+    open: no one writes, yet what's sent waits, as hc send would answer it). k: its hc get, when at hand."""
     if k is None:
         if there:
             try:
@@ -517,9 +519,14 @@ def typing(address, k=None, there=None):
         at = 0
     if at and now() - at < TYPING_KEEP_MS:
         return "chat"
+    if status_word(k) == "blocked":
+        return "asking"
     typed = typed_input(screen_raw(address, there))
     if not typed:
         return None
+    # #12: a dialog's highlighted option (Claude Code's ❯ 1. Red, Codex's › 1. Yes) sat where the input line is looked for
+    if OPTION.match(typed):
+        return "asking"
     # #1207: one of the agent's own suggested replies (<hc suggest="…"/>) sitting in its input is no one typing: held
     # for it, review-more's message (and any news) waited for good, the agent idle till a person pressed Enter.
     return None if not there and any(same_words(typed, x) for x in suggested(k)) else "input"
