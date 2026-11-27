@@ -177,7 +177,13 @@ class Merge(World):
             return self.sync("merge", "7")
         code, out = merged_with([GREEN[0], dict(GREEN[1], conclusion="cancelled")])
         self.assertEqual((code, out["gate"]), (1, "main-checks"), out)
+        self.assertIn("fork-check failed: cancelled", out["why"], "fork-check runs per SHA: no newer push cancels it")
         self.assertEqual(self.st()["phase"], "merged", "merged: the install waits on main's checks")
+        # upstream's check cancelled is no verdict: it waits for the newer run, never holds as failed
+        code, out = merged_with([dict(GREEN[0], conclusion="cancelled"), GREEN[1]])
+        self.assertEqual(out["outcome"], "wait", out)
+        self.assertIn("check waiting for the newer run", out["why"])
+        self.assertNotIn("cancelled", out["why"])
         code, out = merged_with(RUNNING)
         self.assertEqual(out["outcome"], "wait")
         code, out = merged_with(GREEN)
@@ -234,12 +240,96 @@ class MainChecks(World):
             gate.main_checks(self.p, self.wt, sha, old)
         self.assertEqual(e.exception.fields["gate"], "main-checks")
 
-    def test_a_cancelled_check_holds(self):
+    CANCELLED = [dict(GREEN[0], conclusion="cancelled"), GREEN[1]]
+    RED = [dict(GREEN[0], conclusion="failure"), GREEN[1]]
+
+    def test_a_cancelled_run_then_a_passed_one_passes(self):
         old, sha = self.candidate("bin/tool.py")
-        self.set_gh(checks={sha: [dict(GREEN[0], conclusion="cancelled"), GREEN[1]]})
+        _, newer = self.candidate("bin/other.py")        # its push cancelled the candidate's check
+        self.set_gh(checks={sha: self.CANCELLED, newer: GREEN})
+        result, got = gate.main_checks(self.p, self.wt, sha, old)
+        self.assertEqual((result, got["check"]), ("pass", "success"))
+        self.assertTrue(state.checks_passed(self.st(), sha))
+        # the newest finished run decides: a newer one still running leaves an older finished one to decide
+        _, newest = self.candidate("bin/third.py")
+        self.set_gh(checks={sha: self.CANCELLED, newer: GREEN, newest: RUNNING})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "pass")
+
+    def test_a_cancelled_run_then_a_failed_one_holds(self):
+        old, sha = self.candidate("bin/tool.py")
+        _, newer = self.candidate("bin/other.py")
+        self.set_gh(checks={sha: self.CANCELLED, newer: self.RED})
         with self.assertRaises(state.Refused) as e:
             gate.main_checks(self.p, self.wt, sha, old)
-        self.assertIn("check failed: cancelled", e.exception.why)
+        self.assertEqual((e.exception.fields["gate"], e.exception.fields["outcome"]), ("main-checks", "held"))
+        self.assertIn(f"check failed: failure on {newer[:12]}", e.exception.why)
+        self.assertNotIn("cancelled", e.exception.why)
+
+    def test_a_cancelled_run_alone_waits_for_the_newer_run(self):
+        old, sha = self.candidate("bin/tool.py")
+        self.set_gh(checks={sha: self.CANCELLED})
+        result, got = gate.main_checks(self.p, self.wt, sha, old)
+        self.assertEqual((result, got["check"]), ("wait", "waiting for the newer run"))
+        # a newer push whose run hasn't finished: still waiting for it
+        _, newer = self.candidate("bin/other.py")
+        self.set_gh(checks={sha: self.CANCELLED, newer: RUNNING})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old), ("wait", {"check": gate.NEWER,
+                                                                                "fork-check": "success"}))
+        # none finished within the gate's 30 minutes: held as today, in the same words
+        with self.assertRaises(state.Refused) as e:
+            gate.main_checks(self.p, self.wt, sha, old, now=lambda: time.time() + gate.CHECKS_WAIT_S + 1)
+        self.assertEqual(e.exception.fields["gate"], "main-checks")
+        self.assertIn("didn't end within 30 minutes (check waiting for the newer run, fork-check success)",
+                      e.exception.why)
+        self.assertNotIn("cancelled", e.exception.why)
+        self.assertFalse(state.checks_passed(self.st(), sha))
+
+    def test_a_rerun_after_a_cancel_counts(self):
+        old, sha = self.candidate("bin/tool.py")
+        self.set_gh(checks={sha: self.CANCELLED + [GREEN[0]]})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "pass")
+
+    def test_a_docs_only_candidate_after_a_cancelled_run_is_covered_by_the_newer_one(self):
+        # the held case: a code merge's check was cancelled, a docs-only merge on top runs no check, and the next
+        # merge's run covers both
+        _, code = self.candidate("bin/tool.py")
+        old, sha = self.candidate("docs/more.md")
+        self.assertEqual(gate.check_expected(self.wt, sha, old)[0], False)
+        # nothing newer yet: it waits while its fork-check runs (a newer push may still land), then holds as today
+        self.set_gh(checks={code: self.CANCELLED, sha: [RUNNING[0] | {"name": "fork-check"}], "*": []})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "wait")
+        self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], "*": []})
+        with self.assertRaises(state.Refused) as e:
+            gate.main_checks(self.p, self.wt, sha, old)
+        self.assertIn("no check run comes", e.exception.why)
+        _, newer = self.candidate("bin/other.py")
+        self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], newer: RUNNING, "*": []})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old), ("wait", {"check": gate.NEWER,
+                                                                                "fork-check": "success"}))
+        self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], newer: GREEN, "*": []})
+        self.assertEqual(gate.main_checks(self.p, self.wt, sha, old)[0], "pass")
+        self.set_gh(checks={code: self.CANCELLED, sha: [GREEN[1]], newer: self.RED, "*": []})
+        with self.assertRaises(state.Refused) as e:
+            gate.main_checks(self.p, self.wt, sha, old)
+        self.assertIn(f"check failed: failure on {newer[:12]}", e.exception.why)
+
+    def test_a_newer_failure_holds_and_a_newer_pass_never_clears_a_failure(self):
+        old, sha = self.candidate("bin/tool.py")
+        _, newer = self.candidate("bin/other.py")
+        for own, after, words in ((GREEN, self.RED, f"check failed: failure on {newer[:12]}"),
+                                  (self.RED, GREEN, "check failed: failure,"),
+                                  ([GREEN[0], dict(GREEN[1], conclusion="cancelled")], GREEN,
+                                   "fork-check failed: cancelled")):
+            with self.subTest(words):
+                self.set_gh(checks={sha: own, newer: after})
+                with self.assertRaises(state.Refused) as e:
+                    gate.main_checks(self.p, self.wt, sha, old)
+                self.assertIn(words, e.exception.why)
+        self.assertFalse(state.checks_passed(self.st(), sha))
+
+    def test_a_sync_prs_cancelled_head_check_still_holds(self):
+        # the PR gate reads the exact head: a newer push there is a new head, so a cancelled run stays a failure
+        self.assertEqual(gate.runs_state(self.CANCELLED, gate.CHECKS)["check"], "failed: cancelled")
 
 
 class Workflows(unittest.TestCase):

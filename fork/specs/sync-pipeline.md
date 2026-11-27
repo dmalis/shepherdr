@@ -416,11 +416,19 @@ wait for them: CI reports after the install ([Installing our own merges](#instal
 - `check` when a run is expected. Upstream's push trigger skips a push whose every changed file matches its
   `paths-ignore` (`**/*.md`, `docs/**`, read from the candidate's own `check.yml`). The run lists the files changed
   between main's old tip and the candidate. Any file outside those patterns means a run is expected.
-- An expected run that hasn't appeared or ended after 30 minutes, ended other than `success` (a `cancelled` run
-  included: upstream's workflow cancels a push run when main moves again), or can't be read: **held** (kind `gate`).
+- A later commit of main's first-parent line that contains the candidate covers it too, as for [CI after the
+  install](#installing-our-own-merges): for each check, the newest finished run there counts. A failure there holds,
+  and so does the candidate's own failure: a newer pass never clears it.
+- A cancelled `check` run counts as never run: upstream's workflow cancels a push run when main moves again, and the
+  newer push's run covers the same code. The newest finished run after the candidate then decides. Until one
+  finishes, the gate waits and says "waiting for the newer run". `fork-check` runs once per SHA on main, so no newer
+  push cancels it: a cancelled one is a failure.
+- An expected run that hasn't appeared or ended after 30 minutes (a newer run included), ended other than `success`,
+  or can't be read: **held** (kind `gate`).
 - No `check` run expected: the candidate's diff from the last SHA whose `check` passed touches only those ignored
-  paths, and the trial still runs on the candidate. For a sync, the merge commit's tree is also the PR head's, whose
-  `check` passed (step 5).
+  paths, or a later commit's newer run covers it (as above), and the trial still runs on the candidate. Neither (no
+  such SHA, and no later commit on main yet once `fork-check` passed): **held**. For a sync, the merge commit's tree
+  is also the PR head's, whose `check` passed (step 5).
 
 ### Finishing the run (Codex points 10 and 14)
 
