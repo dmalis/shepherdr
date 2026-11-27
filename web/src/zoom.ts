@@ -1,4 +1,4 @@
-// Zoom in, out and back to 100% (Settings › General › Appearance, and Cmd/Ctrl + = − 0 in place of the browser's
+// Zoom in, out and back to 100% (Settings › General › Text and zoom, and Cmd/Ctrl + = − 0 in place of the browser's
 // zoom, as Figma, Notion and VS Code for the web take them). A key's change says so in a short notice with Reset,
 // as a browser's zoom bubble does, so a press never looks like something broke.
 import { dismissNotice, notice } from './kernel.ts'

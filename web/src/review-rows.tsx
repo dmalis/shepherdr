@@ -5,7 +5,7 @@ import { MUST_FIX, ROUNDS } from '@core/settings.js'
 import type { LevelConfig } from '@shared/types.ts'
 import { tryAct } from './kernel.ts'
 import { Own, SRow } from './settings.tsx'
-import { Seg } from './ui.tsx'
+import { Choice as Seg } from './choice.tsx'
 
 const rounds = (ROUNDS as [number, string][]).filter(([n]) => n > 0)
 const must = MUST_FIX as [NonNullable<LevelConfig['mustFix']>, string][]

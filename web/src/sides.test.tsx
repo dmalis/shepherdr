@@ -85,6 +85,8 @@ test('focus order follows the sides: the pane comes first when the chat is on th
 })
 
 test('Settings says it in plain words, for the layout this device is in; a phone has no row', () => {
+  // a computer's Settings (choice.tsx: a phone's shows each choice as a menu button)
+  setUI({ phone: false })
   const left = renderToStaticMarkup(<SidesRow layout="tablet" side="left" />)
   expect(left).toContain('Sides')
   expect(left).toMatch(/aria-pressed="true"[^>]*>Chat on the left</)

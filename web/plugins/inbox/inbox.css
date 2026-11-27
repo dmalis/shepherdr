@@ -23,12 +23,11 @@
 .inbx-m{display:flex;flex-wrap:wrap;column-gap:8px;margin-top:2px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums}
 .inbx-st{color:var(--muted)}.inbx-st.wait{color:var(--amber);font-weight:500}
 .inbx-dot{flex:none;width:8px;height:8px;margin-top:calc((var(--uil) - 8px) / 2);border-radius:50%;background:var(--blue)}
-/* the device check under Settings › General › Notifications */
-.dchk{display:grid;gap:8px;margin:8px 0}
+/* the device check on Settings › Notifications */
+.dchk{margin:0}.dchk .note{margin:0 0 12px}
 .dchk .note{font-size:var(--sec);line-height:var(--secl)}
 .dchk .note.warn{box-shadow:inset 3px 0 0 var(--amber)}
-.dchk .cap{margin-top:16px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
-.dchk .dev{display:flex;align-items:center;gap:12px;min-height:var(--row2);padding:8px 0;border-top:1px solid var(--line)}
+
 .dchk .dev .n{flex:1;min-width:0}.dchk .dev .l2{white-space:normal}
-.dchk .dev .v{color:var(--muted);font-size:var(--sec);line-height:var(--secl);text-align:right}
+
 .dchk .me{color:var(--fg);font-weight:500}

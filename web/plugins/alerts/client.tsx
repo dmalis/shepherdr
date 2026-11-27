@@ -1,6 +1,6 @@
 // Alerts: push notifications to this device when something needs the person. This keeps the app icon's count and the
 // alerts left on the phone in step with what still waits, and takes a tapped alert straight to its task. The choice
-// itself is in Settings › General (device.ts).
+// itself is in Settings › Notifications (device.ts).
 import { useEffect, useState } from 'react'
 import { definePlugin, notice, openLink, setPushEndpoint, useSnap, useStore, visibleChats } from '@client/kernel.ts'
 import { alertUrl, keptTags } from '@shared/alerts.ts'

@@ -1,4 +1,4 @@
-// This device, checked (fork #37), under Settings › General › Notifications, after "Alerts on this device": what the
+// This device, checked (fork #37), on Settings › Notifications, after "Alerts on this device": what the
 // browser really has (its permission, the subscription), why alerts can't arrive when they can't and what to do, a test
 // push to this device only, and every device that gets alerts, so one that is missing shows. The system's own switch
 // (macOS, Windows, Focus) is out of a page's sight: it is named, never guessed.
@@ -89,10 +89,10 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
   const others = (devices ?? []).filter((x) => !x.mine)
   return (
     <div className="dchk">
-      <Line label="This device" value={`${deviceName(navigator.userAgent, navigator.maxTouchPoints)}${app ? ', installed app' : ''}`} />
+      <h3>This device</h3>
+      <Line label="Device" value={`${deviceName(navigator.userAgent, navigator.maxTouchPoints)}${app ? ', installed app' : ''}`} />
       <Line label="Permission" value={PERMISSION[permission] ?? permission} tone={permission === 'granted' ? 'ok' : permission === 'denied' ? 'bad' : undefined} />
       <Line label="Subscribed here" value={on ? 'Yes' : 'No'} tone={on ? 'ok' : 'bad'} />
-      {why && <p className="note warn">{why}</p>}
       <div className="srow">
         <span className="n">
           Send a test alert
@@ -102,19 +102,20 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
           {busy ? 'Sending…' : 'Send test'}
         </Btn>
       </div>
+      {why && <p className="note warn">{why}</p>}
       {on && <p className="note">While Shepherdr is on this screen, alerts show inside the app instead. {check}</p>}
-      <div className="cap">Devices that get alerts</div>
+      <h3>Devices that get alerts</h3>
       {devices === null && <p className="hint">Couldn’t load the list of devices.</p>}
       {devices && !devices.length && <p className="hint">No device gets alerts yet.</p>}
       {[...(devices ?? []).filter((x) => x.mine), ...others].map((x) => (
-        <div className="dev" key={x.id}>
+        <div className="srow dev" key={x.id}>
           <span className="n">
             <span className={cx('l1', x.mine && 'me')}>{deviceName(x.device)}</span>
             <span className="l2">
               {x.mine ? 'This device' : x.seen ? `Seen ${ago(x.seen)}` : `Turned on ${ago(x.at)}`} · {lastWords(x.last, ago)}
             </span>
           </span>
-          <span className="v">{x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
+          <span className="val">{x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
         </div>
       ))}
     </div>

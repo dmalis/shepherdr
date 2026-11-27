@@ -1,0 +1,77 @@
+/* Settings, one look on every page (dmalis/shepherdr#68), as iOS Settings and macOS System Settings lay theirs out:
+   a page title, short titled sections, and each section's rows in one rounded group with hairlines between them. A row
+   is its label on the left (small print under it) and its control on the right, never wrapped under the label: a
+   choice that doesn't fit becomes a menu button (choice.tsx). Loaded with choice.tsx after ds.css, so each rule here
+   names its scope (.win .pg) to take over ds.css's at the same place, and touches nothing outside Settings. */
+.win .pg{--grp:color-mix(in srgb,var(--fg) 2.5%,transparent)}
+
+/* the page's title on a computer (a phone's header already says it), then the sections' titles, all one size */
+.win .pg>.ptl{margin:2px 0 16px;font-size:20px;line-height:28px;font-weight:600}
+.win .pg h3{display:flex;align-items:center;gap:8px;margin:28px 0 8px;font-size:var(--ui);line-height:var(--uil);font-weight:600}
+.win .pg>h3:first-of-type{margin-top:4px}.win .pg>.ptl+h3{margin-top:0}
+/* "This device": a section kept on this device only */
+.dtag{padding:0 6px;border-radius:6px;background:var(--control);color:var(--muted);font-size:12px;line-height:18px;font-weight:500;white-space:nowrap}
+/* a page's opening words, and the words between groups */
+.win .pg>.hint{margin:0 0 12px}
+
+/* a group: the rows in a run share one rounded box; a hairline between two rows, in from the left as iOS draws it.
+   A row in a wrapper of its own (a shortcut's .kset, with its notes) is one row of the group too. These rules are
+   :where() so that a wrapped row's own .srow (below) and the row rules after them win over them. */
+.win .pg .srow{position:relative;flex-wrap:nowrap;gap:12px;padding:8px 16px}
+.win .pg .kset{padding:0 16px}
+.win .pg :where(.srow,.kset){border:1px solid var(--line2);border-block-width:0;border-radius:0;background-color:var(--grp)}
+.win .pg :where(.srow,.kset):where(:not(:is(.srow,.kset)+*)){border-top-width:1px;border-top-left-radius:12px;border-top-right-radius:12px}
+.win .pg :where(.srow,.kset)+:where(.srow,.kset){background-image:linear-gradient(var(--line),var(--line));background-size:calc(100% - 16px) 1px;background-position:right top;background-repeat:no-repeat}
+.win .pg :where(.srow,.kset):where(:not(:has(+:is(.srow,.kset)))){border-bottom-width:1px;border-bottom-left-radius:12px;border-bottom-right-radius:12px;margin-bottom:12px}
+.win .pg .kset>.srow{padding-inline:0;border:0;border-radius:0;background:none;margin:0}
+/* a group after something that is not a title or words (a picker, a banner) stands a little apart from it */
+.win .pg :where(:not(h3,.hint,.ptl,.srow,.kset))+:where(.srow,.kset){margin-top:12px}
+/* the label takes the room; the control keeps its own width, a value's words may shrink */
+.win .pg .srow .n,.win .pg .srow.wrap .n{flex:1;min-width:0}
+.win .pg .srow>:not(.n){flex:none}.win .pg .srow>.val{flex:0 1 auto}
+/* a menu button never takes more than half the row: a long value ends in an ellipsis, its menu has it whole */
+.win .pg .srow>.chv{flex:0 1 auto;max-width:50%}.chv>.v{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* a value with its button (an agent): the value under the label, the button on the right */
+.win .pg .srow:has(>.val+.btn){display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:0}
+.win .pg .srow:has(>.val+.btn)>.n{grid-area:1/1}
+.win .pg .srow:has(>.val+.btn)>.val{grid-area:2/1;text-align:left}
+.win .pg .srow:has(>.val+.btn)>.btn{grid-area:1/2/3/3;align-self:center}
+/* a machine's or a plan's card sits in the same box as a group */
+.win .pg .mcard{background-color:var(--grp)}
+.app .win .pg>.banner{min-height:var(--row2);padding:8px 8px 8px 16px;background-color:var(--grp);font-size:var(--ui);line-height:var(--uil)}
+
+/* a choice as a menu button: the value now and a chevron (choice.tsx) */
+.chv{display:inline-flex;align-items:center;gap:2px;height:var(--btns);padding:0 4px 0 10px;border-radius:8px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);white-space:nowrap}
+.chv>.i{color:var(--muted)}
+.chv:hover,.chv[aria-expanded="true"]{background:var(--control)}
+@media(pointer:coarse){.chv:active{opacity:.6}}
+/* the segmented control at its own width, never seen: it decides whether the choice fits */
+.chp{position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none}
+.chp .seg{max-width:none}.chp .sb{display:inline-flex;align-items:center;padding:0 10px;font-size:var(--sec);font-weight:500;white-space:nowrap}
+
+/* Theme: a picture of each, as GitHub and Slack show theirs. Each theme's own colours, the same as ds.css's tokens
+   for it (web/src/settings-look.test.ts checks): the sidebar, an agent's bubble, the person's, the message box */
+.thms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;max-width:520px;margin-bottom:12px;padding:4px 4px 0}
+.app.phone .thms{gap:10px}
+.thm{display:grid;gap:6px;justify-items:center;border-radius:10px}
+.thm-pic{position:relative;display:block;width:100%;aspect-ratio:16/10;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px var(--line2)}
+.thm[aria-pressed="true"] .thm-pic{box-shadow:0 0 0 2px var(--overlay),0 0 0 4px var(--fg)}
+@media(hover:hover){.thm[aria-pressed="false"]:hover .thm-pic{box-shadow:0 0 0 1px var(--muted)}}
+@media(pointer:coarse){.thm:active{opacity:.6}}
+.thm-n{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500}
+.thm[aria-pressed="true"] .thm-n{color:var(--fg)}
+.thm-sc{position:absolute;inset:0;background:var(--t-canvas)}
+.thm-sc.light{--t-canvas:#fff;--t-well:#fafafa;--t-raised:#f5f5f5;--t-mine:#e5e5e5;--t-line2:rgb(0 0 0/.12)}
+.thm-sc.dark{--t-canvas:#121212;--t-well:#0a0a0a;--t-raised:#1e1e1e;--t-mine:rgb(255 255 255/.14);--t-line2:rgb(255 255 255/.12)}
+.thm-sc.night{--t-canvas:#000;--t-well:#0a0a0a;--t-raised:#171717;--t-mine:rgb(255 255 255/.16);--t-line2:rgb(255 255 255/.16)}
+/* System: Light, with Dark over its lower right half, as macOS draws Auto */
+.thm-sc.half{clip-path:polygon(100% 0,100% 100%,0 100%)}
+.thm-sc>i{position:absolute;display:block;border-radius:999px}
+.thm-sc>.s{left:0;top:0;bottom:0;width:26%;border-radius:0;background:var(--t-well);box-shadow:inset -1px 0 var(--t-line2)}
+.thm-sc>.a{left:34%;top:17%;width:46%;height:15%;background:var(--t-raised)}
+.thm-sc>.m{right:8%;top:40%;width:32%;height:15%;background:var(--t-mine)}
+.thm-sc>.c{left:34%;right:8%;bottom:11%;height:17%;box-shadow:inset 0 0 0 1px var(--t-line2)}
+
+/* Text and zoom: a short chat at the size picked, framed as a sample, in the chat's own canvas and bubbles */
+.tprev{margin:0 0 8px;padding:0 16px;border-radius:12px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--line2);overflow:hidden}
+.tprev .msgs{padding-block:12px;min-height:0}

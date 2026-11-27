@@ -12,18 +12,17 @@ import type { IconName } from './icons.ts'
 import { notice, openSettings, registry, setUI, tryAct, useStore, useUI } from './kernel.ts'
 import { confirm, openDialog, openForm } from './overlay.tsx'
 import { openPicker, PickerHead, pickFor, PickSummary, useCatalog, type Role } from './picker.tsx'
-import { MOTIONS, setPref, THEMES, usePrefs, WIDTHS } from './prefs.ts'
-import { SizeRows } from './size-rows.tsx'
-import { canKeepAwake, setAwake, useAwake } from './awake.ts'
-import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
+import { Appearance } from './appearance.tsx'
+import { Choice as Seg } from './choice.tsx'
+import { setChatSide, type Layout, type Side } from './sides.ts'
 import { ReviewRows } from './review-rows.tsx'
 import { About } from './about.tsx'
 import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
 import { READS } from '@core/machines.js'
 import { IconButton } from './space-icon.tsx'
-import { Btn, cx, I, IB, Meter, Row, Seg, Tgl } from './ui.tsx'
+import { Btn, cx, I, IB, Meter, Row, Tgl } from './ui.tsx'
 
-export const ALL: [string, IconName][] = [['General', 'gear'], ['Agents', 'agent'], ['Tasks', 'tasks'], ['Secrets', 'key'], ['Machines', 'server'], ['Usage', 'gauge'], ['Plugins', 'plug'], ['About', 'info']]
+export const ALL: [string, IconName][] = [['General', 'gear'], ['Notifications', 'bell'], ['Agents', 'agent'], ['Tasks', 'tasks'], ['Secrets', 'key'], ['Machines', 'server'], ['Usage', 'gauge'], ['Plugins', 'plug'], ['About', 'info']]
 const SPACE: [string, IconName][] = [['Space', 'hash'], ['Agents', 'agent'], ['Tasks', 'tasks'], ['Secrets', 'key']]
 
 /** a settings row: a label and a control */
@@ -161,10 +160,7 @@ function SpaceRepos({ snap, place }: { snap: Snapshot; place: string }) {
   )
 }
 
-function General() {
-  const p = usePrefs()
-  const sides = useSides()
-  const awake = useAwake()
+function Notifications() {
   const { now, read } = useDeviceAlerts()
   const run = async (f: () => Promise<string | void>) => {
     try {
@@ -178,14 +174,6 @@ function General() {
   const why = now && WHY[now.state]
   return (
     <>
-      <h3>Appearance</h3>
-      <SRow label="Theme"><Seg label="Theme" values={THEMES} value={p.theme} onChange={(v) => setPref('theme', v)} /></SRow>
-      <SizeRows />
-      <SRow label="Chat width" wrap><Seg label="Chat width" values={WIDTHS} value={p.width} onChange={(v) => setPref('width', v)} /></SRow>
-      <SRow label="Motion"><Seg label="Motion" values={MOTIONS} value={p.motion} onChange={(v) => setPref('motion', v)} /></SRow>
-      <SidesRow {...sides} />
-      {canKeepAwake() && <SRow label="Keep the screen on"><Tgl label="Keep the screen on" on={awake} onChange={setAwake} /></SRow>}
-      <h3>Notifications</h3>
       {now && now.state !== 'on' && (
         <div className="banner" style={{ margin: '0 0 4px' }}>
           <I n="bell" />
@@ -535,7 +523,8 @@ function Section({ snap, place, sec }: { snap: Snapshot; place: string; sec: str
   if (extra) return <extra.View place={place} />
   if (sec === 'About') return <About />
   if (!snap.config) return null
-  if (sec === 'General') return <><General /><h3>Everything</h3><IconRow snap={snap} id={everything(snap)?.id ?? ''} /></>
+  if (sec === 'General') return <><Appearance /><h3>Everything</h3><IconRow snap={snap} id={everything(snap)?.id ?? ''} /></>
+  if (sec === 'Notifications') return <Notifications />
   if (sec === 'Space') return <IconRow snap={snap} id={place} />
   // a space's Agents: its own Assistant only (its tasks' agents are its repos', SHEP-335)
   if (sec === 'Agents') return <Agents snap={snap} place={place} only={place === 'all' ? undefined : ['Chats']} />
@@ -583,8 +572,6 @@ export function SettingsWindow({ snap }: { snap: Snapshot }) {
         )}
       </div>
     )
-  // a section that opens with its own heading (General's "Appearance") has no second one above it
-  const headed = cur === 'General'
   return (
     <div className="win in" role="dialog" aria-modal="true" aria-label={title}>
       <div className="nav">
@@ -593,7 +580,7 @@ export function SettingsWindow({ snap }: { snap: Snapshot }) {
       </div>
       <div className="pg">
         <span className="x">{X}</span>
-        {!headed && <h3>{cur}</h3>}
+        <h2 className="ptl">{cur}</h2>
         {cur && <Section snap={snap} place={place} sec={cur} />}
       </div>
     </div>
