@@ -15,8 +15,9 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 /** the news of a task that waits: a wait the Assistant handles, a prompt that is the person's, or a stop */
 const WAITS = new Set(['waiting', 'needs you', 'failed'])
 
-/** null: nothing to draw (the app shows started, ready and done by itself, from the task's status) */
-export function newsRow(n: News, title: string): NewsRow | null {
+/** null: nothing to draw (the app shows started, ready and done by itself, from the task's status). theirs: its task
+ *  waits on the person now (needs-you.ts waitsOnPerson: a card of theirs, or the Assistant handed it up) */
+export function newsRow(n: News, title: string, theirs = false): NewsRow | null {
   if (n.mark === 'started' || n.mark === 'ready' || n.mark === 'done') return null
   const text = String(n.text ?? '').replace(/\s+/g, ' ').trim()
   // Herdr's event names the row ("stalled": "Stalled"); a line from before it rode along, the words it said
@@ -25,8 +26,10 @@ export function newsRow(n: News, title: string): NewsRow | null {
   const short = text.length <= SHORT
   // dmalis/shepherdr#114: a wait is the Assistant's first, by Needs you's own rule (forAssistant on its kind), and reads
   // as the grey tier, never "Needs you": the "you" in news is the Assistant. Only the person's says "Needs you". An
-  // older line has no kind: news always went to the Assistant first, so it reads as the Assistant's too.
-  if (WAITS.has(what) && forAssistant(n.needs)) {
+  // older line has no kind: news always went to the Assistant first, so it reads as the Assistant's too. The task's
+  // newest such row, while it still waits (live), says what holds now: the person's once it is theirs (a prompt, a
+  // hand-up), whatever its line said then.
+  if (WAITS.has(what) && forAssistant(n.needs) && !(n.live && theirs)) {
     const stop = what === 'failed' ? TIER_WORDS.failed : ''
     const line = [stop, short ? text : ''].filter(Boolean).join(': ')
     return { label: assistantLabel(line), body: short ? '' : text }

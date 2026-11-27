@@ -360,7 +360,7 @@ export function newsWords(e, x) {
 // The lines a space's tasks make in its Assistant's chat, in time order, each { id, at, ref, event, text, made }:
 // Herdr's news in the conversation (items of kind "news") as said, and a start, ready or done it never said here
 // (before this log's first page, or not sent) from the task's own started / ready_at / done_at. tasks: Map ref -> task.
-// Each comes with live (needs you still, red) and accept (the newest ready line of a task still Ready).
+// Each comes with live (its newest wait line while it still waits) and accept (the newest ready line of a task still Ready).
 export function newsTimeline(items, tasks, { start = null } = {}) {
   const all = [], said = new Set();
   for (const it of items) if (it.kind === "news") { said.add(`${it.ref}:${it.event}`); all.push(it); }

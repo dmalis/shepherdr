@@ -58,3 +58,14 @@ test("an older log's needs-you line, with no kind, was the Assistant's news: the
   expect(newsRow({ task: 'SHOP-2', ref: 'SHOP-2', mark: 'needs', what: '', text: 'Stripe or Adyen?' }, 'Pay')).toEqual({ label: `${A} · Stripe or Adyen?`, body: '' })
   for (const e of ['waiting', 'needs-you', 'failed']) expect(newsRow(kind(e, `"Research" ${e}: x`), 'Research')?.label).not.toContain(Y)
 })
+
+test("the newest row of a task that still waits says what holds now: Needs you once it is the person's", () => {
+  const live = { ...kind('waiting', '"Research" is waiting: Done?', 'reply'), live: true }
+  // its Assistant handed it up, or a card of the person's stands (needs-you.ts waitsOnPerson)
+  expect(newsRow(live, 'Research', true)?.label).toBe(`${Y}: Done?`)
+  expect(newsRow(live, 'Research', false)?.label).toBe(`${A} · Done?`)
+  // an older line, still live, at a permission prompt now (the reviewer's repro)
+  expect(newsRow({ ...said('needs-you', '"Research" needs you: Asks permission'), live: true }, 'Research', true)?.label).toBe(`${Y}: Asks permission`)
+  // history (not its newest, or it moved on) keeps the tier its line said
+  expect(newsRow(kind('waiting', '"Research" is waiting: Done?', 'reply'), 'Research', true)?.label).toBe(`${A} · Done?`)
+})

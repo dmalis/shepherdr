@@ -9276,6 +9276,31 @@ class AcceptCommandNews(unittest.TestCase):
                 self.assertIn("its earlier question or wait has cleared", resumed[0])
 
 
+class WaitChangesHands(unittest.TestCase):
+    """dmalis/shepherdr#114: a wait its Assistant handles, then a prompt only the person may answer, then a stop: each is
+    told (its status reads Needs you all along), so the chat's newest row never keeps an older wait's words."""
+    setUp = AcceptCommandNews.setUp
+
+    def test_each_hand_is_told_once(self):
+        self.news.news_pass({})  # a first look
+        self.task.update(state="running", merged=False)
+        v = {"status": "working", "needs": None, "why": None}
+        events = []
+        with self.mock.patch.object(self.news, "live_agents", return_value=[]), \
+                self.mock.patch.object(self.news, "view", lambda s, t, live=None: dict(v)), \
+                self.mock.patch.object(self.news, "stall_of", lambda *a: None):
+            for needs, why in ((None, None), ("reply", "Waits for your reply"), ("reply", "Waits for your reply"),
+                               ("asks", "Asks permission"), ("stopped", "Agent stopped")):
+                v.update(status="needs" if needs else "working", needs=needs, why=why)
+                self.sent.clear()
+                self.news.news_pass({})
+                events.append([re.search(r'event="([^"]+)"', line).group(1) for _, text in self.sent for line in text.split("\n")])
+                if needs == "reply" and self.sent:
+                    # the stock reason says "your" to whoever reads it: news of the Assistant's wait says it plainly
+                    self.assertIn('is waiting: Waits for a reply</herdr-news>', self.sent[0][1])
+        self.assertEqual(events, [[], ["waiting"], [], ["needs-you"], ["failed"]])
+
+
 class TildeNewsGoesToEverything(AcceptCommandNews):
     """3.2.8: this computer's own ~ space sits beside Everything in the home folder. A task in it is told to Everything,
     which keeps every task's news, once; never to the ~ space's own Assistant too. Throwaway files; hc is never run."""
@@ -11181,7 +11206,7 @@ class Next32(unittest.TestCase):
         import herdr_task.news as news
         self.begun()
         self.agent("idle", turn=4)
-        cases = [("reply", "Waits for your reply", "waiting", '"Fix login" is waiting: Waits for your reply'),
+        cases = [("reply", "Waits for your reply", "waiting", '"Fix login" is waiting: Waits for a reply'),
                  ("attention", "Checks failing: test", "waiting", '"Fix login" is waiting: Checks failing: test'),
                  ("asks", "Asks permission", "needs-you", '"Fix login" needs the person: Asks permission'),
                  ("asks", "Asks to trust this folder", "needs-you", '"Fix login" needs the person: Asks to trust this folder')]

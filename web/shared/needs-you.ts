@@ -49,6 +49,16 @@ export const MEMORY_BACK_UNDER = 75
  */
 export const forAssistant = (needs: string | null | undefined) => needs !== 'asks'
 
+/**
+ * Does this task wait on the person right now, by the same records as needsYou: a card or prompt of its own that isn't
+ * its Assistant's first (a question, a permission, a secret ask), or an alert of its that stands (the Assistant's hand-up,
+ * herdr-task alert --task). An inferred wait alone (assistantFirst) is not (dmalis/shepherdr#114).
+ */
+export function waitsOnPerson(snap: Pick<NeedsSnap, 'tasks' | 'needs' | 'alerts' | 'machines'>, task: string, now = Date.now()): boolean {
+  if (snap.needs.some((n) => n.task === task && !n.assistantFirst)) return true
+  return taskAlerts(snap, now).has(task)
+}
+
 /** has the chat something you haven't read ('*': since when read marks are kept, anything older counts as read) */
 export function unread(snap: Pick<Snapshot, 'last' | 'read'>, key: string | undefined): boolean {
   const last = key ? snap.last?.[key] : undefined
