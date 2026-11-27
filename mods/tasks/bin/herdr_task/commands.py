@@ -31,7 +31,7 @@ from .launch import (
 )
 from .store import bare_by_mistake, Busy, is_task_list, locate, open_store, queue_progress, quoted, read_list, Store, store_files
 from .queues import after_refs, parse_after, queue_reason, set_after
-from .start_after import queue_at_add, wake
+from .start_after import first_start, follow_move, queue_at_add, wake
 from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
@@ -590,8 +590,9 @@ def cmd_start(args):
             v = view(s, t)
             reason = "scheduled"
         # A queued task started again goes now, past a busy machine, but still after its --after tasks (#54: added
-        # --after, it is queued already, and a start stays harmless); other tasks wait their turn unless --now was given.
-        elif (reason := None if args.now else queue_reason(s, t, hold=t["state"] != "queued")):
+        # --after, it is queued already, its first start is as a To do one's, and a start stays harmless); other
+        # tasks wait their turn unless --now was given.
+        elif (reason := None if args.now else queue_reason(s, t, hold=first_start(t))):
             t["queued_at"] = (t["state"] == "queued" and t.get("queued_at")) or now()
             t["state"] = "queued"
             t.pop("scheduled_for", None)
@@ -1523,6 +1524,9 @@ def move_task(args):
                 o.setdefault("after_ext", []).append({"ref": new_ref, "machine": None, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id,
                                                       "state": "todo", "checked": 0})
                 s.dirty = True
+    # dmalis/shepherdr#54: and what waits for it in other folders (a queued one there would take it as removed)
+    follow_move({"prefix": old_prefix, "id": old_id}, {"ref": new_ref, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id},
+                s.loc["folder"], loc["folder"])
     args.folder, args.id, args.move_to = loc["folder"], str(new_id), None
     return old_ref
 

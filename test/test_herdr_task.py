@@ -12872,7 +12872,7 @@ class StartAfter(unittest.TestCase):
         first = self.running("First")
         v = self.add("Second", after=first)
         self.assertEqual((v["state"], v["queued"], v["reason"]), ("queued", True, 'after "First"'))
-        self.assertEqual(self.task(2)["queue"], {"space": "sp1", "parent": None})
+        self.assertEqual(self.task(2)["queue"], {"space": "sp1", "parent": None, "added": True})
         self.assertEqual(self.tick_at(self.now_ms()), [])  # First still at work
         self.assertFalse(self.woken())
         self.done_by_hand(first)
@@ -13055,15 +13055,63 @@ class StartAfter(unittest.TestCase):
         self.assertEqual(self.task(2)["held"], "vm-a's memory is 92% full")
         self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
 
-    def test_the_persons_start_on_a_queued_one_still_goes_past_a_busy_machine(self):
-        """As before: a queued task started again goes now past a busy machine; only its --after tasks still hold it."""
+    def test_its_first_start_waits_for_a_busy_machine_and_a_second_goes(self):
+        """The Assistant adds every task, then starts them all: that first start on one added --after is as on a To do
+        one, so a busy machine still holds it. A start again goes past the busy machine, as a queued task's always did;
+        only its --after tasks still hold it."""
         from unittest import mock
         a = self.running("A")
         self.add("After A", after=a)
         self.done_by_hand(a)
         with mock.patch.object(self.queues, "machine_hold", lambda: "vm-a's memory is 92% full"):
+            out = self.run_cmd(self.commands.cmd_start, id="2")
+            self.assertEqual((out["queued"], out["reason"], self.started), (True, "vm-a's memory is 92% full", []))
             self.run_cmd(self.commands.cmd_start, id="2")
         self.assertEqual(self.started_refs(), ["APP-2"])
+
+    def test_an_archived_one_waits_until_it_is_back(self):
+        a = self.running("A")
+        self.add("After A", after=a)
+        self.run_cmd(self.commands.cmd_archive, id="2")
+        self.done_by_hand(a)
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual(self.task(2)["state"], "queued")
+        self.run_cmd(self.commands.cmd_unarchive, id="2")
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_moving_what_it_waits_for_keeps_it_waiting(self):
+        """Its dependency moves to another folder before it starts: it waits for it there, never takes it as removed;
+        a task in the folder it moved to waits for it by a plain --after."""
+        other, ref = self.other_folder()
+        self.add("Moves", space="sp1")  # APP-1, To do
+        with self.store_mod.Store(self.store_mod.locate(other)) as s:
+            t = s.new("Waits there", "", "here")
+            t.update(state="queued", queued_at=1, queue={"space": "sp1", "parent": None},
+                     after_ext=[{"ref": "APP-1", "machine": None, "prefix": "APP", "id": 1, "state": "todo", "checked": 0}])
+            s.dirty = True
+        third = os.path.join(self.tmp, "docs")
+        os.makedirs(third)
+        v = self.run_cmd(self.commands.cmd_add, title="Waits in a third", after="APP-1", folder=third)
+        self.assertEqual(v["state"], "queued")
+        base = dict(title=None, prompt=None, prompt_file=None, after=None, at=None, in_=None, here=False, worktree=False, base=None)
+        moved = self.run_cmd(self.commands.cmd_edit, id="1", move_to=other, **base)["ref"]
+        for folder in (other, third):
+            self.assertEqual(self.tick_at_folder(folder), [])
+        with self.store_mod.Store(self.store_mod.locate(other)) as s:
+            waits = s.find(2)
+            self.assertEqual((waits.get("after"), waits.get("after_ext")), ([int(moved.rsplit("-", 1)[1])], None))
+        with self.store_mod.Store(self.store_mod.locate(third)) as s:
+            self.assertEqual([x["ref"] for x in s.find(1)["after_ext"]], [moved])
+        self.run_cmd(lambda a: self.commands.cmd_state(a, "done"), id=moved, folder=other)
+        self.assertTrue(self.woken())
+        self.assertEqual((len(self.tick_at_folder(other)), len(self.tick_at_folder(third))), (1, 1))  # each starts, once
+        self.assertEqual((self.tick_at_folder(other), self.tick_at_folder(third)), ([], []))
+
+    def tick_at_folder(self, folder):
+        before = len(self.started)
+        with self.store_mod.Store(self.store_mod.locate(folder)) as s:
+            self.tick.tick_turn(s, {"started": [], "attention": [], "done": []})
+        return [x[0] for x in self.started[before:]]
 
     # ---- another folder, another machine ----
 
@@ -13152,9 +13200,64 @@ class StartAfter(unittest.TestCase):
         self.assertIn("began = time.time()", self.source("automations.py"))
         add = inspect.getsource(self.commands.cmd_add)
         self.assertIn("queue_at_add(s, t, space or default_space())", add)
-        self.assertIn("queue_reason(s, t, hold=t[\"state\"] != \"queued\")", inspect.getsource(self.commands.cmd_start))
+        self.assertIn("queue_reason(s, t, hold=first_start(t))", inspect.getsource(self.commands.cmd_start))
+        self.assertIn("follow_move(", inspect.getsource(self.commands.move_task))
+        self.assertIn("t.get(\"archived\")", inspect.getsource(self.tick.tick_turn))
         self.assertIn("hold", inspect.signature(self.queues.queue_reason).parameters)
         turn = inspect.getsource(self.tick.tick_turn)
         self.assertIn('t["state"] == "queued"', turn)
         self.assertIn("begin(s, t, argv, sp, q.get(\"parent\"))", turn)
         self.assertIn("def begin(s, t, argv, space, parent=None):", self.source("commands.py"))
+
+
+class StartAfterReady(unittest.TestCase):
+    """dmalis/shepherdr#54: nothing to merge, closed at ready under Right away or When all checks pass, by the real
+    cmd_ready on a real worktree with no commits beyond its base (MergedOnlyWithOwnWork's), frees what waits for it.
+    Its list is in memory, so its saves run the real start_after.saved() hook as Store.save() does (StartAfter pins
+    that call)."""
+    git, commit, github, ready_said = MergedOnlyWithOwnWork.git, MergedOnlyWithOwnWork.commit, MergedOnlyWithOwnWork.github, \
+        MergedOnlyWithOwnWork.ready_said
+
+    def setUp(self):
+        from unittest import mock
+        MergedOnlyWithOwnWork.setUp(self)
+        import herdr_task.analytics as analytics
+        import herdr_task.queues as queues
+        import herdr_task.start_after as start_after
+        self.queues, self.wake_file = queues, os.path.join(self.root, ".queue-wake")
+        p = mock.patch.object(start_after, "WAKE", self.wake_file)
+        p.start()
+        self.addCleanup(p.stop)
+        self.store.data["tasks"].append({"id": 2, "title": "After it", "state": "queued", "after": [1], "queued_at": 1,
+                                         "queue": {"space": "sp1", "parent": None, "added": True}})
+
+        class Saved(type(self.store)):
+            def __enter__(s):
+                s.before = analytics.snapshot(s.data["tasks"])
+                return s
+
+            def __exit__(s, *a):
+                start_after.saved(s, s.before)
+                return False
+        self.store.__class__ = Saved
+
+    def test_nothing_to_merge_closed_at_ready_frees_it(self):
+        for policy in ("auto", "checks"):
+            with self.subTest(policy=policy):
+                self.task.update(state="running")
+                for k in ("closed_alone", "finished_quiet", "waits_why", "nothing_to_merge"):
+                    self.task.pop(k, None)
+                if os.path.exists(self.wake_file):
+                    os.remove(self.wake_file)
+                self.github([])
+                self.assertEqual(self.queues.waiting_for(self.store, self.store.data["tasks"][1]), [1])
+                self.assertEqual(self.ready_said(summary="Already fixed upstream.", policy=policy), "done")
+                self.assertTrue(self.task["nothing_to_merge"])
+                self.assertEqual(self.task["closed_alone"], policy)
+                self.assertTrue(os.path.exists(self.wake_file))  # the scheduler's next round, now
+                self.assertEqual(self.queues.waiting_for(self.store, self.store.data["tasks"][1]), [])
+
+    def test_ready_that_waits_for_accept_never_wakes_it(self):
+        self.github([])
+        self.assertEqual(self.ready_said(policy="ask"), "ready")
+        self.assertFalse(os.path.exists(self.wake_file))

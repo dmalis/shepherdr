@@ -12,13 +12,12 @@ the fallback, and a task starts once: the queue starts only tasks still queued, 
 import os
 import time
 
-from .base import now
-from .queues import HOLD_FILE
+from .base import STORE, now
 from .settings import check_automatic_agent, worker_argv
-from .store import read_list, store_files
+from .store import Store, locate, read_list, store_files
 
-# Beside the task lists (as machine-hold.json), never among them: the Tasks panel reads every file there.
-WAKE = os.path.join(os.path.dirname(HOLD_FILE), "queue-wake")
+# In the task lists' folder, as its .tick.lock (not a .json, so never read as a list): one wake per store.
+WAKE = os.path.join(STORE, ".queue-wake")
 NAP_STEP = 0.5  # how often a sleeping scheduler looks for a wake (s)
 
 
@@ -29,8 +28,47 @@ def queue_at_add(s, t, space):
         return
     check_automatic_agent(worker_argv(s, t, space))
     t["state"], t["queued_at"] = "queued", now()
-    t["queue"] = {"space": space, "parent": None}
+    # added: queued by add, not by a start, so its first start still waits for a busy machine as a To do one's
+    # would (cmd_start). A start replaces the plan, so a second start goes past it, as a queued task started again.
+    t["queue"] = {"space": space, "parent": None, "added": True}
     s.dirty = True
+
+
+def first_start(t):
+    """Whether a start on it is its first: To do, or queued by add --after and not started since."""
+    return t["state"] != "queued" or bool((t.get("queue") or {}).get("added"))
+
+
+def follow_move(old, new, here, there):
+    """A task moved from folder `here` (old: its prefix and id) to `there` (new: its ref, prefix and id): what waits
+    for it in every other folder on this machine waits for it there, never for a task that is gone (move_task
+    retargets only the folder it left). In `there` itself it becomes a plain --after."""
+    for p in store_files():
+        d = read_list(p) or {}
+        folder = d.get("folder")
+        if not folder or not os.path.isdir(folder) or os.path.realpath(folder) == os.path.realpath(here):
+            continue
+        if not any(points_at(x, old) for t in d.get("tasks") or [] for x in t.get("after_ext") or []):
+            continue
+        with Store(locate(folder)) as s:
+            same = os.path.realpath(folder) == os.path.realpath(there)
+            for t in s.data["tasks"]:
+                ext = t.get("after_ext") or []
+                if not any(points_at(x, old) for x in ext):
+                    continue
+                t["after_ext"] = [x for x in ext if not points_at(x, old)]
+                if same:
+                    t["after"] = [*(t.get("after") or []), new["id"]]
+                else:
+                    t["after_ext"].append({"ref": new["ref"], "machine": None, "prefix": new["prefix"], "id": new["id"],
+                                           "state": "todo", "checked": 0})
+                if not t["after_ext"]:
+                    t.pop("after_ext")
+                s.dirty = True
+
+
+def points_at(x, old):
+    return not x.get("machine") and x.get("prefix") == old["prefix"] and x.get("id") == old["id"]
 
 
 def saved(s, before):
