@@ -715,7 +715,8 @@ function settingsPage(id: string): string | null {
   if (/review|merge|proof/.test(w)) return "Tasks";
   if (/voice|screens|schedule|reaction|terminal|plugin/.test(w)) return "Plugins";
   if (/plan|limit|usage/.test(w)) return "Usage";
-  if (/theme|appearance|notification|alert|motion|width/.test(w)) return "General";
+  if (/notification|alert/.test(w)) return "Notifications";
+  if (/theme|appearance|motion|width/.test(w)) return "General";
   if (/key|token|secret/.test(w)) return "Secrets";
   return null;
 }

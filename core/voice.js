@@ -86,7 +86,7 @@ export const OPENS = ["space", "chat", "task", "screen", "terminal", "tasks", "n
 /** an agent's Screen: its browser or its desktop */
 export const SCREENS = ["browser", "desktop"];
 /** Settings' pages, as the app names them (web/plugins/voice/client.tsx voiceNav) */
-export const SETTINGS = ["General", "Agents", "Tasks", "Secrets", "Machines", "Usage", "Plugins"];
+export const SETTINGS = ["General", "Notifications", "Agents", "Tasks", "Secrets", "Machines", "Usage", "Plugins"];
 export const ACTS = ["done", "done_without_merging", "start", "stop", "restart", "rename_task", "move_task", "archive", "unarchive", "delete", "answer",
   "run_schedule", "pause_schedule", "resume_schedule", "rename_space", "archive_space", "unarchive_space", "remove_space", "setting",
   "pin_artifact", "unpin_artifact", "delete_artifact", "take_over", "hand_back", "skip_step"];
@@ -103,7 +103,7 @@ export const TOOLS = [
     part: { type: "integer", description: "page: which part of a long page (1 first)." },
   }, ["what"]),
   tool("open", "Show something in the person's app, the one the call runs in: Everything or a space, a chat, a task, an agent's Screen, its terminal, Tasks, Needs you, Artifacts, an artifact, or a Settings page.", {
-    what: { type: "string", enum: OPENS, description: "What to show. space, chat: Everything or a space (chat also a task's). task: by its title. screen: the Screen of a task's or chat's agent (view: browser or desktop). terminal: a chat's agent's terminal (chat: back to its chat). tasks, needs: Tasks, Now. artifacts: the list. settings: id is the page (General, Agents, Tasks, Secrets, Machines, Usage, Plugins)." },
+    what: { type: "string", enum: OPENS, description: "What to show. space, chat: Everything or a space (chat also a task's). task: by its title. screen: the Screen of a task's or chat's agent (view: browser or desktop). terminal: a chat's agent's terminal (chat: back to its chat). tasks, needs: Tasks, Now. artifacts: the list. settings: id is the page (General, Notifications, Agents, Tasks, Secrets, Machines, Usage, Plugins)." },
     id: PLACE,
     view: { type: "string", enum: SCREENS, description: "screen: its browser (the default) or its desktop." },
   }, ["what"], "auto"),

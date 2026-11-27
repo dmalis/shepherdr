@@ -10,14 +10,14 @@
 .win .pg h3{display:flex;align-items:center;gap:8px;margin:28px 0 8px;font-size:var(--ui);line-height:var(--uil);font-weight:600}
 .win .pg>h3:first-of-type{margin-top:4px}.win .pg>.ptl+h3{margin-top:0}
 /* "This device": a section kept on this device only */
-.dtag{padding:0 6px;border-radius:6px;background:var(--control);color:var(--muted);font-size:12px;line-height:18px;font-weight:500;white-space:nowrap}
+.win .pg .dtag{padding:0 6px;border-radius:6px;background:var(--control);color:var(--muted);font-size:12px;line-height:18px;font-weight:500;white-space:nowrap}
 /* a page's opening words, and the words between groups */
 .win .pg>.hint{margin:0 0 12px}
 
 /* a group: the rows in a run share one rounded box; a hairline between two rows, in from the left as iOS draws it.
    A row in a wrapper of its own (a shortcut's .kset, with its notes; About's "What's in it" under This device) is one row of the group too. These rules are
    :where() so that a wrapped row's own .srow (below) and the row rules after them win over them. */
-.win .pg .srow{position:relative;flex-wrap:nowrap;gap:12px;padding:8px 16px}
+.win .pg .srow{position:relative;gap:12px;padding:8px 16px}
 .win .pg .kset{padding:0 16px}
 .win .pg .about-in{padding:0 16px 12px}
 .win .pg :where(.srow,.kset,.about-in){border:1px solid var(--line2);border-block-width:0;border-radius:0;background-color:var(--grp)}
@@ -28,12 +28,15 @@
 /* a group after something that is not a title or words (a picker, a banner) stands a little apart from it */
 .win .pg :where(:not(h3,.hint,.ptl,.srow,.kset,.about-in))+:where(.srow,.kset,.about-in){margin-top:12px}
 /* the label takes the room; the control keeps its own width, a value's words may shrink */
-.win .pg .srow .n,.win .pg .srow.wrap .n{flex:1;min-width:0}
+.win .pg .srow .n,.win .pg .srow.wrap .n{flex:1 1 6em;min-width:0}
+/* where even that can't fit (a 320 px phone at 200% zoom), the controls go under the label on the right rather than
+   past the row's edge */
+.win .pg .srow{flex-wrap:wrap;justify-content:flex-end}.win .pg .srow>:not(.n){max-width:100%}
 .win .pg .srow>:not(.n){flex:none}.win .pg .srow>.val{flex:0 1 auto}
 /* a long value (About's build) wraps on the right before it squeezes its label */
 .win .pg .srow>.n+.val:last-child{max-width:60%}
 /* a menu button never takes more than half the row: a long value ends in an ellipsis, its menu has it whole */
-.win .pg .srow>.chv{flex:0 1 auto;max-width:50%}.chv>.v{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.win .pg .srow>.chv{flex:0 1 auto;max-width:50%}.win .pg .chv>.v{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* a value with its button (an agent): the value under the label, the button on the right */
 .win .pg .srow:has(>.val+.btn){display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:0}
 .win .pg .srow:has(>.val+.btn)>.n{grid-area:1/1}
@@ -44,37 +47,37 @@
 .app .win .pg>.banner{min-height:var(--row2);padding:8px 8px 8px 16px;background-color:var(--grp);font-size:var(--ui);line-height:var(--uil)}
 
 /* a choice as a menu button: the value now and a chevron (choice.tsx) */
-.chv{display:inline-flex;align-items:center;gap:2px;height:var(--btns);padding:0 4px 0 10px;border-radius:8px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);white-space:nowrap}
-.chv>.i{color:var(--muted)}
-.chv:hover,.chv[aria-expanded="true"]{background:var(--control)}
-@media(pointer:coarse){.chv:active{opacity:.6}}
+.win .pg .chv{display:inline-flex;align-items:center;gap:2px;height:var(--btns);padding:0 4px 0 10px;border-radius:8px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);white-space:nowrap}
+.win .pg .chv>.i{color:var(--muted)}
+.win .pg .chv:hover,.win .pg .chv[aria-expanded="true"]{background:var(--control)}
+@media(pointer:coarse){.win .pg .chv:active{opacity:.6}}
 /* the segmented control at its own width, never seen: it decides whether the choice fits */
-.chp{position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none}
-.chp .seg{max-width:none}.chp .sb{display:inline-flex;align-items:center;padding:0 10px;font-size:var(--sec);font-weight:500;white-space:nowrap}
+.win .pg .chp{position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none}
+.win .pg .chp .seg{max-width:none}.win .pg .chp .sb{display:inline-flex;align-items:center;padding:0 10px;font-size:var(--sec);font-weight:500;white-space:nowrap}
 
 /* Theme: a picture of each, as GitHub and Slack show theirs. Each theme's own colours, the same as ds.css's tokens
    for it (web/src/settings-look.test.ts checks): the sidebar, an agent's bubble, the person's, the message box */
-.thms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;max-width:520px;margin-bottom:12px;padding:4px 4px 0}
-.app.phone .thms{gap:10px}
-.thm{display:grid;gap:6px;justify-items:center;border-radius:10px}
-.thm-pic{position:relative;display:block;width:100%;aspect-ratio:16/10;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px var(--line2)}
-.thm[aria-pressed="true"] .thm-pic{box-shadow:0 0 0 2px var(--overlay),0 0 0 4px var(--fg)}
-@media(hover:hover){.thm[aria-pressed="false"]:hover .thm-pic{box-shadow:0 0 0 1px var(--muted)}}
-@media(pointer:coarse){.thm:active{opacity:.6}}
-.thm-n{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500}
-.thm[aria-pressed="true"] .thm-n{color:var(--fg)}
-.thm-sc{position:absolute;inset:0;background:var(--t-canvas)}
-.thm-sc.light{--t-canvas:#fff;--t-well:#fafafa;--t-raised:#f5f5f5;--t-mine:#e5e5e5;--t-line2:rgb(0 0 0/.12)}
-.thm-sc.dark{--t-canvas:#121212;--t-well:#0a0a0a;--t-raised:#1e1e1e;--t-mine:rgb(255 255 255/.14);--t-line2:rgb(255 255 255/.12)}
-.thm-sc.night{--t-canvas:#000;--t-well:#0a0a0a;--t-raised:#171717;--t-mine:rgb(255 255 255/.16);--t-line2:rgb(255 255 255/.16)}
+.win .pg .thms{display:grid;grid-template-columns:repeat(auto-fill,minmax(max(72px,calc((100% - 36px) / 4)),1fr));gap:12px;max-width:520px;margin-bottom:12px;padding:4px 4px 0}
+.app.phone .win .pg .thms{gap:10px}
+.win .pg .thm{display:grid;gap:6px;justify-items:center;border-radius:10px}
+.win .pg .thm-pic{position:relative;display:block;width:100%;aspect-ratio:16/10;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px var(--line2)}
+.win .pg .thm[aria-pressed="true"] .thm-pic{box-shadow:0 0 0 2px var(--overlay),0 0 0 4px var(--fg)}
+@media(hover:hover){.win .pg .thm[aria-pressed="false"]:hover .thm-pic{box-shadow:0 0 0 1px var(--muted)}}
+@media(pointer:coarse){.win .pg .thm:active{opacity:.6}}
+.win .pg .thm-n{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500}
+.win .pg .thm[aria-pressed="true"] .thm-n{color:var(--fg)}
+.win .pg .thm-sc{position:absolute;inset:0;background:var(--t-canvas)}
+.win .pg .thm-sc.light{--t-canvas:#fff;--t-well:#fafafa;--t-raised:#f5f5f5;--t-mine:#e5e5e5;--t-line2:rgb(0 0 0/.12)}
+.win .pg .thm-sc.dark{--t-canvas:#121212;--t-well:#0a0a0a;--t-raised:#1e1e1e;--t-mine:rgb(255 255 255/.14);--t-line2:rgb(255 255 255/.12)}
+.win .pg .thm-sc.night{--t-canvas:#000;--t-well:#0a0a0a;--t-raised:#171717;--t-mine:rgb(255 255 255/.16);--t-line2:rgb(255 255 255/.16)}
 /* System: Light, with Dark over its lower right half, as macOS draws Auto */
-.thm-sc.half{clip-path:polygon(100% 0,100% 100%,0 100%)}
-.thm-sc>i{position:absolute;display:block;border-radius:999px}
-.thm-sc>.s{left:0;top:0;bottom:0;width:26%;border-radius:0;background:var(--t-well);box-shadow:inset -1px 0 var(--t-line2)}
-.thm-sc>.a{left:34%;top:17%;width:46%;height:15%;background:var(--t-raised)}
-.thm-sc>.m{right:8%;top:40%;width:32%;height:15%;background:var(--t-mine)}
-.thm-sc>.c{left:34%;right:8%;bottom:11%;height:17%;box-shadow:inset 0 0 0 1px var(--t-line2)}
+.win .pg .thm-sc.half{clip-path:polygon(100% 0,100% 100%,0 100%)}
+.win .pg .thm-sc>i{position:absolute;display:block;border-radius:999px}
+.win .pg .thm-sc>.s{left:0;top:0;bottom:0;width:26%;border-radius:0;background:var(--t-well);box-shadow:inset -1px 0 var(--t-line2)}
+.win .pg .thm-sc>.a{left:34%;top:17%;width:46%;height:15%;background:var(--t-raised)}
+.win .pg .thm-sc>.m{right:8%;top:40%;width:32%;height:15%;background:var(--t-mine)}
+.win .pg .thm-sc>.c{left:34%;right:8%;bottom:11%;height:17%;box-shadow:inset 0 0 0 1px var(--t-line2)}
 
 /* Text and zoom: a short chat at the size picked, framed as a sample, in the chat's own canvas and bubbles */
-.tprev{margin:0 0 8px;padding:0 16px;border-radius:12px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--line2);overflow:hidden}
-.tprev .msgs{padding-block:12px;min-height:0}
+.win .pg .tprev{margin:0 0 8px;padding:0 16px;border-radius:12px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--line2);overflow:hidden}
+.win .pg .tprev .msgs{padding-block:12px;min-height:0}

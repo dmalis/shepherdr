@@ -268,9 +268,13 @@ test("open: what it shows, as the page's voiceNav takes it", async () => {
   expect(await nav({ what: "settings" })).toEqual({ kind: "settings" });
   expect(await nav({ what: "settings", id: "usage" })).toEqual({ kind: "settings", section: "Usage" });
   expect(await nav({ what: "settings", id: "the voice plugin" })).toEqual({ kind: "settings", section: "Plugins" });
+  // Notifications is its own page again (dmalis/shepherdr#68): alerts go there, the look stays on General
+  expect(await nav({ what: "settings", id: "notification settings" })).toEqual({ kind: "settings", section: "Notifications" });
+  expect(await nav({ what: "settings", id: "alerts" })).toEqual({ kind: "settings", section: "Notifications" });
+  expect(await nav({ what: "settings", id: "the theme" })).toEqual({ kind: "settings", section: "General" });
   const bad = await voiceTool("open", { what: "settings", id: "banana" }, web, io());
   expect(bad.error).toBe(true);
-  expect(bad.result).toContain("General, Agents, Tasks, Secrets, Machines, Usage, Plugins");
+  expect(bad.result).toContain("General, Notifications, Agents, Tasks, Secrets, Machines, Usage, Plugins");
   // what 3.2 has no place for
   for (const what of ["files", "changes", "call"]) expect((await voiceTool("open", { what }, web, io())).error).toBe(true);
 });

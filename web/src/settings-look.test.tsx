@@ -19,16 +19,16 @@ const { Here, Sample, Themes } = await import('./appearance.tsx')
 const { setUI } = await import('./kernel.ts')
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
 
-test('a choice fits when the control, a gap and its label (at most 40% of the row) fit in the row', () => {
+test('a choice fits when the control, the row’s gap and its label (at most 40% of the row) fit in the row', () => {
   // a short label beside a short control
-  expect(fits(200, 60, 600)).toBe(true)
+  expect(fits(200, 60, 600, 16)).toBe(true)
   // a long label keeps only 40% of the row: 300 + 16 + 240 fits 600
-  expect(fits(300, 500, 600)).toBe(true)
+  expect(fits(300, 500, 600, 16)).toBe(true)
   // Merge's three long choices on a phone's row
-  expect(fits(420, 50, 326)).toBe(false)
+  expect(fits(420, 50, 326, 16)).toBe(false)
   // exactly full
-  expect(fits(524, 60, 600)).toBe(true)
-  expect(fits(525, 60, 600)).toBe(false)
+  expect(fits(524, 60, 600, 16)).toBe(true)
+  expect(fits(525, 60, 600, 16)).toBe(false)
 })
 
 test('each theme picture is that theme, in ds.css’s own colours', () => {
@@ -75,6 +75,15 @@ test('on a phone every choice is a menu button with its value; on a computer the
   const desk = renderToStaticMarkup(<Choice label="Motion" values={['System', 'Reduced']} value="Reduced" onChange={() => undefined} />)
   expect(desk).toContain('<span class="chp" aria-hidden="true">')
   expect(desk).toMatch(/<div class="seg" role="group" aria-label="Motion">.*aria-pressed="true">Reduced</)
+  // the look comes with the choice, and every pick reaches the row's handler as it is then, the value now too (as the
+  // segmented control's does: Needs me again asks for permission; Merge's inherited value saved as the repo's own)
+  const src = read('./choice.tsx')
+  expect(src).toContain("import './settings-look.css'")
+  expect(src).toContain('run: () => live.current.onChange(v)')
+  expect(src).toContain('live.current = { onChange, value }')
+  // the menu closes with its button, and the keyboard starts in it and comes back
+  expect(src).toMatch(/return \(\) => \{\n\s*if \(b && isOpen\(b\)\) openMenu\(b, \[\]\)/)
+  expect(src).toMatch(/if \(m && isOpen\(b\)\) keyboard\(b, m\)/)
 })
 
 // the seams in upstream's files this patch hangs on (dmalis/shepherdr#68): a sync that moves one fails here first

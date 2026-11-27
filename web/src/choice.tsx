@@ -2,7 +2,7 @@
 // with the value now and a chevron that opens the choices as a menu, as iOS's "Default ›" and macOS's pop-up buttons
 // do. On a phone it is always the button, so every choice on a page looks the same. It never wraps under its label.
 // Same props as ui.tsx's Seg, so a Settings file swaps it in by its import alone.
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useUI } from './kernel.ts'
 import { openMenu } from './overlay.tsx'
 import { I, Seg } from './ui.tsx'
@@ -10,10 +10,9 @@ import './settings-look.css'
 
 /** the label's own width it keeps beside a choice, at most this share of the row */
 const LABEL_SHARE = 0.4
-const GAP = 16
 
-/** does a segmented control `seg` px wide fit beside a label `label` px wide, in a row `row` px wide */
-export const fits = (seg: number, label: number, row: number) => seg + GAP + Math.min(label, row * LABEL_SHARE) <= row
+/** does a segmented control `seg` px wide fit beside a label `label` px wide, `gap` px apart, in a row `row` px wide */
+export const fits = (seg: number, label: number, row: number, gap: number) => seg + gap + Math.min(label, row * LABEL_SHARE) <= row
 
 /** the width of a label's own words (its first line, before any small print), not the room it was given */
 function wordsWidth(n: Element | null): number {
@@ -24,9 +23,45 @@ function wordsWidth(n: Element | null): number {
   return r.getBoundingClientRect().width
 }
 
+const isOpen = (b: Element) => b.getAttribute('aria-expanded') === 'true'
+
+/** The keyboard in an open choice menu, as a menu button's (WAI-ARIA APG): it starts on the value now; ↑ ↓ Home End
+ *  move; Tab closes it; when it closes (a pick, Escape, a tap outside) the keyboard goes back to the button. */
+export function keyboard(b: HTMLElement, menu: HTMLElement) {
+  const items = () => [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+  ;(items().find((i) => i.getAttribute('aria-checked') === 'true') ?? items()[0])?.focus({ preventScroll: true })
+  menu.addEventListener('keydown', (e) => {
+    const all = items()
+    const at = all.indexOf(document.activeElement as HTMLElement)
+    const go = (i: number) => {
+      e.preventDefault()
+      all[(i + all.length) % all.length]?.focus({ preventScroll: true })
+    }
+    if (e.key === 'ArrowDown') go(at + 1)
+    else if (e.key === 'ArrowUp') go(at < 0 ? all.length - 1 : at - 1)
+    else if (e.key === 'Home') go(0)
+    else if (e.key === 'End') go(all.length - 1)
+    else if (e.key === 'Tab' && isOpen(b)) {
+      e.preventDefault()
+      openMenu(b, [])
+    }
+  })
+  const back = new MutationObserver(() => {
+    if (isOpen(b)) return
+    back.disconnect()
+    const f = document.activeElement
+    if (b.isConnected && (!f || f === document.body || !f.isConnected || f.closest('[role="menu"]'))) b.focus({ preventScroll: true })
+  })
+  back.observe(b, { attributes: true, attributeFilter: ['aria-expanded'] })
+}
+
 export function Choice<T extends string>({ values, value, onChange, label }: { values: readonly T[]; value: T; onChange: (v: T) => void; label?: string }) {
   const phone = useUI((u) => u.phone)
   const probe = useRef<HTMLSpanElement>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  // a pick runs the row's handler as it is then, not as it was when the menu opened
+  const live = useRef({ onChange, value })
+  live.current = { onChange, value }
   const [wide, setWide] = useState(true)
   useLayoutEffect(() => {
     const p = probe.current
@@ -35,14 +70,35 @@ export function Choice<T extends string>({ values, value, onChange, label }: { v
     const check = () => {
       const cs = getComputedStyle(row)
       const room = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-      setWide(fits(p.scrollWidth, wordsWidth(row.querySelector(':scope>.n')), room))
+      setWide(fits(p.scrollWidth, wordsWidth(row.querySelector(':scope>.n')), room, parseFloat(cs.columnGap) || 0))
     }
     check()
+    // the row's width, and the control's own (its font coming in changes it)
     const ro = new ResizeObserver(check)
     ro.observe(row)
+    ro.observe(p)
     return () => ro.disconnect()
   }, [phone, values.join('\n')])
   const menu = phone || !wide
+  // a menu still open when its button goes (Settings closed, Back, the row gone) closes with it
+  useEffect(() => {
+    const b = btn.current
+    return () => {
+      if (b && isOpen(b)) openMenu(b, [])
+    }
+  }, [menu])
+  const open = (b: HTMLButtonElement) => {
+    const was = isOpen(b)
+    // every pick goes to the handler, the value now too, as the segmented control's does (Needs me again asks for
+    // this device's permission; Merge's inherited value saved as this repo's own)
+    openMenu(b, values.map((v) => ({ label: v, on: v === live.current.value, run: () => live.current.onChange(v) })), { label })
+    if (was) return
+    b.setAttribute('aria-expanded', 'true')
+    requestAnimationFrame(() => {
+      const m = [...document.querySelectorAll<HTMLElement>('[role="menu"]')].at(-1)
+      if (m && isOpen(b)) keyboard(b, m)
+    })
+  }
   return (
     <>
       {/* the segmented control at its own width, never seen: what decides whether it fits */}
@@ -52,13 +108,7 @@ export function Choice<T extends string>({ values, value, onChange, label }: { v
         </span>
       )}
       {menu ? (
-        <button
-          type="button"
-          className="chv"
-          aria-haspopup="menu"
-          aria-label={label ? `${label}: ${value}` : value}
-          onClick={(e) => openMenu(e.currentTarget, values.map((v) => ({ label: v, on: v === value, run: () => v !== value && onChange(v) })), { label })}
-        >
+        <button ref={btn} type="button" className="chv" aria-haspopup="menu" aria-label={label ? `${label}: ${value}` : value} onClick={(e) => open(e.currentTarget)}>
           <span className="v">{value}</span>
           <I n="down" c="s16" />
         </button>
