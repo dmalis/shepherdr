@@ -16,6 +16,7 @@ import { columnsOf, swapSides, useSides } from './sides.ts'
 import { SettingsWindow } from './settings.tsx'
 import { cx, Empty, I, IB, useScrolled } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
+import { EverythingLine } from './everything-line.tsx'
 import { MarkRead } from './read-marks.ts'
 import { pickFor, PickSummary, reportedPick, useCatalog } from './picker.tsx'
 
@@ -54,7 +55,7 @@ function ChatHeader({ snap, thread, place, scrolled }: { snap: Snapshot; thread:
           </button>
           <HeaderPath snap={snap} place={place} />
         </div>
-        <span className="t2"><PickSummary pick={pick} cat={cat} /></span>
+        <span className="t2">{every && <EverythingLine />}<PickSummary pick={pick} cat={cat} /></span>
       </div>
       {registry.header.filter((h) => !phone || h.phone).map((h, i) => <h.View key={i} thread={thread} />)}
     </header>
