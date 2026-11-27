@@ -5,6 +5,12 @@ description: Take upstream Shepherdr's newest release into this fork, adapt our 
 
 # Upstream sync
 
+**Status: draft until #2 is done.** Until then:
+- run only steps 1–4;
+- the schedule has no permission to update;
+- steps 5–6 change only as #2 settles them. Its issue lists the review findings they must answer: the exact
+  commit, serialised runs, resumable holds, failed and unknown outcomes, and a verified rollback.
+
 The procedure for one run. FORK.md's rules apply throughout. The run ends in one of four states, each named below:
 - nothing new;
 - installed;
@@ -15,11 +21,15 @@ The procedure for one run. FORK.md's rules apply throughout. The run ends in one
 
 - `gh repo set-default --view` prints `dmalis/shepherdr`. Otherwise stop.
 - `git fetch upstream --tags` and `git fetch origin --tags`.
-- `new` is the newest release: `git tag -l 'v*' --sort=-v:refname | head -1`.
-- `installed` is the newest `ours-*` tag (`git tag -l 'ours-*' --sort=-creatordate | head -1`).
-- Count the open `sync-blocked` issues.
+- `new` is the newest stable release on upstream's main:
+  `git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --merged upstream/main --sort=-v:refname | head -1`.
+  Never take upstream's untagged `main`.
+- `installed` is the newest `ours-*` tag (`git tag -l 'ours-*' --sort=-creatordate | head -1`). A tag is pushed only
+  after a healthy install, so it always names what really runs.
+- Count the open `sync-blocked` issues. If one is open, resume from what it records; don't start over.
 - Check that the newest release we took is still an ancestor of origin/main: `git merge-base --is-ancestor <it>
-  origin/main`. If it isn't, a sync was squashed. Stop, and open a `pipeline` issue; never repair `main` by force.
+  origin/main`. If it isn't, stop and open a `pipeline` issue with what you found, without guessing at the cause.
+  Never repair `main` by force.
 
 ## 2. Decide
 
@@ -55,7 +65,7 @@ The procedure for one run. FORK.md's rules apply throughout. The run ends in one
    - Use `gh pr merge <n> --merge --match-head-commit <sha>`, once CI's `check` has passed.
    - herdr-task's own merge squashes (github.py:702). A squashed sync drops upstream's history, and every later sync
      then conflicts on everything.
-   - So this task merges its own pull request, and finishes the way #PIPELINE settled.
+   - So this task merges its own pull request, and finishes the way #2 settled.
 
 **Held.** A patch you can't adapt in this run:
 1. Merge nothing.
@@ -84,8 +94,9 @@ service"). A failed trial is **held**. Open or update a `sync-blocked` issue wit
 
 ## 6. Install
 
-1. Tag the tried commit: `ours-<upstream version>-<n>`. `n` counts installs of the same upstream version. Push the
-   tag.
+1. Tag the tried commit locally: `ours-<upstream version>-<n>`. `n` counts installs of the same upstream version.
+   Push the tag only after step 4 passes. If the install fails, delete the tag and record the failed sha in the
+   `pipeline` issue, so no later run installs it again unchanged.
 2. `git -C ~/development/projects/shepherdr fetch origin --tags && git -C ~/development/projects/shepherdr checkout
    --detach <tag>`. The folder must be clean; if it isn't, stop, which is **held**.
 3. `herdr-task update-shepherdr <this task> --folder <this space's folder>`. This works only in this schedule's run;

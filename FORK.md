@@ -1,8 +1,13 @@
 # This repo is a fork
 
 dmalis/shepherdr is a public fork of eliasstravik/shepherdr ("upstream"). Upstream's releases come first. Our
-patches sit on top of each release and are adapted to it. On anything about this fork, this file wins over
-AGENTS.md. AGENTS.md still says how to build and test Shepherdr without touching the live install.
+patches sit on top of each release and are adapted to it.
+
+This file adds the fork's own rules. It never loosens AGENTS.md's safety and test rules, or the rules for agents'
+own logins and settings. It makes exactly two exceptions to AGENTS.md:
+- **Upstream issues:** they are posted as the upstream-issue skill says.
+- **The install step:** the "Upstream sync" schedule's run may install, once #2 has proven it, and may push
+  `ours-*` tags. Install tags are not releases; AGENTS.md's release rules still hold.
 
 ## The aim
 
@@ -15,6 +20,11 @@ AGENTS.md. AGENTS.md still says how to build and test Shepherdr without touching
 - **Who does the work.** The person doesn't code. They ask the Assistant for changes, from a one-line fix to a large
   feature. Agents design, build, review, sync and install. Ask the person only for product decisions and for the
   yeses named below.
+- **Think for the person.** Shape every request with the shaping-a-request skill before building:
+  - find the need behind the ask;
+  - research upstream and industry practice;
+  - push back on an idea that won't meet the need;
+  - recommend the best way, which may be upstream's.
 
 ## Where things are
 
@@ -36,18 +46,24 @@ AGENTS.md. AGENTS.md still says how to build and test Shepherdr without touching
   - home paths (`/home/...`, `/Users/...`), host names, or the person's email;
   - their private settings.
 
+  Commits here use the repo's no-reply email (`git config user.email`); never change it. Before `ready`, read what
+  goes public (summary, details, proof titles), and paste no raw installer or log output there.
   The person's own working methods and settings live in `~/.config/shepherdr/settings.json` on the serving machine.
   They never go in this repo.
 - **Pull requests and issues go to dmalis/shepherdr.**
-  - Before any `gh pr` or `gh issue` command, `gh repo set-default --view` must print `dmalis/shepherdr`.
-  - If it prints anything else, stop and fix that first.
-  - Upstream only gets what the upstream-issue skill allows.
+  - `gh repo set-default --view` must print `dmalis/shepherdr`. If it prints anything else, stop and fix that first.
+  - Name the repo on every `gh pr` or `gh issue` you run yourself: `-R dmalis/shepherdr`, or
+    `-R eliasstravik/shepherdr` only as the upstream-issue skill allows.
+  - Never open a pull request on upstream unless the person asks for that one.
 - **Only the install step installs.**
   - Never run `shepherdr update` or `shepherdr install`, and never change the install folder.
   - Never stop or restart the live Shepherdr, herdr-core or their agents.
   - Every check runs on throwaway sessions and scratch roots, as AGENTS.md's Tests section says.
-- **Never press GitHub's "Sync fork" or "Discard commits"** on dmalis/shepherdr. They reset `main` to upstream's and
-  drop our patches. Releases come in only through the upstream-sync skill.
+- **Never use GitHub's fork sync buttons on dmalis/shepherdr.**
+  - "Sync fork" › "Update branch" merges upstream's `main`, which isn't a release yet, into ours.
+  - "Discard commits" throws our patches away.
+
+  Releases come in only through the upstream-sync skill.
 
 ## Every piece of work is recorded on GitHub
 
@@ -57,8 +73,9 @@ AGENTS.md. AGENTS.md still says how to build and test Shepherdr without touching
   - acceptance criteria;
   - where it lives in the code.
 
-  The open issues labelled `patch` are the list of what we carry.
-- **Each pull request names its issue** with `Closes #n` or `Part of #n`.
+  The open issues labelled `patch` are the list of what we carry and build.
+- **Each pull request names its issue** with `Part of #n`, never `Closes`. A patch's issue stays open while we carry
+  it. It closes only when the patch is retired, after a healthy install without it.
 - **The issue keeps a short status line**, one of:
   - building;
   - carried since `ours-…`;
@@ -74,7 +91,7 @@ AGENTS.md. AGENTS.md still says how to build and test Shepherdr without touching
 
 ## How a change becomes a patch
 
-Use the fork-patch skill. In short:
+First shape it (the shaping-a-request skill). Then use the fork-patch skill. In short:
 - **Spec first** for anything bigger than a small fix. Write it in `fork/specs/<name>.md`; the reviewer reviews it
   like code. The building tasks are then added `--after` it.
 - **Build on upstream's own extension points:** a plugin for UI (docs/plugins.md), a settings key, a new module.
@@ -94,10 +111,14 @@ A release whose patches don't fit yet waits until they do. After 24 hours waitin
 
 ## Upstream issues
 
-The upstream-issue skill:
-- A bug or pain goes upstream only on the person's yes.
-- A design request goes upstream once, linking our pull request.
-- When upstream fixes one of ours, the next sync drops our patch.
+The upstream-issue skill.
+- **Fix it here first, then tell upstream:** an issue linking our merged pull request, on the person's yes. The
+  person never waits on upstream.
+- **Follow the replies.** A decline or another approach from the maintainer is rethought with the person; it is
+  never ignored.
+- **When upstream ships one of ours,** the next sync drops our patch.
+- **Private context.** The planning notes are in `.private/` in this space's folder. It is git-ignored and never
+  committed. Read `.private/CONTEXT.md` before your first piece of work.
 
 ## Learning Shepherdr
 

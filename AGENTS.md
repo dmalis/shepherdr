@@ -1,6 +1,7 @@
 # Working on Shepherdr
 
-This repo is a fork, dmalis/shepherdr: read [FORK.md](FORK.md) first. On anything about the fork, it wins.
+This repo is a fork, dmalis/shepherdr: read [FORK.md](FORK.md) first. It adds the fork's rules and never loosens
+the ones below.
 
 How to run, build and lay out the code: [docs/develop.md](docs/develop.md).
 
