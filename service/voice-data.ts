@@ -47,6 +47,7 @@ export const NOT_DATA: Record<string, string> = {
   "api:desktop": "a machine's desktop, live (its Screen): a picture, not data",
   "api:voice": "the call itself",
   "api:push": "this device's own notification subscription",
+  "api:inbox": "fork #37: marks alerts read (a write); the alerts list itself is in the snapshot (inbox)",
   "action:earlier": "a chat's older messages: look chat reads further back itself",
   "action:catalog": "the picker's lists (a machine's agents and their models): look data's models has the same menus",
   "action:voice-check": "Settings › Voice's test of the ElevenLabs key: a call that is on already proves it works",
