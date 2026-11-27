@@ -3,6 +3,7 @@
   "name": "Phone and tablet: swipe from the left opens the sidebar",
   "files": [
     "web/src/edge-swipe.tsx",
+    "web/src/edge.ts",
     "web/src/App.tsx",
     "web/plugins/chat/press.ts"
   ],

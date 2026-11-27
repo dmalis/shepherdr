@@ -1,6 +1,7 @@
 // What a finger does on a message (SHEP-332), as the good chat apps read it: a quick tap shows the quick actions beside
 // it, a press held still opens the whole menu, and a slide to the right replies. The slide waits until the finger
 // clearly goes sideways, so scrolling up and down, selecting words and the screen's own edge swipe keep working.
+import { EDGE } from '@client/edge.ts'
 
 /** held this long without moving: the whole menu */
 export const HOLD_MS = 450
@@ -10,9 +11,8 @@ export const SLOP = 8
 export const REPLY_AT = 64
 /** the furthest a message slides; past REPLY_AT it moves slower, as if on a rubber band */
 export const MAX_SLIDE = 96
-/** a finger that starts this near the screen's left edge belongs to the system (Back) or the sidebar (fork #117: the
- *  strip a swipe opens the spaces list from, edge-swipe.tsx EDGE) */
-export const EDGE_PX = 32
+/** a finger that starts this near the screen's left edge belongs to the system (Back) or the sidebar (fork #117) */
+export const EDGE_PX = EDGE
 
 /** how far the message shows slid for a finger moved `dx` to the right */
 export function slid(dx: number): number {

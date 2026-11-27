@@ -3,7 +3,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { getState, type UI } from './kernel.ts'
-import { EDGE, edgeOpens, speed, staysOpen, wayOf } from './edge-swipe.tsx'
+import { claims, EDGE, edgeOpens, speed, staysOpen, wayOf } from './edge-swipe.tsx'
 import { EDGE_PX } from '../plugins/chat/press.ts'
 import { lands, settleMs } from './motion.ts'
 
@@ -33,6 +33,15 @@ test('on a tablet, only while the list is hidden: by its own button, or a narrow
   expect(edgeOpens(ui({ ...tablet, narrow: true, pane: 'tasks', task: 'SHOP-2' }), BAR)).toBe(true)
   expect(edgeOpens(ui({ ...tablet, narrow: false, sideOff: true }), BAR)).toBe(true)
   expect(edgeOpens(ui({ ...tablet, narrow: false, sideOff: true, settings: { scope: 'all', sec: null } }), BAR)).toBe(false)
+})
+
+test('only iOS holds a touch at the edge back from the page (its Back); elsewhere the page keeps its scroll', () => {
+  const chat = ui({})
+  expect(claims(4, null, chat, true)).toBe('hold')
+  expect(claims(4, null, chat, false)).toBe('swipe')
+  expect(claims(EDGE - 1, null, chat, true)).toBe('hold')
+  expect(claims(EDGE, null, chat, true)).toBe(null)
+  expect(claims(4, null, ui({ pane: 'tasks', task: 'SHOP-2' }), true)).toBe(null)
 })
 
 test('the way a finger goes: right opens, left shuts, mostly up or down is the page’s scroll', () => {
@@ -76,9 +85,12 @@ test("motion.ts's fling rules are still there, as this uses them", () => {
 test('the app shows the list with SideDrawer while the side is hidden, and listens for the swipe', () => {
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
   expect(app).toContain('useEffect(() => edgeSwipe(), [])')
-  expect(app).toContain('{ui.drawer && hidden && (\n            <SideDrawer>')
+  expect(app).toContain('{(ui.drawer || peek) && hidden && (\n            <SideDrawer>')
   const kernel = readFileSync(new URL('./kernel.ts', import.meta.url), 'utf8')
   // the open list is a step in the history, so Android's Back closes it
   expect(kernel).toMatch(/const STEPS: \(keyof UI\)\[\] = \[[^\]]*'drawer'/)
   expect(kernel).toContain('export const sideHidden = (ui: UI) => ui.phone || ui.sideOff || (ui.narrow && !!ui.pane)')
+  // the floating list catches its "Hide the list" by its label, so it hides the floating list, not the docked one
+  const list = readFileSync(new URL('./list.tsx', import.meta.url), 'utf8')
+  expect(list).toContain('<IB icon="panel" label="Hide the list" onClick={() => setUI({ sideOff: true })} />')
 })

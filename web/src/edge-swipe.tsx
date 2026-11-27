@@ -4,16 +4,16 @@
 // Settings) the edge stays the system's Back, as on iOS. On a tablet it slides the list over the content while the
 // list is hidden, the way iPadOS shows a hidden sidebar. A let-go lands by where the list was carried and how fast
 // (motion.ts's fling rules); with less motion the list stays put and fades instead. The menu button and Escape still
-// open and close it, for VoiceOver, keyboards and mice.
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
+// open and close it, for VoiceOver, keyboards and mice. While the finger is down the list only peeks: it becomes a
+// step in the history (Back closes it) once it lands open, so a swipe let go early leaves no step behind.
+import { useLayoutEffect, useRef, useSyncExternalStore, type MouseEvent as RME, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { getState, registry, setUI, sideHidden, type UI } from './kernel.ts'
 import { hasLayer } from './overlay.tsx'
 import { IOS, lands, moveTo, settleMs, still } from './motion.ts'
+import { EDGE } from './edge.ts'
 
-/** the strip at the left edge (px) a swipe opens the list from. Android's own Back takes about its outer 24 px, so
- *  it is a little wider; a message or task row starting here never slides to reply (chat/press.ts). */
-export const EDGE = 32
+export { EDGE }
 /** how far a finger moves before the gesture decides which way it goes */
 const SLOP = 8
 /** a finger held this long before it moves is someone else's (a row's drag in the list): not a swipe */
@@ -26,6 +26,9 @@ const SHUT_MS = 260
 
 /** the device asks for less motion, or Settings › General › Motion is Reduced: nothing slides, things fade */
 const calm = () => still() || (typeof document !== 'undefined' && document.documentElement.dataset.motion === 'reduced')
+
+/** iOS and iPadOS, whose web view starts its own Back from a touch at the left edge unless the touch is held back */
+const ios = () => typeof navigator !== 'undefined' && (/iP(hone|ad|od)/.test(navigator.platform) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
 
 /** Does a swipe in from the edge open the list now? On a phone only on a screen at the top (a space's chat or a
  *  bar tab), never over Settings, Search or a pushed screen; on a wider screen only while the list is hidden. */
@@ -48,11 +51,21 @@ function sideways(t: Element | null): boolean {
   return false
 }
 
-/** Does a touch starting at `x` on `target` belong to the edge swipe? `hold`: held back from the page at once (the
- *  system's Back and the page's scroll don't get it); `swipe`: on a control, only once it goes sideways; or no. */
-export function claims(x: number, target: Element | null, ui: UI = getState().ui): 'hold' | 'swipe' | null {
+/** what scrolls up and down under the finger */
+function scrollerOf(t: Element | null): HTMLElement | null {
+  for (let el = t as HTMLElement | null; el && el !== document.body; el = el.parentElement)
+    if (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return el
+  return null
+}
+
+/**
+ * Does a touch starting at `x` on `target` belong to the edge swipe? `hold`: held back from the page at once, so
+ * iOS's own Back doesn't take it (only on iOS, which needs it; the strip then scrolls by hand); `swipe`: the page
+ * keeps it (its scroll, a control's tap) until it clearly goes right; or no.
+ */
+export function claims(x: number, target: Element | null, ui: UI = getState().ui, holds = ios()): 'hold' | 'swipe' | null {
   if (x >= EDGE || !edgeOpens(ui) || hasLayer() || target?.closest(OWN) || sideways(target)) return null
-  return target?.closest(CONTROL) ? 'swipe' : 'hold'
+  return holds && !target?.closest(CONTROL) ? 'hold' : 'swipe'
 }
 
 /** Which way a finger went, once past the slop: `open` (right, more than up or down), `shut` (left), or `off` */
@@ -78,8 +91,28 @@ type Parts = { nav: HTMLElement; shade: HTMLElement }
 let parts: Parts | null = null
 /** a swipe is bringing the list in: it shows where the finger is, not with its own motion */
 let swiping = false
-/** a swipe just ended: the click its lift makes is not a tap on the shade */
-let swipedAt = 0
+
+/** the list peeks while a swipe brings it in, before it is open (no step in the history yet) */
+let peek = false
+const peekers = new Set<() => void>()
+function setPeek(v: boolean) {
+  if (peek === v) return
+  peek = v
+  peekers.forEach((f) => f())
+}
+/** the app shows the list while it peeks, as while it is open */
+export const usePeek = () =>
+  useSyncExternalStore(
+    (f) => (peekers.add(f), () => void peekers.delete(f)),
+    () => peek,
+    () => false,
+  )
+
+/** the list is gone: no longer open nor peeking */
+function gone() {
+  setPeek(false)
+  if (getState().ui.drawer) setUI({ drawer: false })
+}
 
 /** show the list `open` px out of `w` */
 function paint({ nav, shade }: Parts, open: number, w: number, quiet: boolean) {
@@ -89,18 +122,32 @@ function paint({ nav, shade }: Parts, open: number, w: number, quiet: boolean) {
   shade.style.opacity = String(f)
 }
 
-/** let the list land open or shut from where it is, at the finger's speed; shut, it closes */
+/** let the list land open or shut from where it is, at the finger's speed. Landing open it becomes a step in the
+ *  history at once; shut, it closes once it is out. */
 function settle({ nav, shade }: Parts, open: boolean, at: number, v: number, w: number, quiet: boolean) {
+  if (open) {
+    setUI({ drawer: true })
+    setPeek(false)
+  }
   const ms = quiet ? 120 : settleMs(open ? w - at : at, v, open ? OPEN_MS : SHUT_MS)
   void moveTo(shade, { opacity: open ? '1' : '0' }, ms, 'ease-out')
   const to = quiet ? { opacity: open ? '1' : '0' } : { transform: open ? 'translateX(0px)' : 'translateX(-100%)' }
   return moveTo(nav, to, ms, quiet ? 'ease-out' : IOS).then(() => {
-    if (open) {
-      for (const el of [nav, shade]) for (const a of el.getAnimations()) a.cancel()
-      nav.style.transform = nav.style.opacity = shade.style.opacity = ''
-    } else setUI({ drawer: false })
+    if (!open) return gone()
+    for (const el of [nav, shade]) for (const a of el.getAnimations()) a.cancel()
+    nav.style.transform = nav.style.opacity = shade.style.opacity = ''
   })
 }
+
+/** the list slides back out, then closes */
+function shut() {
+  const p = parts
+  if (!p) return gone()
+  void settle(p, false, p.nav.offsetWidth, 0, p.nav.offsetWidth, calm())
+}
+
+/** a swipe that closed the list on the shade: the click its lift may make is not a tap */
+let eatClick = false
 
 /** The list as it floats over the screen: the shade, then the list. It slides in from the left as it opens (unless
  *  a swipe brings it), and a swipe to the left on either closes it. */
@@ -124,21 +171,26 @@ export function SideDrawer({ children }: { children: ReactNode }) {
       // open unseen, to come back over the screen when the list is hidden next
       queueMicrotask(() => {
         const ui = getState().ui
-        if (ui.drawer && !sideHidden(ui)) setUI({ drawer: false })
+        if (!sideHidden(ui)) gone()
       })
     }
   }, [])
-  // a tap on the shade: the list slides back out, then closes
   const tap = () => {
-    if (performance.now() - swipedAt < 400) return
-    const p = parts
-    if (!p) return setUI({ drawer: false })
-    void settle(p, false, p.nav.offsetWidth, 0, p.nav.offsetWidth, calm())
+    if (eatClick) return void (eatClick = false)
+    shut()
+  }
+  // the list's own "Hide the list" (a wider screen's): here it hides this floating list, and leaves the docked
+  // list's setting as it was
+  const hide = (e: RME) => {
+    if (!(e.target as Element).closest('button[aria-label="Hide the list"]')) return
+    e.stopPropagation()
+    e.preventDefault()
+    shut()
   }
   return (
     <>
       <div className="scrim" ref={shade} onClick={tap} style={{ touchAction: 'none' }} />
-      <nav className="drawer" ref={nav} aria-label="Spaces" style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+      <nav className="drawer" ref={nav} aria-label="Spaces" onClickCapture={hide} style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
         {children}
       </nav>
     </>
@@ -147,21 +199,50 @@ export function SideDrawer({ children }: { children: ReactNode }) {
 
 /* ---------- the fingers ---------- */
 
-type Track = { id: number; x0: number; y0: number; t0: number; mode: 'wait' | 'go' | 'off'; samples: { t: number; x: number }[]; w: number; quiet: boolean; at: number }
+type Track = {
+  id: number
+  x0: number
+  y0: number
+  t0: number
+  mode: 'wait' | 'go' | 'off'
+  samples: { t: number; x: number; y: number }[]
+  w: number
+  quiet: boolean
+  at: number
+  /** held back from the page (iOS): what it scrolls by hand when it goes up or down, and from where */
+  scroller?: HTMLElement | null
+  top0?: number
+}
 
-const start = (t: Touch, at = 0): Track => ({ id: t.identifier, x0: t.clientX, y0: t.clientY, t0: performance.now(), mode: 'wait', samples: [{ t: performance.now(), x: t.clientX }], w: 0, quiet: false, at })
+/** a finger's times are its events' own (`e.timeStamp`), when the screen felt them, not when the page got to them */
+const start = (t: Touch, now: number, at = 0): Track => ({ id: t.identifier, x0: t.clientX, y0: t.clientY, t0: now, mode: 'wait', samples: [{ t: now, x: t.clientX, y: t.clientY }], w: 0, quiet: false, at })
 const mine = (e: TouchEvent, k: Track | null) => (k ? [...e.changedTouches].find((t) => t.identifier === k.id) : undefined)
-const sample = (k: Track, t: Touch) => {
-  k.samples.push({ t: performance.now(), x: t.clientX })
+const sample = (k: Track, t: Touch, now: number) => {
+  k.samples.push({ t: now, x: t.clientX, y: t.clientY })
   if (k.samples.length > 12) k.samples.shift()
 }
 
 /** decide the way once past the slop: `dir` 1 opens (right), -1 shuts (left); a finger that waited first is not ours */
-function decide(k: Track, t: Touch, dir: 1 | -1): Track['mode'] {
+function decide(k: Track, t: Touch, dir: 1 | -1, now: number): Track['mode'] {
   if (k.mode !== 'wait') return k.mode
   const w = wayOf(t.clientX - k.x0, t.clientY - k.y0, dir)
   if (w === 'wait') return 'wait'
-  return (k.mode = w === 'go' && performance.now() - k.t0 < LATE_MS ? 'go' : 'off')
+  return (k.mode = w === 'go' && now - k.t0 < LATE_MS ? 'go' : 'off')
+}
+
+/** a scroll by hand carries on after the let-go and slows down, as a scroll does (`v`: the finger's px per ms) */
+let gliding = 0
+function glide(el: HTMLElement, v: number) {
+  const run = ++gliding
+  let last = performance.now()
+  const step = (now: number) => {
+    if (run !== gliding || Math.abs(v) < 0.02) return
+    el.scrollTop -= v * (now - last)
+    v *= 0.998 ** (now - last)
+    last = now
+    requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 }
 
 /** the swipe in from the edge, over the whole page. Returns what takes it off. */
@@ -171,44 +252,56 @@ export function edgeSwipe(doc: Document = document): () => void {
   let tapOn: { el: Element; x: number; y: number } | null = null
 
   const down = (e: TouchEvent) => {
+    gliding++
     if (k || e.touches.length > 1) return
     const t = e.changedTouches[0]
     const how = t && claims(t.clientX, e.target as Element)
     if (!t || !how) return
-    k = start(t)
+    k = start(t, e.timeStamp)
     if (how === 'swipe') return
-    // The edge is the list's here: the system's Back and the page's scroll don't take this touch (iOS starts its
-    // Back from a touch that goes on; best effort, it can't be turned off for sure). A tap still reaches what it was on.
+    // The edge is the list's here: iOS's own Back doesn't take this touch (it starts from a touch that goes on;
+    // best effort, it can't be turned off for sure). A tap still reaches what it was on, and up or down still scrolls.
     e.preventDefault()
     tapOn = { el: e.target as Element, x: t.clientX, y: t.clientY }
+    k.scroller = scrollerOf(e.target as Element)
+    k.top0 = k.scroller?.scrollTop ?? 0
   }
 
   const move = (e: TouchEvent) => {
     const t = mine(e, k)
-    if (!t || !k || k.mode === 'off') return
+    if (!t || !k) return
     if (k.mode === 'wait') {
-      if (decide(k, t, 1) !== 'go') return
-      // on a control the page may have taken the touch already (its scroll): then it stays the page's
-      if (!e.cancelable) return void (k.mode = 'off')
+      const way = decide(k, t, 1, e.timeStamp)
+      if (way === 'wait') return
       tapOn = null
-      // the keyboard goes down, as it does for the menu button's tap
-      const f = doc.activeElement as HTMLElement | null
-      if (f?.matches?.('input, textarea, [contenteditable]')) f.blur()
-      swiping = true
-      try {
-        flushSync(() => setUI({ drawer: true }))
-      } finally {
-        swiping = false
+      // on a control the page may have taken the touch already (its scroll): then it stays the page's
+      const go = way === 'go' && e.cancelable
+      if (!go) k.mode = 'off'
+      if (go) {
+        // the keyboard goes down, as it does for the menu button's tap
+        const f = doc.activeElement as HTMLElement | null
+        if (f?.matches?.('input, textarea, [contenteditable]')) f.blur()
+        swiping = true
+        try {
+          flushSync(() => setPeek(true))
+        } finally {
+          swiping = false
+        }
+        if (!parts) {
+          k.mode = 'off'
+          return setPeek(false)
+        }
+        k.w = parts.nav.offsetWidth
+        k.quiet = calm()
       }
-      if (!parts) {
-        k.mode = 'off'
-        return setUI({ drawer: false })
-      }
-      k.w = parts.nav.offsetWidth
-      k.quiet = calm()
+    }
+    sample(k, t, e.timeStamp)
+    if (k.mode === 'off') {
+      // held back from the page, it scrolls by hand
+      if (k.scroller) k.scroller.scrollTop = k.top0! - (t.clientY - k.y0)
+      return
     }
     e.preventDefault()
-    sample(k, t)
     k.at = Math.min(k.w, Math.max(0, t.clientX - k.x0))
     if (parts) paint(parts, k.at, k.w, k.quiet)
   }
@@ -218,17 +311,20 @@ export function edgeSwipe(doc: Document = document): () => void {
     if (!t || !k) return
     const was = k
     k = null
+    const end = { t: e.timeStamp, x: t.clientX }
     if (was.mode === 'go') {
-      swipedAt = performance.now()
-      const v = e.type === 'touchcancel' ? 0 : speed(was.samples, { t: performance.now(), x: t.clientX })
+      const v = e.type === 'touchcancel' ? 0 : speed(was.samples, end)
       if (parts) void settle(parts, e.type !== 'touchcancel' && staysOpen(was.at, v, was.w), was.at, v, was.w, was.quiet)
+      else setPeek(false)
       return
     }
-    // a tap at the edge: the touch was held back from the page, so its click is sent here
+    if (was.mode === 'off' && was.scroller && e.type === 'touchend')
+      return glide(was.scroller, speed(was.samples.map((s) => ({ t: s.t, x: s.y })), { t: end.t, x: t.clientY }))
+    // a tap at the edge: the touch was held back from the page, so its click is sent here (a press held long is no
+    // tap: it opened its own menu)
     const on = tapOn
     tapOn = null
-    // (a press held long is no tap: it opened its own menu)
-    if (on && was.mode === 'wait' && e.type === 'touchend' && performance.now() - was.t0 < TAP_MS) {
+    if (on && was.mode === 'wait' && e.type === 'touchend' && e.timeStamp - was.t0 < TAP_MS) {
       e.preventDefault()
       on.el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: doc.defaultView, clientX: on.x, clientY: on.y }))
     }
@@ -256,20 +352,20 @@ function shutDrag(p: Parts): () => void {
     const target = e.target as Element
     // typing, a slider, something that scrolls sideways or is marked data-nodrag keeps its own swipe
     if (!t || target.closest?.('input, textarea, select, [contenteditable], [role="slider"], [data-nodrag]') || (p.nav.contains(target) && sideways(target))) return
-    k = start(t, p.nav.offsetWidth)
+    k = start(t, e.timeStamp, p.nav.offsetWidth)
   }
   const move = (e: TouchEvent) => {
     const t = mine(e, k)
     if (!t || !k || k.mode === 'off') return
     if (k.mode === 'wait') {
-      if (decide(k, t, -1) !== 'go') return
+      if (decide(k, t, -1, e.timeStamp) !== 'go') return
       k.w = p.nav.offsetWidth
       k.quiet = calm()
       k.x0 = t.clientX
       for (const el of [p.nav, p.shade]) for (const a of el.getAnimations()) a.cancel()
     }
     e.preventDefault()
-    sample(k, t)
+    sample(k, t, e.timeStamp)
     k.at = Math.min(k.w, Math.max(0, k.w + t.clientX - k.x0))
     paint(p, k.at, k.w, k.quiet)
   }
@@ -279,8 +375,11 @@ function shutDrag(p: Parts): () => void {
     const was = k
     k = null
     if (was.mode !== 'go') return
-    swipedAt = performance.now()
-    const v = e.type === 'touchcancel' ? 0 : speed(was.samples, { t: performance.now(), x: t.clientX })
+    if (p.shade.contains(e.target as Node)) {
+      eatClick = true
+      setTimeout(() => (eatClick = false), 400)
+    }
+    const v = e.type === 'touchcancel' ? 0 : speed(was.samples, { t: e.timeStamp, x: t.clientX })
     void settle(p, e.type === 'touchcancel' || staysOpen(was.at, v, was.w), was.at, v, was.w, was.quiet)
   }
   const els = [p.nav, p.shade]
