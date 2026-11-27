@@ -107,6 +107,26 @@ def git(cwd, *args, env=None, timeout=600):
     return r.returncode == 0, r.stdout.strip(), r.stderr.strip()
 
 
+def merge_status(path, **changes):
+    """Merges fields into an update's status file under a lock: the asker and its runner both write it. Nothing when
+    the file is gone (the rehearsal cleaned up): a runner never makes its folder again. Returns the merged status."""
+    import fcntl
+    try:
+        fd = os.open(path + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        cur = read_json(path)
+        if cur is None:
+            return None
+        cur.update(changes)
+        write_json(path, cur)
+        return cur
+    finally:
+        os.close(fd)
+
+
 def version_key(tag):
     return tuple(int(x) for x in tag[1:].split("."))
 
@@ -141,20 +161,23 @@ def updater_main(argv):
     u = {"state": "running", "at": now_ms()}
     write_json(path, u)
     try:
-        subprocess.Popen([sys.executable, ME, "--updater-run", scratch, task], stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+        p = subprocess.Popen([sys.executable, ME, "--updater-run", scratch, task], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             close_fds=True)
+        u = merge_status(path, pid=p.pid) or u     # its own session: the pid is the group cleanup stops
     except OSError as e:
-        u.update(state="failed", done_at=now_ms(), tail=f"Couldn't start it: {e.strerror or e}")
-        write_json(path, u)
+        u = merge_status(path, state="failed", done_at=now_ms(), tail=f"Couldn't start it: {e.strerror or e}") or u
     print(json.dumps(u))
     return 75 if u["state"] == "running" else 1
 
 
 def updater_run(scratch, task):
     """The runner (self_update.run_update's way): `shepherdr update --root <root>` by the scratch install's own CLI,
-    its output to a log in scratch; ok only when it exits 0; the version from its output."""
+    its output to a log in scratch; ok only when it exits 0; the version from its output. A runner whose status file
+    is gone (the rehearsal ended) does nothing."""
     path = status_path(scratch, task)
-    write_json(path, dict(read_json(path) or {}, pid=os.getpid()))
+    if merge_status(path, pid=os.getpid()) is None:
+        return 0
     root = os.path.join(scratch, "root")
     argv = [os.path.join(root, ".local", "bin", "shepherdr"), "update", "--root", root]
     if os.environ.get("FORK_REHEARSE_NO_BUILD") == "1":
@@ -178,11 +201,11 @@ def updater_run(scratch, task):
             tail = f.read().decode(errors="replace")
     except OSError:
         tail = ""
-    u = dict(read_json(path) or {}, state="ok" if code == 0 else "failed", done_at=now_ms(), code=code)
+    u = {"state": "ok" if code == 0 else "failed", "done_at": now_ms(), "code": code}
     m = re.findall(r"Shepherdr (\d+\.\d+\.\d+)", tail)
     if m:
         u["version"] = m[-1]
-    write_json(path, u)
+    merge_status(path, **u)
     return 0
 
 
@@ -249,6 +272,33 @@ def session_up(env, name):
         return False
     finally:
         s.close()
+
+
+def cmdline(pid, proc="/proc"):
+    """A process's command line, or None when it is gone: /proc where there is one (Linux), else `ps` (macOS)."""
+    if os.path.isdir(proc):
+        try:
+            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as h:
+                return h.read().replace(b"\0", b" ").decode(errors="replace")
+        except OSError:
+            return None
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=20,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (r.stdout.strip() or None) if r.returncode == 0 else None
+
+
+def with_group(pgid, sig):
+    """Sends sig to a process group (0: only asks). False when the group has no process left."""
+    try:
+        os.killpg(pgid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def live_snapshot(home):
@@ -555,29 +605,35 @@ class Rehearsal:
         self.real_install()
 
     # --- cleanup ---
-    def stop_runners(self):
-        """A runner still updating (after a failure or Ctrl-C) ends by its own pid, only when it is this scratch's."""
+    def stop_runners(self, wait=10.0):
+        """A runner still updating (after a failure or Ctrl-C: it runs in its own process session, so Ctrl-C never
+        reaches it) ends with its whole process group, the update under it too, before the scratch folder goes. Only
+        a runner whose command line names this scratch folder; its group is waited on until it is gone. Returns the
+        groups that wouldn't end."""
         d = updates_dir(self.scratch)
-        for f in os.listdir(d) if os.path.isdir(d) else []:
+        groups = []
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             pid = (read_json(os.path.join(d, f)) or {}).get("pid") if f.endswith(".json") else None
-            if not isinstance(pid, int):
-                continue
-            try:
-                with open(f"/proc/{pid}/cmdline", "rb") as h:
-                    mine = self.scratch.encode() in h.read()
-            except OSError:
-                mine = False
-            if mine:
-                try:
-                    os.killpg(pid, signal.SIGTERM)
-                except OSError:
-                    pass
+            if isinstance(pid, int) and pid > 1 and self.scratch in (cmdline(pid) or ""):
+                groups.append(pid)
+        for sig, secs in ((signal.SIGTERM, wait), (signal.SIGKILL, 2.0)):
+            for g in groups:
+                with_group(g, sig)
+            deadline = time.monotonic() + secs
+            while groups and time.monotonic() < deadline:
+                groups = [g for g in groups if with_group(g, 0)]
+                if groups:
+                    time.sleep(0.1)
+            if not groups:
+                break
+        return groups
 
     def cleanup(self):
         problems = []
         if self.scratch:
             try:
-                self.stop_runners()
+                if self.stop_runners():
+                    problems.append("an update the rehearsal started wouldn't stop")
             except OSError as e:
                 problems.append(f"stopping the update: {one_line(e)}")
             shutil.rmtree(self.scratch, ignore_errors=True)

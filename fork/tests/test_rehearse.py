@@ -14,6 +14,7 @@ import importlib.util  # noqa: E402
 import json  # noqa: E402
 import re  # noqa: E402
 import shutil  # noqa: E402
+import signal  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import time  # noqa: E402
@@ -140,6 +141,52 @@ class Run(unittest.TestCase):
         self.assertEqual(os.listdir(self.scratch_tmp), [], "cleaned up after the failure")
         self.assertEqual(self.st()["rehearsals"], [], "a failure records nothing")
 
+    def test_ctrl_c_during_the_update_stops_it_and_cleans_up(self):
+        """The update runs in its own process session, out of Ctrl-C's reach: cleanup stops it, with what it runs,
+        before the scratch folder goes."""
+        mark = os.path.join(self.tmp, "update-started")
+
+        def slow_update(folder):
+            path = os.path.join(folder, "bin", "shepherdr")
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            head = "def cmd_install(a, update=False):\n"
+            self.assertIn(head, text)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text.replace(head, head + f"    if update:\n        open({mark!r}, 'w').close()\n"
+                                                  "        time.sleep(300)\n", 1))
+        space = Space(self.tmp, candidate_edit=slow_update)
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "FORK_"))}
+        env.update(TMPDIR=self.scratch_tmp)
+        p = subprocess.Popen([sys.executable, REHEARSE, space.cand, "--repo", space.folder, "--no-build",
+                              "--root", self.state_root], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             env=env, stdin=subprocess.DEVNULL)
+        try:
+            deadline = time.time() + 180
+            while not os.path.exists(mark) and time.time() < deadline and p.poll() is None:
+                time.sleep(0.2)
+            self.assertTrue(os.path.exists(mark), "the candidate's update never began")
+            self.assertTrue(self.procs(), "the update runs under the scratch folder")
+            p.send_signal(signal.SIGINT)
+            out, err = p.communicate(timeout=120)
+        finally:
+            if p.poll() is None:
+                p.kill()
+        self.assertEqual(out.strip().splitlines()[-1], "FAIL: interrupted: SIGINT", out + err)
+        self.assertEqual(os.listdir(self.scratch_tmp), [], "the scratch folder is gone")
+        self.assertEqual(self.procs(), [], "nothing the rehearsal started still runs")
+        self.assertEqual(self.st()["rehearsals"], [])
+
+    def procs(self):
+        """Processes whose command line names this test's scratch folder."""
+        out = []
+        for d in os.listdir("/proc") if os.path.isdir("/proc") else []:
+            if d.isdigit():
+                line = rehearse.cmdline(int(d)) or ""
+                if self.scratch_tmp in line:
+                    out.append((int(d), line[:120]))
+        return out
+
     def test_a_baseline_that_is_the_commit_is_refused(self):
         space = Space(self.tmp)
         p = self.rehearse(space, "--baseline", space.cand)
@@ -205,6 +252,38 @@ class Updater(unittest.TestCase):
     def test_no_update_yet_reads_as_not_started(self):
         got, seen = self.outcome(rehearse.now_ms())
         self.assertEqual((got, seen.get("state")), ("failed", "not started"))
+
+    def test_cleanup_stops_a_running_update_and_what_it_runs(self):
+        """Also where there is no /proc (macOS): the runner is found by `ps`, its whole group stopped and waited for."""
+        child = os.path.join(self.scratch, "child")
+        with open(self.cli, "w") as f:
+            f.write(f'#!/bin/sh\nsleep 300 &\necho $! > "{child}"\nwait\n')
+        os.chmod(self.cli, 0o755)
+        for proc in ("/proc", os.path.join(self.scratch, "no-proc")):
+            with self.subTest(proc=proc):
+                shutil.rmtree(rehearse.updates_dir(self.scratch), True)
+                if os.path.exists(child):
+                    os.remove(child)
+                self.call("--no-wait")
+                deadline = time.time() + 30
+                while not os.path.exists(child) and time.time() < deadline:
+                    time.sleep(0.1)
+                with open(child) as f:
+                    sleeper = int(f.read().strip())
+                pid = json.loads(self.call("--status", "--json").stdout)["pid"]
+                r = types.SimpleNamespace(scratch=self.scratch)
+                real = rehearse.cmdline
+                with mock.patch.object(rehearse, "cmdline", lambda p: real(p, proc=proc)):
+                    left = rehearse.Rehearsal.stop_runners(r, wait=5)
+                self.assertEqual(left, [])
+                self.assertFalse(rehearse.with_group(pid, 0), "the runner's group is gone")
+                self.assertIsNone(real(sleeper), "the update's own child is gone too")
+
+    def test_a_runner_left_after_cleanup_writes_nothing(self):
+        path = rehearse.status_path(self.scratch, "R-1")
+        self.assertIsNone(rehearse.merge_status(path, pid=1))
+        self.assertEqual(rehearse.updater_run(self.scratch, "R-1"), 0)
+        self.assertFalse(os.path.exists(os.path.dirname(path)), "it never makes its folder again")
 
     def test_it_stands_in_for_the_real_runner(self):
         """Pins self_update's runner: `shepherdr update [--root]`, ok only on exit 0, the version from its output."""
