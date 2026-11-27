@@ -212,12 +212,17 @@ export const spaceWord = (space) => (/^everything$/i.test(String(space ?? "").tr
 
 // Agent to agent, as a group chat (SHEP-27). Who sent a user item another agent sent: another Assistant's
 // (<herdr-assistant>, x.assistant: { machine, space }) by its space and machine ("#Home on Mac mini"; its machine
-// unsaid when it is this one), else senderName's ("Fix login", "Reviewer", "Assistant on m3").
+// unsaid when it is this one), else senderName's ("Fix login", "Reviewer", "Assistant on m3"), else the name it signed
+// its wrapper with ("SHOP-4 worker").
 //   sender(from, text): senderName with the chat's lookups; machineName(key): the name people read for a machine
 //   key (null: unknown); here: this machine's key in herdr-core.
 export function fromName(x, sender = (f) => f, { machineName = (m) => m, here = null } = {}) {
   const a = x?.assistant;
-  if (!a) return sender(x?.from, x?.text);
+  if (!a) {
+    // the name it wrapped its own words with (x.by, "SHOP-4 worker": core/chat-log.js) when its address names nobody known
+    const name = sender(x?.from, x?.text);
+    return x?.by && /^(Another agent|Task)(?= on |$)/.test(String(name)) ? `${x.by}${String(name).replace(/^(Another agent|Task)/, "")}` : name;
+  }
   const m = a.machine && a.machine !== here ? machineName(a.machine) || a.machine : null;
   return `${a.space ? spaceWord(a.space) : "Assistant"}${m ? ` on ${m}` : ""}`;
 }

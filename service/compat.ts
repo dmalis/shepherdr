@@ -845,6 +845,13 @@ export class Compat {
     // quietly; one a page sent comes back with its id and files
     const busy = t?.status?.state === "working" || t?.status?.state === "blocked";
     for (const q of busy ? reader.conv?.queued?.() ?? [] : []) {
+      // another agent's message waiting there: its quiet "Message from …" row at once, as the log will show it, never
+      // the person's own bubble
+      if (q.from) {
+        const name = fromName(q, sender, peers);
+        messages.push({ id: q.id, who: "you", at: q.at, text: unsigned(q.text), brief: { label: `Message from ${name}`, from: name }, relay: { dir: "from", name } } as Message);
+        continue;
+      }
       const words = (v: string) => v.replace(/\s+/g, " ").trim();
       const s = (this.sends.get(addr ?? "") ?? []).find((x) => words(x.text) === words(q.text) && x.at <= q.at + 5000 && q.at - x.at < 10 * 60_000);
       const mark = { who: "you" as const, at: q.at, waiting: true, waitsFor: "queue" as const, ...(s ? { cid: s.cid } : {}) };
