@@ -68,3 +68,16 @@ test("#11: Everything's and a repo's rounds and Must fix, set and Reset through 
   expect(() => setConfig("all", "must_fix", "nits")).toThrow();
   expect(read().everywhere.tasks).toEqual({ merge: "checks", review_rounds: 2, must_fix: "blocker" });
 });
+
+test("#11: the Tasks page still draws the rows, under the review switch and before Merge", () => {
+  // the patch's one call site in upstream's Settings page: a release that reworks TaskRows can drop it in a clean merge
+  const tsx = readFileSync(join(import.meta.dir, "../web/src/settings.tsx"), "utf8");
+  expect(tsx).toContain("import { ReviewRows } from './review-rows.tsx'");
+  const start = tsx.indexOf("\nfunction TaskRows(");
+  expect(start).toBeGreaterThan(-1);
+  const body = tsx.slice(start, tsx.indexOf("\n}\n", start));
+  const at = (s: string) => body.indexOf(s);
+  expect(at("<ReviewRows place={place} lv={lv} own={own} />")).toBeGreaterThan(at('<Tgl label="Review by a second agent"'));
+  expect(at('<Tgl label="Review by a second agent"')).toBeGreaterThan(-1);
+  expect(at('<Seg label="Merge"')).toBeGreaterThan(at("<ReviewRows "));
+});
