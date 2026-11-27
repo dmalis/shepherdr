@@ -9,7 +9,10 @@
 .ovl{position:absolute;inset:0}
 /* the shade takes no scroll: the page behind never moves under a sheet or a dialog */
 .scrim{touch-action:none;overscroll-behavior:none}
-.pop,.dlg,.sheet{overscroll-behavior:contain}
+/* its own scroll stays inside; a quick second tap on a row is a tap, not a zoom */
+.pop,.dlg,.sheet{overscroll-behavior:contain;touch-action:manipulation}
+/* the panel itself takes focus only to hold it (tabindex -1, layer-focus.ts): no ring on it; its rows and fields keep
+   theirs (:focus-visible, ds.css) */
 .pop:focus,.dlg:focus,.sheet:focus{outline:0}
 
 /* ---- a sheet: grabber, then an optional title, the content, the actions ---- */
