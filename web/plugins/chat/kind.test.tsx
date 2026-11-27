@@ -30,7 +30,14 @@ test('one line on a phone: the kind and state never shrink, the title truncates'
 test('every place a chat names a task uses it (pins the call sites in upstream files)', () => {
   const read = (p: string) => readFileSync(join(import.meta.dir, p), 'utf8')
   expect(read('client.tsx')).toContain('<KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />')
-  expect(read('client.tsx')).toContain('<span className="qt0">{taskKind(t)}</span>')
+  expect(read('client.tsx')).toContain('<KindName t={t} name={t?.name ?? title} state={word} />')
+  expect(read('client.tsx')).toContain("newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')")
+  expect(read('../artifacts/client.tsx')).toContain('<Tile id={msg.artifact.id} v={msg.artifact.v} kind />')
+  expect(read('../inbox/client.tsx')).toContain('<KindTitle title={x.title} />')
+  // the Assistant's lines for its tasks' settled asks and start screens; an agent's alert title
+  expect(read('../../../service/compat.ts').match(/\$\{who\} · /g)?.length).toBe(3)
+  expect(read('../../../service/compat.ts')).toContain('screens(r.worker, who, by);')
+  expect(read('../../../service/push.ts')).toContain('fitWho(who, String(a.title ?? ""), 60)')
   expect(read('mentions.tsx')).toContain('<KindWord t={task} />')
   expect(read('markdown.tsx')).toContain("if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))")
   // the review card's Done line and the stopped card's line; the Needs your hands card's line

@@ -11,6 +11,7 @@ import type { InboxItem, Snapshot } from '@shared/types.ts'
 import { agoShort, spaceLabel } from '@shared/view.ts'
 import { byDay, stateOf } from './words.ts'
 import './inbox.css'
+import { KindTitle } from '@plugins/chat/kind.tsx'
 
 /* read marks sent but not yet back in the snapshot: shown at once, dropped once the snapshot has them, undone if the
  * service said no (the bell must never say read on one device and unread on the others) */
@@ -108,7 +109,7 @@ function Item({ x, snap, close }: { x: InboxItem; snap: Snapshot; close: () => v
     >
       <I n={icon} c={tone} />
       <span className="n">
-        <span className="inbx-t">{x.title}</span>
+        <span className="inbx-t"><KindTitle title={x.title} /></span>
         {x.body && <span className="inbx-b">{x.body}</span>}
         <span className="inbx-m">
           {[where, agoShort(x.at) === 'now' ? 'now' : `${agoShort(x.at)} ago`].filter(Boolean).join(' · ')}

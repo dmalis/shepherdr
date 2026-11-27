@@ -73,7 +73,7 @@ export const postedVersion = (a: Artifact, v?: number) => (v && v < a.v ? a.vers
 
 /** a page as a picture tile: a small picture of the page, its title, when it was updated; tap to open. In a chat, the
  *  version it was posted with (v): an older one shows and opens that version, not the newest. */
-export function Tile({ id, v }: { id: string; v?: number }) {
+export function Tile({ id, v, kind }: { id: string; v?: number; kind?: boolean }) {
   const snap = useSnap()
   const dark = useDark()
   const a = snap?.artifacts.find((x) => x.id === id)
@@ -85,15 +85,16 @@ export function Tile({ id, v }: { id: string; v?: number }) {
     <button type="button" className="tile" onClick={() => openArtifact(a.id, old ? old.n : null)}>
       <Preview a={shown} dark={dark} />
       <span className="l1" style={{ fontWeight: 500 }}>{a.title}</span>
-      <span className="l2">{old ? `Version ${old.n} · ` : ''}{spaceLabel(snap, a.place)} · {agoShort(old?.at ?? a.at)}</span>
+      <span className="l2">{kind ? 'Artifact · ' : ''}{old ? `Version ${old.n} · ` : ''}{spaceLabel(snap, a.place)} · {agoShort(old?.at ?? a.at)}</span>
     </button>
   )
 }
 
-/** a page an agent made shows in the chat as its tile, at the version it came with */
+/** a page an agent made shows in the chat as its tile, at the version it came with; in a chat it says what it is
+ *  (dmalis/shepherdr#85: "Artifact · Version 2 · shop · 5m") */
 function InChat({ msg }: { msg: Message; chat: Chat }) {
   if (!msg.artifact) return null
-  return <div className="atile"><Tile id={msg.artifact.id} v={msg.artifact.v} /></div>
+  return <div className="atile"><Tile id={msg.artifact.id} v={msg.artifact.v} kind /></div>
 }
 
 /* ---------- an open artifact ---------- */

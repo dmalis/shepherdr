@@ -10,6 +10,9 @@
 /* inside a link in words: the link's own colour (its contrast kept), set apart by having no underline: an inline-block
    takes no text-decoration from the link around it */
 .kdi{display:inline-block;margin-inline-end:.3em;font-size:.92em}
-/* a reply to a task, quoted above its words: its kind before its title (ds.css .quote.qtask) */
-.quote.qtask>.qt0{flex:none;color:var(--muted)}.quote.qtask>.qt0::after{content:"·" / "";margin-inline:4px}
+/* a reply to a task, quoted above its words (ds.css .quote.qtask): the same one line, the name cut first */
+.quote.qtask>.knd{flex:0 1 auto}
 .card .t .knd>.kn{color:inherit}
+/* an alert in the alerts list (inbox.css .inbx-t) whose title names a task: one line, its name cut, never what happened */
+.inbx-t:has(>.knd){display:flex;min-width:0}.inbx-t>.knd{flex:0 1 auto}
+.inbx-t>.knd>.kn{color:inherit}

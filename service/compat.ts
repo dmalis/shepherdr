@@ -18,6 +18,7 @@ import { taskArtifacts, titleInTask } from "../core/task-artifacts.js";
 const { summary, names } = CL as any;
 const { senderName, briefLabel, firstUser, firstKeys, newsTimeline, resolveArtifacts, unsigned, fromName, sentTo, selfName, subagentsOf, isHelper, parentAddr } = CV as any;
 import { mentionedIn } from "../core/send.js";
+import { pickedElsewhere } from "../core/mention-picks.js";
 import * as MEc from "../core/mentions.js";
 import * as SCc from "../core/screens.js";
 import { codexChoice } from "../core/asks.js";
@@ -33,6 +34,7 @@ const { spaceName } = SPc as any;
 import type { Where } from "./worktree.ts";
 import { answeredLine, holdForPrompts, markAnswered, whyHeld } from "./prompts.ts";
 import { sentPictures } from "./sent-images.ts";
+import { rowWho } from "../web/shared/kinds.ts";
 import * as AGc from "../core/agents.js";
 const { liveAgent } = AGc as any;
 
@@ -261,6 +263,14 @@ export class Compat {
     const machine = t ? t.machine ?? null : s?.machine ?? null, folder = t ? t.folder : s?.folder;
     return this.rows.filter((r) => (r.machine ?? null) === machine && r.folder === folder)
       .map((r) => ({ ref: r.ref, id: r.id, title: r.title, status_text: r.sub ?? r.section, why: r.why, folder: r.folder, prompt: r.prompt, state: r.section }));
+  }
+
+  /** The tasks a message picked in another folder or on another machine, in tasksFor's shape (core/mention-picks.js). */
+  pickedFor(chatKey: string, text: string) {
+    const t = chatKey.endsWith("/worker") ? this.rows.find((r) => taskId(r) === chatKey.slice(0, -7)) : null;
+    const machine = t ? t.machine ?? null : this.spaceList.find((x) => placeKey(x.id) === chatKey)?.machine ?? null;
+    return pickedElsewhere(text, this.rows, machine)
+      .map((r: Row) => ({ ref: r.ref, id: r.id, title: r.title, status_text: r.sub ?? r.section, why: r.why, folder: r.folder, prompt: r.prompt, state: r.section }));
   }
 
   /** One task as a mention's tag line wants it (tasksFor's shape), by its id, wherever it is: what a reply to a task
@@ -933,13 +943,15 @@ export class Compat {
     // their secrets, their start screens, and how each closed
     if (space) for (const r of spaceRows.filter((r) => r.worker)) {
       const by = { ref: r.ref, title: r.title, chat: `${taskId(r)}/worker` };
+      // dmalis/shepherdr#85: its lines say what it is ("Task · Fix login · …"), so a title never reads as news
+      const who = rowWho(r);
       const a = (this.asks?.of(r.worker) ?? []).sort((p: any, q: any) => p.at - q.at)[0];
       if (a) messages.push({ id: `ask:${a.id}`, who: "agent", at: a.at, question: { ...this.question(a, key), by } as any });
       else for (const s of (this.secrets?.asks() ?? []).filter((x) => x.address === r.worker)) messages.push({ id: s.id, who: "agent", at: s.at, secret: { ...this.secretAsk(s), by } } as Message);
-      for (const e of this.secrets?.endsOf?.(r.worker) ?? []) messages.push(quiet(`ae:${e.id}`, e.at, `${r.title} · A secret: ${e.name} · ${e.how}`));
+      for (const e of this.secrets?.endsOf?.(r.worker) ?? []) messages.push(quiet(`ae:${e.id}`, e.at, `${who} · A secret: ${e.name} · ${e.how}`));
       // SHEP-322: by its title, never its key
-      for (const e of (this.asks as any)?.endsOf?.(r.worker) ?? []) messages.push(answeredLine(e, `${r.title} · `) ?? quiet(`ae:${e.id}`, e.at, `${r.title} · ${e.title} · ${e.how}`));
-      screens(r.worker, r.title, by);
+      for (const e of (this.asks as any)?.endsOf?.(r.worker) ?? []) messages.push(answeredLine(e, `${who} · `) ?? quiet(`ae:${e.id}`, e.at, `${who} · ${e.title} · ${e.how}`));
+      screens(r.worker, who, by);
       signIn(r.worker, by);
     }
     // a card never sticks to the end (SHEP-419): newer messages come under it

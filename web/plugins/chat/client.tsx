@@ -201,9 +201,7 @@ function TaskQuote({ id, title }: { id: string; title: string }) {
       }}
     >
       {t ? <StatusIcon t={t} time="none" /> : <I n="tasks" c="s16" />}
-      <span className="qt0">{taskKind(t)}</span>
-      <span className="qt1">{t?.name ?? title}</span>
-      {word && <span className="qt2">{word}</span>}
+      <KindName t={t} name={t?.name ?? title} state={word} />
     </button>
   )
 }
@@ -806,7 +804,7 @@ function Messages({ thread }: { thread: Thread }) {
       // Herdr's news of a task, never a message (SHEP-365): one quiet row under the task's line, or nothing for what
       // the app shows by itself from the task's status (its review card, its Done line)
       const t = taskOf(snap, m.news.task)
-      const row = newsRow(m.news, t?.name ?? '')
+      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')
       if (!row) continue
       if (t && !thread.task && t.id !== lastRef) out.push(<TaskRef key={`r:${k}`} id={t.id} title={t.name} t={t} />)
       if (t) lastRef = t.id

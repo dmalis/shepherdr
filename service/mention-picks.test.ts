@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { quoteOf } from "./actions.ts";
 import { mentionedIn } from "../core/send.js";
-import { sharedTitles, unpicked } from "../core/mention-picks.js";
+import { pickedElsewhere, pickedHere, sameFolder, sharedTitles, unpicked } from "../core/mention-picks.js";
 
 const runs = Array.from({ length: 11 }, (_, i) => ({ ref: `SD-${i + 1}`, id: i + 1, title: "Install merged", status_text: "Done", why: "", folder: "/srv/repo", prompt: "Install main's tip", state: "done" }));
 const login = { ref: "SD-40", id: 40, title: "Fix login", status_text: "Working", why: "", folder: "/srv/repo", prompt: "Make sign-in work", state: "working" };
@@ -15,8 +15,35 @@ test("a picked run of a schedule gives the agent exactly that one task, not ever
   expect(q.tags).toContain('<hc task="SD-7" title="Install merged"');
 });
 
-test("a picked link from another machine or folder still names its one task by its key", () => {
-  expect(mentionedIn("[@Install merged](task:vm>mini/SD-3?folder=~/dev/repo) again?", runs).map((x: any) => x.ref)).toEqual(["SD-3"]);
+// every task known here, as compat's rows: this chat's folder on this machine (machine null), another folder, another machine
+const rows = [
+  ...runs.map((x) => ({ ...x, machine: null })),
+  { ...login, ref: "SD-7", id: 7, title: "Other folder's", folder: "/srv/other", machine: null },
+  { ...login, ref: "SD-7", id: 7, title: "On the vm", folder: "/srv/me/dev/repo", machine: "vm" },
+];
+const withPicks = (tasks: any[]) => ({ ...fake(tasks), pickedFor: (_: string, text: string) => pickedElsewhere(text, rows, null) }) as any;
+
+test("a pick from another machine or folder names that task, never the chat's own task with the same key", () => {
+  // the route's last hop is the machine; a "~/" folder is matched by its end
+  const vm = quoteOf({ chat: "p:sp1", text: "and [@On the vm](task:mini>vm/SD-7?folder=~/dev/repo)?" }, withPicks(runs), null);
+  expect(vm.tags.match(/<hc task=/g)?.length).toBe(1);
+  expect(vm.tags).toContain('title="On the vm"');
+  const other = quoteOf({ chat: "p:sp1", text: "and [@Other folder's](task:SD-7?folder=/srv/other)?" }, withPicks(runs), null);
+  expect(other.tags.match(/<hc task=/g)?.length).toBe(1);
+  expect(other.tags).toContain('title="Other folder\'s"');
+  // one not known here names none (its link still tells the agent where), and never the local SD-7
+  expect(quoteOf({ chat: "p:sp1", text: "[@Gone](task:pi/SD-7?folder=/srv/x)" }, withPicks(runs), null).tags).toBe("");
+  expect(mentionedIn("[@On the vm](task:mini>vm/SD-7?folder=~/dev/repo)", runs)).toEqual([]);
+  // the chat's own task picked: once, not again from the other lookup
+  expect(quoteOf({ chat: "p:sp1", text: "[@Install merged](task:SD-7)" }, withPicks(runs), null).tags.match(/<hc task=/g)?.length).toBe(1);
+});
+
+test("a key written inside a picked title names nothing more", () => {
+  const follow = { ...login, ref: "SD-50", id: 50, title: "Follow up on SD-12" }, twelve = { ...login, ref: "SD-12", id: 12, title: "Twelve" };
+  expect(mentionedIn("[@Follow up on SD-12](task:SD-50) is it done?", [follow, twelve]).map((x: any) => x.ref)).toEqual(["SD-50"]);
+  expect(pickedHere({ ref: "sd-50", route: "", folder: "" }, follow)).toBe(true);
+  expect(sameFolder("~/dev/repo", "/srv/me/dev/repo")).toBe(true);
+  expect(sameFolder("~/dev/repo", "/srv/me/dev/repo2")).toBe(false);
 });
 
 test("a title several tasks share names none of them; a title only one has still names it", () => {

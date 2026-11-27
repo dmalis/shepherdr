@@ -16,6 +16,28 @@ const KINDS: Kind[] = ['Schedule run', 'Task']
 /** "Task · Fix login": who an alert's title names, its kind first */
 export const kindWho = (kind: Kind, name: string) => `${kind} · ${name}`
 
+/** the same for herdr-task's own row (its schedule's name is x.automation): "Schedule run · Install merged" */
+export const rowWho = (r: { title?: string; x?: { automation?: unknown } | null }) => kindWho(r.x?.automation ? 'Schedule run' : 'Task', String(r.title ?? ''))
+
+const cut = (s: string, room: number) => (s.length <= room ? s : `${s.slice(0, room - 1).trimEnd()}…`)
+const letters = (s: string) => s.replace(/[\s…]/g, '').length
+
+/** a "<kind> · <name> · <what>" title in its parts (the alerts list draws it as one line, its name cut), else null */
+export function splitKindTitle(title: string): { kind: Kind; name: string; what: string } | null {
+  const kind = KINDS.find((k) => title.startsWith(`${k} · `))
+  const at = title.lastIndexOf(' · ')
+  return kind && at > kind.length ? { kind, name: title.slice(kind.length + 3, at), what: title.slice(at + 3) } : null
+}
+
+/** "<who> · <what>" in n characters (an alert's title, kept whole for the alerts list): a kind title's name is
+ *  shortened first, so what happened always shows. Longer still, the caller clips it. */
+export function fitWho(who: string, what: string, n: number): string {
+  const whole = `${who} · ${what}`
+  const kind = KINDS.find((k) => who.startsWith(`${k} · `))
+  const room = n - what.length - 3 - (kind ? kind.length + 3 : 0)
+  return whole.length <= n || !kind || room < 4 ? whole : `${kind} · ${cut(who.slice(kind.length + 3), room)} · ${what}`
+}
+
 /** the fewest letters of a name a cut title keeps before its kind takes a shorter word */
 const NAME_MIN = 10
 
@@ -24,15 +46,14 @@ const NAME_MIN = 10
  *  name: a watch line names the task first (the alerts list and the app keep the whole title). null: nothing to cut. */
 export function cutKindTitle(title: string, n: number): string | null {
   if (title.length <= n) return null
-  const kind = KINDS.find((k) => title.startsWith(`${k} · `))
-  const at = title.lastIndexOf(' · ')
-  if (!kind || at <= kind.length) return null
-  const what = title.slice(at + 3), name = title.slice(kind.length + 3, at)
-  const cut = (s: string, room: number) => (s.length <= room ? s : `${s.slice(0, room - 1).trimEnd()}…`)
+  const parts = splitKindTitle(title)
+  if (!parts) return null
+  const { kind, name, what } = parts
   const short = kind === 'Schedule run' ? 'Run' : kind
   for (const k of [kind, short]) {
     const room = n - k.length - what.length - 6
-    if (room >= Math.min(NAME_MIN, name.length)) return `${k} · ${cut(name, room)} · ${what}`
+    // the letters a reader still sees of the name (no spaces, no …)
+    if (room > 0 && letters(cut(name, room)) >= Math.min(NAME_MIN, letters(name))) return `${k} · ${cut(name, room)} · ${what}`
   }
   const room = n - what.length - 3
   return room >= 4 ? `${cut(name, room)} · ${what}` : null

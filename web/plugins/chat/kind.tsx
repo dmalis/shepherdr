@@ -3,23 +3,29 @@
 // GitHub's timeline ("Issue"), Linear's ("Issue ENG-12") and Slack's app label ("Workflow"): the kind muted, the name
 // the main words and the one part cut short on a narrow screen, the state word after it so the icon isn't the only
 // sign. Inline in words (a link to a task), the kind is a quiet word inside the link.
-import { taskKind } from '@shared/kinds.ts'
+import { splitKindTitle, taskKind, type Kind } from '@shared/kinds.ts'
 import './kind.css'
 
 type Named = { schedule?: string } | null | undefined
 
 /** one line: its kind, its name, then its state word. On a narrow screen a state's tail ("· told you in Everything")
  *  gives way first, then the name; the kind and the state's first words ("Done") always stay. */
-export function KindName({ t, name, state }: { t?: Named; name: string; state?: string }) {
+export function KindName({ t, kind, name, state }: { t?: Named; kind?: Kind; name: string; state?: string }) {
   const [word, ...tail] = (state ?? '').split(' · ')
   return (
     <span className="knd">
-      <span className="kd">{taskKind(t)}</span>
+      <span className="kd">{kind ?? taskKind(t)}</span>
       <span className="kn">{name}</span>
       {word ? <span className="ks">{word}</span> : null}
       {word && tail.length ? <span className="kx">{tail.join(' · ')}</span> : null}
     </span>
   )
+}
+
+/** an alert's stored title ("Schedule run · Install merged · Done") as that one line; any other title as it is */
+export function KindTitle({ title }: { title: string }) {
+  const p = splitKindTitle(title)
+  return p ? <KindName kind={p.kind} name={p.name} state={p.what} /> : <>{title}</>
 }
 
 /** the kind inside a link to a task, before its title ("Task Fix login") */
