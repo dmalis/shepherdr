@@ -87,6 +87,19 @@ class Pending(unittest.TestCase):
         rec = {"blocker": "main-hooks", "kind": "hooks", "first_seen": "2020-01-01T00:00:00Z"}
         self.assertFalse(state.question_due(rec))
 
+    def test_a_title_that_mustnt_go_public_is_kept_as_a_merged_task(self):
+        st = state.fresh()
+        merged.record_pending(st, "Fix /home/someone/notes")
+        self.assertEqual(st["pending"]["titles"], ["a merged task"])
+
+    def test_every_unresolved_install_of_ours_is_read_however_many_came_after(self):
+        st = state.fresh()
+        shas = [f"{n:040x}" for n in range(1, 16)]
+        st["installs"] = [{"sha": x, "path": "install-merged"} for x in shas] + [{"sha": "f" * 40, "path": "take"}]
+        st["ci"] = {x: {"verdict": "green"} for x in shas[1:]}
+        st["ci"][shas[3]] = {"verdict": "pending"}
+        self.assertEqual(merged.ci_unresolved(st), [shas[0], shas[3]], "the oldest is never dropped")
+
 
 class Settle(syncworld.World):
     """settle in the sync world: the fork's main is v3.2.21 plus our patch (a.txt changed, a shipped file)."""
@@ -153,6 +166,18 @@ class Settle(syncworld.World):
         self.assertEqual((out["path"], out["candidate"]), ("install-merged", tip), "the newer tip, pinned again")
         self.assertNotIn("rounds", self.st()["run"], "nothing ended: no round")
 
+    def test_a_resumed_settle_that_finds_nothing_goes_back_to_where_it_settled_from(self):
+        self.edit(phase="healthy")
+        self.assertEqual(self.settle()["path"], "install-merged")
+        self.edit(baseline={"sha": self.main0})      # main came back to what's installed
+        out = self.settle()
+        self.assertEqual(out["path"], "nothing")
+        st = self.st()
+        self.assertEqual((st["phase"], st["candidate"]), ("healthy", None), "no unfinished settled phase left")
+        code, out = self.sync("finish", paths_ok=True)
+        self.assertEqual((code, out["outcome"]), (0, "nothing"), out)
+        self.assertIsNone(self.st()["lease"])
+
     def test_no_baseline_stops(self):
         self.edit(baseline=None)
         with self.assertRaises(Refused) as e:
@@ -185,6 +210,15 @@ class Settle(syncworld.World):
         code, out = self.preflight("SYNC-2", "--pending", "Fix the button")
         self.assertEqual((code, out["outcome"], out["pending"]), (1, "broken", True))
         self.assertEqual(self.st()["pending"]["titles"], ["Fix the button"])
+
+    def test_a_takeover_keeps_its_own_merge_pending(self):
+        self.edit(phase="installed", candidate=self.main0, baseline={"sha": self.v21})
+        self.set_ht({self.RUN: {"state": "done"}, "SYNC-2": {"state": "running"}})
+        code, out = self.preflight("SYNC-2", "--pending", "Fix the button")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["took_over"])
+        self.assertEqual((out["resume"], out["pending"]), ("installed", True), "it resumes the old candidate")
+        self.assertEqual(self.st()["pending"]["titles"], ["Fix the button"], "so its own merge waits after it")
 
     def test_a_merge_while_the_lease_is_taken_waits_in_pending_then_the_owner_goes_again(self):
         self.edit(baseline={"sha": self.main0})
@@ -323,8 +357,9 @@ class CiAfterInstall(syncworld.World):
         self.installed(self.main0)
         self.set_gh(checks={self.main0: GREEN})
         code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
-        self.assertEqual((code, out["outcome"]), (0, "installed"))
-        self.assertNotIn("next", out, "CI already answered")
+        self.assertEqual((code, out["outcome"], out["next"]), (0, "installed", "ci"), "finish reads no CI")
+        code, out = self.sync("ci", paths_ok=True)
+        self.assertEqual((code, out["ci"], out["told"]), (0, {self.main0: "green"}, "The button works"), out)
         self.assertEqual(self.st()["recovery"]["sha"], self.main0)
         self.assertEqual(self.st()["ci"][self.main0]["verdict"], "green")
 
@@ -340,6 +375,8 @@ class CiAfterInstall(syncworld.World):
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
             st["run"] = {"key": "SYNC-2", "folder": self.space, "path": "nothing", "start": self.start}
         code, out = self.sync("finish", run="SYNC-2", paths_ok=True)
+        self.assertEqual((code, out["next"], out["ci"]), (0, "ci", []), "nothing of its own to wait for")
+        code, out = self.sync("ci", run="SYNC-2", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "reported"), out)
         self.assertIn("CI on main failed", out["told"])
 
@@ -348,11 +385,38 @@ class CiAfterInstall(syncworld.World):
         self.set_gh(checks={"*": []})
         code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "installed"), out)
+        code, out = self.sync("ci", paths_ok=True)
         self.assertIn("never reported", out["told"])
 
     def test_ci_without_finish_stops(self):
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (1, "stop"))
+
+    def finish(self, run=None, **kw):
+        return gate.finish(self.p, run or self.RUN, self.space, self.wt, cfg_hostname=None, **kw)
+
+    def test_finish_reads_no_ci_while_it_holds_the_lease(self):
+        self.installed(self.main0)
+        with mock.patch.object(merged, "ci_read", side_effect=AssertionError("a CI read in finish")), \
+                mock.patch.object(merged.release, "fetch_main", side_effect=AssertionError("a fetch in finish")):
+            out = self.finish(says="The button works")
+        self.assertEqual((out["next"], out["ci"]), ("ci", [self.main0]))
+
+    def test_a_red_result_another_run_told_meanwhile_isnt_told_again(self):
+        self.installed(self.main0)
+        with state.locked(self.p) as st:
+            st["ci"] = {self.main0: {"verdict": "red", "names": {"check": {"state": "red", "by": self.main0}},
+                                     "version": "3.2.21", "tag": "ours-3.2.21-1", "told": False}}
+        from sync import public
+        real = public.problems
+
+        def told_meanwhile(*a, **k):        # another run's `ci` marks it told between finish's two locks
+            with state.locked(self.p) as st:
+                merged.mark_told(st, [self.main0])
+            return real(*a, **k)
+        with mock.patch.object(public, "problems", side_effect=told_meanwhile):
+            out = self.finish(says="The button works")
+        self.assertEqual(out.get("told"), "The button works", "told once, by the other run")
 
 
 class OursInstall(installworld.World):

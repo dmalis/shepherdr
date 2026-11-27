@@ -34,7 +34,6 @@ CI_NAMES = ("check", "fork-check")
 CI_RED = ("failure", "timed_out", "startup_failure", "action_required")
 CI_UNFINISHED = ("cancelled", "skipped", "stale")     # a run that ended without a verdict: an older or newer one counts
 CI_MISSED_AFTER_S = 2 * 3600          # no finished run covers an install this long after it: told as missing
-CI_READ = 10                          # the newest installs of ours whose CI is still read
 CI_KEEP = 50
 
 
@@ -71,11 +70,16 @@ def now_ms(now=None):
 
 # --- pending merges ---
 
-def record_pending(st, title, now=None):
+def record_pending(st, title, now=None, cfg_hostname=None):
     """A merge that came while another run owned the lease (or the pipeline was broken): its time and the merged
-    task's title. The owner picks it up: `finish` won't let go of the lease while it is there."""
+    task's title. The owner picks it up: `finish` won't let go of the lease while it is there. A title that carries
+    anything that mustn't go public (a home path, a machine's name) is kept as "a merged task": titles reach the
+    JSON lines and the person's words."""
+    from . import public
     cur = st.get("pending") or {}
-    title = " ".join(str(title or "").split())[:200] or "a merged task"
+    title = " ".join(str(title or "").split())[:200]
+    if not title or public.problems(title, cfg_hostname):
+        title = "a merged task"
     titles = [t for t in cur.get("titles") or [] if t != title] + [title]
     st["pending"] = {"at": state.stamp(now), "ms": now_ms(now), "titles": titles[-PENDING_KEEP:]}
     return st["pending"]
@@ -154,11 +158,17 @@ def settle(p, run, folder, repo, now=time.time):
                      "at": state.stamp(pinned / 1000), "pinned_ms": pinned, **keep,
                      **({"rounds": rounds} if rounds else {})}
         st["main"], st["in_main"] = tip, in_main
+        came = (r or {}).get("settled_from") if phase == "settled" else phase
         if path == PATH:
             state.set_phase(st, "settled")
+            st["run"]["settled_from"] = came
             st["release"], st["candidate"], st["sync"] = dict(in_main), tip, None
             out["candidate"] = tip
             out["rehearse"] = not state.rehearsal_passed(st, install.pipeline_hash(repo, tip))
+        elif phase == "settled":
+            # a settled run that stopped, then found nothing to install on its resume (main moved back): nothing was
+            # installed, so the state goes back to the finished phase it settled from, and finish can end the run
+            st["phase"], st["phase_at"], st["candidate"] = came, state.stamp(), None
         out["pending_cleared"] = clear_pending(st, pinned)
         out["pending"] = bool(st.get("pending"))
     out["path"] = path
@@ -221,14 +231,22 @@ def ci_verdict(repo, sha, tip, runs_of=None):
     return verdict, got
 
 
+FINAL_VERDICTS = ("green", "red", "missed")
+
+
+def ci_unresolved(st):
+    """The installs of ours (all the state keeps) whose CI verdict isn't final yet. Each one is final at the latest
+    CI_MISSED_AFTER_S after its install (missed), so the list stays short."""
+    ci = st.get("ci") or {}
+    return [i["sha"] for i in st.get("installs") or [] if i.get("path") == PATH
+            and state.SHA.match(i.get("sha") or "") and (ci.get(i["sha"]) or {}).get("verdict") not in FINAL_VERDICTS]
+
+
 def ci_read(p, repo, now=time.time, runs_of=None):
     """Reads CI for each install of ours whose verdict isn't final yet, records it, and the recovery point. Returns
     the shas still pending. Nothing when there is nothing to read; a fetch that fails leaves them for later."""
     with state.locked(p) as st:
-        ci = st.get("ci") or {}
-        todo = [dict(i) for i in (st.get("installs") or [])[-CI_READ:]
-                if i.get("path") == PATH and state.SHA.match(i.get("sha") or "")
-                and (ci.get(i["sha"]) or {}).get("verdict") in (None, "pending")]
+        todo = [dict(i) for i in st.get("installs") or [] if i.get("sha") in ci_unresolved(st)]
     if not todo:
         return []
     try:
@@ -250,6 +268,8 @@ def ci_read(p, repo, now=time.time, runs_of=None):
     with state.locked(p) as st:
         ci = st.setdefault("ci", {})
         for sha, v in seen.items():
+            if (ci.get(sha) or {}).get("verdict") in FINAL_VERDICTS:
+                continue                    # another read settled it meanwhile: never back to pending
             ci[sha] = dict(ci.get(sha) or {}, **v, told=bool((ci.get(sha) or {}).get("told")))
         for sha in list(ci)[:-CI_KEEP] if len(ci) > CI_KEEP else []:
             ci.pop(sha, None)
@@ -307,13 +327,28 @@ def run_installs(st, run):
 CI_WAIT_S = 30 * 60      # a run waits this long after its install for CI's verdict; a later run tells what comes after
 
 
+
+
+def with_ci_words(told, outcome, words):
+    """A run's --told words with CI's results added; a run that had nothing to say then reports them."""
+    if not words:
+        return told, outcome
+    return " ".join(([told] if told else []) + list(words)), ("reported" if outcome == "nothing" else outcome)
+
+
+def still_untold(st, said):
+    """Of [(sha, words)] read earlier, the ones nobody marked told since (another run's `ci` or finish may have)."""
+    ci = st.get("ci") or {}
+    return [(sha, w) for sha, w in said if not (ci.get(sha) or {}).get("told")]
+
+
 def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.sleep):
-    """`ci`, after finish said next: ci. CI's verdict on the installs this run made, read with the lease let go (the
-    next install never waits for it), then the run's exact completion command: finish's words, plus a red or missing
-    result. A verdict that takes longer than CI_WAIT_S after the install is left for a later run to tell."""
+    """`ci`, after finish said next: ci. Reads CI for every install of ours whose verdict isn't final, with the lease
+    let go (the next install never waits for it), waiting for this run's own installs up to CI_WAIT_S after the last
+    one; then the run's exact completion command: finish's words, plus a red or missing result not told yet. A verdict
+    that comes later is left for a later run to tell."""
     with state.locked(p) as st:
         rep = dict((st.get("reports") or {}).get(run) or {})
-        rec = st.get("recovery")
     if not rep or rep.get("folder") != folder:
         raise Refused("finish didn't hand this run to ci: run finish", outcome="stop")
     shas = list(rep.get("ci") or [])
@@ -326,31 +361,29 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
     began = now()
     while True:
         left = set(ci_read(p, repo, now=now)) & set(shas)
-        age = now() - newest
-        if not left or age >= CI_WAIT_S:
+        if not left or now() - newest >= CI_WAIT_S:
             break
         if now() - began >= gate.call_wait_s():
             raise Refused(f"CI on main hasn't reported on {', '.join(s[:12] for s in sorted(left))} yet: call ci again",
                           outcome="wait", pending=sorted(left))
         sleep(max(0.0, gate.poll_s()))
+    late = [f"CI on main hadn't reported on {sha[:12]} {CI_WAIT_S // 60} minutes after its install: a later run "
+            "tells its result." for sha in sorted(left)]
     with state.locked(p) as st:
-        said = [(sha, w) for sha, w in ci_untold(st, mark=False)]
-        ci = {sha: (st.get("ci") or {}).get(sha, {}).get("verdict") or "pending" for sha in shas}
-        rec = st.get("recovery")
-    words = [w for _, w in said]
-    words += [f"CI on main hadn't reported on {sha[:12]} {CI_WAIT_S // 60} minutes after its install: a later run "
-              "tells its result." for sha in sorted(left)]
-    told, outcome = rep.get("told"), rep.get("outcome")
-    if words:
-        told = " ".join(([told] if told else []) + words)
-        outcome = "reported" if outcome == "nothing" else outcome
+        said = ci_untold(st, mark=False)
+    told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in said] + late)
     if told:
         from . import public
         found = public.problems(told, cfg_hostname)
         if found:
             raise Refused(f"the --told words carry {public.words(found)}", outcome="stop")
     with state.locked(p) as st:
-        mark_told(st, [sha for sha, _ in said])
+        # told once per commit: whatever another run told meanwhile drops out (the words are a subset of the checked)
+        kept = still_untold(st, said)
+        mark_told(st, [sha for sha, _ in kept])
+        told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in kept] + late)
         (st.get("reports") or {}).pop(run, None)
+        ci = {sha: ((st.get("ci") or {}).get(sha) or {}).get("verdict") or "pending" for sha in shas}
+        rec = st.get("recovery")
     return {"outcome": outcome, "ci": ci, "recovery": rec, "before": [],
             "command": gate.ready_cmd(run, folder, told), **({"told": told} if told else {})}

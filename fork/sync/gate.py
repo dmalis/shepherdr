@@ -614,22 +614,17 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
     if r.get("merged") and outcome != "nothing":
         fetch_for_finish(repo)
     branch_problem(repo, r.get("start"))
-    # CI on main after earlier installs of our merges: a red or missing result not told yet goes in these words
+    # CI on main after installs of our merges: a red or missing result already read and not told yet goes in these
+    # words. Nothing is read from GitHub here: that is `ci`'s, with the lease let go, so a pending merge never waits
     from . import merged
-    merged.ci_read(p, repo)
     with state.locked(p) as st:
         ci_said = merged.ci_untold(st, mark=False)
-        mine = merged.run_installs(st, run)
-    late = [w for _, w in ci_said]
-    if late:
-        told = " ".join(([told] if told else []) + late)
-        if outcome == "nothing":
-            outcome = "reported"
+    base, base_outcome = told, outcome
+    told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in ci_said])
     if told is not None:
         found = public.problems(told, cfg_hostname)
         if found:
             raise Refused(f"the --told words carry {public.words(found)}", outcome="stop")
-    waits = [sha for sha in mine if sha not in dict(ci_said)]
     with state.locked(p) as st:
         pending = st.get("pending")
         if pending and (st.get("lease") or {}).get("run") == run and not state.resume_point(st):
@@ -638,10 +633,15 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
                           outcome="again", pending=list(pending.get("titles") or []))
         if st.get("lease") and not state.resume_point(st):
             state.release_lease(st, run, folder)
-        merged.mark_told(st, [sha for sha, _ in ci_said])
-        waits = [sha for sha in waits if (st.get("ci", {}).get(sha) or {}).get("verdict") in (None, "pending")]
-        if waits:
-            # this run installed our merges: it waits for CI's verdict with the lease let go (`ci`), then tells it
+        # told once per commit: another run's `ci` may have told one meanwhile (the words are a subset of the checked)
+        kept = merged.still_untold(st, ci_said)
+        merged.mark_told(st, [sha for sha, _ in kept])
+        told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in kept])
+        unread = merged.ci_unresolved(st)
+        waits = [sha for sha in merged.run_installs(st, run) if sha in unread]
+        if unread:
+            # installs of ours whose CI hasn't answered: `ci` reads it with the lease let go, waits for this run's
+            # own, then gives the completion command with what it found
             st.setdefault("reports", {})[run] = {"folder": folder, "outcome": outcome, "told": told, "ci": waits,
                                                  "at": state.stamp()}
         if (st.get("run") or {}).get("key") == run:
@@ -652,7 +652,7 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
             if outcome == "installed" and synced_at and any(o == "installed" and pth in SYNCED
                                                             for o, _, pth in rounds):
                 st["issue_cursor"] = synced_at
-    if waits:
+    if unread:
         return {"outcome": outcome, "before": [], "next": "ci", "ci": waits, **({"told": told} if told else {})}
     return {"outcome": outcome, "before": [], "command": ready_cmd(run, folder, told),
             **({"told": told} if told else {})}

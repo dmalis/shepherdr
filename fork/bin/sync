@@ -86,10 +86,14 @@ def preflight(a, p):
                 raise
             # Installing our own merges: the merge waits in `pending` for the lease's owner (or the person's clear),
             # written in this same lock (raising inside it would discard the write)
-            merged.record_pending(st, a.pending)
+            merged.record_pending(st, a.pending, cfg_hostname=hostname(p))
             e.fields["pending"] = True
             refused, took = e, None
         if not refused:
+            if a.pending is not None:
+                # a takeover resumes the old owner's candidate: this merge waits in pending all the same (a settle
+                # that pins main after it clears it)
+                merged.record_pending(st, a.pending, cfg_hostname=hostname(p))
             if took:
                 ok, head, _ = release.git(os.path.abspath(a.repo), "rev-parse", "--verify", "HEAD^{commit}")
                 adopted = state.adopt_run(st, a.run, a.folder, start=head if ok else None)

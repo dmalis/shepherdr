@@ -48,7 +48,7 @@ exactly how far, and what stays forbidden.
 | `finish` | Prints the exact completion command for the run's outcome ([Completion commands](#completion-commands)). |
 | `clear-broken` | The person's only: clears a `broken` phase. Refused in a task's terminal. |
 | `settle` | For "Install merged": origin/main's tip pinned now, and the run's path: nothing, skip or install-merged ([Installing our own merges](#installing-our-own-merges)). |
-| `ci` | After `finish` says `next: ci`: CI's verdict on the run's installs of our merges, read with the lease let go, then the completion command. |
+| `ci` | After `finish` says `next: ci`: CI's verdict on installs of our merges with none yet (waiting on the run's own), read with the lease let go, then the completion command. |
 
 ## Where things live
 
@@ -593,7 +593,8 @@ our merges' own install policy:
 
 1. `preflight --pending "<the merged task's title>"`: the same lease. A run that finds the lease taken (or the
    pipeline `broken`) records the merge in `pending` (its time and title), in the same lock, and ends `--nothing`. The
-   lease's owner installs it (step 6).
+   lease's owner installs it (step 6). A run that takes the lease over records its merge too, since it first resumes
+   the old owner's candidate. A title that fails the public check is kept as "a merged task".
 2. `baseline`, as in [One run](#one-run).
 3. `settle`: origin/main's tip, fetched now and pinned by SHA. No waiting: each install takes whatever main holds when
    it starts, so merges that land during an install go in together with the next one, which starts right after it.
@@ -606,6 +607,9 @@ our merges' own install policy:
      shipped folder breaks it.
    - **install-merged**: phase `settled`, the candidate is the tip, and the release is the newest upstream release
      main holds.
+
+   A `settled` run that stopped settles again at main's new tip. When that finds nothing or a skip, nothing was
+   installed, so the phase goes back to the finished one it settled from.
 4. The rehearsal, when `settle` says `rehearse` (below).
 5. `install <tip>`, `health <tip>`, and `rollback` when health fails, with quarantine and tag as for a sync.
 6. `finish`. It reads `pending` under the same lock that lets go of the lease. When a merge is pending it keeps the
@@ -642,11 +646,14 @@ doesn't clear it, but a change to a shipped file does. `settle` ends such a run 
   later commit of main's first-parent line. A `cancelled`, `skipped` or `stale` run doesn't count: CI cancels older
   main runs when main moves, and a later run covers the SHA. When `check`'s push trigger skips the SHA's push
   (`paths-ignore`), an older commit with the same code counts.
-- `finish` lets go of the lease first, so the next install never waits for CI. Then `ci` reads the verdict, in calls
-  of at most 9 minutes, for up to 30 minutes after the install. It then gives the completion command.
+- `finish` reads nothing from GitHub and lets go of the lease first, so the next install never waits for CI. While
+  any install of ours has no final verdict, it says `next: ci`. Then `ci` reads every such install's verdict, however
+  many installs came after it, and waits for the run's own, in calls of at most 9 minutes, for up to 30 minutes after
+  the install. It then gives the completion command.
 - A red result is told once per SHA, in the run's `--told` words: which check failed and on which commit, that
   nothing was rolled back, and the recovery point. The person's Assistant can then open a fix task. A result that
-  comes later, or no finished run within 2 hours (missed), is told by the next run's `finish`.
+  comes later, or no finished run within 2 hours (missed), is told by a later run. Telling and marking a SHA told
+  happen under one lock, so two runs never both tell it.
 - Nothing rolls back on red CI. The newest install whose CI passed is kept as `recovery`: its tag and SHA. A release
   sync's install counts, since its checks passed before it installed. The person can ask to go back to it. Going back
   is an ordinary update of the install folder to that tag, run by the person or under their yes.
