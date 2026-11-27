@@ -111,8 +111,8 @@ record reads as before):
 |---|---|
 | `id` | Stable for the problem's life: its first key ([Identity](#identity)). Later reports with the same key count on it. |
 | `space` | The origin: the space of its first report. Its Feedback offers setting governs the row's checks, following and posting, and its Assistant gets File it and Write it up. |
-| `reports` | Each report: `{at, space, machine, from, line, details}`. `from` is `{task: "<title>"}`, `{chat: true}`, `{person: true}`, `{action: "<label>"}` or `{agent: true}` (an agent that isn't a task's, such as an agent tab), never a key. Nothing is merged away: `count` counts every report, and a problem keeps its first and newest 99 (a runaway agent can't grow the record without end). A row an older version wrote gets its one report so far from its own fields when it takes a new one. |
-| `state` | Upstream's, plus `found`: kept, not told to an Assistant yet (none ran, or the send failed). The next report with an Assistant running tells it, and upstream's `--list` shows it. |
+| `reports` | Each report: `{at, space, machine, from, line, details}`. `from` is `{task: "<title>"}`, `{chat: true}`, `{person: true}`, `{action: "<label>"}` or `{agent: true}` (an agent that isn't a task's, such as an agent tab), never a key. Nothing is merged away, and every report is kept; `count` counts them. A row an older version wrote gets its one report so far from its own fields when it takes a new one. |
+| `state` | Upstream's, plus `found` (kept, not told to an Assistant yet: none ran, or the hand-off couldn't start) and `telling` (handed to the background `_hold-news`; it is `told` once the news is held, and a hand-off that never held it is sent again by a report after two minutes). The next report with an Assistant running tells a found one, and upstream's `--list` shows both. |
 | `fix`, `kind` | The proposed fix in one line, for every user; and `bug`, `confusing`, `workaround`, `manual` or `miss`, for the page's words. Written by the reporter (`--fix`, `--kind`) or the Assistant shaping it. |
 | `search` | The public words a duplicate search may use, written by the agent that shapes it (component and action names, never the person's project). |
 | `related` | Problems or issues an agent or the person linked (`--same-as`, Follow). Never set by word matching. |
@@ -147,9 +147,9 @@ reopened upstream updates `outcome` and leaves the person's decision alone.
 
 Upstream's key (`key_of`) drops "not" with its stop words and keeps only ASCII words, so opposite reports, and any
 two reports in a script without Latin letters, collide. A new problem's id is a new key: Unicode word characters,
-lower-cased, upstream's stop words except the negations (no, not, never, nothing, and the `n't` words, which are kept
+lower-cased, after Unicode normalization (NFKC), each word keeping its marks (a Devanagari vowel sign, an accent), upstream's stop words except the negations (no, not, never, nothing, and the `n't` words, which are kept
 as `not`), and, when no words are left, a hash of the whole line as written. Every old id still works in `--key`.
-A new report joins an old problem (one keyed the old way) only when the new key of the report equals the new key of
+A new report joins an old problem (one keyed the old way, under any old key: "can't" and "can not" had two) only when the new key of the report equals the new key of
 that problem's stored line: an old collision never absorbs a different problem, nor inherits its Never. Tests, each
 with a declined old row seeded: "Reply context is shown" declined, then "Reply context is not shown" reported, is a
 new, found problem; two different Japanese lines are two problems; an old row still takes a report of its own line.

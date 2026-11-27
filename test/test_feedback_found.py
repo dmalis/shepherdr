@@ -27,19 +27,22 @@ sys.dont_write_bytecode = True
 import herdr_task.cli as cli  # noqa: E402
 import herdr_task.feedback as fb  # noqa: E402
 import herdr_task.launch as launch  # noqa: E402
+import herdr_task.news as news  # noqa: E402
 import herdr_task.settings as settings  # noqa: E402
 
 DAY = 24 * 3600000
 TASK = {"labels": {"herdr.task": "dev#7", "herdr.task.space": "sp1", "herdr.agent": "codex"}, "name": "shep-7-fix"}
 
 
-class Kept(unittest.TestCase):
+class World(unittest.TestCase):
+    """A throwaway store and settings file, a task agent in sp1, Assistants in sp1 and sp2; hc, gh and news faked."""
+
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="feedback-found-")
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.file = os.path.join(self.dir, "shepherdr.json")
         self.state = os.path.join(self.dir, ".feedback.json")
-        self.held, self.gh = [], []
+        self.held, self.gh, self.queued = [], [], []
         self.caller = TASK
         self.assistants = {"sp1": "t5", "sp2": "t6"}
         self.settings({"here": "vm-test"})
@@ -63,11 +66,16 @@ class Kept(unittest.TestCase):
             (fb, "cli_version", lambda agent: "0.9.1"), (fb, "private_words", lambda: ["Jane Doe", "Jane"]),
             (fb, "shepherdr_version", lambda: "3.2.22"), (fb, "own_core_check", lambda: None),
             (launch, "caller_space", space), (launch, "coordinator_in", lambda sp: self.assistants.get(sp)),
-            (fb, "queue_news", lambda to, text: self.held.append((to, text))),
+            (fb, "queue_news", self.hand_off), (news, "hold", lambda to, text, how="send", task=None: self.queued.append((to, text, how))),
         ]:
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)
+
+    def hand_off(self, to, text):
+        """The background _hold-news: holds the news (faked), then marks its problem told, as the real one does."""
+        self.held.append((to, text))
+        fb.hold_news(to, text)
 
     def settings(self, d):
         with open(self.file, "w") as f:
@@ -93,6 +101,9 @@ class Kept(unittest.TestCase):
         with open(self.state, "rb") as f:
             return f.read()
 
+
+
+class Kept(World):
     # ---- kept ---------------------------------------------------------------------------------
 
     def test_a_report_with_no_assistant_is_kept(self):
@@ -134,7 +145,7 @@ class Kept(unittest.TestCase):
             self.say("Status lines vanish after a restart")
         (d,) = seen
         (p,) = d["problems"].values()
-        self.assertEqual((p["state"], len(p["reports"])), ("told", 1))
+        self.assertEqual((p["state"], len(p["reports"])), ("telling", 1))
 
     def test_a_send_that_fails_keeps_the_report(self):
         def boom(to, text):
@@ -296,14 +307,23 @@ class Kept(unittest.TestCase):
         self.assertIn("Already filed", self.say("--key", k2)[1])  # not a report: nothing changes, nothing is written
         self.assertEqual(self.raw(), before)
 
-    def test_the_reporters_fix_goes_in_the_issue(self):
-        self.say("Status lines vanish after a restart", "--fix", "Keep each status line in the store")
+    def test_the_reporters_fix_is_kept_and_filing_files_the_assistants(self):
+        """A report's --fix is kept with the problem; what is filed stays what the Assistant gives --file (after the
+        person's Edit first), never a later report's words."""
+        self.say("Status lines vanish after a restart", "--fix", "First suggestion")
+        self.say("Status lines vanish after a restart", "--fix", "Second suggestion")
+        self.assertEqual(self.listed()[0]["fix"], "Second suggestion")
         self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1", "herdr.agent": "claude"}, "name": "assistant"}
-        code, out = self.say("--key", self.listed()[0]["key"], "--file", "--new")
+        code, out = self.say("--key", self.listed()[0]["key"], "--file", "--new", "--fix", "First suggestion")
         self.assertIn("Filed:", out)
-        self.assertIn("## Suggested fix\n\nKeep each status line in the store", self.body)
-        (p,) = self.listed()
-        self.assertEqual((p["state"], p["count"]), ("filed", 1))
+        self.assertIn("## Suggested fix\n\nFirst suggestion", self.body)
+        self.assertNotIn("Second suggestion", self.body)
+        self.say("--key", self.listed()[0]["key"], "--file", "--new")  # already filed: nothing more
+        code, out = self.say("Ready hangs", "--fix", "Never in the issue")
+        self.say("--key", fb.id_of("Ready hangs"), "--file", "--new")
+        self.assertIn("## Suggested fix\n\n_Not known._", self.body)
+        (p, q) = self.listed()
+        self.assertEqual((p["state"], p["count"], q["state"]), ("filed", 2, "filed"))
 
     def test_a_report_while_filing_is_kept_when_filing_fails(self):
         self.say("Status lines vanish after a restart")
@@ -323,6 +343,78 @@ class Kept(unittest.TestCase):
         (p,) = self.listed()
         self.assertEqual((p["state"], p["count"]), ("told", 2))
         self.assertEqual(p["reports"][-1]["details"], "Meanwhile.")
+
+
+class KeptToo(World):
+    """The cases the first review found: none of them may lose or merge a report."""
+
+    def test_every_report_is_kept_however_many(self):
+        self.assistants = {}
+        for i in range(130):
+            self.say("Status lines vanish after a restart", "--details", f"Report {i}.")
+        (p,) = self.listed()
+        self.assertEqual((p["count"], len(p["reports"])), (130, 130))
+        self.assertEqual([r["details"] for r in p["reports"]], [f"Report {i}." for i in range(130)])
+
+    def test_equivalent_words_find_an_old_filed_row(self):
+        """Upstream keyed "can't" and "can not" apart; the new id doesn't, so the old filed row is found, keeping its key."""
+        old = fb.key_of("Can't send a reply")
+        self.assertNotEqual(old, fb.key_of("Can not send a reply"))
+        self.seed({old: {"line": "Can't send a reply", "state": "filed", "at": fb.now(), "url": "https://github.com/acme/shep/issues/9"}})
+        self.assertIn("Already filed", self.say("Can not send a reply")[1])
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}, "name": "assistant"}
+        self.assertIn("Already filed", self.say("Can not send a reply")[1])
+        self.assertEqual(self.gh, [])
+        (p,) = self.listed()
+        self.assertEqual((p["key"], p["count"]), (old, 3))
+        # a declined old row the same way keeps its No
+        no = fb.key_of("The page doesn't load")
+        self.seed({no: {"line": "The page doesn't load", "state": "declined", "at": fb.now()}})
+        self.caller = TASK
+        self.assertIn("said no", self.say("The page does not load")[1])
+
+    def test_words_keep_their_marks(self):
+        """Devanagari vowel signs are marks: "wrong data" and "wrong date" stay two problems, and composed and
+        decomposed accents are one."""
+        a, b = "रिपोर्ट में डेटा गलत है", "रिपोर्ट में डेट गलत है"
+        self.assertNotEqual(fb.id_of(a), fb.id_of(b))
+        self.assertEqual(fb.id_of("Café menu is empty"), fb.id_of("Café menu is empty"))
+        self.seed({fb.key_of(a): {"line": a, "state": "declined", "at": fb.now()}})
+        self.assertIn("Sent to your Assistant", self.say(b)[1])
+
+    def test_a_hand_off_that_never_held_the_news_is_sent_again(self):
+        """The background hand-off died before holding the news: the problem stays telling, a repeat soon after
+        sends nothing more, and one after TELLING_MS sends it again; a held one is told."""
+        died = []
+        with mock.patch.object(fb, "queue_news", lambda to, text: died.append(to)):
+            self.say("Status lines vanish after a restart")
+            self.assertIn("already has this one", self.say("Status lines vanish after a restart")[1])
+        self.assertEqual((died, self.listed()[0]["state"]), (["t5"], "telling"))
+        with mock.patch.object(fb, "TELLING_MS", -1):  # its time is up
+            self.assertIn("Sent to your Assistant", self.say("Status lines vanish after a restart")[1])
+        self.assertEqual((len(self.held), self.listed()[0]["state"]), (1, "told"))
+        self.assertEqual(len(self.queued), 1)
+        self.assertIn("already has this one", self.say("Status lines vanish after a restart")[1])
+
+    def test_the_hold_news_command_marks_it_told(self):
+        """herdr-task _hold-news, what queue_news starts in the background: holds, then marks told."""
+        with mock.patch.object(fb, "queue_news", lambda to, text: self.held.append((to, text))):
+            self.say("Status lines vanish after a restart")
+        self.assertEqual(self.listed()[0]["state"], "telling")
+        (to, text), = self.held
+        with mock.patch.object(sys, "argv", ["herdr-task", "_hold-news", to, text]):
+            cli.main()
+        self.assertEqual((self.queued, self.listed()[0]["state"]), ([(to, text, "news")], "told"))
+
+    def test_dry_run_records_nothing_while_off(self):
+        self.settings({"spaces": {"sp1": {"agents": {"feedback": False}}}})
+        self.assertIn("off in Settings", self.say("Status lines vanish after a restart", "--dry-run")[1])
+        self.assertFalse(os.path.exists(self.state))
+        with open(self.state, "w") as f:
+            f.write("{not json")
+        self.assertIn("off in Settings", self.say("Status lines vanish after a restart")[1])
+        self.assertEqual(self.raw(), b"{not json")  # not moved aside: nothing was going to be written
+        self.assertEqual([n for n in os.listdir(self.dir) if ".bad-" in n], [])
 
 
 class Pins(unittest.TestCase):

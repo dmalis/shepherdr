@@ -563,7 +563,7 @@ def main():
     c = sub.add_parser("_hold-news")  # feedback's report, queued for its Assistant in the background (feedback.queue_news)
     c.add_argument("to")
     c.add_argument("text")
-    c.set_defaults(fn=lambda a: __import__("herdr_task.news", fromlist=["hold"]).hold(a.to, a.text, "news"), json=False)
+    c.set_defaults(fn=lambda a: __import__("herdr_task.feedback", fromlist=["hold_news"]).hold_news(a.to, a.text), json=False)
     c = cmd("sandbox", cmd_sandbox, "whether Codex's sandbox (bwrap) can start on this machine, and the fix for it when it can't "
             "(asked once and kept; --check asks again)", id=False)
     c.add_argument("--check", action="store_true", help="ask again now")

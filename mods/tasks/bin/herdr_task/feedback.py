@@ -28,6 +28,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from contextlib import contextmanager
 
 from .base import APP_HOME, ENTRY, Fail, GH, HOME, hc_json, now, own_core_check, run, SHARE, STORE
@@ -108,14 +109,30 @@ NEGATIONS = {"no", "not", "never", "nothing"}
 NOT_WORDS = set("aint arent cant couldnt didnt doesnt dont hadnt hasnt havent isnt mustnt neednt shouldnt wasnt werent "
                 "wont wouldnt".split())
 KINDS = ("bug", "confusing", "workaround", "manual", "miss")
-REPORTS_MAX = 100                  # kept per problem: the first and the newest; count goes on
+TELLING_MS = 2 * 60000             # a report handed to its Assistant's news: told once the news is held, else sent again
+
+
+def tokens(text):
+    """The words of a line in any script: letters, digits and the marks that belong to them (a Devanagari vowel sign,
+    an accent), joined by an apostrophe inside a word; Unicode-normalized first."""
+    out, w = [], ""
+    for ch in unicodedata.normalize("NFKC", str(text or "")).casefold():
+        if unicodedata.category(ch)[0] in "LNM" or ch == "_" or (ch in "'’" and w):
+            w += ch
+        else:
+            if w:
+                out.append(w)
+            w = ""
+    if w:
+        out.append(w)
+    return [x.rstrip("'’") for x in out]
 
 
 def id_of(line):
     """A new problem's id: its line's words in any script, lower-cased, without upstream's stop words but keeping
     no, not, never, nothing (n't words count as not); a hash of the line as written when no word is left."""
     words = []
-    for w in re.findall(r"\w+(?:['’]\w+)*", str(line or "").casefold()):
+    for w in tokens(line):
         plain = w.replace("'", "").replace("’", "")
         if re.search(r"n['’]t$", w) or plain in NOT_WORDS:
             words.append("not")
@@ -127,13 +144,16 @@ def id_of(line):
 
 def find(ps, line):
     """The problem a report of this line joins: the one with its id, else a row an older version keyed the old way
-    whose own line has the same id (an old collision never absorbs a different problem, nor its No), else a new id."""
+    whose own line has the same id, whatever its old key (an old collision never absorbs a different problem, nor its
+    No), else a new id."""
     new = id_of(line)
     if new in ps:
         return new
-    old = ps.get(key_of(line))
-    if isinstance(old, dict) and old.get("line") and id_of(old["line"]) == new:
-        return key_of(line)
+    mine = key_of(line)  # the row upstream's key would have picked first, then any other
+    for key in sorted(ps, key=lambda k: k != mine):
+        p = ps[key]
+        if isinstance(p, dict) and p.get("line") and id_of(p["line"]) == new:
+            return key
     return new
 
 
@@ -172,7 +192,8 @@ def tidy(ps):
 @contextmanager
 def problems():
     """STATE's {key: {line, state, at, space, ...}} under its lock (an agent and the Assistant may
-    write it at once). state: found (kept, not told yet), told (sent to the Assistant), offered,
+    write it at once). state: found (kept, not told yet), telling (handed to the Assistant's news),
+    told (sent to the Assistant), offered,
     declined, filed (later: an older version's, noted to offer once the person is back). Written
     only when something changed; an unreadable record is kept aside, never overwritten as empty."""
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
@@ -205,8 +226,6 @@ def add_report(ps, key, report, fix=None, kind=None):
                                       ("details", p.get("details"))) if v}]
     count = max(p.get("count") or 0, len(reports)) + 1
     reports.append({k: v for k, v in report.items() if v})
-    if len(reports) > REPORTS_MAX:
-        reports = reports[:1] + reports[-(REPORTS_MAX - 1):]
     p = {**p, "id": key, "line": p.get("line") or report["line"], "space": p.get("space") or report.get("space"),
          "reports": reports, "count": count, **({"fix": fix} if fix else {}), **({"kind": kind} if kind else {})}
     p.setdefault("state", "found")
@@ -436,6 +455,19 @@ def queue_news(to, text):
                      stderr=subprocess.DEVNULL, start_new_session=True)
 
 
+def hold_news(to, text):
+    """_hold-news, in the background: holds the news line for the Assistant, then marks its problem told. A hand-off
+    that never got this far leaves it telling, and the next report after TELLING_MS sends it again."""
+    from .news import hold
+    hold(to, text, "news")
+    m = re.search(r'event="feedback" key="([0-9a-f]+)"', text)
+    if m:
+        with problems() as ps:
+            p = ps.get(m.group(1))
+            if isinstance(p, dict) and p.get("state") == "telling":
+                ps[m.group(1)] = {**p, "state": "told"}
+
+
 def news_line(ref, title, line, details, key):
     attr = lambda x: str(x).replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
     more = one_line(details, 900)
@@ -489,7 +521,7 @@ def cmd_feedback(args):
             raise Fail("A report comes from your own space: leave out --space.")
         space = args.space
     if args.list:
-        rows = [{"key": key, **p} for key, p in problems_read().items() if p.get("state") in ("found", "told", "later")
+        rows = [{"key": key, **p} for key, p in problems_read().items() if p.get("state") in ("found", "telling", "told", "later")
                 and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
         return say(args, rows, "\n".join(f"{r['key']}  {r['state']}  {r['line']}" for r in rows) or "Nothing waits to be offered.")
     if not line and not args.key:
@@ -497,7 +529,15 @@ def cmd_feedback(args):
     if (args.file or args.no) and not assistant:
         raise Fail("Only an Assistant asks the person and files feedback: run herdr-task feedback \"<one line>\" --details \"…\" "
                    "and your Assistant offers it. Carry on with your work.")
-    on = feedback_on(space, d)
+    if not feedback_on(space, d) and not args.no and not (args.file and args.dry_run):
+        # Off: nothing recorded, and the record isn't opened for writing (a filing's preview still shows).
+        try:
+            key = args.key or find(problems_read(), line)
+        except Fail:
+            key = args.key or id_of(line)
+        return say(args, {"key": key, "sent": False, "why": "off"},
+                   "Feedback offers are off in Settings: nothing sent, nothing to offer. Carry on." if not args.file else
+                   "Feedback offers are off in Settings: nothing filed.")
     with problems() as ps:
         key = args.key or find(ps, line)
         p = ps.get(key) if isinstance(ps.get(key), dict) else None
@@ -505,10 +545,6 @@ def cmd_feedback(args):
         if args.no:
             ps[key] = {**(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
-        if not on and not args.dry_run:
-            return say(args, {"key": key, "sent": False, "why": "off"},
-                       "Feedback offers are off in Settings: nothing sent, nothing to offer. Carry on." if not args.file else
-                       "Feedback offers are off in Settings: nothing filed.")
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
                 p = add_report(ps, key, {"at": now(), "space": space, "machine": d.get("here") or socket.gethostname(),
@@ -531,7 +567,7 @@ def cmd_feedback(args):
                 queue_news(*news)
             except OSError:
                 with problems() as ps:
-                    if (ps.get(key) or {}).get("state") == "told":
+                    if (ps.get(key) or {}).get("state") == "telling":
                         ps[key] = {**ps[key], "state": "found"}
                 return say(args, {"key": key, "sent": False, "kept": True, "why": "send-failed"},
                            "Kept, but it couldn't reach your Assistant now: it waits for the person. Carry on.")
@@ -581,14 +617,14 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
             return ({"key": key, "offer": False, "why": "offered"}, "Already offered: don't offer it again."), None
         ps[key] = {**entry, "state": "offered"}
         return ({"key": key, "offer": True}, offer_words(line, key)), None
-    if state in ("told", "offered", "later") and recent(p):
+    if state in ("told", "offered", "later") and recent(p) or state == "telling" and now() - (p.get("at") or 0) < TELLING_MS:
         return ({"key": key, "sent": False, "why": "told"}, "Your Assistant already has this one: nothing sent. Carry on."), None
     to = coordinator_in(space)
     if not to:
         return ({"key": key, "sent": False, "kept": True, "why": "no-assistant"},
                 "No Assistant runs here now: it's kept for the person, nothing sent. Carry on."), None
     ref, title = task_ref(labels) or (k.get("name") or addr or "Agent", None)
-    ps[key] = {**entry, "state": "told", "by": ref}
+    ps[key] = {**entry, "state": "telling", "by": ref}  # told once hold_news has held it
     return ({"key": key, "sent": True, "to": to}, "Sent to your Assistant: it asks the person whether to file it. Carry on with your work."), \
         (to, news_line(ref, title, line, args.details, key))
 
@@ -602,8 +638,6 @@ def file_it(args, key, p, line, d, agent):
     fields = {f: getattr(args, f, None) for f, _ in FIELDS}
     if not fields.get("happened") and p.get("details"):
         fields["happened"] = p["details"]
-    if not fields.get("fix") and p.get("fix"):  # the reporter's own suggested fix
-        fields["fix"] = p["fix"]
     env = environment(p.get("agent") or agent, args.surface)
     title = redact(one_line(args.title or line, 120))
     body = issue_body(line, fields, env)
