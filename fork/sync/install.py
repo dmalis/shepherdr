@@ -394,13 +394,18 @@ def task_json(run_key, folder):
 
 def may_ask(run_key, folder, env=None):
     """Whether update-shepherdr would take this run's ask: its terminal, open, and a run of a schedule the person let
-    update. Checked before anything moves, so a refused ask never leaves the folder moved with nothing installed."""
+    update. Checked before anything moves, so a refused ask never leaves the folder moved with nothing installed.
+    The terminal check compares with the task's store key from `show --json` (`<folder slug>#<id>`), which herdr-task
+    puts in a task's terminal as HERDR_BROWSER_TASK and compares with itself (`self_update.py`), never the short key."""
     env = os.environ if env is None else env
-    if env.get("HERDR_BROWSER_TASK") != run_key:
-        return f"only run {run_key}'s own terminal can ask for the update"
     t = task_json(run_key, folder)
     if not t:
         return f"run {run_key} can't be read with herdr-task show"
+    key = t.get("key")
+    if not isinstance(key, str) or not key:
+        return f"run {run_key}'s key can't be read with herdr-task show, so its terminal can't be checked"
+    if env.get("HERDR_BROWSER_TASK") != key:
+        return f"only run {run_key}'s own terminal can ask for the update"
     if t.get("state") == "done":
         return f"run {run_key} is done"
     if not t.get("automation"):

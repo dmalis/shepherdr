@@ -80,6 +80,10 @@ if a[:1] == ["show"]:
     t = cfg["tasks"].get(a[1])
     if t is None:
         sys.exit("No task " + a[1])
+    # the real shape: `key` is the store key, `<folder slug>#<id>` (a test's `"key": None` leaves it out)
+    t = {"key": installworld.store_key(a[1]), **t}
+    if t["key"] is None:
+        del t["key"]
     print(json.dumps(t)); sys.exit(0)
 if a[:2] == ["auto", "show"]:
     print(json.dumps(cfg["autos"].get(a[2], {}))); sys.exit(0)
@@ -193,6 +197,12 @@ def toy_shepherdr(version, hook_script="session-note.sh"):
     return text.replace(guard, FAKE_DOCTOR + guard)
 
 
+def store_key(run):
+    """A run's store key, as `herdr-task show --json` gives it and herdr-task sets HERDR_BROWSER_TASK in its terminal:
+    `<folder slug>#<id>` (store.py's key()), never the short key (SYNC-1)."""
+    return "tmp-fork-install-space#" + run.rsplit("-", 1)[-1]
+
+
 class World(unittest.TestCase):
     RUN = "SYNC-1"
 
@@ -249,7 +259,7 @@ class World(unittest.TestCase):
             "PATH": os.pathsep.join([self.guard, self.bin, os.path.join(self.root, ".local", "bin"),
                                      os.environ["PATH"]]),
             "FAKE_IW": self.iw, "FAKE_IW_LIB": os.path.dirname(os.path.abspath(__file__)),
-            "HERDR_TASK_STORE": self.store, "HERDR_BROWSER_TASK": self.RUN,
+            "HERDR_TASK_STORE": self.store, "HERDR_BROWSER_TASK": store_key(self.RUN),
             "FORK_SYNC_SCRATCH_UPDATER": os.path.join(self.bin, "herdr-task"),
             "FORK_SYNC_POLL_S": "0", "FORK_SYNC_CALL_WAIT_S": "0", "FORK_SYNC_UPDATE_POLL_S": "0",
             "FORK_SYNC_HEALTH_WAIT_S": "0"})

@@ -20,7 +20,7 @@ import unittest  # noqa: E402
 from unittest import mock  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from installworld import World, git  # noqa: E402
+from installworld import World, git, store_key  # noqa: E402
 from sync import gate, install, public, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
@@ -247,6 +247,32 @@ class BeforeAnythingMoves(World):
         self.set(autos={"7": {"may_update": True}})
         with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": "OTHER-2"}):
             self.assertEqual(self.refused().fields["kind"], "permission")
+
+    def test_the_terminal_check_uses_the_tasks_store_key(self):
+        # herdr-task puts the store key, `<folder slug>#<id>`, in a task's terminal and `show --json` gives it as `key`
+        # (self_update.py compares the same two); the short key alone never matches it (issue #24)
+        long_key = store_key(self.RUN)
+        self.assertEqual(install.task_json(self.RUN, self.space)["key"], long_key)
+        self.assertIsNone(install.may_ask(self.RUN, self.space, {"HERDR_BROWSER_TASK": long_key}))
+        why = install.may_ask(self.RUN, self.space, {"HERDR_BROWSER_TASK": self.RUN})
+        self.assertIn("own terminal", why)
+        self.assertIsNotNone(install.may_ask(self.RUN, self.space, {}))
+        with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": self.RUN}):
+            e = self.refused()
+        self.assertEqual((e.fields["outcome"], e.fields["gate"]), ("held", "permission"))
+        self.assertEqual(self.asks(), [], "a refused terminal asks nothing")
+        self.assertEqual(self.head(), self.B, "nothing moved")
+
+    def test_a_task_without_a_key_is_refused(self):
+        for key in (None, ""):
+            with self.subTest(key=key):
+                self.set(tasks={self.RUN: {"state": "running", "automation": 7, "key": key}})
+                why = install.may_ask(self.RUN, self.space, {"HERDR_BROWSER_TASK": store_key(self.RUN)})
+                self.assertIn("key can't be read", why)
+                self.assertEqual(self.refused().fields["gate"], "permission")
+        self.set(tasks={})
+        self.assertIn("can't be read", install.may_ask(self.RUN, self.space, {"HERDR_BROWSER_TASK": self.RUN}))
+        self.assertEqual(self.asks(), [])
 
     def test_a_scratch_root_never_asks_herdr_task(self):
         # its runner would update this home's Shepherdr: without its own updater, a scratch root stops
@@ -626,7 +652,7 @@ class Resume(World):
         with state.locked(self.p) as st:
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
             state.adopt_run(st, "SYNC-2", self.space)
-        with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": "SYNC-2"}):
+        with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": store_key("SYNC-2")}):
             out = install.install(self.p, "SYNC-2", self.space, self.wt, self.C)
             self.assertEqual(out["update"], "ok")
             self.assertEqual(len(self.asks()), 1)
