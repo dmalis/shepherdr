@@ -34,7 +34,7 @@ export const hushedNow = () => performance.now() < hushed
 export const project = (at: number, v: number) => at + v * 200
 
 /** a finger this fast (px per ms) as it lets go flings: it goes its way however short the swipe */
-const FLING = 0.3
+export const FLING = 0.3
 
 /** Does a swipe let go at `at` with speed `v` land past `mark`? A fling goes the way it was going, as iOS's drawers and
  *  swipe back do; a slow let-go lands where it is carried. */

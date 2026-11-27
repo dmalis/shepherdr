@@ -3,7 +3,7 @@
 // the sheet moves, and a drag up scrolls a tall list), and never in a text field or a slider. Let go past about
 // a third of its height, or flicked down however short, it closes; else it settles back. Dragged up past its
 // top, it gives a little and pulls back (a rubber band). The shade behind thins as it goes.
-import { calm, IOS, lands, moveTo, settleMs } from './motion.ts'
+import { calm, FLING, IOS, lands, moveTo, settleMs } from './motion.ts'
 
 /** how far a finger moves before the sheet decides whether this is its drag */
 const SLOP = 6
@@ -19,8 +19,8 @@ export function rubber(dy: number, room = 24) {
 export const shown = (dy: number) => rubber(dy)
 
 /** Does a let-go `dy` px down at `v` px/ms, on a sheet `h` px tall, close it? A flick down closes, a flick up keeps
- *  it; a slow let-go closes once it is carried past a third of the sheet. */
-export const closes = (dy: number, v: number, h: number) => dy > 0 && lands(dy, v, h / 3)
+ *  it; a slower let-go closes only once the finger carried it past a third of the sheet. */
+export const closes = (dy: number, v: number, h: number) => dy > 0 && lands(dy, Math.abs(v) > FLING ? v : 0, h / 3)
 
 /** How fast the finger was going as it let go (px per ms, down is +): over the moves of its last 100 ms, up to the
  *  let-go itself, so a pull held still before letting go is no flick. */
@@ -67,9 +67,40 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
     if (shade) shade.style.opacity = String(Math.max(0, 1 - gone))
   }
 
+  // a second finger joined (a pinch): no drag until every finger is up
+  let multi = false
+  // the drag a settle or a close belongs to: one from an older drag, cancelled by a newer, does nothing when it ends
+  let gen = 0
+  // let go to close: nothing drags any more
+  let leaving = false
+  const clear = () => {
+    sheet.style.transform = ''
+    sheet.style.opacity = ''
+    sheet.style.willChange = ''
+    if (shade) shade.style.opacity = ''
+  }
+  const settle = () => {
+    const g = gen
+    const ms = still ? 120 : 300
+    if (shade) void moveTo(shade, { opacity: '1' }, ms, 'ease-out')
+    void moveTo(sheet, still ? { opacity: '1' } : { transform: 'translateY(0px)' }, ms, still ? 'ease-out' : IOS).then(() => g === gen && clear())
+  }
+  /** a pinch, or a touch the browser took: the drag lets go where it is and the sheet settles back */
+  const drop = () => {
+    const was = mode
+    id = null
+    mode = 'off'
+    if (was === 'drag') settle()
+  }
+
   const start = (e: TouchEvent) => {
-    // one finger only: a second one joining in is ignored until the first lets go
-    if (id !== null || e.touches.length > 1) return
+    if (leaving) return
+    if (e.touches.length > 1) {
+      multi = true
+      return drop()
+    }
+    // one finger only
+    if (id !== null || multi) return
     const t = e.changedTouches[0]
     if (!t || own(e.target as Element)) return
     id = t.identifier
@@ -84,6 +115,11 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
   const move = (e: TouchEvent) => {
     const t = at(e)
     if (!t || mode === 'off') return
+    // a second finger down elsewhere: a pinch, not this drag
+    if (e.touches.length > 1) {
+      multi = true
+      return drop()
+    }
     const d = t.clientY - y0
     if (mode === 'wait') {
       if (Math.abs(d) < SLOP && Math.abs(t.clientX - x0) < SLOP) return
@@ -92,6 +128,7 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
       const scrolls = scroller && (d < 0 ? scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1 : scroller.scrollTop > 0)
       if (sideways || scrolls) return void (mode = 'off')
       mode = 'drag'
+      gen++
       h = sheet.offsetHeight || 1
       still = calm()
       for (const a of sheet.getAnimations()) a.cancel()
@@ -107,26 +144,22 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
   }
 
   const end = (e: TouchEvent) => {
+    if (!e.touches.length) multi = false
     const t = at(e)
     if (!t) return
+    if (e.type === 'touchcancel') return drop()
     id = null
     const was = mode
     mode = 'off'
     if (was !== 'drag') return
+    const v = speed(samples, { t: e.timeStamp, y: t.clientY })
+    if (!closes(dy, v, h)) return settle()
+    leaving = true
     sheet.style.willChange = ''
-    const v = e.type === 'touchcancel' ? 0 : speed(samples, { t: e.timeStamp, y: t.clientY })
-    if (e.type !== 'touchcancel' && closes(dy, v, h)) {
-      const ms = still ? 120 : settleMs(h - dy, v, 300)
-      if (shade) void moveTo(shade, { opacity: '0' }, ms, 'ease-out')
-      void moveTo(sheet, still ? { opacity: '0' } : { transform: 'translateY(100%)' }, ms, still ? 'ease-out' : IOS).then(close)
-    } else {
-      if (shade) void moveTo(shade, { opacity: '1' }, still ? 120 : 300, 'ease-out')
-      void moveTo(sheet, still ? { opacity: '1' } : { transform: 'translateY(0px)' }, still ? 120 : 300, still ? 'ease-out' : IOS).then(() => {
-        sheet.style.transform = ''
-        sheet.style.opacity = ''
-        if (shade) shade.style.opacity = ''
-      })
-    }
+    const g = gen
+    const ms = still ? 120 : settleMs(h - dy, v, 300)
+    if (shade) void moveTo(shade, { opacity: '0' }, ms, 'ease-out')
+    void moveTo(sheet, still ? { opacity: '0' } : { transform: 'translateY(100%)' }, ms, still ? 'ease-out' : IOS).then(() => g === gen && close())
   }
 
   sheet.addEventListener('touchstart', start, { passive: true })
@@ -134,6 +167,13 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
   sheet.addEventListener('touchend', end)
   sheet.addEventListener('touchcancel', end)
   return () => {
+    // taken off mid-drag or mid-settle (the phone turned into a computer's width): nothing of the drag stays. A close
+    // under way is left to finish, as the sheet goes
+    gen++
+    if (!leaving) {
+      for (const a of sheet.getAnimations()) a.cancel()
+      clear()
+    }
     sheet.removeEventListener('touchstart', start)
     sheet.removeEventListener('touchmove', move)
     sheet.removeEventListener('touchend', end)

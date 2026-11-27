@@ -11,7 +11,9 @@
     "web/src/styles.css",
     "web/src/App.tsx",
     "web/src/warnings.tsx",
-    "web/plugins/screens/client.tsx"
+    "web/plugins/screens/client.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/inbox/inbox.css"
   ],
   "tests": [
     "web/src/sheets.test.ts",

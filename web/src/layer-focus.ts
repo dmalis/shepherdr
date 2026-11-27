@@ -1,9 +1,26 @@
 // fork #109: the keyboard in a menu, sheet or dialog, as WAI-ARIA's menu and modal dialog patterns (and Radix,
 // Linear, GitHub) do it. A dialog keeps Tab inside itself; a menu moves with ↑ ↓ Home End and closes on Tab, the way
-// a native menu does (one with fields too keeps Tab inside). When one closes, focus goes back to what opened it, unless it already went somewhere else.
+// a native menu does (a modal one, of fields or checkboxes, keeps Tab inside). When one closes, focus goes back to what opened it, unless it already went somewhere else.
 
-/** what can take focus inside a layer, in order */
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+/** what can take focus inside a layer, in order (a video's own controls too: the browser moves within them) */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), video[controls], audio[controls], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+
+/** a field to type or choose in */
+const FIELDS = 'input:not([type=hidden]), textarea, select'
+
+/** Is this layer modal, a dialog to screen readers and to Tab? A dialog is; so is a menu of anything but menu rows
+ *  (Alerts, the reactions, the Tasks filter's checkboxes) or with a field in it. Only a plain menu of rows is not. */
+export const modalOf = (box: HTMLElement, kind: 'menu' | 'dialog') => kind === 'dialog' || !box.querySelector('[role^="menuitem"]') || !!box.querySelector(FIELDS)
+
+/** Tab and Shift+Tab go round what can take focus in `box`, from wherever focus is (outside it too) */
+export function tabRound(e: KeyboardEvent, box: HTMLElement) {
+  e.preventDefault()
+  const all = focusables(box)
+  if (!all.length) return box.focus({ preventScroll: true })
+  const i = all.indexOf(document.activeElement as HTMLElement)
+  const to = e.shiftKey ? (i <= 0 ? all.length - 1 : i - 1) : i < 0 || i === all.length - 1 ? 0 : i + 1
+  all[to]!.focus()
+}
 
 const shows = (el: HTMLElement) => !el.closest('[hidden], [inert]') && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0)
 
@@ -11,7 +28,7 @@ export const focusables = (box: HTMLElement) => [...box.querySelectorAll<HTMLEle
 
 /** a menu's items: its menu rows, else (a menu drawn by its caller) every button in it */
 export function itemsOf(box: HTMLElement) {
-  const rows = [...box.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([disabled]):not([aria-disabled="true"])')].filter(shows)
+  const rows = [...box.querySelectorAll<HTMLElement>(':is([role^="menuitem"], [role="checkbox"]):not([disabled]):not([aria-disabled="true"])')].filter(shows)
   return rows.length ? rows : focusables(box).filter((el) => el.matches('button, a[href]'))
 }
 
@@ -42,22 +59,12 @@ export function layerKey(e: KeyboardEvent, box: HTMLElement, kind: 'menu' | 'dia
   if (e.defaultPrevented || e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return false
   const here = document.activeElement as HTMLElement | null
   if (e.key === 'Tab') {
-    // out of a menu of rows: it closes, and Tab goes on from its button. A menu with fields too (the Tasks filter's
-    // searches) keeps Tab inside, as a dialog, so every field and row can be reached
-    if (kind === 'menu' && !box.querySelector('input:not([type=hidden]), textarea, select')) {
+    // out of a plain menu of rows: it closes, and Tab goes on from its button. A modal one keeps Tab inside
+    if (!modalOf(box, kind)) {
       close()
       return false
     }
-    const all = focusables(box)
-    if (!all.length) {
-      e.preventDefault()
-      box.focus({ preventScroll: true })
-      return true
-    }
-    const i = here ? all.indexOf(here) : -1
-    const to = e.shiftKey ? (i <= 0 ? all.length - 1 : i - 1) : i < 0 || i === all.length - 1 ? 0 : i + 1
-    e.preventDefault()
-    all[to]!.focus()
+    tabRound(e, box)
     return true
   }
   if (kind !== 'menu') return false

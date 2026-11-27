@@ -23,6 +23,7 @@ test('a let-go closes the sheet on a flick down or past a third, else it settles
   expect(closes(150, -0.8, 600)).toBe(false) // flicked back up
   expect(closes(260, 0, 600)).toBe(true) // carried past a third
   expect(closes(80, 0, 600)).toBe(false) // let go early
+  expect(closes(165, 0.2, 600)).toBe(false) // a slow let-go short of a third: no projecting it past
   expect(closes(-20, 0.5, 600)).toBe(false) // above its top
 })
 

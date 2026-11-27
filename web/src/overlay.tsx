@@ -9,7 +9,7 @@ import { Btn, cx, I, Row } from './ui.tsx'
 import { KeysOf } from './kbd.tsx'
 import { useMotion, type Motion } from './motion.ts'
 import { sheetDrag } from './sheet-drag.ts'
-import { byKey, focusStart, giveBack, layerKey } from './layer-focus.ts'
+import { byKey, focusStart, giveBack, layerKey, modalOf, tabRound } from './layer-focus.ts'
 
 interface Layer {
   id: number
@@ -273,13 +273,21 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
       }
       setAt(placeAt(t, pop.offsetWidth, pop.offsetHeight, layer.float))
     }
-    place()
-    addEventListener('resize', place)
-    // and follows its own size (a search narrowing its rows, Move to group folding open near the bottom)
-    const ro = panel.current && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => place()) : null
-    if (ro && panel.current) ro.observe(panel.current.firstElementChild ?? panel.current)
+    // and follows its own size (a search narrowing its rows, Move to group folding open near the bottom): its own box,
+    // since what it holds may draw no box of its own (display: contents); placing it can size it, so that size is
+    // its placed one and doesn't place it again
+    let placed = ''
+    const size = () => `${panel.current?.offsetWidth}x${panel.current?.offsetHeight}`
+    const again = () => {
+      place()
+      placed = size()
+    }
+    again()
+    addEventListener('resize', again)
+    const ro = panel.current && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => size() !== placed && again()) : null
+    if (ro && panel.current) ro.observe(panel.current)
     return () => {
-      removeEventListener('resize', place)
+      removeEventListener('resize', again)
       ro?.disconnect()
     }
   }, [layer, shape])
@@ -299,8 +307,9 @@ function LayerView({ layer, phone, close: done, className, children }: { layer: 
     const box = panel.current
     if (!box || !shows || started.current) return
     started.current = true
-    // a menu of anything but menu rows (Alerts, the reactions) is a dialog over the page, modal as its shade says
-    if (kind === 'menu' && !box.querySelector('[role^="menuitem"]')) {
+    // a menu of anything but menu rows (Alerts, the reactions, the Tasks filter) is a dialog over the page, modal as
+    // its shade says, and Tab stays in it the same (layerKey)
+    if (kind === 'menu' && modalOf(box, kind)) {
       box.setAttribute('role', 'dialog')
       box.setAttribute('aria-modal', 'true')
     }
@@ -388,6 +397,17 @@ export function Layers() {
   const phone = useUI((u) => u.phone)
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      // focus outside every layer while one is open (the button it was on went away, as Clear filters does): Tab
+      // comes back into the top one instead of reaching the page behind
+      if (e.key === 'Tab' && !e.defaultPrevented && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const top = layers[layers.length - 1]
+        const box = top && document.querySelector<HTMLElement>(`[data-layer="${top.id}"] [data-panel]`)
+        if (box && !document.activeElement?.closest('[data-panel]')) {
+          if (modalOf(box, top.kind)) tabRound(e, box)
+          else closeTop()
+        }
+        return
+      }
       if (e.key !== 'Escape' || e.isComposing) return
       if ([...escapeFirst].some((f) => f()) || closeTop()) {
         e.preventDefault()
