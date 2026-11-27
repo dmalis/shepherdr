@@ -9,9 +9,9 @@
 import './typing.css'
 import { definePlugin, getState, subscribe } from '@client/kernel.ts'
 import { fitBox } from '@client/grow.ts'
-import { markTyping, withAfter } from './typing.ts'
+import { markTyping, shown, withAfter } from './typing.ts'
 
-const refit = () => document.querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach(fitBox)
+const refit = () => document.querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach((t) => shown(t) && fitBox(t))
 
 export default definePlugin({
   name: 'typing',

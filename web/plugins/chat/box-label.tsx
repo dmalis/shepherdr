@@ -1,5 +1,6 @@
-// fork #105: the message box's own <label>, so iPhone Safari never offers contact AutoFill in it. Safari's AutoFill
-// reads a field's <label>; a field with none (ours had only aria-label) gets its type guessed from the visible text
+// fork #105: the message box's own <label>, so iPhone Safari stops offering contact AutoFill in it (one signal Safari
+// reads, shown to work in the iOS Simulator; a real iPhone is the issue's device check). Safari's AutoFill reads a
+// field's <label>; a field with none (ours had only aria-label) gets its type guessed from the visible text
 // around it, which in a chat is the messages above the box: a "phone", "name" or "address" in them and the bar over
 // the keyboard says "AutoFill Contact", with the person's own number offered as they type. autocomplete="off" doesn't
 // stop it (Apple: "Safari ignores autocomplete=off"). OpenClaw fixed the same bug this way, shown in the iOS Simulator

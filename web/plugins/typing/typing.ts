@@ -28,6 +28,9 @@ export function withAfter(root: Root, after: () => void): Root {
     },
   }
 }
+/** fork #105: a box on screen. A hidden one (a space's composer behind an open task) measures 0 high: fitting it
+ *  then would lose its draft's height, so it keeps the one it had. */
+export const shown = (t: { getClientRects(): { length: number } }) => t.getClientRects().length > 0
 type Viewport = { width: number; height: number; addEventListener(t: 'resize', f: () => void): void; removeEventListener(t: 'resize', f: () => void): void }
 type Timers = { set(f: () => void, ms: number): unknown; clear(t: unknown): void }
 const realTimers: Timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t as number) }

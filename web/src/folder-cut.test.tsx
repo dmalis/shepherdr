@@ -3,7 +3,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { folderLast, folderParts } from '@shared/folder-cut.ts'
+import { cutMiddle, folderLast, folderParts } from '@shared/folder-cut.ts'
 import { FolderCut } from './where.tsx'
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8')
@@ -39,8 +39,13 @@ test("a phone's header has no folder; its space's menu has it", () => {
   expect(css).toContain('.app.phone .col > .hd .ttl > .hpath{display:none}')
   expect(read('web/plugins/chat/client.tsx')).toContain("reg.spaceMenu.push({ order: 30, rows: (p, head) => (head ? folderRows(p) : []) })")
   const row = read('web/plugins/chat/folder-row.tsx')
-  expect(row).toContain("const w = snap && phone ? headerWhere(snap, p) : null")
-  expect(row).toContain("label: 'Folder', value: folderLast(w.path), run: () => folderMenu(")
+  // whenever the header hides it: a phone, or while the keyboard is up (typing.css hides it then on any touch screen)
+  expect(row).toContain("const hidden = () => getState().ui.phone || document.documentElement.classList.contains('kb-up')")
+  expect(row).toContain("const w = snap && off ? headerWhere(snap, p) : null")
+  expect(row).toContain("label: 'Folder', value: cutMiddle(folderLast(w.path)), run: () => folderMenu(")
+  expect(read('web/plugins/typing/typing.css')).toContain('.kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2:has(> .hline))')
+  // a menu row's value doesn't shrink (ds.css), so a long name is cut before it can squeeze the label
+  expect(read('web/src/ds.css')).toContain('.row .v{flex:none;')
 })
 
 test('upstream seams: the header path, its cut, the phone class and the folder sheet', () => {
@@ -55,4 +60,13 @@ test('upstream seams: the header path, its cut, the phone class and the folder s
   expect(read('web/src/list.tsx')).toContain('export function folderMenu(anchor: Element, placeId: string)')
   expect(read('web/src/kernel.ts')).toContain('spaceMenu: { order: number; rows: (place: Space, head: boolean) => MenuRow[] }[]')
   expect(app).toMatch(/className=\{cx\('app'[^\n]*phone && 'phone'/)
+})
+
+test("a long folder name gives way in its middle in the menu row", () => {
+  expect(cutMiddle('portal')).toBe('portal')
+  expect(cutMiddle('a'.repeat(20))).toBe('a'.repeat(20))
+  const cut = cutMiddle('customer-portal-and-billing-redesign')
+  expect([...cut].length).toBe(20)
+  expect(cut).toBe('customer-p…-redesign')
+  expect(cutMiddle('mañana-ñandú-𝒳-proyecto-largo', 9)).toBe('maña…argo')
 })

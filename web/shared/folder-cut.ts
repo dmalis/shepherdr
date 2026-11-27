@@ -13,3 +13,12 @@ export function folderParts(path: string): { lead: string; last: string } {
 
 /** a folder's own name, for where only that fits (a phone's menu row): "~/dev/shop" → "shop", "~" and "/" as they are */
 export const folderLast = (path: string) => folderParts(path).last.replace(/^\/(?=.)/, '')
+
+/** a name of more than `max` characters, cut in its middle: its start and its end kept, … between (a menu row's value,
+ *  which doesn't shrink, so its label always has room) */
+export function cutMiddle(s: string, max = 20): string {
+  const c = [...s]
+  if (c.length <= max) return s
+  const head = Math.ceil((max - 1) / 2)
+  return `${c.slice(0, head).join('')}…${c.slice(c.length - (max - 1 - head)).join('')}`
+}

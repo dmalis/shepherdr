@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { getState, setUI, subscribe } from '@client/kernel.ts'
-import { markTyping, TYPING, withAfter } from './typing.ts'
+import { markTyping, shown, TYPING, withAfter } from './typing.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
@@ -293,5 +293,11 @@ test('upstream seams of the one-row box: its parts, the replies, dictation, the 
   expect(dictate).toContain('.cbar:has(>.vin)>:not(.vin,.vs){display:none}')
   // the box's height follows its text only as it changes; the plugin fits it again when its width changes
   expect(read('web/src/grow.ts')).toContain('export function fitBox(t: HTMLTextAreaElement)')
-  expect(read('web/plugins/typing/client.tsx')).toContain("querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach(fitBox)")
+  expect(read('web/plugins/typing/client.tsx')).toContain("querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach((t) => shown(t) && fitBox(t))")
+})
+
+test('a hidden box keeps its height: only boxes on screen are fitted again', () => {
+  // a space's composer stays behind an open task, display:none: it measures 0 high, and fitting it would lose its draft
+  expect(shown({ getClientRects: () => ({ length: 1 }) })).toBe(true)
+  expect(shown({ getClientRects: () => ({ length: 0 }) })).toBe(false)
 })
