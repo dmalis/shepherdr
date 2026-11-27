@@ -590,6 +590,10 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
             state.release_lease(st, run, folder)
         if (st.get("run") or {}).get("key") == run:
             st["run"] = dict(st["run"], finished=outcome)
+            # the person's upstream issues are reported by an install's words: the cursor moves to the run's start
+            # (its select) only then, so a run that told nothing never skips a reply (Patch inventory)
+            if outcome == "installed" and st["run"].get("at"):
+                st["issue_cursor"] = st["run"]["at"]
     return {"outcome": outcome, "before": [], "command": ready_cmd(run, folder, told),
             **({"told": told} if told else {})}
 

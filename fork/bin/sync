@@ -4,6 +4,7 @@ decides and the code checks (fork/specs/sync-pipeline.md). Each subcommand print
 when its step passed.
 
   preflight --run <key> --folder <space>   checks the repo, takes the run's lease, reads state, says where to resume
+                                           and what (resuming: the path, release, candidate and sync branch)
   select --run <key> --folder <space>      the newest stable release, and the run's path: nothing, install-main, take
   review-inputs --run <key> --folder <space>   the reviewer's three diffs for the pushed sync branch, as files
   merge <pr> --run <key> --folder <space>  the one merge route for a sync PR: its gates, the merge, main's checks
@@ -78,7 +79,19 @@ def preflight(a, p):
             if adopted:
                 took["selection"] = adopted     # the selection this run resumes was that run's
         return {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
-                "held": len(st.get("held") or [])}
+                "held": len(st.get("held") or []), "resuming": resuming(st),
+                "issue_cursor": st.get("issue_cursor")}
+
+
+def resuming(st):
+    """What an unfinished phase is about, so the run that picks it up can name it in its next call: the path, the
+    release, the candidate and the sync branch (its head, its pull request once merge recorded it, its merge
+    commit). None when there is nothing to resume."""
+    if not state.resume_point(st):
+        return None
+    sync = st.get("sync") or {}
+    return {"path": (st.get("run") or {}).get("path"), "release": st.get("release"), "candidate": st.get("candidate"),
+            "sync": {k: sync.get(k) for k in ("branch", "head", "pr", "merge_commit")} if sync else None}
 
 
 def preflight_args(c):
@@ -165,7 +178,8 @@ def select(a, p):
             st["release"], st["candidate"], st["sync"] = dict(got["release"]), got["candidate"], None
         held_now = [h.get("blocker") for h in st.get("held") or []
                     if (h.get("release") or {}).get("tag") == got["release"]["tag"]]
-    return {**got, "held": held_now}
+        cursor = st.get("issue_cursor")      # the person's upstream issues are searched from here (finish moves it)
+    return {**got, "held": held_now, "issue_cursor": cursor}
 
 
 def review_inputs(a, p):

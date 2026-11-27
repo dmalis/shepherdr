@@ -72,6 +72,23 @@ class FinishCommand(World):
         self.assertTrue(git(self.wt, "merge-base", "--is-ancestor", "HEAD", "refs/remotes/origin/main", ok=False) == "")
         self.assertIsNone(self.st()["lease"])
 
+    def test_the_issue_cursor_moves_only_with_an_install(self):
+        """select says where the person's upstream issues are searched from; only an install's report (which lists
+        them) moves it, to the run's start, so a run that told nothing never skips a reply."""
+        self.edit(baseline={"sha": self.main0}, issue_cursor="2026-01-01T00:00:00Z")
+        code, out = self.sync("select")
+        self.assertEqual((code, out["issue_cursor"]), (0, "2026-01-01T00:00:00Z"), out)
+        self.finish()
+        self.assertEqual(self.st()["issue_cursor"], "2026-01-01T00:00:00Z", "nothing new moves nothing")
+
+    def test_an_install_moves_the_issue_cursor_to_the_runs_start(self):
+        self.merged_run()
+        start = self.st()["run"]["at"]
+        self.edit(phase="healthy")
+        code, out = self.finish("--says", "Shepherdr 3.2.22 is in.")
+        self.assertEqual((code, out["outcome"]), (0, "installed"), out)
+        self.assertEqual(self.st()["issue_cursor"], start)
+
     def test_the_told_words_pass_the_public_check(self):
         self.merged_run()
         self.edit(phase="healthy")
