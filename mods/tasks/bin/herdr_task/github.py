@@ -135,8 +135,7 @@ def pr_push(s, task, repo):
     expected = (pr.get("lease") or tracking) if to != br else ("" if gone else tracking)
     # dmalis/shepherdr#97: the commit there, when this clone had it as the branch's (a stale tracking ref, a taken PR
     # with no saved tip); one it never had keeps the lease above, for git to refuse.
-    expected = rebased_push.lease_on(wt, br, (there.split() or [""])[0], tracking, (task.get("pushed") or {}).get("sha")) \
-        or expected
+    expected = rebased_push.lease_on(wt, br, (there.split() or [""])[0], (task.get("pushed") or {}).get("sha")) or expected
     # Older taken PRs may have no saved tip and no tracking ref. Git can still push a fast-forward.
     lease = [f"--force-with-lease={ref}:{expected}"] if to == br or expected else []
     with released(s):

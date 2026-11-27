@@ -10128,6 +10128,19 @@ class RebasedPush(unittest.TestCase):
         github.pr_push(self.store, self.task, "o/r")
         self.assertEqual(self.at(remote), tip)
 
+    def test_a_taken_branch_with_no_saved_tip_is_leased_on_the_commit_it_had(self):
+        """eliasstravik/shepherdr 1600's case: a pull request the task took, no lease kept and no tracking ref, its branch
+        rebased: pushed with a lease on the commit there (its branch had it before the rebase), not refused as
+        non-fast-forward."""
+        import herdr_task.github as github
+        remote, there, tip = self.rebased()
+        self.git(self.main, "push", "-q", remote, f"{there}:refs/heads/taken")  # by path: no tracking ref for it
+        self.task["pr"] = {"branch": "taken", "taken": True, "url": "u", "repo": "o/r"}
+        seen = self.pushes()
+        github.pr_push(self.store, self.task, "o/r")
+        self.assertEqual(self.git(self.root, "--git-dir", remote, "rev-parse", "taken"), tip)
+        self.assertIn(f"--force-with-lease=refs/heads/taken:{there}", seen[0])
+
     def test_a_commit_someone_else_pushed_is_still_refused_and_said(self):
         import herdr_task.github as github
         remote, there, tip = self.rebased()

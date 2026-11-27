@@ -24,13 +24,14 @@ LINK = ("internal server error", "the remote end hung up unexpectedly", "rpc fai
         "early eof", "returned error: 5")
 
 
-def lease_on(wt, br, there, tracking, pushed):
-    """There (the commit the remote branch is at, from ls-remote) when this clone had it as the branch's: its tracking
-    ref, the commit Herdr pushed last, an ancestor of its tip (a fast-forward), or a commit its branch was at before a
-    rebase (its reflog). None: a commit this clone never had (someone else's push), for the lease to refuse."""
+def lease_on(wt, br, there, pushed):
+    """There (the commit the remote branch is at, from ls-remote) when this clone had it as the branch's: the commit
+    Herdr pushed last, an ancestor of its tip (a fast-forward), or a commit its branch was at before a rebase (its
+    reflog). Never its tracking ref alone: a fetch moves that. None: a commit its branch never had (someone else's
+    push), for the lease the caller had to refuse."""
     if not there:
         return None
-    if there in (tracking, pushed) or git(wt, "merge-base", "--is-ancestor", there, f"refs/heads/{br}")[0]:
+    if there == pushed or git(wt, "merge-base", "--is-ancestor", there, f"refs/heads/{br}")[0]:
         return there
     ok, out, _ = git(wt, "reflog", "show", "--format=%H", f"refs/heads/{br}", "--")
     return there if ok and there in out.split() else None
