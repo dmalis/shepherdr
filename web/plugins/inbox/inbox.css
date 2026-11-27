@@ -2,7 +2,7 @@
    phone. Each alert a row: its kind's icon, its words (bold until read), where and when, and whether it still waits;
    an unread one carries the app's blue dot (as Update's), at the row's end, in the rhythm of Slack's Activity. */
 .pop:has(>.inbx){width:min(380px,calc(100vw - 16px));max-width:none;padding:0;display:flex;overflow:hidden}
-.pop.sheet:has(>.inbx){width:auto;padding:8px 0 0;flex-direction:column}
+.pop.sheet:has(>.inbx){width:auto;padding-top:8px;padding-inline:0;flex-direction:column}
 .pop.sheet:has(>.inbx)::before{flex:none;margin:0 auto}
 .inbx{display:flex;flex-direction:column;width:100%;min-width:0;max-height:min(560px,calc(100vh - 96px))}
 .sheet .inbx{max-height:min(80vh,calc(100dvh - 64px))}

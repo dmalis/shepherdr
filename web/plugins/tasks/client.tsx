@@ -719,7 +719,7 @@ function FilterMenu() {
   const inSpace = !!at && !isEverything(snap, at)
   const machines = new Set(snap.machines.map((m) => m.machine)).size > 1
   const check = (key: string, label: ReactNode, on: boolean, run: () => void, n?: number) => (
-    <Row key={key} lead={<Tick on={on} />} label={label} value={n ? String(n) : undefined} role="menuitemcheckbox" aria-checked={on} onClick={run} />
+    <Row key={key} lead={<Tick on={on} />} label={label} value={n ? String(n) : undefined} role="checkbox" aria-checked={on} onClick={run} />
   )
   const group = (key: GroupKey, name: string) => {
     const all = choices(snap, key, f)
@@ -770,7 +770,7 @@ function FilterButton() {
   const at = useUI((u) => u.at)
   const on = !!snap && filterOn(snap, f, at)
   return (
-    <IB icon="filter" label={on ? 'Filter tasks (on)' : 'Filter tasks'} aria-haspopup="menu" data-marks="" onClick={(e) => openMenu(e.currentTarget, () => <FilterMenu />, { label: 'Filter tasks', within: e.currentTarget.closest('.hd')?.parentElement })}>
+    <IB icon="filter" label={on ? 'Filter tasks (on)' : 'Filter tasks'} aria-haspopup="dialog" data-marks="" onClick={(e) => openMenu(e.currentTarget, () => <FilterMenu />, { label: 'Filter tasks', within: e.currentTarget.closest('.hd')?.parentElement })}>
       {on && <span className="fdot" />}
     </IB>
   )

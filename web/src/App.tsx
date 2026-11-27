@@ -10,7 +10,7 @@ import { dismiss, hold, subscribe, toasts } from './toasts.ts'
 import { handleKey } from './commands.ts'
 import { List, spaceMenu } from './list.tsx'
 import { HeaderPath } from './where.tsx'
-import { closeTop, Layers } from './overlay.tsx'
+import { closeTop, Layers, Overlay } from './overlay.tsx'
 import { edge } from './resize.ts'
 import { columnsOf, swapSides, useSides } from './sides.ts'
 import { SettingsWindow } from './settings.tsx'
@@ -291,12 +291,9 @@ export function App() {
             </>
           )}
           {ui.search && Search && (
-            <>
-              <div className="scrim" onClick={() => setUI({ search: false })} />
-              <div className={cx(ui.phone ? 'pop sheet' : 'dlg wide', 'srch in')} role="dialog" aria-modal="true" aria-label="Search">
-                <Search close={() => setUI({ search: false })} />
-              </div>
-            </>
+            <Overlay wide bare label="Search" className="srch" onClose={() => setUI({ search: false })}>
+              <Search close={() => setUI({ search: false })} />
+            </Overlay>
           )}
           <Layers />
           {registry.overlays.map((V, i) => <V key={i} />)}
