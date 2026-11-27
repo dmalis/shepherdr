@@ -55,7 +55,7 @@ import { Secrets, SecretsHome, secretValue } from "./secrets.ts";
 import { Agents } from "./agents.ts";
 import { Updates } from "./agent-update.ts";
 import { Machines } from "./machines.ts";
-import { Push, alertsOf, agentAlerts } from "./push.ts";
+import { Push, alertsOf, agentAlerts, pushChanges, waitingTags } from "./push.ts";
 import { waiting } from "../web/shared/alerts.ts";
 import { GlanceFeed, MAX_CHATS, glanceOf, openUrlOk, saidToPerson } from "./glance.ts";
 import { chatPage } from "./native-chat.ts";
@@ -85,7 +85,7 @@ const reaches = new Map<string, { at: number; got: Promise<{ from: string | null
 function knownSpaces() {
   return compat.allSpaces().map((s) => {
     const p = compat.last?.places.find((x) => x.id === s.id);
-    return { id: s.id.split("/").pop()!, name: p?.name ?? "", folder: s.folder, machine: s.machine ?? null, ...(p?.emoji && !isPicture(p.emoji) ? { emoji: p.emoji } : {}), assistant: !!(p && compat.addrOf(p.chat)) };
+    return { id: s.id.split("/").pop()!, name: p?.name ?? "", folder: s.folder, machine: s.machine ?? null, everything: s.id === compat.last?.everything, ...(p?.emoji && !isPicture(p.emoji) ? { emoji: p.emoji } : {}), assistant: !!(p && compat.addrOf(p.chat)) };
   });
 }
 function reachOf(machine: string | null) {
@@ -99,7 +99,7 @@ function reachOf(machine: string | null) {
     from: machine, checked: null,
     spaces: compat.allSpaces().filter((s) => (s.machine ?? null) === machine).map((s) => {
       const id = s.id.split("/").pop()!, p = compat.last?.places.find((x) => x.id === s.id);
-      return { id, name: p?.name ?? id, route: "", machine: machine ?? me?.host ?? "", target: id, ...(p?.emoji && !isPicture(p.emoji) ? { emoji: p.emoji } : {}), assistant: !!(p && compat.addrOf(p.chat)) };
+      return { id, name: s.id === compat.last?.everything ? "Everything" : p?.name ?? id, route: "", machine: machine ?? me?.host ?? "", target: id, ...(p?.emoji && !isPicture(p.emoji) ? { emoji: p.emoji } : {}), assistant: !!(p && compat.addrOf(p.chat)) };
     }),
   });
   reaches.set(k, { at: Date.now(), got });
@@ -173,7 +173,7 @@ hub.on((e) => {
   for (const a of shows.take(hub.terminals.values())) if (host.serving()) live.show(a.artifact);
 });
 // what was already waiting or ready when the service started: no alert for it
-let alerted: Set<string> | null = null;
+let alerted: ReturnType<typeof alertsOf> | null = null;
 // the agents' own alerts ride on the snapshot (the web app's toasts: web/plugins/alerts/toasts.tsx), then push
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
 const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); alertNew(snap); } catch {} return snap; };
@@ -226,9 +226,9 @@ function alertNew(snap: any) {
   const now = alertsOf(snap, lastSaid);
   // the phone's and watch's glance, with these same words (service/glance.ts)
   try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
-  waitingNow = { count: waiting(snap).count, tags: [...new Set([...now.values()].filter((x) => x.waits).map((x) => x.tag))] };
-  if (alerted) for (const [k, a] of now) if (!alerted.has(k)) void push.send({ ...a, badge: waitingNow.count, open: waitingNow.tags });
-  alerted = new Set(now.keys());
+  waitingNow = { count: waiting(snap).count, tags: waitingTags(now) };
+  if (alerted) for (const a of pushChanges(alerted, now, waitingNow.count, waitingNow.tags)) void push.send(a);
+  alerted = now;
 }
 compat.agents = new Agents(hub);
 (compat.agents as Agents).onOffer = () => live.refresh();
@@ -377,6 +377,7 @@ const watch = new AgentWatch(hub, hcRun, {
     return out;
   },
   loginWatches: () => [...hub.terminals].filter(([addr]) => !!compat.trustWho(addr)).map(([addr]) => addr),
+  alreadyCarded: (addr) => !!asks.of(addr).length || !!compat.queued?.(addr).length,
   log: (addr) => compat.reader?.(addr)?.conv?.items ?? [],
   changed: () => { live.chats?.refreshAll(); model.rebuild(); },
 });
@@ -951,7 +952,8 @@ const server = Bun.serve<{ who: string }>({
     const viaTailnet = req.headers.has("tailscale-user-login");
     // the glance feed (SHEP-246) is read by the phone's own app: checked as a write (its origin, x-shepherdr: 1)
     const native = path === "/api/glance" && url.searchParams.get("native") === "1";
-    const pass = gate(req, g, socket, viaTailnet && trustedPeer(srv.requestIP(req)?.port, PORT), path === "/api/glance" || path === "/api/chat");
+    const trusted = viaTailnet && trustedPeer(srv.requestIP(req)?.port, PORT, () => settings.webIgnoreAccounts());
+    const pass = gate(req, g, socket, trusted, path === "/api/glance" || path === "/api/chat");
     if (!pass.ok) {
       const why = refusedWhy(pass.why);
       if (why !== pass.why && why !== saidPeer) console.error(`web: ${(saidPeer = why)}`);

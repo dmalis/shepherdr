@@ -1,9 +1,8 @@
 // What a chat watches on an agent besides its log, for the chats web pages have open (and an open Assistant chat's
 // task workers):
-// - a CLI stopped on its own start screen (trust, theme, sign in): a card with its choices (core/screens.js), pressed
-//   only on the screen it was drawn from.
+// - a CLI stopped on its own start screen (trust, theme, sign in): a card with its choices (core/screens.js).
 // - any agent still before its session (a task's, an Assistant, a reviewer) whose chat nobody has open too, so a
-//   folder-trust screen reaches Needs you, the phone and the watch (#1441: an agent sat 80 minutes at one).
+//   start screen reaches Needs you, the phone and the watch.
 // - a session that is gone ("No conversation found"): show a note and wait for the person to restart it.
 import { SignInWatch } from "./sign-in.ts";
 import type { Hub } from "./hub.ts";
@@ -11,7 +10,7 @@ import * as SC from "../core/screens.js";
 import * as CV from "../core/chat-view.js";
 import * as AG from "../core/agents.js";
 
-const { ScreenWatch, starting, cliOf, readScreen, screenText, SCREEN, trustOf } = SC as any;
+const { ScreenWatch, starting, mayHaveDialog, cliOf, SCREEN } = SC as any;
 const { LOST } = CV as any;
 const { freshArgv } = AG as any;
 type Run = (args: string[]) => Promise<{ code: number; stdout: string; stderr?: string }>;
@@ -30,7 +29,8 @@ export class AgentWatch {
   private busy = false;
 
   constructor(private hub: Hub, private hc: Run, private o: { watched: () => Watched[]; changed: () => void;
-    loginWatches?: () => string[]; log?: (addr: string) => { id: string; kind: string; text?: string }[]; }) {
+    loginWatches?: () => string[]; alreadyCarded?: (addr: string) => boolean;
+    log?: (addr: string) => { id: string; kind: string; text?: string }[]; }) {
     this.login = new SignInWatch(hub, o.changed, o.log);
     this.screens = new ScreenWatch({ hc: (a: string[]) => this.hc(a), cards: (a: string) => this.own.get(a) ?? [], save: (a: string, list: any[]) => { this.own.set(a, list); this.o.changed(); } }, () => this.o.changed());
   }
@@ -63,26 +63,27 @@ export class AgentWatch {
         }));
       }
       this.logins = now;
-      for (const w of watched) {
-        const k: any = this.hub.terminals.get(w.addr);
-        if (!k) continue;
-        if (!login.has(w.addr) && (starting(k) || this.screens.open(w.addr))) await this.screens.tick(w.addr, k).catch(() => undefined);
-        if (this.lostCandidate(k)) await this.checkLost(w).catch(() => undefined);
+      const screens = [...this.hub.terminals].filter(([addr, k]) => !login.has(addr) &&
+        (starting(k) || this.screens.open(addr) || (now.has(addr) && mayHaveDialog(k))));
+      for (let i = 0; i < screens.length; i += 8) {
+        await Promise.all(screens.slice(i, i + 8).map(([addr, k]) =>
+          this.screens.tick(addr, k, Date.now(), this.o.alreadyCarded?.(addr)).catch(() => undefined)));
       }
-      // the rest: only their start screens, while they are starting (or a card of theirs is still open)
-      for (const [addr, k] of this.hub.terminals as Map<string, any>) {
-        if (seen.has(addr) || login.has(addr) || !(starting(k) || this.screens.open(addr))) continue;
-        await this.screens.tick(addr, k).catch(() => undefined);
+      for (const w of watched) {
+        if (this.lostCandidate(this.hub.terminals.get(w.addr))) await this.checkLost(w).catch(() => undefined);
+      }
+      for (const card of this.openCards()) {
+        if (!this.hub.terminals.has(card.addr)) await this.screens.tick(card.addr, undefined);
       }
     } finally { this.busy = false; }
   }
 
-  /** The open folder-trust card of each agent waiting on one: [{ card, trust }]. */
-  trustCards(): { card: any; trust: { yes: number; no: number; folder: string | null } }[] {
-    const out: any[] = [];
+  /** The open start-screen card of each agent waiting on one. */
+  openCards(): any[] {
+    const out = [];
     for (const addr of this.own.keys()) {
-      const card = this.openCard(addr), trust = card ? trustOf(card) : null;
-      if (card && trust) out.push({ card, trust });
+      const card = this.openCard(addr);
+      if (card) out.push(card);
     }
     return out;
   }

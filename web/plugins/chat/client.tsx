@@ -10,7 +10,7 @@ import { act, attempt, definePlugin, getDraft, getState, has, notice, openTask, 
 import { endComposition, isEcho, type Sent } from './echo.ts'
 import { partsOf, placeOutgoing, placesOf, keyOf, readNow, showsAs, type Outgoing } from '@client/outbox.ts'
 import { confirm, openMenu } from '@client/overlay.tsx'
-import { AgentLine, openPicker, pickFor, pickWords, type Pick } from '@client/picker.tsx'
+import { AgentLine, openPicker, pickFor, pickWords, reportedPick, type Pick } from '@client/picker.tsx'
 import { attach, detach, dropOut, retry, reupload, send } from '@client/send.ts'
 import { still } from '@client/motion.ts'
 import { ActBtn, ActError, Btn, cx, Empty, I, IB, useCardActs, useGrow } from '@client/ui.tsx'
@@ -122,7 +122,7 @@ function QuietRow({ icon, label, meta = [], body, startOpen = false, kind }: { i
 }
 
 /** a recap of what happened while you were away: a quiet block of its own, its words in the chat's size, labelled */
-function RecapNote({ text, at }: { text: string; at?: number }) {
+function RecapNote({ text, at, place }: { text: string; at?: number; place: string }) {
   return (
     <section className="recap" aria-label="Recap">
       <div className="rh">
@@ -130,7 +130,7 @@ function RecapNote({ text, at }: { text: string; at?: number }) {
         <span>Recap</span>
         {at ? <span className="qm">{clock(at)}</span> : null}
       </div>
-      <Markdown text={text} />
+      <Markdown text={text} place={place} />
     </section>
   )
 }
@@ -398,7 +398,7 @@ function Bubble({ msg, chat, thread, gap, pending, failed, mark, onReply }: { ms
           >
             {msg.reply?.task ? <TaskQuote id={msg.reply.task} title={msg.reply.text} /> : msg.reply && <Quote q={msg.reply} />}
             <Folded text={msg.text ?? ''}>
-              {mine ? <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{withLinks(msg.text ?? '')}</div> : <Markdown text={msg.text ?? ''} mentions={msg.mentions} />}
+              {mine ? <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{withLinks(msg.text ?? '', thread.place)}</div> : <Markdown text={msg.text ?? ''} mentions={msg.mentions} place={thread.place} />}
             </Folded>
           </div>
           {registry.messageEdge.map((x, i) => <x.View key={i} msg={msg} chat={chat} />)}
@@ -824,7 +824,7 @@ function Messages({ thread }: { thread: Thread }) {
     }
     // a recap of what happened (the agent's own, or its answer to Recap), and a heads-up its CLI wrote: never bubbles
     else if (m.recap === 'heads') out.push(<QuietRow key={k} kind="heads" icon="info" label={m.text ?? ''} meta={m.at ? [{ word: clock(m.at) }] : []} />)
-    else if (m.recap) out.push(<RecapNote key={k} text={m.text ?? ''} at={m.at} />)
+    else if (m.recap) out.push(<RecapNote key={k} text={m.text ?? ''} at={m.at} place={thread.place} />)
     else if (m.error) out.push(<div key={k} className="ref c-red"><I n="warn" c="s16" /><span>{m.text}</span></div>)
     else if (m.file) out.push(<FileRow key={k} msg={m} chat={stub} gap={gap} />)
     // pictures the chat can't show (another machine's, or still in its CLI's queue), and an artifact on its way
@@ -1054,9 +1054,9 @@ function Reply({ text, onSend, onEdit }: { text: string; onSend: (t: string) => 
 /** what a chat runs on now: its agent's own report; before its chat came, its space's (an Assistant's chat: what its
  *  Assistant runs, else what its first message starts it on, SHEP-298); else what is set for its kind */
 export function pickOf(snap: Snapshot, chat: Chat | undefined, thread: Thread): Pick {
-  const a = chat?.agent ?? (!thread.task ? snap.places.find((p) => p.id === thread.place && p.chat === thread.chat)?.agent : undefined)
-  if (a?.kind) return { agent: a.kind, label: a.modelLabel ?? a.planned?.modelLabel ?? null, model: a.model ?? a.planned?.model ?? null, effort: a.effort ?? a.planned?.effort ?? null, fast: a.speed === 'ultrafast' ? 'ultrafast' : a.speed === 'fast', perm: a.perm ?? null }
-  return thread.task?.plannedAgent ?? pickFor(snap, isEverything(snap, thread.place) ? 'all' : thread.place, thread.task ? 'Tasks' : 'Chats')
+  const a = thread.task ? thread.task.agent?.settings : snap.places.find((p) => p.id === thread.place && p.chat === thread.chat)?.agent
+  return reportedPick(chat?.agent ?? a) ?? thread.task?.plannedAgent
+    ?? pickFor(snap, isEverything(snap, thread.place) ? 'all' : thread.place, thread.task ? 'Tasks' : 'Chats')
 }
 
 const speedForAction = (pick: Pick) => pick.fast === 'ultrafast' ? 'ultrafast' : pick.fast ? 'fast' : 'normal'
@@ -1376,7 +1376,7 @@ export default definePlugin({
     reg.views.messages = Messages
     reg.views.box = Box
     reg.chatTail.push({ order: 15, View: StoppedChat }, { order: 95, View: WorkingSign }, { order: 96, View: BackgroundNote })
-    reg.aboveBox.push({ order: 5, View: ToEnd })
+    reg.aboveBox.push({ order: 5, inPane: true, View: ToEnd })
     // Update <agent> (update.tsx): a row in the space's header menu and in a task's ⋯, while a newer version is out
     reg.spaceMenu.push({ order: 7, rows: (p, head) => (head ? updateRows(p.chat) : []) })
     reg.taskMenu.push({ order: 7, rows: (t, where) => (where === 'thread' ? updateRows(taskChat(t)) : []) })

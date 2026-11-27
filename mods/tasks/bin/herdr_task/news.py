@@ -14,7 +14,7 @@ from .base import guard, hc_json, now, run, STORE
 from .settings import bare
 from .agents import (
     agent_log, agent_running, asking, detail, from_person, front, live_agents, log_tail, said, starting, status_word,
-    STATUSES, trust_asked,
+    STATUSES, startup_asked,
 )
 from .sessions import session_of
 from .launch import coordinator_in, core_spaces, everything_of, tilde_of
@@ -77,7 +77,7 @@ def news_line(s, t, v, event, words=None):
             "needs-you": f"{title} needs you: {v.get('why') or 'Needs you'}",
             "failed": f"{title} failed: {v.get('why') or 'Agent stopped'}",
             "stalled": f"{title} {words}",
-            "working-again": f"{title} is working again: {(t.get('back') or {}).get('why') or 'its agent is at work again'}",
+            "working-again": f"{title} is working again: {words or (t.get('back') or {}).get('why') or 'its agent is at work again'}",
             # A schedule's run that only had something to say (ready --told): its words, for the space's chat.
             "told": f"{title}, a schedule's run, says: {words}",
             # Its space's "When a task is accepted" command failed (after_accept.py): the task stays done.
@@ -160,9 +160,9 @@ def news_pass(report, folder=None):
                     else:
                         t.pop("waits", None)
                     s.dirty = True
-                # Claude Code's folder-trust dialog (#755): Needs you in the Tasks panel too (its agent
-                # reports no status while it shows).
-                trust = trust_asked(live) if v.get("needs") == "asks" else None
+                # Keep the address in the existing trust_ask field while the startup prompt waits.
+                startup = startup_asked(live) if v.get("needs") == "asks" else None
+                trust = startup[0] if startup else None
                 if s.write and t.get("trust_ask") != trust:
                     if trust:
                         t["trust_ask"] = trust
@@ -216,12 +216,15 @@ def news_pass(report, folder=None):
                     lines.append(("accept-failed", news_line(s, t, v, "accept-failed", accept_failure(t))))
                 # Taken back to work after it said ready (back_to_work(), busy_again()): told as it happens.
                 # Its agent took up what needed the person (failing checks: on_it()) too.
+                wait_cleared = (prev or {}).get("status") == "needs" and (prev or {}).get("needs") in ("asks", "reply")
                 if v["status"] == "working" and ((prev or {}).get("status") in ("ready", "merging")
-                                                 or (prev or {}).get("needs") == "attention" and t.get("attention")):
+                                                 or (prev or {}).get("needs") == "attention" and t.get("attention")
+                                                 or wait_cleared):
                     event = "working-again"
                 # A schedule's run that ended quietly (ready --nothing / --told) is no "done" news: nothing, or its own words.
                 if event and (prev or {}).get("status") != v["status"] and not t.get("quiet"):
-                    lines.append((event, news_line(s, t, v, event)))
+                    words = "its earlier question or wait has cleared" if event == "working-again" and wait_cleared else None
+                    lines.append((event, news_line(s, t, v, event, words)))
                 if stall and stall[0] != (prev or {}).get("stall"):
                     lines.append(("stalled", news_line(s, t, v, "stalled", stall[1])))
                 for ev, text in lines:
@@ -325,7 +328,7 @@ def news_send(address, text, check=True):
         return False
     if check and typing(address, k):
         return False
-    if busy(k):
+    if waits_for_news(k):
         return False
     env = {k: v for k, v in os.environ.items() if k != "HC_TERMINAL_ID"}
     guard(["hc"])
@@ -336,6 +339,14 @@ def news_send(address, text, check=True):
 def busy(k):
     """A live agent in the middle of a turn: Shepherdr's own news waits until it's idle."""
     return bool(k) and status_word(k) == "working"
+
+
+def waits_for_news(k):
+    """An agent turning, at a prompt, or before its first status report can't take news yet."""
+    if not k:
+        return False
+    state = status_word(k)
+    return state in ("working", "blocked") or (not state and k.get("turn") == 0)
 
 
 # ---- Codex mid-turn (#1227) -------------------------------------------------------------------
@@ -647,7 +658,7 @@ def send_or_hold(address, text, how="send"):
     f = front(k)
     if f == "shell":
         return NO_AGENT
-    if f == "other" or typing(address, k) or codex_busy(k) or (how == "news" and busy(k)):
+    if f == "other" or typing(address, k) or codex_busy(k) or (how == "news" and waits_for_news(k)):
         hold(address, text, how)
         return "held"
     if how == "news":
