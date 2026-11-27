@@ -49,5 +49,6 @@ test("ds.css keeps the header's second line and the rules that lay the line out"
   const css = src('./ds.css')
   expect(css).toContain('.chat-heading>.t2{padding-inline:4px}')
   expect(css).toContain('.chat-heading:has(>.t2>.ev-line){container:evh/inline-size}')
-  expect(css).toMatch(/@container evh \(max-width:\d+px\)\{\.ev-pick\.boxed\{display:none\}\}/)
+  // a narrow header: the line alone beside the box, else the model alone (View as terminal), never a cut line
+  expect(css).toMatch(/@container evh \(max-width:\d+px\)\{\.ev-pick\.boxed\{display:none\}\.ev-line:has\(\+\.ev-pick:not\(\.boxed\)\)\{display:none\}/)
 })
