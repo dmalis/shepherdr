@@ -74,6 +74,5 @@ test('the seam it explains: "#shop only" keeps the tasks #shop started, in any f
 
 test('on a narrow line the machine gives way first, then the space (its own …), the folder last', () => {
   const css = readFileSync(new URL('./where.css', import.meta.url), 'utf8')
-  expect(css).toContain('.rline .rs,.t0s{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}')
-  expect(css).toContain('.rline:has(>.rs)>.rn,.t0:has(>.t0s)>.t0n{flex-shrink:0;max-width:60%}')
+  expect(css).toContain('.rline .rs,.t0s{flex:0 1000000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}')
 })

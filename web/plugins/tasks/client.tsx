@@ -600,7 +600,8 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
             </>
           ) : sub && <span className="l2">{sub}</span>}
           <TaskAgentSummary t={t} className="l2" quiet />
-          {tag && t.work && <RepoLine snap={snap} t={t} />}
+          {/* one repo picked leaves the line out, unless it says the space it came from (dmalis/shepherdr#131) */}
+          {(tag || !!fromSpace(snap, t)) && t.work && <RepoLine snap={snap} t={t} />}
         </span>
         {when && <span className="v">{when}</span>}
       </button>

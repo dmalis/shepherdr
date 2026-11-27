@@ -83,7 +83,7 @@ export const tasks: Task[] = [
   task('EV-14', 'Fix the cart badge count', EV, 'work', { started: NOW - 6 * min, repo: 'branch', work: work(...FOLDER[P.shop]), also: [P.shop], report: { msg: 'Reading the cart code', progress: 20 } }),
   // dmalis/shepherdr#131: #shop's Assistant started it in another repo: its row says "team-handbook · from #shop", so
   // "#shop only" listing it reads right
-  task('SHOP-22', 'Share the review checklist', P.shop, 'work', { started: NOW - 3 * min, repo: 'branch', work: work('/Users/sam/dev/team-handbook', 'team-handbook'), report: { msg: 'Writing the checklist page', progress: 30 } }),
+  task('SHOP-22', 'Share the review checklist', P.shop, 'work', { started: NOW - 3 * min, repo: 'branch', work: work('/Users/sam/dev/team-handbook', 'team-handbook'), taskFolder: '/Users/sam/dev/team-handbook', report: { msg: 'Writing the checklist page', progress: 30 } }),
   // a repo no space works in: its tag still shows its tasks (SHEP-325)
   task('EV-13', 'New level select', EV, 'need', { needsAt: NOW - 20 * min, repo: 'branch', work: work('/Users/sam/dev/tor-gameboy', 'tor-gameboy'), report: { msg: 'Should locked levels show?' } }),
   task('SHOP-16', 'Dependency check', P.shop, 'work', { started: NOW - 10 * min, schedule: 'Dependency check', report: { msg: 'Updating 3 packages', progress: 85, eta: 2 } }),
