@@ -4,7 +4,8 @@
 import { useSyncExternalStore, type FC, type ReactNode } from 'react'
 import { buildId } from '@shared/build.ts'
 import type { Stamp } from '@shared/build-stamp.ts'
-import { afterLoad, mayRetry, OWN_VERSION, readMark, safeNow, writeMark, type Now } from './update.ts'
+import { afterLoad, commitOf, mayRetry, OWN_VERSION, readMark, safeNow, writeMark, type Now } from './update.ts'
+import { sayUpdated } from './whats-new-go.ts'
 import type { Action, Chat, Message, ReplyQuote, ServerEvent, Snapshot, Task, UpdateStatus } from '@shared/types.ts'
 import { everything, placeOf, taskChat, taskOf, type ListFilter, type Space } from '@shared/view.ts'
 import { clean, NO_FILTER, type TaskFilter } from '@shared/task-filter.ts'
@@ -817,7 +818,8 @@ let touched = Date.now()
 if (typeof window !== 'undefined') {
   for (const ev of ['input', 'keydown', 'pointerdown', 'wheel', 'touchstart']) addEventListener(ev, () => (touched = Date.now()), { capture: true, passive: true })
   // the line after an update, once; a reload that brought the same page back is kept, so it isn't tried again soon
-  const after = afterLoad(readMark(), BUILD, OWN_VERSION, Date.now())
+  const mark = readMark()
+  const after = afterLoad(mark, BUILD, OWN_VERSION, Date.now())
   writeMark(after.keep)
   // said once the page is on screen: an update while it was hidden is told when you come back
   const say = () => {
@@ -825,7 +827,8 @@ if (typeof window !== 'undefined') {
     if (!said || document.visibilityState !== 'visible') return
     document.removeEventListener('visibilitychange', say)
     after.said = null
-    setTimeout(() => notice(said, { ms: 5000 }), 600)
+    // what the update brought, from the build it replaced (fork patch #70, whats-new.tsx)
+    setTimeout(() => void sayUpdated(said, commitOf(mark?.from ?? ''), notice, () => openSettings('all', 'About')), 600)
   }
   if (after.said) {
     document.addEventListener('visibilitychange', say)

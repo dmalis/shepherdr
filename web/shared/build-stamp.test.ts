@@ -46,6 +46,14 @@ describe('words', () => {
     expect(aheadWords('3.2.22', { ...S, tag: '', ahead: 0 })).toBe('')
   })
 
+  test("fork patch #70: What's new's own count when the build has one, read back from the page", () => {
+    expect(aheadWords('3.2.22', { ...S, onTop: 2 })).toBe('2 changes on top')
+    expect(aheadWords('3.2.22', { ...S, onTop: 1 })).toBe('1 change on top')
+    expect(aheadWords('3.2.22', { ...S, onTop: 0 })).toBe('')
+    expect(stampOf(page(tag({ ...S, onTop: 8 })))?.onTop).toBe(8)
+    expect(stampOf(page(tag(S)))).not.toHaveProperty('onTop')
+  })
+
   test('the short commit opens on GitHub', () => {
     expect(short(C)).toBe('9fedf5c')
     expect(commitUrl(S)).toBe(`https://github.com/o/r/commit/${C}`)

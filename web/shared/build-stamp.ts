@@ -17,6 +17,9 @@ export type Stamp = {
   changes?: string[]
   /** how many more changes are on top than `changes` lists */
   more?: number
+  /** how many of the changes on top of this version people see in What's new (fork patch #70: housekeeping and the
+   *  changes from before the release came in left out); About counts these when it is there */
+  onTop?: number
 }
 
 /** the list in About is short: this many changes, then "and n more" */
@@ -43,6 +46,7 @@ export function stampOf(html: string): Stamp | null {
       repo: typeof s.repo === 'string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(s.repo) ? s.repo : '',
       changes: Array.isArray(s.changes) ? s.changes.filter((c): c is string => typeof c === 'string') : [],
       more: typeof s.more === 'number' && s.more > 0 ? s.more : 0,
+      ...(typeof s.onTop === 'number' && s.onTop >= 0 && { onTop: s.onTop }),
     }
   } catch {
     return null
@@ -60,6 +64,8 @@ export const commitUrl = (s: Stamp) => (s.repo ? `${s.repo}/commit/${s.commit}` 
 
 /** "6 changes on top", or "6 changes since 3.2.21" when the tag isn't this version's; '' for none or no tag */
 export function aheadWords(version: string, s: Stamp): string {
+  // What's new's own count, on top of this very version (fork patch #70)
+  if (s.onTop !== undefined) return s.onTop ? `${s.onTop} ${s.onTop === 1 ? 'change' : 'changes'} on top` : ''
   if (!s.tag || s.ahead === 0) return ''
   const n = `${s.ahead} ${s.ahead === 1 ? 'change' : 'changes'}`
   const from = s.tag.replace(/^v/, '')
