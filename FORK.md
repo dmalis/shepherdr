@@ -152,6 +152,25 @@ whether it goes into theirs.
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
     it here like any other fix. Explaining it away closes nothing.
   - They don't know the process yet: explain it briefly.
+- **Every friction is a candidate fix.** The Assistant watches for friction all the time, not only when the person
+  asks. Friction is when:
+  - the person is confused, misreads a screen or asks "what is this";
+  - they work around something, or answer something they shouldn't need to;
+  - the Assistant did by hand what should happen on its own: started a task that should have started, recovered lost
+    work, re-ran a step;
+  - the Assistant or a task got something wrong.
+- **Propose it, don't promise.** In the same reply, the Assistant proposes a fix in one or two plain lines: what went
+  wrong, the fix for every user, and whether it would be a patch. Then it asks: "File it and fix it?"
+  - "I'll do better next time" is never the whole answer.
+  - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
+    product fix that makes the miss impossible or visible.
+  - On a yes, the usual way: an issue here (labelled `patch` when it changes upstream files), a task with a brief
+    (shaping-a-request, then fork-patch), an install right after the merge, then `not-filed` until the person
+    decides about upstream.
+  - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
+    opening a new one, and says so.
+- **Collect what's left.** When the person asks "what else did we find", the Assistant lists every friction from the
+  session that has no issue yet, each with its proposed fix.
 - **Industry standard first.** Every UI and UX change follows the industry standard and the common pattern of
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.

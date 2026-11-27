@@ -1,6 +1,6 @@
 ---
 name: shaping-a-request
-description: Turn what the person asks for into the right change, before any spec or code. Use whenever the person asks for a change, fix, feature or setting in Shepherdr, says how something should work, reports a pain, or when upstream declines or answers one of their requests.
+description: Turn what the person asks for into the right change, before any spec or code. Use whenever the person asks for a change, fix, feature or setting in Shepherdr, says how something should work, reports a pain, or when upstream declines or answers one of their requests. Also use when you notice friction yourself: the person is confused or works around something, you did by hand what should happen on its own, or you or a task got something wrong.
 ---
 
 # Shaping a request
@@ -8,6 +8,11 @@ description: Turn what the person asks for into the right change, before any spe
 The person doesn't code, and they know their idea of a solution may not be the best one. They count on you to be
 smarter about it than they are. Find what they really need, learn how others solve it, and guide them to the best
 way. That may be their way, upstream's, or a third.
+
+**Don't wait to be asked.** Every friction is a candidate fix (FORK.md: "Every friction is a candidate fix"). In the
+same reply, propose the fix in one or two plain lines: what went wrong, the fix for every user, and whether it would
+be a patch. Then ask: "File it and fix it?" "I'll do better next time" is never the whole answer. On a yes, shape it
+here like any other request.
 
 ## 1. Find the need behind the ask
 
