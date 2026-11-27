@@ -1,0 +1,21 @@
+{
+  "issue": 109,
+  "name": "Sheets, menus and dialogs: one system",
+  "files": [
+    "web/src/overlay.tsx",
+    "web/src/motion.ts",
+    "web/src/sheet-drag.ts",
+    "web/src/layer-focus.ts",
+    "web/src/sheets.css",
+    "web/src/ds.css",
+    "web/src/styles.css",
+    "web/src/App.tsx",
+    "web/src/warnings.tsx",
+    "web/plugins/screens/client.tsx"
+  ],
+  "tests": [
+    "web/src/sheets.test.ts",
+    "web/src/overlay.test.tsx",
+    "web/plugins/installed/installed.test.ts"
+  ]
+}
