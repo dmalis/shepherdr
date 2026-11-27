@@ -316,21 +316,55 @@ def ci_words(v, sha, rec):
     back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
     if v.get("verdict") == "missed":
         return f"CI on main never reported on {what} within {CI_MISSED_AFTER_S // 3600} hours.{back}"
-    red = [f"{n} failed on {str(g.get('by'))[:12]}" for n, g in (v.get("names") or {}).items()
-           if g.get("state") == "red"]
-    return (f"CI on main failed after {what}: {', '.join(red) or 'a check failed'}. Nothing was rolled back: open a "
-            f"task to fix it.{back}")
+    return red_words(failures(v), [(sha, v)], rec)
+
+
+def failures(v):
+    """The red checks of a verdict, as (check name, the commit its failed run was on): the failure itself, the same
+    for every install whose verdict that one run decided (ci_verdict reads a later commit's run too)."""
+    return tuple(sorted((n, str(g.get("by") or "")) for n, g in (v.get("names") or {}).items()
+                        if g.get("state") == "red"))
+
+
+def red_words(fails, installs, rec):
+    """One sentence for one failure, however many of our installs it covers (oldest install first): the check and the
+    commit it failed on. CI never rolls anything back, whatever an install's health did earlier."""
+    back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
+    if len(installs) == 1:
+        sha, v = installs[0]
+        what = f"the install of {v.get('version') or 'our merged work'} ({sha[:12]})"
+    else:
+        versions = list(dict.fromkeys(v.get("version") or "our merged work" for _, v in installs))
+        what = f"{len(installs)} installs of {', '.join(versions)} (the newest {installs[-1][0][:12]})"
+    said = ", ".join(f"{n} failed on {by[:12]}" for n, by in fails) or "a check failed"
+    return f"CI on main failed after {what}: {said}. CI never rolls back: open a task to fix it.{back}"
 
 
 
 
-def ci_untold(st, mark=True):
-    """[(sha, words)]: the red or missing CI results nobody was told of yet. `mark`: each is marked told now (once per
-    commit); finish marks them in the same lock that lets go of the lease."""
-    out = []
-    for sha, v in (st.get("ci") or {}).items():
-        if v.get("verdict") in ("red", "missed") and not v.get("told"):
+def ci_untold(st, mark=True, only=None):
+    """[(sha, words or None)]: the red or missing CI results nobody was told of yet (of `only`'s shas, when given).
+    A failure (one check, the commit its run failed on) is told once: every install it covers shares its sentence,
+    on the first of them (the rest carry None; an install with two failures is in both), and a failure another
+    install's words told already is said no more (its installs carry None, and are marked told with the rest).
+    `mark`: each is marked told now; finish marks them in the same lock that lets go of the lease."""
+    ci = st.get("ci") or {}
+    told = {f for v in ci.values() if v.get("told") and v.get("verdict") == "red" for f in failures(v)}
+    out, groups = [], {}
+    for sha, v in sorted(ci.items(), key=lambda kv: str(kv[1].get("installed") or "")):     # oldest install first
+        if v.get("verdict") not in ("red", "missed") or v.get("told") or (only is not None and sha not in only):
+            continue
+        if v.get("verdict") == "missed":
             out.append((sha, ci_words(v, sha, st.get("recovery"))))
+            continue
+        fails = [f for f in failures(v) if f not in told] if failures(v) else [None]   # None: red, no check named
+        if not fails:
+            out.append((sha, None))                      # told already, on another install's words
+        for f in fails:
+            groups.setdefault(f, []).append((sha, v))
+    for f, installs in groups.items():
+        out.append((installs[0][0], red_words((f,) if f else (), installs, st.get("recovery"))))
+        out.extend((sha, None) for sha, _ in installs[1:])
     if mark:
         mark_told(st, [sha for sha, _ in out])
     return out
@@ -354,15 +388,16 @@ CI_WAIT_S = 30 * 60      # a run waits this long after its install for CI's verd
 
 def with_ci_words(told, outcome, words):
     """A run's --told words with CI's results added; a run that had nothing to say then reports them."""
+    words = [w for w in words if w]                # an install whose failure another's words tell: None
     if not words:
         return told, outcome
     return " ".join(([told] if told else []) + list(words)), ("reported" if outcome == "nothing" else outcome)
 
 
 def still_untold(st, said):
-    """Of [(sha, words)] read earlier, the ones nobody marked told since (another run's `ci` or finish may have)."""
-    ci = st.get("ci") or {}
-    return [(sha, w) for sha, w in said if not (ci.get(sha) or {}).get("told")]
+    """Of [(sha, words)] read earlier, the ones nobody marked told since (another run's `ci` or finish may have), with
+    their words made again under this lock: a failure another run told meanwhile is said no more."""
+    return ci_untold(st, mark=False, only={sha for sha, _ in said})
 
 
 def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.sleep):

@@ -191,7 +191,7 @@ def write_scheduler(cfg):
     import hashlib
     os.makedirs(cfg["store"], exist_ok=True)
     with open(os.path.join(cfg["store"], ".scheduler.json"), "w") as f:
-        json.dump({"pid": 1, "hash": hashlib.sha1(data).hexdigest(), "at": 0}, f)
+        json.dump({"pid": cfg.get("sched_pid") or 1, "hash": hashlib.sha1(data).hexdigest(), "at": 0}, f)
 
 
 def toy_shepherdr(version, hook_script="session-note.sh"):
@@ -249,7 +249,11 @@ class World(unittest.TestCase):
             os.chmod(os.path.join(d, name), 0o755)
         self.iw = os.path.join(self.tmp, "iw.json")
         self.log = os.path.join(self.tmp, "iw.log")
+        # the scheduler: a running process `ps` takes for one (its last word is `scheduler`), named in .scheduler.json
+        self.sched = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "scheduler"])
+        self.addCleanup(lambda: (self.sched.kill(), self.sched.wait()))
         self.cfg = {"root": self.root, "folder": self.folder, "store": self.store, "log": self.log,
+                    "sched_pid": self.sched.pid,
                     "tasks": {self.RUN: {"state": "running", "automation": 7}}, "autos": {"7": {"may_update": True}},
                     "assistants": [{"target": "t1", "route": ""}, {"target": "far/t2", "route": "far"}],
                     "assistants_after": None, "updates": {}, "plan": []}
@@ -270,7 +274,7 @@ class World(unittest.TestCase):
             "HERDR_TASK_STORE": self.store, "HERDR_BROWSER_TASK": store_key(self.RUN),
             "FORK_SYNC_SCRATCH_UPDATER": os.path.join(self.bin, "herdr-task"),
             "FORK_SYNC_POLL_S": "0", "FORK_SYNC_CALL_WAIT_S": "0", "FORK_SYNC_UPDATE_POLL_S": "0",
-            "FORK_SYNC_HEALTH_WAIT_S": "0"})
+            "FORK_SYNC_HEALTH_WAIT_S": "0", "FORK_SYNC_SCHEDULER_WAIT_S": "0"})
         self.env.start()
         self.addCleanup(self.env.stop)
         # the live service's page: no service runs here (test_merged reads the real check against a page of its own)

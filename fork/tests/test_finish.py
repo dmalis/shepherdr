@@ -207,6 +207,79 @@ class FinishCommand(World):
         self.assertEqual(out["told"], f"Rolled back: the install of {self.main0[:12]} failed at health; back on 3.2.21.")
         self.assertIsNone(self.st()["lease"])
 
+    def test_a_rollback_then_a_healthy_install_ends_healthy(self):
+        """The reported run: the first round rolled back, finish said settle again, the next tip installed healthy.
+        The last words are the healthy ones; the rollback is over, so never "back on <the old version>"."""
+        self.sync("select")
+        rnd = {"path": "install-merged", "phase": "rolled-back", "candidate": self.main0,
+               "quarantined": {"sha": self.main0, "step": "health (scheduler: still on the old code)"},
+               "baseline": {"sha": self.v21, "version": "3.2.21"}}
+        with state.locked(self.p) as st:
+            st["run"] = dict(st["run"], path="install-merged", rounds=[rnd])
+        self.edit(phase="healthy", baseline={"sha": self.main0, "version": "3.2.22"})
+        code, out = self.finish("--says", "The button works.")
+        self.assertEqual((code, out["outcome"]), (0, "installed"), out)
+        self.assertEqual(out["told"], "The button works. An earlier try rolled back; the next install is healthy.")
+        self.assertEqual(self.cmd(out)[-2:], ["--told", out["told"]])
+
+
+class ToldWords(unittest.TestCase):
+    """finish's words from a run's rounds (gate.told_words): the last words follow what is installed now."""
+    RB1 = "Rolled back: the install of aaaaaaaaaaaa failed at health; back on 3.2.21."
+    RB2 = "Rolled back: the install of bbbbbbbbbbbb failed at health; back on 3.2.22."
+    HELD = "Held: v3.2.23 waits on patch #5."
+
+    def words(self, *rounds, says="What's new."):
+        return gate.told_words([(o, w, "install-merged") for o, w in rounds], says)
+
+    def test_one_healthy_install(self):
+        self.assertEqual(self.words(("installed", None)), ("installed", "What's new."))
+
+    def test_a_rollback_then_healthy(self):
+        self.assertEqual(self.words(("rolled-back", self.RB1), ("installed", None)),
+                         ("installed", "What's new. " + gate.EARLIER_ROLLBACK))
+
+    def test_two_rollbacks_then_healthy_say_it_once(self):
+        self.assertEqual(self.words(("rolled-back", self.RB1), ("rolled-back", self.RB2), ("installed", None)),
+                         ("installed", "What's new. " + gate.EARLIER_ROLLBACK))
+
+    def test_healthy_then_a_rollback_says_where_it_is_back_on_last(self):
+        self.assertEqual(self.words(("installed", None), ("rolled-back", self.RB2)),
+                         ("installed", "What's new. " + self.RB2))
+
+    def test_rollback_healthy_rollback_ends_on_the_last_rollback(self):
+        self.assertEqual(self.words(("rolled-back", self.RB1), ("installed", None), ("rolled-back", self.RB2)),
+                         ("installed", "What's new. " + self.RB2))
+
+    def test_a_hold_still_held_stays(self):
+        self.assertEqual(self.words(("held", self.HELD), ("rolled-back", self.RB1), ("installed", None)),
+                         ("installed", self.HELD + " What's new. " + gate.EARLIER_ROLLBACK))
+
+    def test_a_hold_in_a_later_round_goes_before_whats_new(self):
+        """A installed; a pending merge B settled again and held at a gate: A still serves, so its words end."""
+        self.assertEqual(self.words(("installed", None), ("held", self.HELD)),
+                         ("installed", self.HELD + " What's new."))
+        self.assertEqual(self.words(("installed", None), ("held", self.HELD), ("rolled-back", self.RB2)),
+                         ("installed", self.HELD + " What's new. " + self.RB2))
+
+    def test_only_rollbacks(self):
+        self.assertEqual(self.words(("rolled-back", self.RB1), ("rolled-back", self.RB2), says=None),
+                         ("rolled-back", self.RB1 + " " + self.RB2))
+
+    def test_an_install_needs_whats_new(self):
+        with self.assertRaises(Refused):
+            self.words(("rolled-back", self.RB1), ("installed", None), says=None)
+
+    def test_a_hold_a_later_healthy_install_cleared_isnt_told(self):
+        """The same stale pattern for holds: a later healthy install that carries the held release clears the
+        record (install.passed), so the earlier round's "Held: …" is over."""
+        rnd = {"path": "install-merged", "phase": "held", "held": {"blocker": "main-hooks", "new": True},
+               "held_record": {"blocker": "main-hooks", "kind": "hooks", "head": "c" * 40,
+                               "release": {"tag": "v3.2.21", "sha": "d" * 40}, "line": "x"}}
+        self.assertEqual(gate.earlier_round({"held": []}, rnd), ("nothing", None, "install-merged"))
+        still = {"held": [rnd["held_record"]]}
+        self.assertEqual(gate.earlier_round(still, rnd)[0], "held")
+
 
 class Store:
     """Enough of herdr_task.store.Store for the commands, in memory (as test/test_herdr_task.py's)."""

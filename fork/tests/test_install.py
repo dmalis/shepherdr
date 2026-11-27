@@ -801,6 +801,223 @@ class Command(World):
         self.assertEqual((code, out["outcome"]), (1, "stop"), out)
 
 
+class FakeTime:
+    """install's clock and a sleep that moves it, with things that happen at given seconds: `at(45, fn)`."""
+
+    def __init__(self):
+        self.t, self.events = 0.0, []
+
+    def at(self, when, fn):
+        self.events.append((when, fn))
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, d):
+        self.t += d
+        for ev in [e for e in self.events if e[0] <= self.t]:
+            self.events.remove(ev)
+            ev[1]()
+
+
+def a_scheduler(test):
+    """A running process that looks like herdr-task's scheduler to `ps` (its words end in `scheduler`)."""
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "scheduler"])
+    test.addCleanup(lambda: (p.kill(), p.wait()))
+    return p
+
+
+def an_ended_process():
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    return p.pid
+
+
+class BusyScheduler(unittest.TestCase):
+    """health's scheduler line (install.scheduler_line): herdr-task's scheduler re-execs onto new code only between
+    its rounds, so a long round keeps it on the old code well past 30 s. One that is running is waited for up to the
+    ceiling (5 minutes); one that isn't fails after the short wait; the words say which it was."""
+    OLD, NEW, OTHER = "a" * 40, "b" * 40, "c" * 40
+
+    def setUp(self):
+        self.store = tempfile.mkdtemp(prefix="fork-sched-")
+        self.addCleanup(shutil.rmtree, self.store, True)
+        self.time = FakeTime()
+        for patch in (mock.patch.object(install, "clock", self.time.clock, create=True),
+                      mock.patch.object(install, "probe", side_effect=self.probe),
+                      mock.patch.dict(os.environ, {"FORK_SYNC_HEALTH_WAIT_S": "30",
+                                                   "FORK_SYNC_SCHEDULER_WAIT_S": "300"})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.s = mock.Mock()
+
+    def probe(self, s, what, *args):
+        self.assertEqual(what, "scheduler")
+        return {"hash": self.NEW, "store": self.store}
+
+    def write(self, pid, h):
+        with open(os.path.join(self.store, ".scheduler.json"), "w") as f:
+            json.dump({"pid": pid, "hash": h, "at": "x", "terminal": "t"}, f)
+
+    def line(self, since=None):
+        return install.scheduler_line(self.s, since, self.time.sleep)
+
+    def test_a_round_that_re_execs_at_45_s_passes(self):
+        """The reported case: 30 s ran out while the scheduler was mid-round on the old code."""
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(45, lambda: self.write(p.pid, self.NEW))        # os.execv: the same pid, the file rewritten
+        self.assertIsNone(self.line(since=time.time() - 60))
+        self.assertGreaterEqual(self.time.t, 45)
+        self.assertLess(self.time.t, 50)
+
+    def test_one_that_never_re_execs_fails_at_the_ceiling(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        why = self.line(since=time.time() + 60)                     # its file is from before the update
+        self.assertEqual(why, "still on the old herdr-task after 5 min, though running: one long round, or stuck")
+        self.assertGreaterEqual(self.time.t, 300)
+        self.assertLess(self.time.t, 303)
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: still on the old code")
+
+    def test_one_that_re_execed_onto_other_code_says_so(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(10, lambda: self.write(p.pid, self.OTHER))
+        why = self.line()
+        self.assertTrue(why.startswith("it re-execed, but onto other code than the installed herdr-task"), why)
+        self.assertGreaterEqual(self.time.t, 300, "it may re-exec again after its next round: waited the ceiling")
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: re-execed onto other code")
+
+    def test_a_dead_scheduler_fails_fast(self):
+        self.write(an_ended_process(), self.OLD)
+        why = self.line()
+        self.assertEqual(why, "not running")
+        self.assertGreaterEqual(self.time.t, 30)
+        self.assertLess(self.time.t, 33, "the short wait, never the 5-minute ceiling")
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: not running")
+
+    def test_a_dead_scheduler_on_the_new_hash_doesnt_pass(self):
+        """The file names the installed code, but nothing runs it (or the rollback's baseline hash left on disk)."""
+        self.write(an_ended_process(), self.NEW)
+        self.assertEqual(self.line(), "not running")
+        self.assertLess(self.time.t, 33)
+
+    def test_one_that_re_execs_then_ends_says_so(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(10, lambda: (self.write(p.pid, self.NEW), p.kill(), p.wait()))
+        why = self.line()
+        self.assertEqual(why, "it ended after it re-execed onto the installed herdr-task")
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: ended after re-execing")
+
+    def test_a_long_command_line_on_a_narrow_terminal_is_read_whole(self):
+        """Linux's ps cuts `command` at $COLUMNS without -ww: the last word, `scheduler`, must still be read."""
+        p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "x" * 300, "scheduler"])
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        with mock.patch.dict(os.environ, {"COLUMNS": "80"}):
+            self.assertTrue(install.scheduler_alive(p.pid))
+
+    def test_an_exit_late_in_the_wait_never_passes_the_ceiling(self):
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(298, lambda: (p.kill(), p.wait()))
+        self.assertEqual(self.line(), "it ended instead of re-execing onto the installed herdr-task")
+        self.assertLess(self.time.t, 303)
+
+    def test_pid_1_or_a_reused_pid_isnt_a_scheduler(self):
+        self.write(1, self.OLD)
+        self.assertEqual(self.line(), "not running")
+        self.assertLess(self.time.t, 33)
+
+    def test_no_scheduler_file(self):
+        self.assertEqual(self.line(), "not running (its .scheduler.json can't be read)")
+        self.assertLess(self.time.t, 33)
+
+    def test_one_that_ends_during_the_wait(self):
+        """A re-exec that failed: the process is gone and the file still names the old code."""
+        p = a_scheduler(self)
+        self.write(p.pid, self.OLD)
+        self.time.at(20, lambda: (p.kill(), p.wait()))
+        why = self.line()
+        self.assertEqual(why, "it ended instead of re-execing onto the installed herdr-task")
+        self.assertLess(self.time.t, 20 + 33)
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: ended instead of re-execing")
+
+    def test_one_that_comes_back_on_the_new_code_passes(self):
+        """Not running at first, then started again (herdr-task's ensure_scheduler): a new pid on the new code."""
+        self.write(an_ended_process(), self.OLD)
+        p = a_scheduler(self)
+        self.time.at(12, lambda: self.write(p.pid, self.NEW))
+        self.assertIsNone(self.line())
+
+    def test_the_installed_hash_unread(self):
+        with mock.patch.object(install, "probe", return_value=None):
+            why = self.line()
+        self.assertEqual(why, "the installed herdr-task can't say its code's hash")
+        self.assertLess(self.time.t, 33)
+        self.assertEqual(install.step_words("scheduler", why), "scheduler: code hash unread")
+
+
+class BusySchedulerInstall(World):
+    """The reported run, end to end on the throwaway root: the first install rolls back on a scheduler that never
+    moved; the next tip installs while the scheduler finishes a long round and re-execs at 45 s; the last words are
+    the healthy ones."""
+
+    def setUp(self):
+        super().setUp()
+        self.time = FakeTime()
+        for patch in (mock.patch.object(install, "clock", self.time.clock, create=True),
+                      mock.patch.dict(os.environ, {"FORK_SYNC_HEALTH_WAIT_S": "30",
+                                                   "FORK_SYNC_SCHEDULER_WAIT_S": "300"})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def point_scheduler_at_us(self):
+        """.scheduler.json names the world's running stand-in, on the code it has now."""
+        path = os.path.join(self.store, ".scheduler.json")
+        with open(path) as f:
+            rec = json.load(f)
+        with open(path, "w") as f:
+            json.dump(dict(rec, pid=self.sched.pid), f)
+
+    def test_a_rollback_then_a_healthy_install_ends_with_the_healthy_words(self):
+        import installworld
+        from sync import merged
+        self.ready_to_install(phase="settled")
+        with state.locked(self.p) as st:
+            st["run"] = dict(st["run"], path="install-merged")
+        self.set(plan=["ok", "ok"], stale_scheduler=True)
+        self.install()
+        with self.assertRaises(Refused) as e:
+            self.health(sleep=self.time.sleep)
+        self.assertIn("health failed at scheduler: still on the old herdr-task after 5 min", e.exception.why)
+        self.assertGreaterEqual(self.time.t, 300)
+        self.set(stale_scheduler=False)
+        self.assertEqual(self.rollback(sleep=self.time.sleep)["outcome"], "rolled-back")
+        self.assertEqual(state.quarantined(self.st(), self.C)["step"], "health (scheduler: still on the old code)")
+        # the run settles again on a newer tip (as merged.settle records a finished round)
+        with state.locked(self.p) as st:
+            rnd = merged.round_record(st, st["run"])
+        D = self.new_candidate("3.2.23")
+        self.ready_to_install(D, phase="settled")
+        with state.locked(self.p) as st:
+            st["run"] = dict(st["run"], path="install-merged", rounds=[rnd])
+            st["baseline"] = dict(st["baseline"], sha=self.B, version="3.2.21")
+        self.set(plan=["ok"], stale_scheduler=True)
+        self.install(D)
+        self.point_scheduler_at_us()
+        self.time.t = 0
+        self.time.at(45, lambda: installworld.write_scheduler(self.load_cfg()))   # the re-exec, after a long round
+        self.assertEqual(self.health(D, sleep=self.time.sleep)["outcome"], "installed")
+        self.assertGreaterEqual(self.time.t, 45, "past the old 30 s wait")
+        with mock.patch.object(gate, "fetch_for_finish"), mock.patch.object(gate, "branch_problem"):
+            out = gate.finish(self.p, self.RUN, self.space, self.wt, says="Shepherdr 3.2.23 is in.")
+        self.assertEqual(out["outcome"], "installed")
+        self.assertEqual(out["told"], "Shepherdr 3.2.23 is in. An earlier try rolled back; the next install is healthy.")
+        self.assertNotIn("Rolled back:", out["told"])
+
+
 class Pins(unittest.TestCase):
     """What the pipeline reads from upstream, under the names it reads them by."""
 
@@ -842,6 +1059,13 @@ class Pins(unittest.TestCase):
         auto = self.read("mods/tasks/bin/herdr_task/automations.py")
         self.assertIn('json.dump({"pid": os.getpid(), "hash": started', auto)
         self.assertIn('os.path.join(STORE, ".scheduler.json")', auto)
+        # health's scheduler line: the file is written once as it starts, a re-exec keeps the pid (os.execv) and
+        # comes only after a round and its nap, and its command line ends in `scheduler`
+        self.assertEqual(auto.count('".scheduler.json"), "w")'), 1)
+        self.assertIn('os.execv(sys.executable, [sys.executable, ENTRY, "scheduler"])', auto)
+        self.assertLess(auto.index("one_pass(report)"), auto.index("nap(15, began)"))
+        self.assertLess(auto.index("nap(15, began)"), auto.index("if script_hash() != started"))
+        self.assertIn('"--", sys.executable, ENTRY, "scheduler"]', sched)
         self.assertIn("may_update=bool(a.get(\"may_update\"))", auto)
         base = self.read("mods/tasks/bin/herdr_task/base.py")
         self.assertRegex(base, r"(?m)^STORE = ")
