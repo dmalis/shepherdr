@@ -4,5 +4,5 @@
 .amcard .amhead>.i{flex:none;width:16px;height:16px;color:var(--blue)}
 .amcard.am-main .amhead>.i{color:var(--muted)}
 .amrows{display:grid;gap:2px;margin:2px 0 0;padding:6px 10px;list-style:none;border-radius:8px;background:var(--raised);font-size:var(--sec);line-height:var(--secl)}
-.amrows>li{min-width:0;padding:3px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.amrows>li{min-width:0;padding:3px 0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;color:var(--fg)}
 .amrows>.ammore{color:var(--muted)}

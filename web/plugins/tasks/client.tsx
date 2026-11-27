@@ -311,9 +311,9 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   const s = tstate(t)
   // closed by its Merge setting with nothing to merge: what it found stays in the line (dmalis/shepherdr#29)
   if (s === 'done' || s === 'archived') {
-    // dmalis/shepherdr#48: what came after its merge, one line with its offer (its pane has the commits and the card)
+    // dmalis/shepherdr#48: what came after its merge, one line; in a space's chat with its offer (its own pane has the card)
     const am = afterMergeNote(t.afterMerge)
-    const offer = offersAfterMerge(t) && !t.afterMerge?.onMain && !t.afterMerge?.followUp
+    const offer = ctx === 'chat' && offersAfterMerge(t) && !t.afterMerge?.onMain && !t.afterMerge?.followUp
     return (
       <DoneRow>
         {statusWord(t).word} · {t.name}{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}{am ? ` · ${am}` : ''}
