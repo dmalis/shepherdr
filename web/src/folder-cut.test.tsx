@@ -62,11 +62,15 @@ test('upstream seams: the header path, its cut, the phone class and the folder s
   expect(app).toMatch(/className=\{cx\('app'[^\n]*phone && 'phone'/)
 })
 
-test("a long folder name gives way in its middle in the menu row", () => {
+test("a long folder name gives way in its middle in the menu row, wide characters counted twice", () => {
+  const width = (x: string) => [...x].reduce((n, c) => n + (/[\u3000-\u9FFF\u{1F300}-\u{1FAFF}]/u.test(c) ? 2 : 1), 0)
   expect(cutMiddle('portal')).toBe('portal')
-  expect(cutMiddle('a'.repeat(20))).toBe('a'.repeat(20))
-  const cut = cutMiddle('customer-portal-and-billing-redesign')
-  expect([...cut].length).toBe(20)
-  expect(cut).toBe('customer-p…-redesign')
-  expect(cutMiddle('mañana-ñandú-𝒳-proyecto-largo', 9)).toBe('maña…argo')
+  expect(cutMiddle('a'.repeat(18))).toBe('a'.repeat(18))
+  expect(cutMiddle('customer-portal-and-billing-redesign')).toBe('customer-…redesign')
+  // full-width: 18 columns is 9 characters, the … one more column
+  const jp = cutMiddle('機能改善と店舗商品管理画面リニューアル計画')
+  expect(jp).toBe('機能改善…アル計画')
+  expect(width(jp)).toBeLessThanOrEqual(18)
+  expect(width(cutMiddle('🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀'))).toBeLessThanOrEqual(18)
+  expect(cutMiddle('mañana-ñandú-proyecto-largo', 9)).toBe('maña…argo')
 })
