@@ -1,7 +1,7 @@
 // A fictional day for the demo (bun web/demo/serve.ts): Sam, the machines mac-mini, vm, studio and pi, the spaces
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
-import type { Automation, Catalog, Chat, Config, Message, Place, Snapshot, Task } from '../shared/types.ts'
+import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task } from '../shared/types.ts'
 
 const NOW = Date.now()
 const min = 60_000
@@ -116,8 +116,14 @@ export const config: Config = {
   desktops: ['mac-mini'],
 }
 
+// what machine.py sends for each agent CLI it finds: where to see its plan usage, never a read
+const noUsage: MachineLimits = {
+  claude: { state: 'no-access', why: "Shepherdr doesn't read Claude plan usage. Open Claude Code and run /usage.", at: NOW },
+  codex: { state: 'no-access', why: "Shepherdr doesn't read Codex plan usage. Open Codex and run /status.", at: NOW },
+}
+
 const R1 = ['regular']
-const m = (id: string, name: string, speeds = R1, group?: string) => ({ id, name, speeds, ...(group ? { group } : {}) })
+const m =(id: string, name: string, speeds = R1, group?: string) => ({ id, name, speeds, ...(group ? { group } : {}) })
 export const catalog = (machine: string): Catalog => ({
   machine,
   agents: [
@@ -180,8 +186,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     last: empty ? {} : { [P.blog]: 3, [P.garden]: 2, [P.shop]: 5 },
     read: empty ? {} : { [P.blog]: 2, [P.garden]: 1, [P.shop]: 5 },
     machines: [
-      { id: 'm:mac-mini', machine: 'mac-mini', name: 'mac-mini', status: 'idle', here: true, health: { meters: [{ name: 'CPU', pct: 34, detail: '', level: 'ok' }, { name: 'Memory', pct: 71, detail: '', level: 'ok' }, { name: 'Disk', pct: 58, detail: '', level: 'ok' }], herdr: true, working: 5, held: 0, at: '' } },
-      { id: 'm:vm', machine: 'vm', name: 'vm', status: down ? 'off' : 'idle', ...(down ? { unreachableSince: '14:02' } : {}), health: { meters: [{ name: 'CPU', pct: 12, detail: '', level: 'ok' }, { name: 'Memory', pct: 40, detail: '', level: 'ok' }, { name: 'Disk', pct: empty ? 40 : 91, detail: '', level: 'over' }], herdr: true, working: 2, held: 0, at: '' } },
+      { id: 'm:mac-mini', machine: 'mac-mini', name: 'mac-mini', status: 'idle', here: true, limits: noUsage, health: { meters: [{ name: 'CPU', pct: 34, detail: '', level: 'ok' }, { name: 'Memory', pct: 71, detail: '', level: 'ok' }, { name: 'Disk', pct: 58, detail: '', level: 'ok' }], herdr: true, working: 5, held: 0, at: '' } },
+      { id: 'm:vm', machine: 'vm', name: 'vm', status: down ? 'off' : 'idle', ...(down ? { unreachableSince: '14:02' } : {}), limits: noUsage, health: { meters: [{ name: 'CPU', pct: 12, detail: '', level: 'ok' }, { name: 'Memory', pct: 40, detail: '', level: 'ok' }, { name: 'Disk', pct: empty ? 40 : 91, detail: '', level: 'over' }], herdr: true, working: 2, held: 0, at: '' } },
       { id: 'm:studio', machine: 'studio', name: 'studio', status: 'idle' },
       { id: 'm:pi', machine: 'pi', name: 'pi', status: 'idle' },
     ],
