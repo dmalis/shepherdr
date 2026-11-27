@@ -56,6 +56,7 @@ import { Agents } from "./agents.ts";
 import { Updates } from "./agent-update.ts";
 import { Machines } from "./machines.ts";
 import { Push, alertsOf, agentAlerts, pushChanges, waitingTags } from "./push.ts";
+import { Inbox } from "./inbox.ts";
 import { waiting } from "../web/shared/alerts.ts";
 import { GlanceFeed, MAX_CHATS, glanceOf, openUrlOk, saidToPerson } from "./glance.ts";
 import { chatPage } from "./native-chat.ts";
@@ -157,7 +158,10 @@ const push = new Push(() => (me ? webOrigin(me.dns, hp) : "https://herdr.dev"));
 // only the machine that serves the web app sends push alerts (its pages subscribed there): never two of one alert
 const pushSend = push.send.bind(push);
 push.send = ((a: any) => (host.serving() ? pushSend(a) : Promise.resolve())) as typeof push.send;
-live.onVisible = (v) => { push.visible = v; };
+live.onVisible = (v) => { push.visible = v; push.saw(v); };
+// fork #37: every alert made, for the bell's list (service/inbox.ts); read on one device, read on all
+const inbox = new Inbox();
+inbox.onChange = () => model.rebuild();
 // the glance feed for the phone's and watch's own app (SHEP-246): while its native stream is open (and 2 minutes after),
 // that device gets no web push, never two notifications of one alert
 const glance = new GlanceFeed();
@@ -176,7 +180,7 @@ hub.on((e) => {
 let alerted: ReturnType<typeof alertsOf> | null = null;
 // the agents' own alerts ride on the snapshot (the web app's toasts: web/plugins/alerts/toasts.tsx), then push
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
-const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); alertNew(snap); } catch {} return snap; };
+const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
 // what waits on you now, as the last alerts said it: the app icon's count and the tags of the alerts that may stay (the
 // service worker asks after a notification's button did something: GET /api/waiting)
 let waitingNow = { count: 0, tags: [] as string[] };
@@ -228,6 +232,7 @@ function alertNew(snap: any) {
   try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
   waitingNow = { count: waiting(snap).count, tags: waitingTags(now) };
   if (alerted) for (const a of pushChanges(alerted, now, waitingNow.count, waitingNow.tags)) void push.send(a);
+  inbox.record(alerted, now);
   alerted = now;
 }
 compat.agents = new Agents(hub);
@@ -1124,6 +1129,13 @@ const server = Bun.serve<{ who: string }>({
         try { return json({ ok: true, ...push.choose(endpoint, { topics: body?.topics, muted: body?.muted }, !!body?.all) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
       }
       if (path === "/api/push/test") return json(await push.test(endpoint));
+      if (path === "/api/push/devices") return json({ devices: push.devices(endpoint) });
+    }
+    // fork #37: the bell's list, read on one device and so on all ({ ids } or { all: true })
+    if (path === "/api/inbox/read" && req.method === "POST") {
+      const body = await req.json().catch(() => null);
+      const ids = body?.all === true ? "all" as const : Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === "string").slice(0, 500) : [];
+      return json({ ok: true, changed: inbox.read(ids) });
     }
     if (path === "/api/worktree") {
       // a task's worktree, or a space's own folder (space=<id>: only what isn't committed there)

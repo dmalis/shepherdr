@@ -152,7 +152,10 @@ export const PROVIDER_BODY = "Write to it to carry on, or restart it.";
  *  nothing from */
 type Sub = { endpoint: string; keys: { p256dh: string; auth: string }; device?: string; at: number; topics?: PushTopic[]; muted?: string[];
   /** the tailnet device it is on (main.ts deviceFrom): a device whose phone app shows its own alerts gets none (SHEP-246) */
-  node?: string };
+  node?: string;
+  /** fork #37 (Settings › Notifications' device list): when its app was last on screen, and its last alert's answer
+   *  from its push service (0: not reached) */
+  seen?: number; last?: { at: number; status: number } };
 
 /** does a device want this alert: its topic chosen, its space not muted; an alert with no topic (a test) always */
 export function wants(s: Pick<Sub, "topics" | "muted">, a: { topic?: string; place?: string }) {
@@ -282,8 +285,34 @@ export class Push {
         authorization: `vapid t=${await this.jwt(new URL(s.endpoint).origin)}, k=${await this.key()}`,
       } });
       if (r.status === 404 || r.status === 410) this.unsubscribe(s.endpoint);
+      else this.delivered(s, r.status);
       return r.status;
-    } catch { return 0; }
+    } catch { this.delivered(s, 0); return 0; }
+  }
+
+  /** fork #37: how a device's last alert went, kept for its row in Settings › Notifications */
+  private delivered(s: Sub, status: number) {
+    s.last = { at: Date.now(), status };
+    this.save();
+  }
+
+  /** fork #37: the devices whose app is on screen now (their pages say so): last seen now, kept every 10 minutes */
+  saw(endpoints: Iterable<string>, now = Date.now()) {
+    let keep = false;
+    for (const e of endpoints) {
+      const s = this.subs.find((x) => x.endpoint === e);
+      if (!s) continue;
+      if (!s.seen || now - s.seen > 10 * 60_000) keep = true;
+      s.seen = now;
+    }
+    if (keep) this.save();
+  }
+
+  /** fork #37: every device that gets alerts, for Settings › Notifications: its browser, when it was turned on and last
+   *  seen, its last alert, and which is the asking one (mine). Never an endpoint: each is named by a short hash. */
+  devices(mine: string) {
+    return this.subs.map((s) => ({ id: new Bun.CryptoHasher("sha256").update(s.endpoint).digest("hex").slice(0, 12), device: s.device ?? "", at: s.at,
+      ...(s.seen ? { seen: s.seen } : {}), ...(s.last ? { last: s.last } : {}), topics: pushTopics(s.topics), ...(s.endpoint === mine ? { mine: true as const } : {}) }));
   }
 
   /** Sends an alert to every subscribed device whose app isn't on screen, whose phone app doesn't show it natively, and
