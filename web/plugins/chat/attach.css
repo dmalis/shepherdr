@@ -1,7 +1,7 @@
 /* + on an Android phone: three big tiles, each straight to its picker (attach.tsx). The sheet drags down to close, so a
    finger on it moves the sheet, not the page. */
 .att{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:4px 8px 0}
-.atile{display:grid;justify-items:center;align-content:center;gap:8px;min-height:88px;padding:12px 4px;border-radius:12px;background:var(--control);color:var(--fg);font-size:var(--ui);line-height:var(--uil);font-weight:500;-webkit-tap-highlight-color:transparent;transition:transform .12s cubic-bezier(.23,1,.32,1),background-color .12s ease}
+.atile{display:grid;width:100%;justify-items:center;align-content:center;gap:8px;min-height:88px;padding:12px 4px;border-radius:12px;background:var(--control);color:var(--fg);font-size:var(--ui);line-height:var(--uil);font-weight:500;-webkit-tap-highlight-color:transparent;transition:transform .12s cubic-bezier(.23,1,.32,1),background-color .12s ease}
 .atile .i{width:24px;height:24px}
 .atile>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .atile:active{background:var(--control2);transform:scale(.97)}
