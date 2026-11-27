@@ -96,6 +96,8 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
       still = calm()
       for (const a of sheet.getAnimations()) a.cancel()
       sheet.style.transition = 'none'
+      // its own layer while the finger has it: each move is composited, nothing painted again; dropped after
+      sheet.style.willChange = still ? 'opacity' : 'transform'
     }
     e.preventDefault()
     dy = t.clientY - y0
@@ -111,6 +113,7 @@ export function sheetDrag(sheet: HTMLElement, shade: HTMLElement | null, close: 
     const was = mode
     mode = 'off'
     if (was !== 'drag') return
+    sheet.style.willChange = ''
     const v = e.type === 'touchcancel' ? 0 : speed(samples, { t: e.timeStamp, y: t.clientY })
     if (e.type !== 'touchcancel' && closes(dy, v, h)) {
       const ms = still ? 120 : settleMs(h - dy, v, 300)

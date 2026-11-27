@@ -14,6 +14,8 @@
 /* the panel itself takes focus only to hold it (tabindex -1, layer-focus.ts): no ring on it; its rows and fields keep
    theirs (:focus-visible, ds.css) */
 [data-panel]:focus{outline:0}
+/* forced colours (Windows high contrast) drop every shadow: the panel keeps an edge */
+@media (forced-colors:active){[data-panel]:not(.lbox){border:1px solid CanvasText}}
 
 /* ---- a sheet: grabber, then an optional title, the content, the actions ---- */
 /* as tall as its content, up to the screen less the status bar; it scrolls inside itself */
