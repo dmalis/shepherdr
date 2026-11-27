@@ -114,8 +114,11 @@ A release whose patches don't fit yet waits until they do. After 24 hours waitin
 The upstream-issue skill.
 - **Fix it here first, then tell upstream:** an issue linking our merged pull request, on the person's yes. The
   person never waits on upstream.
-- **Follow the replies.** A decline or another approach from the maintainer is rethought with the person; it is
-  never ignored.
+- **When the maintainer closes one of the person's issues without a fix,** we always build our own solution.
+  Once it is merged, we post one comment on that closed issue linking our pull request, for the maintainer to decide
+  on. We never post a second issue for it.
+- **When the maintainer proposes another approach or asks something,** it is rethought with the person. It is never
+  ignored.
 - **When upstream ships one of ours,** the next sync drops our patch.
 - **Private context.** The planning notes are in `.private/` in this space's folder. It is git-ignored and never
   committed. Read `.private/CONTEXT.md` before your first piece of work.
