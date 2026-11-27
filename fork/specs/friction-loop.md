@@ -134,8 +134,8 @@ reopened upstream updates `outcome` and leaves the person's decision alone.
               │  └──Follow───► following ─────────────┐
               │                                       │
               └──Post it, on draft rev N──► approved ──► post: waiting → posting → posted
-                                                        │            ├→ refused (a clear no from GitHub: Post it again)
-                                                        │            └→ unsure (reconciled on GitHub, never posted again by itself)
+                                                        │            ├→ refused (a clear no before any write: Post it again)
+                                                        │            └→ unsure (reconciled on GitHub, never posted again)
                                                         v
                          outcome: open → closed (completed) ──► shipped (release has the fix, or an install says so)
                                                                       │
@@ -147,10 +147,11 @@ reopened upstream updates `outcome` and leaves the person's decision alone.
 Upstream's key (`key_of`) drops "not" with its stop words and keeps only ASCII words, so opposite reports, and any
 two reports in a script without Latin letters, collide. A new problem's id is a new key: Unicode word characters,
 lower-cased, upstream's stop words except the negations (no, not, never, nothing, and the `n't` words, which are kept
-as `not`), and, when no words are left, a hash of the whole line as written. A report is matched against both keys,
-so an old problem keeps getting its reports, and every old id still works in `--key`. Test: "Reply context is shown"
-and "Reply context is not shown" are two problems; two different Japanese lines are two problems; an old record's
-problem still takes a new report of its line.
+as `not`), and, when no words are left, a hash of the whole line as written. Every old id still works in `--key`.
+A new report joins an old problem (one keyed the old way) only when the new key of the report equals the new key of
+that problem's stored line: an old collision never absorbs a different problem, nor inherits its Never. Tests, each
+with a declined old row seeded: "Reply context is shown" declined, then "Reply context is not shown" reported, is a
+new, found problem; two different Japanese lines are two problems; an old row still takes a report of its own line.
 
 #### Spaces
 
@@ -160,6 +161,12 @@ stays: its setting is checked again right before every check, follow and post, a
 is kept, shown, and does nothing more (an approval waiting on it is refused by `--file`). File it and Write it up go to
 the origin's Assistant; with none running, to Everything's, which still checks the origin's setting. Tests: a problem
 reported from two spaces keeps the first as origin; the origin switched off after Post it refuses the post.
+
+The space always comes with the report, never from the caller's terminal alone: an agent's report gets its space as
+today (`caller_space()`); the web app's reports name it (`--person --space <id>`). The Feedback box's space is the
+space open when the person opened Feedback, shown in the box ("From Sticker shop"; from Everything: "From
+Everything"), and the failed action's is the space it acted in. A web report from a space with offers off isn't
+recorded, and the box says so. Test: a box report from a space with offers off is refused, even with Everywhere on.
 
 #### Kept and read
 
@@ -233,7 +240,9 @@ the person didn't see.
   “<line>”" with a hidden `<hc feedback id="…" rev="N"/>` line, the way a reply carries `<hc reply-to>`
   (`core/send.js`, hidden by `core/chat-log.js`). It is the person's own message, sent by their tap, as a
   suggested-reply bubble is.
-- **In chat:** the Assistant shows the draft (`--dry-run`) in its question card's words, with where it goes, and asks.
+- **In chat:** the Assistant shows the draft (`--dry-run`) in its question card's words, with where it goes and the
+  Settings line (`agents.feedback_note`) when one is set, and asks. The command's draft output always ends with that
+  line, so both paths say the same before the yes.
   Yes: `--approve <rev> --by chat`, then files. An agent records a chat approval only right after the person's yes to a
   card that showed that revision; its instructions say so. This is upstream's trust model today, with the draft now in
   the card.
@@ -250,12 +259,15 @@ the person didn't see.
   3. A clear refusal before anything was written (gh not signed in, no permission, a 4xx answer): `refused`, with its
      words; Post it again uses the same approval.
   4. Anything else (no answer, a timeout, a crash, a `posting` older than 10 minutes found by the next `--list` or
-     `--track`): `unsure`. It is never posted again by itself. Reconciling reads GitHub directly, not its search
-     index (which can lag or miss): the person's own recent issues in the target repo (`gh issue list --author @me
-     --state all --limit 100 --json url,body`), or the target issue's comments (`gh api
-     repos/<repo>/issues/<n>/comments`), looking for the marker. Found: `posted`. Not found: it stays `unsure`, and
-     the row says "Couldn't tell whether it was posted" with **Check on GitHub ›** and **Post it again**; Post it
-     again opens the confirmation sheet once more, so it is a new, explicit yes.
+     `--track`): `unsure`. An unsure post is never posted again, by anyone: another write is allowed only after a
+     failure known to have happened before anything was written (step 3). Reconciling reads GitHub directly, not its
+     search index (which can lag or miss), and reads everything since the attempt began, page by page: the
+     person's own issues in the target repo created since then (`gh api "repos/<repo>/issues?creator=<login>&state=all&since=<started>"
+     --paginate`), or the target issue's comments since then (`gh api "repos/<repo>/issues/<n>/comments?since=<started>"
+     --paginate`), looking for the marker. Found: `posted`. Not found: it stays `unsure`, and the row says
+     "Couldn't tell whether it was posted" with **Check on GitHub ›** and **Check again**, both read-only. If the
+     person sees it isn't there, they can only start over: Never on this row, and a new report. Posting twice in
+     public is worse than asking them to look once.
 - **Not now, Never** (the service: `--later <when>`, `--no`, refused in an agent's terminal; the Assistant's existing
   `--no` stays for a No said in chat) clear any approval. An approval whose message reaches the Assistant after Never is
   refused by `--file`, and the Assistant says so in one line.
@@ -350,8 +362,11 @@ and what they send is saved as a report `from: {action: "<label>"}` and goes thr
 - **The installed build.** Today's installer record (`installed.json`) holds a version, a source and file hashes,
   but no commit, and several fork builds can share one version. So the installer records its build too: the commit
   it installed from (`git rev-parse HEAD` of a source checkout with nothing changed in it, or the release tag's
-  commit for a release), and nothing when it can't know (a changed checkout, a copy without git). One small addition
-  at the installer's record (`bin/shepherdr`), pinned by a test. An install without a build is "unknown": no "On this
+  commit for a release), and nothing when it can't know (a changed checkout, a copy without git). An install sent to
+  another machine (`bin/shepherdr`'s `pack()` to `INSTALL_THERE`, what the web app's install-on does) carries no git
+  metadata, so the pack carries the build: `pack()` writes the source's commit and whether its checkout was clean
+  into the pack, and `INSTALL_THERE` records it as is. One small addition at the installer's record and the pack
+  (`bin/shepherdr`), pinned by tests. An install without a build is "unknown": no "On this
   machine" from evidence, only the person's Works.
 - **On this machine, only with evidence.** The installed build contains the fix commit (the same compare), or an
   install says so itself: `herdr-task feedback --installed <build> --issues <url>…` replaces the list of issues that
@@ -383,14 +398,18 @@ page or in chat, on the draft.
   also the yes to build it; the confirmation sheet says so before Post it. Built in our skills and one small fork
   script, `fork/bin/found`, not in Shepherdr. Its record (`~/.local/state/shepherdr-fork/found.json`, private) holds
   one handoff per issue, keyed by the issue's whole identity (`owner/name#n`):
-  1. `pending`: the filing Assistant runs `fork/bin/found claim <issue>` right after a new issue is posted to our
-     repo with the person's approval. A comment on an existing issue claims nothing.
+  1. `pending`: every `found` run first sweeps the feedback record (`herdr-task feedback --list --all --json`,
+     read-only) and makes a pending handoff for each approved new issue in our repo that is `posted` and has none
+     yet, however it got there: a post with an answer, or one found later by reconciling. The filing Assistant runs
+     `fork/bin/found` right after it files; our daily not-filed run runs it too, so a post found by reconciling is
+     handed off within a day. A comment on an existing issue makes no handoff.
   2. `sent`: `found` sends this repo's space's Assistant the issue's link with `herdr-task tell-assistant`. A send
-     that fails or times out stays `pending`; every `found` run (a new claim, and our daily not-filed run) sends each
-     pending one again.
-  3. `taken`: the receiving Assistant runs `fork/bin/found took <issue> --task <title>` once it has added the work. It
-     first looks for a task already carrying that issue (`herdr-task list --json`, the issue in its brief), so a
-     message that arrived twice makes one task. A handoff `sent` but not `taken` after a day is sent again.
+     that fails or times out stays `pending`; every `found` run sends each pending one again.
+  3. `taken`: the receiving Assistant runs `fork/bin/found took <issue> --task <task>` once the work is in a task, a
+     new one or a running one it replied to (`herdr-task reply` leaves the brief as it was, so the brief can't be
+     the record). `found.json` keeps that issue-to-task link, and the receiver asks `found` first (`fork/bin/found
+     task <issue>`): an issue already taken is not added again, so a message that arrived twice makes one piece of
+     work. A handoff `sent` but not `taken` after a day is sent again.
 
   That Assistant shapes it (check upstream first, #83) and adds it to a running task when it fits (FORK.md), else adds
   a task.
@@ -450,7 +469,7 @@ page or in chat, on the draft.
 | `gh` not signed in, or offline | Check and follow say "GitHub isn't reachable here" on the row. Filing ends `refused` with gh's words when nothing went out, else `unsure`. |
 | The post went through but its answer was lost | `unsure`; reconciling finds the marker in the repo's issues: `posted`. Never posted twice by itself. |
 | The process died while posting | A `posting` older than 10 minutes is `unsure`, reconciled the same way. |
-| The marker can't be found after an unsure post | It stays `unsure`; only the person's Post it again, through the sheet, posts again. |
+| The marker can't be found after an unsure post | It stays `unsure`, read-only: Check on GitHub and Check again. It is never posted again; if it truly isn't there, the person says Never and reports it anew. |
 | The space has no Assistant running | The report is saved and shown. Post it and Write it up go to Everything's Assistant; the row says so. |
 | Two devices tap at once | The record's lock; the second action finds the state changed and says so ("Already approved"). |
 | Post it, then Never before the Assistant filed | The approval is cleared; the late `--file` is refused; the Assistant says it in one line. |
@@ -485,8 +504,9 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   nothing undecided expires), `cli.py` (flags), `launch.py` (the brief's feedback line mentions `--fix`),
   `fork/patches.json`.
 - **Tests:** a new `test/test_feedback_found.py`: a report with no Assistant is kept; a repeat adds a report and sends
-  news once; "is shown" and "is not shown" are two problems; two Japanese lines are two problems; an old problem
-  still takes its line's report; a report from a space with offers off isn't recorded; a second space's report keeps
+  news once; with an old declined row seeded for each, "is not shown" after a declined "is shown" is a new found
+  problem, and a second Japanese line after a declined first is too; an old row still takes a report of its own
+  line; a report from the web app with `--space` of a space with offers off isn't recorded; a report from a space with offers off isn't recorded; a second space's report keeps
   the first as origin; `--list --all` changes nothing on disk; a corrupt record is kept aside, not overwritten; an
   undecided problem older than 90 days is still listed; an upstream-shaped record reads unchanged. Pins: `key_of`,
   the record's lock, `redact`, `--list`, `--file` and `--no` keep their names and arguments.
@@ -499,8 +519,8 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **What the person gets:** the Feedback row's count; the page with Found, Filed (upstream's filed ones, with their
   links), Not now, Said no; Not now, Never, Undo; Write it up. No File it yet: filing stays upstream's chat flow until
   slice 4.
-- **Files:** `feedback.py` (`--later`, the person's `--no`, `--undo`, and `--person` for what they write in the box,
-  each refused in an agent's terminal), `web/plugins/feedback/`
+- **Files:** `feedback.py` (`--later`, the person's `--no`, `--undo`, and `--person --space <id>` for what they
+  write in the box, each refused in an agent's terminal), `web/plugins/feedback/`
   (`client.tsx`, `rows.tsx`, `words.ts`, `feedback.css`), `web/plugins.json`, `service/next.ts` (its switch),
   `service/feedback.ts` (reads the list on the service's tick; the actions), one case in `service/actions.ts`,
   `web/shared/types.ts`, `web/src/list.tsx` (the row's count and opening the page; upstream's box when the plugin
@@ -540,10 +560,12 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **Tests:** `--file` without a matching approval is refused; `--file` with no revision writes a draft and posts
   nothing; a changed draft needs a new approval; a changed target is refused; a comment's target names its repo
   (an upstream issue and a fork issue with one number are told apart); a successful post whose answer is lost, with
-  the marker missing from search but present in the repo's issues, ends `posted` with one post; a restart from
-  `posting` ends `unsure` and posts nothing; a 4xx ends `refused`; Never after Post it makes the late `--file`
-  refuse; the posted body is byte for byte the approved draft; the hidden line never shows in the chat; the old
-  Feedback box's message reaches a draft, not a post.
+  the marker missing from search but present in the repo's issues, ends `posted` with one post; a successful post
+  whose marker is absent from every reconciling read stays `unsure`, and no command or button posts it again; a
+  restart from `posting` ends `unsure` and posts nothing; a 4xx before any write ends `refused`; Never after Post it
+  makes the late `--file` refuse; the posted body is byte for byte the approved draft; the hidden line never shows in
+  the chat; the old Feedback box's message and upstream's chat `--file` reach a draft, not a post, and the draft's
+  output ends with the `agents.feedback_note` line when one is set.
 - **Demo:** a fake gh that posts and then drops its answer: one issue, the row says Filed.
 
 ### Slice 5: follow the issue
@@ -562,10 +584,12 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **After:** slice 5.
 - **What the person gets:** "Fixed in 3.2.23 · update to get it", "On this machine", Try it, Works and Still broken;
   "came back".
-- **Files:** `bin/shepherdr` (the installed build in its record), `feedback.py` (the closing commit, the compare
+- **Files:** `bin/shepherdr` (the installed build in its record, and carried in `pack()`), `feedback.py` (the closing commit, the compare
   against release tags and the installed build; `--installed`; `--works`, `--broken`; came back),
   `web/plugins/feedback/rows.tsx`, `test/test_install.py` (the record's build).
-- **Tests:** the installer records the build of a clean checkout and none for a changed one (throwaway root); a
+- **Tests:** the installer records the build of a clean checkout and none for a changed one (throwaway root); an
+  install through `pack()` and `INSTALL_THERE` records the source's build, and a same-version update sent that way
+  from another build records the new one; a
   closed issue with no closing commit stays "Closed as fixed"; a release whose tag contains the commit gives "Fixed
   in"; the installed build containing it gives "On this machine"; an older one says update; an install with no build
   shows no "On this machine"; `--installed` for a build that isn't the recorded one is ignored; a same-version update
@@ -582,20 +606,24 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   `web/plugins/feedback/report.ts` (the action's label from the app's fixed list, the prefilled box).
 - **Tests:** an error toast has Report with the plugin on and none with it off; the prefill holds the label and no
   error text; nothing is sent without Send; a sent one is a report `from: action`.
-- **Demo:** the demo's `?case=down`, tap Mark as done, Report, see the box.
+- **Demo:** a new demo case, `?case=fail`, whose actions answer with an error (`web/demo/serve.ts`; today's demo
+  answers every Mark as done with success): tap Mark as done, Report, see the box with "Mark as done didn't work".
 
 ### Slice 8: every machine's problems
 
 - **After:** slice 2 (its actions grow with slices 3 and 4).
 - **What the person gets:** problems recorded on every linked machine, each with its machine named, decided from one
   page.
-- **Files:** `service/feedback.ts` (each linked machine's list through `hc exec --on <machine> -- herdr-task
-  feedback --list --all --json`, read-only, installing nothing; rows keyed by machine and id; actions routed the same
-  way; a machine whose herdr-task lacks the command shown read-only), `web/plugins/feedback/rows.tsx` (the machine
-  line, stale rows).
-- **Tests:** two machines' lists merge, one id on both stays two rows; an unreachable machine's rows are stale and
-  their actions off; an older machine's rows are read-only; an action goes to its row's machine; no call uses
-  `herdr-task --on`.
+- **Files:** `service/feedback.ts` (each linked machine's list through `hc exec --on <machine> -- sh -c 'exec
+  "$HOME/.local/bin/herdr-task" "$@"' herdr-task feedback --list --all --json`: the explicit path herdr-task's own
+  remote calls use (`cli.py`), because a core started by launchd or systemd hands remote commands a bare PATH; without
+  their install fallback: a machine with no herdr-task there shows "Shepherdr isn't set up on <machine>" and
+  nothing is installed. Read-only; rows keyed by machine and id; actions routed the same way; a machine whose
+  herdr-task lacks the command shown read-only), `web/plugins/feedback/rows.tsx` (the machine line, stale rows).
+- **Tests:** two machines' lists merge, one id on both stays two rows; listing and an action work with the remote
+  command's PATH set to `/usr/bin:/bin`; a machine without herdr-task installs nothing and says so; an unreachable
+  machine's rows are stale and their actions off; an older machine's rows are read-only; an action goes to its row's
+  machine; no call uses `herdr-task --on`.
 - **Demo:** two throwaway cores (AGENTS.md: "Two throwaway cores on one VM"), a report on each, both on the page.
 
 ### Slice 9 (fork): file it and fix it
@@ -603,14 +631,15 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **After:** slice 4; its `--installed` part after slice 6.
 - **What the person gets:** in this fork, every yes to file becomes work in this repo's space, once, and each install
   tells the page what it carries.
-- **Files:** `fork/bin/found` (`claim`, `took`, resending pending ones), `fork/tests/test_found.py`, FORK.md ("Every
+- **Files:** `fork/bin/found` (the sweep, `took`, `task`, resending pending ones), `fork/tests/test_found.py`, FORK.md ("Every
   friction is a candidate fix" in line with the page), the shaping-a-request and upstream-sync skills (step 7 runs
   `--installed`), and `agents.feedback_note` (a new Everywhere text setting, empty by default: one line the
   confirmation sheet shows above Post it; ours, in the person's settings file: "Posting also starts a fix in this
   repo's space"), in `feedback.py`'s settings and the sheet.
-- **Tests:** a claim is made once per issue identity; a comment claims nothing; a failed send stays pending and is
-  sent again; a delivered message whose answer was lost, sent again, makes one task (the receiver finds it first);
-  `took` closes it; the message holds the issue's link and no private words; `--installed` gets the installed
+- **Tests:** a handoff is made once per issue identity; a comment makes none; a post found `posted` only by
+  reconciling gets a handoff on the next run; a failed send stays pending and is sent again; a delivered message
+  whose answer was lost, sent again, makes one piece of work (`found task` answers with the first one), for a new
+  task and for a reply to a running one; `took` closes it; the message holds the issue's link and no private words; `--installed` gets the installed
   `fork/patches.json` issues with the installed build.
 - **Demo:** a scratch store: approve and file a problem to a fake repo, claim it, fail the first send, run again:
   one message, one task.
@@ -656,6 +685,15 @@ every check, follow and post; the installer records the build it installed; shap
 check's slice; the fork's handoff is pending until taken, sent again, and made one task at the receiver; and failed
 actions and linked machines have their own slices. Its two minor points (the canonical duplicate's API, the 12-hour
 offer quiet time) are fixed too.
+
+The second and last round found four of those fixed and seven not fully, each now in the spec, not reviewed again: an
+unsure post is never posted again by anyone, and reconciling reads every issue or comment since the attempt began;
+the chat path shows the same Settings line as the sheet; an old row takes a new report only when the new keys match,
+so an old collision never inherits a Never; the web app's reports carry their space; an install sent to another
+machine carries its build in the pack; the fork's handoff is seeded from the record, so a post found by reconciling
+is handed off too, and the issue-to-task link is kept in the fork's record, not read from briefs; and linked machines
+are read through herdr-task's explicit remote path, with no install. Its minor point: the failed-action demo gets a
+case whose actions fail.
 
 ## Not in this spec
 
