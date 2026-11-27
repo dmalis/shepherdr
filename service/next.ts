@@ -401,6 +401,8 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
       // dmalis/shepherdr#48: what came after its merge, offered as a follow-up; Working with its agent idle
       ...((am) => (am && t.status === "done" ? { afterMerge: am } : {}))(afterMergeOf(x.after_merge, t.id)),
       ...(x.idle && t.status === "work" ? { agentIdle: true, ...(x.idle === "none" ? { agentGone: true } : {}) } : {}),
+      // a Ready task waiting on its pull request's checks: their state, for its row, header and checks card (dmalis/shepherdr#42)
+      ...(x.checks_wait && t.status === "work" ? { checksWait: x.checks_wait } : {}),
       ...(after ? { afterTitle: after, ...(waits.length > 1 ? { afterMore: waits.length - 1 } : {}) } : {}),
       ...(f.waiting?.includes(`task:${t.id}`) ? { waitsDesktop: true } : {}),
     };

@@ -647,6 +647,9 @@ def closing_line(s, task, parent=None, argv=None):
                  "`hc get`/`hc kill` (its prompt in single quotes), `git fetch`/`git rebase` "
                  "sandbox_permissions \"require_escalated\" from the first try, each as one plain command (no && chains, no $(…), "
                  "no git options before the verb): then they run without asking.")
+    # dmalis/shepherdr#42: a hand-in asks nothing, or the task really waits on the person (reply_note.py)
+    from .reply_note import HANDIN
+    text += " " + HANDIN
     # No "report to your coordinator": Herdr tells the Assistant itself (news_pass).
     return text
 

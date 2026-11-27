@@ -13,6 +13,7 @@
 // from one read of /proc, else one ps (macOS) (GitHub #1013: a pgrep per process read every process each
 // time).
 import { codexQuestions } from "./asks.js";
+import { plainSuggests } from "./plain-suggests.js";
 
 export const FIND = `
 kind="$1"; pid="$2"
@@ -1079,7 +1080,13 @@ export class Conversation {
       if (!(a && "no-reply" in a) && !/^<hc\s+no-reply\s*\/>/.test(line.trim()) && !/^<\/?no-reply\b/.test(line.trim())) out.push(line);
       else if (this.pilot) { this.pilot.quiet = true; if (a?.why) this.pilot.why = unattr(a.why); }
     }
-    const said = out.join("\n").trim();
+    let said = out.join("\n").trim();
+    // dmalis/shepherdr#42: a plain "Suggested replies:" list last is never words: its items are the suggestions
+    const plain = plainSuggests(said);
+    if (plain) {
+      said = plain.text;
+      if (!this.suggestion?.length) this.suggestion = plain.suggests;
+    }
     if (said && this.pilot) this.pilot.said = true;
     return said;
   }

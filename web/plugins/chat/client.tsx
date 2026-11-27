@@ -37,6 +37,7 @@ import { landLaunchShare, putAway, useLanded, watchLastChat } from './share.ts'
 import { openSendTo } from './sendto.tsx'
 import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './suggest.ts'
 import { bubbleQuote, ReplyingTo } from './reply-bubbles.tsx'
+import { taskReplies } from './task-replies.ts'
 import { UpdateHint, updateRows } from './update.tsx'
 import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
@@ -1112,7 +1113,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   }, [key])
   const ment = useMentions(key, thread.task?.place ?? thread.place, text, setText, ref)
   const slash = useSlash(key, text, setText, ref)
-  const sg = suggestionOf(chat, suggestionsOn(snap.settings))
+  // a task's chat: only while the task waits on the person (dmalis/shepherdr#42)
+  const sg = taskReplies(suggestionOf(chat, suggestionsOn(snap.settings)), thread.task && (snap.tasks.find((x) => x.id === thread.task!.id) ?? thread.task))
   const busy = !!chat?.working && !chat.finished
   const call = useUI((u) => u.call)
   const dictating = useDictating()

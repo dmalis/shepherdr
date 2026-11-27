@@ -299,6 +299,10 @@ def ready_wait(task, live):
         return MERGING
     if task.get("merge_queued") and task.get("pr"):
         return IN_QUEUE_LINE
+    from .checkwait import line  # dmalis/shepherdr#42: its checks still run: never "Merging" yet
+    checks = line(task)
+    if checks:
+        return checks
     if task.get("auto_merge") and task.get("pr") and not task.get("merged"):
         # #743: waits calmly for a review GitHub requires
         # merge "on its own": it waits on no check its base doesn't require: Merging

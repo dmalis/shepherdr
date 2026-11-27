@@ -348,6 +348,8 @@ export interface Task {
   agentIdle?: boolean
   /** with agentIdle: no agent of its own runs at all (it ended; waiting on checks, say) */
   agentGone?: boolean
+  /** said ready, and its merge waits on its pull request's checks: their state (core/checks-wait.js, dmalis/shepherdr#42) */
+  checksWait?: ChecksWait
   /** done: a schedule's run that had nothing to do, or that only had something to say (posted in its space's chat) */
   quiet?: 'nothing' | 'told'
   /** done: a few words after "Done and merged" ("1 link fixed") */
@@ -874,6 +876,33 @@ export interface TurnActivity {
 }
 
 /** Work an agent started in the background that still runs */
+/** one of a pull request's checks while a Ready task waits on them (core/checks-wait.js) */
+export interface CheckRun {
+  name: string
+  state: 'passed' | 'failed' | 'running' | 'queued' | 'skipped'
+  /** started and ended (ms; 0 when not yet) */
+  at: number
+  end: number
+  /** how long the same check took on this repo's earlier pull requests (ms; 0 when not known) */
+  typical: number
+  url?: string
+}
+
+/** what a Ready task waits on while its pull request's checks run: running (the time left where known), failed (one
+ *  went back to its agent) or slow (one runs far past its usual time); its line, and what happens once they're done */
+export interface ChecksWait {
+  state: 'running' | 'failed' | 'slow'
+  line: string
+  next: string
+  passed: number
+  total: number
+  /** more checks will come (a workflow not started yet) */
+  more: boolean
+  /** it merges by itself once they pass */
+  auto: boolean
+  runs: CheckRun[]
+}
+
 export interface Job {
   id: string
   /** child: its own helper agent in herdr (SHEP-54: a reviewer it started), a chat of its own */

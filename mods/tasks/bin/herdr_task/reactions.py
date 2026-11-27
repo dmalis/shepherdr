@@ -66,7 +66,9 @@ def agent_note(terminal, k):
     on = reactions_on(space)
     run(["hc", "label", terminal, f"{LABEL}={'on' if on else 'off'}"])
     from .feedback import AGENT_NOTE, feedback_on
-    return (GUIDE if on else OFF) + (f"\n{AGENT_NOTE}" if feedback_on(space) else "")
+    from .reply_note import session_words, suggestions_on  # dmalis/shepherdr#42: a task agent's hand-in and replies
+    own = session_words(k, suggestions_on(space))
+    return (GUIDE if on else OFF) + (f"\n{AGENT_NOTE}" if feedback_on(space) else "") + (f"\n{own}" if own else "")
 
 
 def told(on, scope="everywhere"):

@@ -17,10 +17,26 @@ export function ago(at: number, now: number, until?: number): string {
 /** a helper's state in words */
 const STATE = { working: 'working', needs: 'needs you', done: 'done' } as const
 
-/** the line that heads two or more: "3 running in the background" */
+/** the line that heads two or more: "3 running in the background"; once all ended, what finished by name ("2 finished:
+ *  Reviewer, tests", dmalis/shepherdr#42) */
 export function jobsWords(jobs: Job[]): string {
   const on = jobs.filter((j) => !j.ended).length
-  return on ? `${on} running in the background` : `${jobs.length} finished in the background`
+  if (on) return `${on} running in the background`
+  const names = new Map<string, number>()
+  for (const j of jobs) {
+    const n = (j.title.split(' · ')[0] ?? '').trim() || 'a job'
+    names.set(n, (names.get(n) ?? 0) + 1)
+  }
+  return `${jobs.length} finished: ${[...names].map(([n, k]) => (k > 1 ? `${n} (${k})` : n)).join(', ')}`
+}
+
+/** a row that opens to something: a shell's command and output, a helper's own chat (an ended helper's is gone) */
+const opens = (j: Job) => j.kind === 'shell' || j.kind === 'monitor' || (j.kind === 'child' && !!j.chat)
+
+/** what shows above the box: everything while one still runs; once all ended, only when one of them opens to
+ *  something, else nothing (dmalis/shepherdr#42: "2 finished in the background" that opened to nothing) */
+export function jobsShown(jobs: Job[]): Job[] {
+  return jobs.some((j) => !j.ended) || jobs.some(opens) ? jobs : []
 }
 
 const iconOf = (j: Job): IconName => (j.kind === 'shell' ? 'term' : j.kind === 'monitor' ? 'pulse' : 'agent')
@@ -37,7 +53,7 @@ function useNow(on: boolean) {
 }
 
 export function Jobs({ chat }: { chat: Chat | undefined }) {
-  const jobs = chat?.jobs ?? []
+  const jobs = jobsShown(chat?.jobs ?? [])
   const [all, setAll] = useState(false)
   const [opened, setOpened] = useState<string | null>(null)
   const now = useNow(jobs.length > 0)
@@ -59,7 +75,7 @@ export function Jobs({ chat }: { chat: Chat | undefined }) {
 
 function JobRow({ j, chat, now, open, toggle }: { j: Job; chat: string; now: number; open: boolean; toggle: () => void }) {
   // a CLI's own subagent has nothing more to show and can't be stopped from here; an ended helper no longer opens
-  const opens = j.kind === 'shell' || j.kind === 'monitor' || (j.kind === 'child' && !!j.chat)
+  const open_ = opens(j)
   const words = (
     <>
       <I n={iconOf(j)} c="s16" />
@@ -70,7 +86,7 @@ function JobRow({ j, chat, now, open, toggle }: { j: Job; chat: string; now: num
       </span>
     </>
   )
-  if (!opens) return <div className="fold quiet" data-job={j.id}>{words}</div>
+  if (!open_) return <div className="fold quiet" data-job={j.id}>{words}</div>
   return (
     <>
       <button type="button" className="fold quiet" data-job={j.id} aria-expanded={open} onClick={toggle}>
