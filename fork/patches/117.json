@@ -1,0 +1,13 @@
+{
+  "issue": 117,
+  "name": "Phone and tablet: swipe from the left opens the sidebar",
+  "files": [
+    "web/src/edge-swipe.tsx",
+    "web/src/App.tsx",
+    "web/plugins/chat/press.ts"
+  ],
+  "tests": [
+    "web/src/edge-swipe.test.ts",
+    "web/plugins/chat/press.test.ts"
+  ]
+}

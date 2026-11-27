@@ -18,6 +18,8 @@ export const EDGE = 32
 const SLOP = 8
 /** a finger held this long before it moves is someone else's (a row's drag in the list): not a swipe */
 const LATE_MS = 350
+/** a touch at the edge let go within this is a tap (a message's hold menu opens at 450 ms, chat/press.ts HOLD_MS) */
+const TAP_MS = 400
 /** the list sliding in by its button, and back out after a tap on the shade */
 const OPEN_MS = 320
 const SHUT_MS = 260
@@ -33,8 +35,11 @@ export function edgeOpens(ui: UI, bar: readonly string[] = registry.bar.map((b) 
   return sideHidden(ui)
 }
 
-/** what keeps a touch at the edge its own: a control, a field, a terminal, anything marked data-nodrag, an overlay */
-const OWN = 'button, a[href], input, textarea, select, label, summary, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="slider"], [data-nodrag], .xterm, .layer, .toasts, [data-ghost]'
+/** what keeps a touch at the edge its own: a field, a slider, a terminal, anything marked data-nodrag, an overlay */
+const OWN = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [data-nodrag], .xterm, .layer, .toasts, [data-ghost]'
+/** a control at the edge (a button, a link, a row of the Tasks list): a swipe from it still opens the list, but the
+ *  touch is not held back, so a tap on it is its own */
+const CONTROL = 'button, a[href], label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"]'
 
 /** something under the finger scrolls sideways (a code block, a table, a terminal): its swipe, not the list's */
 function sideways(t: Element | null): boolean {
@@ -43,9 +48,11 @@ function sideways(t: Element | null): boolean {
   return false
 }
 
-/** Does a touch starting at `x` on `target` belong to the edge swipe? */
-export function claims(x: number, target: Element | null, ui: UI = getState().ui): boolean {
-  return x < EDGE && edgeOpens(ui) && !hasLayer() && !target?.closest(OWN) && !sideways(target)
+/** Does a touch starting at `x` on `target` belong to the edge swipe? `hold`: held back from the page at once (the
+ *  system's Back and the page's scroll don't get it); `swipe`: on a control, only once it goes sideways; or no. */
+export function claims(x: number, target: Element | null, ui: UI = getState().ui): 'hold' | 'swipe' | null {
+  if (x >= EDGE || !edgeOpens(ui) || hasLayer() || target?.closest(OWN) || sideways(target)) return null
+  return target?.closest(CONTROL) ? 'swipe' : 'hold'
 }
 
 /** Which way a finger went, once past the slop: `open` (right, more than up or down), `shut` (left), or `off` */
@@ -113,6 +120,12 @@ export function SideDrawer({ children }: { children: ReactNode }) {
     return () => {
       off()
       if (parts === p) parts = null
+      // gone while still open: a tablet's list showing beside the chat again (its pane closed), so it isn't left
+      // open unseen, to come back over the screen when the list is hidden next
+      queueMicrotask(() => {
+        const ui = getState().ui
+        if (ui.drawer && !sideHidden(ui)) setUI({ drawer: false })
+      })
     }
   }, [])
   // a tap on the shade: the list slides back out, then closes
@@ -160,11 +173,13 @@ export function edgeSwipe(doc: Document = document): () => void {
   const down = (e: TouchEvent) => {
     if (k || e.touches.length > 1) return
     const t = e.changedTouches[0]
-    if (!t || !claims(t.clientX, e.target as Element)) return
+    const how = t && claims(t.clientX, e.target as Element)
+    if (!t || !how) return
+    k = start(t)
+    if (how === 'swipe') return
     // The edge is the list's here: the system's Back and the page's scroll don't take this touch (iOS starts its
     // Back from a touch that goes on; best effort, it can't be turned off for sure). A tap still reaches what it was on.
     e.preventDefault()
-    k = start(t)
     tapOn = { el: e.target as Element, x: t.clientX, y: t.clientY }
   }
 
@@ -173,6 +188,8 @@ export function edgeSwipe(doc: Document = document): () => void {
     if (!t || !k || k.mode === 'off') return
     if (k.mode === 'wait') {
       if (decide(k, t, 1) !== 'go') return
+      // on a control the page may have taken the touch already (its scroll): then it stays the page's
+      if (!e.cancelable) return void (k.mode = 'off')
       tapOn = null
       // the keyboard goes down, as it does for the menu button's tap
       const f = doc.activeElement as HTMLElement | null
@@ -183,7 +200,10 @@ export function edgeSwipe(doc: Document = document): () => void {
       } finally {
         swiping = false
       }
-      if (!parts) return void (k.mode = 'off')
+      if (!parts) {
+        k.mode = 'off'
+        return setUI({ drawer: false })
+      }
       k.w = parts.nav.offsetWidth
       k.quiet = calm()
     }
@@ -207,7 +227,8 @@ export function edgeSwipe(doc: Document = document): () => void {
     // a tap at the edge: the touch was held back from the page, so its click is sent here
     const on = tapOn
     tapOn = null
-    if (on && was.mode === 'wait' && e.type === 'touchend') {
+    // (a press held long is no tap: it opened its own menu)
+    if (on && was.mode === 'wait' && e.type === 'touchend' && performance.now() - was.t0 < TAP_MS) {
       e.preventDefault()
       on.el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: doc.defaultView, clientX: on.x, clientY: on.y }))
     }
