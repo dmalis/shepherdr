@@ -21,8 +21,9 @@ so the cost of a patch is how often a release breaks it. Build for that.
    - `git log upstream/main --oneline -i --grep <words>`;
    - the upstream issue's state.
 
-   If upstream fixed it on main but hasn't released yet, the issue says so, and we wait for the release instead of
-   building it.
+   If an upstream release already fixes it, there is nothing to build. If upstream fixed it on main but hasn't
+   released yet, the issue says so and we carry upstream's own commit until the release (upstream-issue skill: "A fix
+   upstream already has"). Either way we write no fix of our own.
 
 ## 2. Spec, for anything bigger than a small fix
 
@@ -33,6 +34,9 @@ so the cost of a patch is how often a release breaks it. Build for that.
 
 ## 3. Build it to survive
 
+- **For every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What only suits
+  them is a setting (below). A patch that can't fit everyone is fork-only, and its issue says so (upstream-issue
+  skill: "Built for everyone").
 - **New files over edits.** Put our code in our own modules: a new Python module beside upstream's, a plugin under
   `web/plugins/<name>/` (docs/plugins.md), our scripts in `fork/`. Edit upstream's files only at one call site or one
   hook point.
@@ -63,4 +67,5 @@ so the cost of a patch is how often a release breaks it. Build for that.
 - The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
   `check` passed, and the reviewer had no must-fix finding left.
 - The issue's status says "carried since `ours-…`" once it is installed.
-- Offer it upstream when the upstream-issue skill says to.
+- Once it is merged, offer it upstream with no further yes, unless it is fork-only (upstream-issue skill: "Offering a
+  fix").
