@@ -1,25 +1,18 @@
 // The Feedback page (friction loop, slice 2, #94): its sections and counts, Not now's menu, Undo, the empty page and
 // the plugin switched off, the box keeping its text when saving fails, and words that never say "Assistant", "worker"
 // or a key. The demo's fictional day is the snapshot; the service is a stubbed fetch.
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { FeedbackList, Snapshot } from '@shared/types.ts'
 import { feedback as demoList, snapshot } from '../../demo/data.ts'
 
-let snap: Snapshot = snapshot()
-const kernel = await import('@client/kernel.ts')
-const overlay = await import('@client/overlay.tsx')
-const menus: { label: string; run: () => void }[][] = []
-const toasts: { text: string; o: { tone?: string; act?: { label: string; run: () => void } } }[] = []
-mock.module('@client/kernel.ts', () => ({
-  ...kernel,
-  useSnap: () => snap,
-  useUI: (pick?: (u: unknown) => unknown) => (pick ? pick({ ...kernel.getState().ui, at: snap.everything }) : { ...kernel.getState().ui, at: snap.everything }),
-  notice: (text: string, o = {}) => (toasts.push({ text, o: o as never }), 1),
-}))
-mock.module('@client/overlay.tsx', () => ({ ...overlay, openMenu: (_el: unknown, rows: never) => void menus.push(rows) }))
+// the real toasts and no mock.module: Bun keeps a module mock for every later test file (a mocked menu broke the
+// chat's Reply in chat test). The page gets its day as a prop, so another file's kernel mock can't change it.
+const T = await import('@client/toasts.ts')
+const toasts = () => T.toasts().map((t) => ({ text: t.text, o: { tone: t.tone, act: t.act } }))
+const clearToasts = () => T.toasts().forEach((t) => T.dismiss(t.id))
 const { FeedbackPage, decide, saveBox, writeUpTo, originOf } = await import('./rows.tsx')
 const W = await import('./words.ts')
 
@@ -34,16 +27,12 @@ const answer = (body: unknown, status = 200) => {
 afterEach(() => {
   globalThis.fetch = real
   sent.length = 0
-  toasts.length = 0
-  menus.length = 0
-  snap = snapshot()
+  clearToasts()
 })
+afterAll(clearToasts)
 
 const NOW = Date.now()
-const page = (s: Snapshot) => {
-  snap = s
-  return renderToStaticMarkup(<FeedbackPage now={NOW} />)
-}
+const page = (s: Snapshot) => renderToStaticMarkup(<FeedbackPage now={NOW} snap={s} at={s.everything} />)
 
 test('sections: Found and Filed open with their counts, Not now and Said no folded with theirs', () => {
   const html = page(snapshot())
@@ -92,23 +81,23 @@ test("Not now's menu: Tomorrow, Next week, When it happens again; each is the pe
   answer({ ok: true, key: r.id, changed: true })
   expect(await decide(r, 'later', 'week')).toBe(true)
   expect(sent).toEqual([{ type: 'feedback', do: 'later', key: r.id, when: 'week' }])
-  expect(toasts[0].text).toBe('Not now: back next week')
-  expect(toasts[0].o.act?.label).toBe('Undo')
+  expect(toasts()[0].text).toBe('Not now: back next week')
+  expect(toasts()[0].o.act?.label).toBe('Undo')
 })
 
 test('Undo in the toast puts it back; a no from the service is said, not swallowed', async () => {
   const r = demoList.rows[0]
   answer({ ok: true })
   await decide(r, 'no')
-  expect(toasts[0].text).toBe('Said no: it stays out of the way')
-  toasts[0].o.act!.run()
+  expect(toasts()[0].text).toBe('Said no: it stays out of the way')
+  toasts()[0].o.act!.run()
   await Bun.sleep(0)
   // the Undo names the decision it is for: one made since on another device is left alone
   expect(sent.at(-1)).toEqual({ type: 'feedback', do: 'undo', key: r.id, expect: 'declined' })
   answer({ ok: false, error: 'Nothing to undo.' })
-  toasts.length = 0
+  clearToasts()
   expect(await decide(r, 'undo')).toBe(false)
-  expect(toasts[0]).toEqual({ text: 'Nothing to undo.', o: { tone: 'error' } })
+  expect(toasts()[0]).toEqual({ text: 'Nothing to undo.', o: { tone: 'error', act: undefined } })
 })
 
 test('the box keeps its text when saving fails, and clears it only once kept', async () => {

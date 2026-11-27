@@ -194,14 +194,16 @@ function Box({ snap, place }: { snap: Snapshot; place: string }) {
   )
 }
 
-export function FeedbackPage({ now = Date.now() }: { now?: number }) {
-  const snap = useSnap()
+/** `given`/`at`: a test's own day, drawn without the live state */
+export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: number; snap?: Snapshot; at?: string }) {
+  const live = useSnap()
   const ui = useUI()
+  const snap = given ?? live
   if (!snap) return null
   const list: FeedbackList | undefined = snap.feedback
   const s = sectionsOf(list)
   const any = (list?.rows.length ?? 0) > 0
-  const place = ui.at || everything(snap)?.id || ''
+  const place = at ?? (ui.at || everything(snap)?.id || '')
   return (
     <PaneFrame
       scrollKey="feedback"
