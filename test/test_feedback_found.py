@@ -373,6 +373,18 @@ class KeptToo(World):
         self.caller = TASK
         self.assertIn("said no", self.say("The page does not load")[1])
 
+    def test_a_filing_or_no_wins_over_an_undecided_equivalent_row(self):
+        """Two old rows say the same in other words: the filed one, or the declined one, is the problem."""
+        for decided in ("filed", "declined"):
+            a, b = fb.key_of("Can't send reply"), fb.key_of("Can not send reply")
+            self.seed({a: {"line": "Can't send reply", "state": decided, "at": fb.now(), "url": "https://github.com/acme/shep/issues/9"},
+                       b: {"line": "Can not send reply", "state": "told", "at": fb.now() - 13 * 3600000}})
+            for caller in (TASK, {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}, "name": "assistant"}):
+                self.caller = caller
+                out = self.say("Can not send reply")[1]
+                self.assertIn("Already filed" if decided == "filed" else "said no", out)
+            self.assertEqual(self.held, [])
+
     def test_words_keep_their_marks(self):
         """Devanagari vowel signs are marks: "wrong data" and "wrong date" stay two problems, and composed and
         decomposed accents are one."""

@@ -147,14 +147,14 @@ def find(ps, line):
     whose own line has the same id, whatever its old key (an old collision never absorbs a different problem, nor its
     No), else a new id."""
     new = id_of(line)
-    if new in ps:
+    same = [k for k, p in ps.items() if k == new or isinstance(p, dict) and p.get("line") and id_of(p["line"]) == new]
+    if not same:
         return new
-    mine = key_of(line)  # the row upstream's key would have picked first, then any other
-    for key in sorted(ps, key=lambda k: k != mine):
-        p = ps[key]
-        if isinstance(p, dict) and p.get("line") and id_of(p["line"]) == new:
-            return key
-    return new
+    # Several old rows can say the same: a filing or a No first, so it's never offered again; then its own id, then
+    # the row upstream's key picks.
+    rank = {"filed": 0, "filing": 0, "declined": 1}
+    return min(same, key=lambda k: (rank.get((ps[k] or {}).get("state") if isinstance(ps[k], dict) else None, 2),
+                                    k != new, k != key_of(line)))
 
 
 class Unreadable(Exception):
