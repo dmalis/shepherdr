@@ -17,6 +17,7 @@ import { Choice as Seg } from './choice.tsx'
 import { setChatSide, type Layout, type Side } from './sides.ts'
 import { ReviewRows } from './review-rows.tsx'
 import { About } from './about.tsx'
+import { SecretList } from './secrets-list.tsx'
 import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
 import { READS } from '@core/machines.js'
 import { IconButton } from './space-icon.tsx'
@@ -310,14 +311,8 @@ export function Secrets({ snap, place }: { snap: Snapshot; place: string }) {
   return (
     <>
       <p className="hint">Agents use these by name and never see them.</p>
-      {list.map((s) => (
-        <SRow key={`${s.level}:${s.name}`} label={<>{s.name}<small>{s.level === 'all' ? 'Every space' : `Only ${secretWhere(snap, s.level)}`}</small></>}>
-          <span className="acts">
-            <Btn small onClick={() => secretDialog(snap, place, s.name, s.level)}>Replace</Btn>
-            <Btn small onClick={() => remove(s)}>Remove</Btn>
-          </span>
-        </SRow>
-      ))}
+      <SecretList list={list} scope={(s) => (s.level === 'all' ? 'Every space' : `Only ${secretWhere(snap, s.level)}`)} replace={(s) => secretDialog(snap, place, s.name, s.level)} remove={remove} />
+
       <div className="acts" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
         <Btn small onClick={() => secretDialog(snap, place)}>Add a secret</Btn>
       </div>
