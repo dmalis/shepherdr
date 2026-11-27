@@ -23,6 +23,7 @@ import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
+import { showsAgent, TaskWhere } from './where.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
@@ -86,6 +87,8 @@ export function openAtStrip(t: Task) {
 export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
   const words = workWords(snap, t)
   if (!words) return null
+  // its name stands out on a row, its machine stays quiet (dmalis/shepherdr#100)
+  const name = workName(t)
   const branch = onBranch(t)
   const st = prState(t)
   const n = t.pr?.number
@@ -97,7 +100,8 @@ export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
   return (
     <span className="l2 rline" role="link" aria-label={`${spoken}: show its branch`} onClick={go}>
       <I n={branch ? 'branch' : 'folder'} />
-      <span className="rn">{words}</span>
+      <span className="rn">{name}</span>
+      {words !== name && <span className="rm">{words.slice(name.length)}</span>}
       {t.pr && <span aria-hidden="true">·</span>}
       {st === 'merged' && <><I n="merged" /><span className="pn">Merged #{n}</span></>}
       {t.pr && st !== 'merged' && <><span className="pn">PR #{n}</span><ChecksMark st={st} /></>}
@@ -219,11 +223,14 @@ export function taskRows(t: Task, where: 'row' | 'thread'): MenuRow[] | null {
 
 /* ---------- a task not started yet ---------- */
 
-function TaskAgentSummary({ t, className }: { t: Task; className?: string }) {
+/** its agent, model, effort and speed; quiet (a row, dmalis/shepherdr#100): only when they aren't its setting's */
+function TaskAgentSummary({ t, className, quiet }: { t: Task; className?: string; quiet?: boolean }) {
   const agent = useStore((s) => s.chats[taskChat(t)]?.agent)
   const cat = useCatalog(t.on)
+  const snap = useSnap()
   const pick = reportedPick(agent ?? t.agent?.settings) ?? t.plannedAgent
   if (!pick) return null
+  if (quiet && snap && !showsAgent(snap, t, pick, cat)) return null
   return <span className={className}><PickSummary pick={pick} cat={cat} /></span>
 }
 
@@ -475,6 +482,7 @@ function TaskHead({ task: t, where, scrolled }: { task: Task; where: 'chat' | 'p
       back={big ? undefined : { label: 'Back to tasks', run: () => setUI({ task: null }) }}
       lead={big ? <>{hidden && !ph && <IB icon="panel" label="Show the list" onClick={showList} />}<IB icon="shrink" label="Minimize" onClick={minimize} /></> : undefined}
       title={t.name}
+      kicker={snap ? <TaskWhere snap={snap} t={live} onShow={() => showRepo(workKey(t))} /> : undefined}
       sub={
         <span className="hline">
           <StatusIcon t={live} time="none" />
@@ -494,8 +502,8 @@ function TaskHead({ task: t, where, scrolled }: { task: Task; where: 'chat' | 'p
   )
 }
 
-/** the status line: its status, time left, its machine (SHEP-322: never its key; its pull request is in the strip under
- *  it, SHEP-348) */
+/** the status line: its status, time left (SHEP-322: never its key; its pull request is in the strip under it, SHEP-348;
+ *  where it works is over its title in the header, dmalis/shepherdr#100) */
 function TaskTop({ task: t }: { task: Task }) {
   const snap = useSnap()
   if (!snap) return null
@@ -506,7 +514,6 @@ function TaskTop({ task: t }: { task: Task }) {
     <div className="status">
       {strong ? <b className={w.tone === 'ask' ? 'c-red' : `c-${w.tone}`}>{w.word}</b> : w.word}
       {left && <span>· {left}</span>}
-      {t.work ? <span>· <WorkTag snap={snap} t={t} /></span> : <span>· {machineLabel(snap, t.on)}</span>}
     </div>
   )
 }
@@ -586,7 +593,7 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
               {alert.body && <span className="l2">{alert.body}</span>}
             </>
           ) : sub && <span className="l2">{sub}</span>}
-          <TaskAgentSummary t={t} className="l2" />
+          <TaskAgentSummary t={t} className="l2" quiet />
           {tag && t.work && <RepoLine snap={snap} t={t} />}
         </span>
         {when && <span className="v">{when}</span>}

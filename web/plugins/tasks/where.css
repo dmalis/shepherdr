@@ -1,0 +1,33 @@
+/* Where a task works, in sight (where.tsx, dmalis/shepherdr#100). Nothing here moves: no transition, so the Motion
+   setting and prefers-reduced-motion have nothing to turn off. */
+
+/* an open task's header: a small project line over its title (read after it), the title still the main line; the
+   header grows by that line, never cuts it */
+.hd.hd3{height:auto;min-height:var(--hd);padding-block:4px}
+.hd3 .ttl{display:flex;flex-direction:column;align-items:flex-start}
+.hd3 .ttl>.t1,.hd3 .ttl>.t2{align-self:stretch}
+.t0{order:-1;position:relative;display:inline-flex;align-items:center;gap:4px;max-width:100%;min-width:0;color:var(--muted);font-size:12px;line-height:16px;font-weight:400}
+.app.tap .t0{font-size:13px}
+.t0 .i{flex:none;width:14px;height:14px}
+.t0n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub);font-weight:500}
+/* a long machine name gives way first, with its own … (the line is as wide as its words, so no share of it is fixed) */
+.t0n{flex:0 1 auto}.t0m{flex:0 3 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.t0{cursor:pointer;border-radius:4px}
+button.t0:hover .t0n,button.t0:hover{color:var(--fg)}
+button.t0:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
+/* a finger gets a taller hit area above it, none over the title */
+@media (pointer:coarse){button.t0::after{content:"";position:absolute;inset:-8px -6px 0}}
+
+/* a row in the list: its repo line first, over the title, its project's name darker and a little bolder than the quiet
+   lines under the title; the ring, the time and the menu stay beside the title */
+.row.tk>.n:has(>.rline){display:flex;flex-direction:column}
+.row.tk>.n>.rline{order:-1;margin-bottom:1px}
+.row.tk .rline .rn{color:var(--sub);font-weight:500}
+.row.tk .rline:hover .rn{color:var(--fg)}
+.rowx:has(>.row.tk>.n>.rline){--over:calc(var(--secl) + 1px)}
+.rowx:has(>.row.tk>.n>.rline)>.row.tk>.tring{margin-top:calc(var(--over) + (var(--uil) - var(--ic))/2)}
+.rowx:has(>.row.tk>.n>.rline)>.row.tk>.v{margin-top:var(--over)}
+.rowx:has(>.row.tk>.n>.rline)>.ib{margin-top:calc(8px + var(--over) + (var(--uil) - var(--ib))/2)}
+.rline .rm{flex:0 3 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* on top, its taller hit area for a finger goes up into the row's padding, never down over the title */
+@media (pointer:coarse){.row.tk>.n>.rline::after{inset:-8px -4px 0}}

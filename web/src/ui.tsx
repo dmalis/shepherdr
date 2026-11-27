@@ -221,14 +221,16 @@ export function useScrolled(ref: RefObject<HTMLElement | null>): boolean {
 }
 
 /** the one header build: optional back, title (one line, cut with …) with an optional second line, actions right */
-export function Hd({ back, title, sub, pad, scrolled, children, lead }: { back?: { label: string; run: () => void }; title?: ReactNode; sub?: ReactNode; pad?: number; scrolled?: boolean; children?: ReactNode; lead?: ReactNode }) {
+export function Hd({ back, title, sub, pad, scrolled, children, lead, kicker }: { back?: { label: string; run: () => void }; title?: ReactNode; sub?: ReactNode; pad?: number; scrolled?: boolean; children?: ReactNode; lead?: ReactNode; kicker?: ReactNode }) {
   return (
-    <header className={cx('hd', scrolled && 'sc')}>
+    <header className={cx('hd', scrolled && 'sc', kicker != null && 'hd3')}>
       {back && <IB icon="back" label={back.label} onClick={back.run} />}
       {lead}
       {title != null && (
         <div className="ttl" style={pad != null ? { paddingLeft: pad } : undefined}>
           <span className="t1">{title}</span>
+          {/* a small line over the title (dmalis/shepherdr: where a task works), read after it */}
+          {kicker}
           {sub != null && sub !== '' && <span className="t2">{sub}</span>}
         </div>
       )}
