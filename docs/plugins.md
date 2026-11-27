@@ -12,7 +12,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | shortcuts | always on | The shortcuts sheet (?), Settings › Shortcuts and the app's own commands ([shortcuts.md](shortcuts.md)) | |
 | zoom | always on | Zoom in, out and reset on ⌘= ⌘− ⌘0, and the palette row for Settings › General's Zoom and Chat text size | |
 | alerts | always on | Push alerts, one choice per device | |
-| inbox | always on | The bell in the list's top row: every alert of the last 7 days, read on one device and so on all; and Settings › General › Notifications' check of this device and the list of the others | |
+| inbox | always on | The bell in the list's top row: every alert of the last 7 days, read on one device and so on all; and Settings › Notifications' check of this device and the list of the others | |
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
 | installed | always on | The installed app: the icon's shortcuts (Everything, Needs you, New task) and links opened in it reach the open window, the headers in a desktop window's title bar, a phone's safe areas on every screen (fork #34) | |
 | whatsnew | always on | What's new under Settings › About: what changed in each version, read at build time, and the toast after an update saying what it brought (fork #70) | |

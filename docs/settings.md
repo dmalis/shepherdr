@@ -6,7 +6,8 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 
 | Section | What is in it |
 |---|---|
-| General | Theme, Zoom (the whole app, 67%–200%; ⌘= ⌘− ⌘0), Chat text size (Small, Default, Large, Larger: the messages only), Chat width, Motion, and "Alerts on this device": Needs me, Everything or Off. Kept in that browser |
+| General | Theme (a picture of each), Text and zoom (a sample of the chat; Zoom, the whole app, 67%–200%, ⌘= ⌘− ⌘0; Chat text size: Small, Default, Large, Larger, the messages only), Layout (Chat width, Sides), Behaviour (Motion, Keep the screen on). Kept in that browser. Then the Everything space's icon |
+| Notifications | "Alerts on this device": Needs me, Everything or Off. This device's check (permission, subscription, a test alert) and the devices that get alerts |
 | Agents | What Chats, Tasks and Reviews run on. Each row opens the picker with Agent, Model, Effort, Speed and Permissions |
 | Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |

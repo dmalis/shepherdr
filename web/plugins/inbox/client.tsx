@@ -140,7 +140,7 @@ function Panel({ close }: { close: () => void }) {
           label="Notification settings"
           onClick={() => {
             close()
-            openSettings('all', 'General')
+            openSettings('all', 'Notifications')
           }}
         />
       </div>

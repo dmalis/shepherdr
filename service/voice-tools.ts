@@ -711,11 +711,12 @@ function settingsPage(id: string): string | null {
   if (!w) return "";
   const hit = SETTINGS.find((n: string) => w.includes(n.toLowerCase()) || (w.length > 2 && n.toLowerCase().startsWith(w)));
   if (hit) return hit;
+  if (/notification|alert/.test(w)) return "Notifications";
   if (/model|claude|codex|agent/.test(w)) return "Agents";
   if (/review|merge|proof/.test(w)) return "Tasks";
   if (/voice|screens|schedule|reaction|terminal|plugin/.test(w)) return "Plugins";
   if (/plan|limit|usage/.test(w)) return "Usage";
-  if (/theme|appearance|notification|alert|motion|width/.test(w)) return "General";
+  if (/theme|appearance|motion|width/.test(w)) return "General";
   if (/key|token|secret/.test(w)) return "Secrets";
   return null;
 }

@@ -101,7 +101,8 @@ test('pinned: the build runs the zoom pass, the layout follows it, Settings show
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
   expect(read('../../vite.config.ts')).toContain('css: { postcss: { plugins: [zoomCss()] } }')
   expect(read('../../src/kernel.ts')).toMatch(/const MQ = widthUpTo\(767\)\nconst MQ2 = widthUpTo\(1023\)/)
-  expect(read('../../src/settings.tsx')).toMatch(/<SRow label="Theme">.*\n\s*<SizeRows \/>\n\s*<SRow label="Chat width"/)
+  expect(read('../../src/settings.tsx')).toContain("if (sec === 'General') return <><Appearance />")
+  expect(read('../../src/appearance.tsx')).toContain(`<SRow label="Chat text size"><Choice label="Chat text size" values={TEXTS} value={p.text} onChange={(v) => setPref('text', v)} /></SRow>`)
   // the rules size.css takes over are still upstream's, under the same selectors
   const ds = read('../../src/ds.css'), styles = read('../../src/styles.css')
   for (const sel of ['.msgs{', '.b{', '.rpl{', '.wsign .wbub{', '.wdots{', '.wstep{', '.wrow>.wstop{', '.ref{', '.quote.qtask{', '.chip{', '.card{', '.files{', '.code{', '.donerow{', '.cin{']) expect(ds).toContain(sel)

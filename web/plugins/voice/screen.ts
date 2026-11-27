@@ -107,7 +107,8 @@ function onScreen(el: Element) {
 
 /** the topmost open modal dialog: only it is listed (the rest can't be reached until it closes) */
 function topDialog(): HTMLElement | null {
-  const all = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open], [role="alertdialog"]')].filter(shown)
+  // an open menu too (a Settings choice's, dmalis/shepherdr#68): it sits over the page, as a dialog does
+  const all = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open], [role="alertdialog"], .layer [role="menu"]')].filter(shown)
   return all.at(-1) ?? null
 }
 
@@ -283,7 +284,7 @@ export function pressKey(k: string): string {
   }
   if ((k === 'Enter' || k === 'Space') && at && at !== document.body) {
     const r = roleOf(at)
-    if (['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'treeitem'].includes(r) && !(at instanceof HTMLInputElement && at.type === 'text')) {
+    if (['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'treeitem'].includes(r) && !(at instanceof HTMLInputElement && at.type === 'text')) {
       press(at)
       return `Pressed ${k} on the ${r}${nameOf(at) ? ` "${nameOf(at).slice(0, 60)}"` : ''}`
     }
