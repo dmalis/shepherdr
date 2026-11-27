@@ -15,7 +15,7 @@ import { EV, snapshot } from '../demo/data.ts'
 
 const { getState, setUI } = await import('./kernel.ts')
 const { List } = await import('./list.tsx')
-const { listNeeds, NeedsCount, openNeeds } = await import('./needs-count.tsx')
+const { AskRow, listNeeds, needsAsks, NeedsCount, openNeeds } = await import('./needs-count.tsx')
 
 const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8')
 const demo = (mode: Parameters<typeof snapshot>[0] = 'normal') => snapshot(mode) as Snapshot
@@ -111,6 +111,30 @@ test('a red Tasks button lists Needs you from any state; once it shows, a tap do
   expect(listNeeds(['p:mac-mini:shop'])).toBe(false)
   setUI({ task: 'SHOP-12' })
   expect(listNeeds(['p:mac-mini:shop'])).toBe(true)
+})
+
+test("round 2: a chat's queued questions a row each, the rest of the filter applies to chat rows, a changed filter or a drawer", () => {
+  const s = demo()
+  const ask = (id: string) => ({ id, chat: 'vm:root', place: 'p:vm:root', at: 0, question: { id, title: `Pick ${id}`, kind: 'Question', queued: true, choices: [], to: '' } })
+  const two = { ...s, needs: [...s.needs, ask('c1'), ask('c2')] } as Snapshot
+  expect(needsChats(two, ['p:vm:root']).map((i) => [i.card, i.title])).toEqual([['c1', 'Pick c1'], ['c2', 'Pick c2']])
+  expect(needsChats(two, ['p:vm:root']).length).toBe(needsCount(two, 'p:vm:root') - needsItems(two, 'p:vm:root').filter((i) => i.task).length)
+  expect(renderToStaticMarkup(<AskRow snap={two} i={needsChats(two, ['p:vm:root'])[0]!} />)).toContain('Pick c1')
+  // Everything's list, Site picked in the Space filter: root's chat row goes, as its tasks do
+  const f = { ...needsFilter([EV]), space: ['p:studio:site'] }
+  expect(needsAsks(two, f, EV)).toEqual([])
+  expect(needsAsks(two, { ...needsFilter([EV]), space: ['p:vm:root'] }, EV).length).toBe(2)
+  expect(needsAsks(two, { ...needsFilter([EV]), machine: ['studio'] }, EV)).toEqual([])
+  expect(needsAsks(two, { ...needsFilter([EV]), state: ['done'] }, EV)).toEqual([])
+  // the list on screen with State › Done picked: a tap puts Needs you back, not the button's other job
+  setUI({ at: 'p:studio:site', pane: 'tasks', task: null, tab: 'Now', drawer: false, tf: { ...needsFilter(['p:studio:site']), state: ['done'] } })
+  expect(listNeeds(['p:studio:site'], 'p:studio:site')).toBe(true)
+  expect(getState().ui.tf).toEqual(needsFilter(['p:studio:site']))
+  // the phone's Spaces drawer open over that list: the tap closes it
+  setUI({ drawer: true })
+  expect(listNeeds(['p:studio:site'], 'p:studio:site')).toBe(true)
+  expect(getState().ui.drawer).toBe(false)
+  expect(listNeeds(['p:studio:site'], 'p:studio:site')).toBe(false)
 })
 
 test('the red count: a button of its own, with words for a screen reader; nothing at 0', () => {

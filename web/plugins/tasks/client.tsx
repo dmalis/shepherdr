@@ -631,7 +631,7 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
     const task = n.task ? byId.get(n.task) : undefined
     return n.question?.queued && task ? [{ task, question: n.question }] : []
   })
-  const asks = needsAsks(snap, f)
+  const asks = needsAsks(snap, f, place)
   const groups = nowGroups(filtered, alerts).filter((g) => g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length))
   if (!groups.length)
     return snap.tasks.length ? (
@@ -662,7 +662,7 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
             {o && shown.map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
             {o && questions.map(({ task, question }) => <Row key={question.id} icon="chat"
               label={question.title} sub={task.name} onClick={() => { openTask(task.id); setUI({ jump: question.id }) }} />)}
-            {o && chats.map((i) => <AskRow key={`ask:${i.place}`} snap={snap} i={i} />)}
+            {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
             {o && shown.length < g.tasks.length && (
               <button type="button" className="grp" onClick={() => setUI({ doneShown: ui.doneShown + 20 })}>Show more</button>
             )}

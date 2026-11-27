@@ -3,7 +3,7 @@
 // Tasks, filtered to that scope's Needs you. The count is its own button beside the row (44px on a phone), never a
 // button inside the row's button, so the row's name still opens the chat (Slack, Linear).
 import type { Snapshot } from '@shared/types.ts'
-import type { TaskFilter } from '@shared/task-filter.ts'
+import { clean, type TaskFilter } from '@shared/task-filter.ts'
 import { itemLink, needsChats, needsFilter, needsWords, oneTarget, type NeedItem } from '@shared/needs-open.ts'
 import { spaceLabel } from '@shared/view.ts'
 import { getState, go, openLink, setUI } from './kernel.ts'
@@ -19,24 +19,30 @@ export function openNeeds(items: NeedItem[], scopes: string[], goTo?: string) {
 /** the one thing, at its card: the app's own link to it, so a maximized task or a chat shown as a terminal gives way */
 export const openItem = (i: NeedItem) => openLink(itemLink(i), true)
 
-/** the Needs you list of these spaces is what Tasks shows now */
-const shown = (scopes: string[]) => {
+/** the Needs you list of these spaces, and only it, is what Tasks shows now */
+const shown = (scopes: string[], goTo?: string) => {
   const ui = getState().ui
-  return ui.pane === 'tasks' && !ui.task && ui.tab === 'Now' && String(ui.tf.needs) === String(scopes)
+  return ui.pane === 'tasks' && !ui.task && ui.tab === 'Now' && (!goTo || ui.at === goTo) && JSON.stringify(clean(ui.tf)) === JSON.stringify(needsFilter(scopes))
 }
 
 /** Tasks, filtered to these spaces' Needs you (a chip, one tap to take off). False when it is already on screen, so a
- *  second tap does what the button always did. */
+ *  second tap does what the button always did; a drawer over it (the phone's Spaces) closes. */
 export function listNeeds(scopes: string[], goTo?: string): boolean {
-  if (shown(scopes) && (!goTo || getState().ui.at === goTo)) return false
+  if (shown(scopes, goTo)) {
+    if (!getState().ui.drawer) return false
+    setUI({ drawer: false })
+    return true
+  }
   if (goTo && getState().ui.at !== goTo) go(goTo)
   setUI({ tf: needsFilter(scopes), pane: 'tasks', task: null, art: null, artWide: false, tab: 'Now', drawer: false })
   return true
 }
 
 /** the chats among the filter's spaces that ask you themselves: they have no task row, so the Needs you group adds one */
-export const needsAsks = (snap: Snapshot, f: TaskFilter) => (f.needs?.length ? needsChats(snap, f.needs) : [])
-export const AskRow = ({ snap, i }: { snap: Snapshot; i: NeedItem }) => <Row icon="chat" label={`${spaceLabel(snap, i.place)} asks you`} sub="In its chat" onClick={() => openItem(i)} />
+export const needsAsks = (snap: Snapshot, f: TaskFilter, at: string) => (f.needs?.length ? needsChats(snap, f.needs, f, at) : [])
+export const AskRow = ({ snap, i }: { snap: Snapshot; i: NeedItem }) => (
+  <Row icon="chat" label={i.title || `${spaceLabel(snap, i.place)} asks you`} sub={i.title ? `${spaceLabel(snap, i.place)}, in its chat` : 'In its chat'} onClick={() => openItem(i)} />
+)
 
 /** the red count: its own button, beside the row it counts for. Nothing when nothing needs you. */
 export function NeedsCount({ n, onOpen, of }: { n: number; onOpen: () => void; of?: string }) {

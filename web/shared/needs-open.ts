@@ -12,6 +12,8 @@ export interface NeedItem {
   place: string
   /** the card to scroll to: its data-card as the app draws it */
   card: string | null
+  /** a queued question's title, for its row */
+  title?: string
 }
 
 type Alerting = Map<string, Alert>
@@ -56,7 +58,7 @@ export function needsItems(snap: Snapshot, placeId?: string): NeedItem[] {
     .filter((n) => n.question?.queued && (all || (n.task ? !!snap.tasks.find((t) => t.id === n.task && taskInSpace(t, placeId!)) : n.place === placeId)))
     .map((n): NeedItem => {
       const t = n.task ? snap.tasks.find((x) => x.id === n.task) : undefined
-      return { ...(n.task ? { task: n.task } : {}), place: t?.place ?? n.place, card: needCard(n) }
+      return { ...(n.task ? { task: n.task } : {}), place: t?.place ?? n.place, card: needCard(n), ...(n.task ? {} : { title: n.question!.title }) }
     })
   return [...tasks, ...chats, ...queued]
 }
@@ -75,10 +77,22 @@ export function needsTask(snap: Snapshot, t: Task, scopes: string[], alerting: A
   return (counted(t, alerting) || queuedFor(snap, t)) && scopes.some((p) => inScope(snap, t, p))
 }
 
-/** the chats among these spaces that ask you themselves (no task): they have no row in Tasks, so the list adds them */
-export function needsChats(snap: Snapshot, scopes: string[]): NeedItem[] {
-  const seen = new Set<string>()
-  return scopes.flatMap((p) => needsItems(snap, p)).filter((i) => !i.task && !seen.has(i.place) && !!seen.add(i.place))
+/** what the chats among these spaces ask themselves (no task), each once: they have no row in Tasks, so the list adds
+ *  one each. The rest of the filter applies to them as to a task: a space, machine or "only here" picked, a state
+ *  other than Needs you, or a repo (a chat has none) leaves them out. */
+export function needsChats(snap: Snapshot, scopes: string[], f?: TaskFilter, at = ''): NeedItem[] {
+  const machine = (id: string) => snap.places.find((p) => p.id === id)?.machine ?? ''
+  const fits = (i: NeedItem) =>
+    !f ||
+    ((!f.space.length || f.space.includes(i.place)) &&
+      (!f.machine.length || f.machine.includes(machine(i.place))) &&
+      (!f.here || !at || isEverything(snap, at) || i.place === at) &&
+      (!f.state.length || f.state.includes('needs')) &&
+      !f.repo.length)
+  // one row a card; the queued question itself, with its title, over the chat's own ask of the same card
+  const rows = new Map<string, NeedItem>()
+  for (const i of scopes.flatMap((p) => needsItems(snap, p))) if (!i.task && fits(i) && (!rows.has(`${i.place} ${i.card}`) || i.title)) rows.set(`${i.place} ${i.card}`, i)
+  return [...rows.values()]
 }
 
 /** the filter a red count's tap puts on: only the Needs you of these spaces, nothing else picked */
