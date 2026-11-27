@@ -42,7 +42,9 @@ test("alerts say what the window's toasts say", () => {
   const far = { ...snap(), machines: [{ machine: "m3", name: "MacBook" }], needs: [{ id: "q3", chat: "m3:HERD-6/worker", place: "sp1", task: "m3:HERD-6" }], tasks: [], alerts: [] };
   expect([...alertsOf(far).values()].map((x) => x.title)).toEqual(["HERD-6 on MacBook · Needs you"]);
   // Notify Off: nothing from its Assistant; tasks as always
-  expect([...alertsOf(snap("Off")).values()].map((x) => x.title)).toEqual(["HERD-5 · Needs you", "Fix login · Ready for review", "HERD-4 · Stuck"]);
+  expect([...alertsOf(snap("Off")).values()].filter((x) => !x.muted).map((x) => x.title)).toEqual(["HERD-5 · Needs you", "Fix login · Ready for review", "HERD-4 · Stuck"]);
+  // fork Needs you 3/6: its Assistant's question stays for the bell, sent to no device
+  expect([...alertsOf(snap("Off")).values()].filter((x) => x.muted).map((x) => x.title)).toEqual(["#tt-repo · Needs you"]);
 });
 
 test("an agent's own alert, from its label", () => {

@@ -281,7 +281,7 @@ export const PUSH_TOPICS = [
   { id: 'ready', label: 'Ready for review', about: 'A task finished and waits for you to look at it' },
   { id: 'done', label: 'Done', about: 'A task merged or closed' },
   { id: 'assistant', label: 'Messages in a chat', about: 'Shepherdr wrote in a chat' },
-  // fork Needs you 3/6 (web/shared/reach.ts): machine and schedule warnings, opt-in
+  // fork Needs you 3/6 (web/shared/reach.ts): machine and schedule warnings, the bell only (as messages in a chat)
   { id: 'ops', label: 'Machine and schedule warnings', about: 'Memory, a restart, a provider cutting off, a schedule that failed' },
 ] as const
 export type PushTopic = (typeof PUSH_TOPICS)[number]['id']

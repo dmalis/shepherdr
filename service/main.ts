@@ -168,8 +168,9 @@ inbox.onChange = () => model.rebuild();
 // that device gets no web push, never two notifications of one alert
 const glance = new GlanceFeed();
 push.quiet = (node) => glance.quiet(node);
-// fork Needs you 3/6: a phone app hears nothing from a space its device muted
+// fork Needs you 3/6: a phone app hears nothing from a space its device muted, nor anything once its device chose Off
 glance.muted = (device) => push.mutedOn(device);
+glance.off = (device) => push.offOn(device);
 // the app on screen on a device (SHEP-338): no system notification there, web push nor its phone app's own
 push.looking = (node) => live.looking(node);
 glance.looking = (device) => live.looking(device);
@@ -1148,7 +1149,7 @@ const server = Bun.serve<{ who: string }>({
       const body = await req.json().catch(() => null);
       const endpoint = typeof body?.endpoint === "string" ? body.endpoint : "";
       if (path === "/api/push/state") return json(push.state(endpoint));
-      if (path === "/api/push/unsubscribe") { push.unsubscribe(endpoint); return json({ ok: true, ...push.state(endpoint) }); }
+      if (path === "/api/push/unsubscribe") { push.turnOff(endpoint); return json({ ok: true, ...push.state(endpoint) }); }
       if (path === "/api/push/choose") {
         try { return json({ ok: true, ...push.choose(endpoint, { topics: body?.topics, muted: body?.muted }, !!body?.all) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
       }

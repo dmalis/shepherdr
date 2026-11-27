@@ -58,7 +58,8 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
     post('devices', { endpoint })
       .then((j: { devices?: Device[] }) => setDevices(j.devices ?? []))
       .catch(() => setDevices(null))
-  }, [endpoint, state])
+    // fork Needs you 3/6: and when this device's level changes, so its row says the new one
+  }, [endpoint, state, now?.tell])
   if (!now) return null
   const permission = 'Notification' in window ? Notification.permission : 'unknown'
   const app = standalone()

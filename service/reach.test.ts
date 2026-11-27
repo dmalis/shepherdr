@@ -102,9 +102,9 @@ test("machine and schedule warnings are the ops topic: in the alerts made (the b
   p.choose(a.endpoint, { topics: topicsOf("Needs you and done") });
   for (const x of made.values()) await p.send(x);
   expect(got.dev1.map((x) => x.title)).toEqual(["Agent · Stuck"]);
-  // a muted space (the old Notify Off): no schedule warning from it
+  // a muted space (the old Notify Off): its schedule warning stays in the bell, marked muted
   const off = { ...snap, settings: [{ level: "sp1", rows: [{ key: "notify", value: "Off" }] }] };
-  expect(schedulesFailed(off)).toEqual([]);
+  expect(schedulesFailed(off).map((x) => x.muted)).toEqual([true]);
 });
 
 test("a push lives an hour at the push service, not a day", async () => {
@@ -161,10 +161,44 @@ test("Space alerts: On by default, Muted kept as the space's own \"alerts\", and
   expect([notifyOf(snap, "sp1"), notifyOf(snap, "sp2")]).toEqual(["Off", "Needs me"]);
   // a muted space's chat isn't unread in the list, as with Notify Off
   expect(unreadChats(snap).map((x) => x.place)).toEqual(["sp2"]);
-  // its schedule's warning isn't made either
-  expect(schedulesFailed({ ...snap, automations: { sp1: [{ id: "n", name: "Nightly", failed: 3 }] } })).toEqual([]);
+  // its schedule's warning is made quiet
+  expect(schedulesFailed({ ...snap, automations: { sp1: [{ id: "n", name: "Nightly", failed: 3, error: "x" }] } }).map((x) => x.muted)).toEqual([true]);
   // Reset: back to Everything's (On); only its two choices
   setConfig("sp1", "alerts", null, { id: "sp1", name: "shop", machine: null });
   expect(config().spaces.sp1).toBeUndefined();
   expect(() => setConfig("sp1", "alerts", "Off", { id: "sp1", name: "shop", machine: null })).toThrow("Not one of its choices.");
+});
+
+test("Off on a device reaches its phone app: nothing notifies there until alerts are on again", async () => {
+  const f = file();
+  const p = new Push(() => "https://example.test", f);
+  const [a, b] = [await fakeSub(1), await fakeSub(2)];
+  p.subscribe(a, "pwa", undefined, "node1"); p.subscribe(b, "mac", undefined, "node2");
+  // a subscription lost for another reason (gone at the push service) isn't Off
+  p.unsubscribe(b.endpoint);
+  expect(p.offOn("node2")).toBe(false);
+  p.turnOff(a.endpoint);
+  expect(p.offOn("node1")).toBe(true);
+  // kept across a restart
+  expect(new Push(() => "https://example.test", f).offOn("node1")).toBe(true);
+  const g = new GlanceFeed(() => 1, 0);
+  g.set({ format: 1, v: "1", urgent: "u", at: 1, counts: { needs: 1, working: 0, ready: 0, done: 0 }, order: [], groups: [], unread: 0, spaces: [], chats: [], usage: null, events: [],
+    items: [{ key: "need:A", kind: "needs", type: "need", tag: "A", title: "A · Needs you", body: "", alert: true, url: "./?place=sp1&task=A" }] });
+  g.off = (d) => p.offOn(d);
+  expect(g.docFor("node1").items[0].alert).toBe(false);
+  expect(g.docFor("node2").items[0].alert).toBe(true);
+  // on again there
+  p.subscribe(a, "pwa", undefined, "node1", true);
+  expect(p.offOn("node1")).toBe(false);
+  expect(g.docFor("node1").items[0].alert).toBe(true);
+});
+
+test("a phone app's stream with no known device still never buzzes for a warning", async () => {
+  const g = new GlanceFeed(() => 1, 0);
+  g.set({ format: 1, v: "1", urgent: "u", at: 1, counts: { needs: 0, working: 0, ready: 0, done: 0 }, order: [], groups: [], unread: 0, spaces: [], chats: [], usage: null, items: [],
+    events: [{ key: "machine:vm:down", kind: "machine", title: "Can't reach vm", body: "", alert: true }] });
+  const first = async (r) => { const rd = r.body.getReader(); const { value } = await rd.read(); await rd.cancel(); return new TextDecoder().decode(value); };
+  expect(await first(g.stream(null, true))).toContain('"alert":false');
+  // a plain stream (no notifications of its own) keeps the doc as it is
+  expect(await first(g.stream(null, false))).toContain('"alert":true');
 });

@@ -26,6 +26,7 @@
     "service/push-topics.test.ts",
     "service/push.test.ts",
     "web/plugins/alerts/removed.test.ts",
-    "web/plugins/inbox/inbox.test.tsx"
+    "web/plugins/inbox/inbox.test.tsx",
+    "service/glance.test.ts"
   ]
 }

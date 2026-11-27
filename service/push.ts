@@ -21,6 +21,8 @@ type Out = {
   restart?: { alert: string };
   /** fork #37: its words before the watch's cut, for the alerts list only (never sent) */
   full?: { title: string; body: string };
+  /** fork Needs you 3/6: from a space whose alerts are muted (its Notify Off): kept in the bell, sent to no device */
+  muted?: true;
 };
 
 /**
@@ -50,8 +52,9 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   const now = new Map<string, Out>();
   for (const n of snap.needs ?? []) {
     if (n.assistantFirst) continue;
-    if (snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined })) continue;
-    now.set(needKey(n), needAlert(snap, n, true));
+    // fork Needs you 3/6: a muted space's (Notify Off) stays in the bell, quiet
+    const quiet = snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined });
+    now.set(needKey(n), { ...needAlert(snap, n, true), ...(quiet ? { muted: true as const } : {}) });
   }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
   // core/tasks.js readyWait), the same Accept as the Tasks panel's
@@ -64,23 +67,24 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const t of snap.tasks ?? []) if (t.status === "done" && !t.archived && t.quiet !== "nothing" && !t.closedAlone)
     now.set(`done:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), t.merged ? "Done and merged" : "Done"), body: t.summary || "", tag: t.id, topic: "done", place: t.place, url: alertUrl({ place: t.place, task: t.id }) });
   // an Assistant's new message (its chat's last moved on, not yet read), unless its space's Notify is Off. Its topic,
-  // "assistant", reaches only a device on Everything (fork Needs you 3/6, web/shared/reach.ts); elsewhere it stays in
-  // the bell, silent
+  // "assistant", reaches no device (fork Needs you 3/6, web/shared/reach.ts): it stays in the bell, silent
   for (const p of snap.places ?? []) {
     // unread as everywhere else (web/shared/needs-you.ts: Needs you lists it until read)
     if (!unread(snap, p.chat)) continue;
     const last = Number(snap.last[p.chat]);
     // its question already says so (Needs you)
     if ((snap.needs ?? []).some((n: any) => n.chat === p.chat)) continue;
-    if (snap.settings && notifyOf(snap, p.id) === "Off") continue;
-    now.set(`msg:${p.chat}:${last}`, { title: T.toastTitle(T.assistantWho(p.name), "New message"), body: said(p.chat) || "Tap to read it.", tag: `msg:${p.chat}`, topic: "assistant", place: p.id, url: alertUrl({ place: p.id }), actions: [REPLY], reply: { chat: p.chat } });
+    const quiet = snap.settings && notifyOf(snap, p.id) === "Off";
+    now.set(`msg:${p.chat}:${last}`, { title: T.toastTitle(T.assistantWho(p.name), "New message"), body: said(p.chat) || "Tap to read it.", tag: `msg:${p.chat}`, topic: "assistant", place: p.id, url: alertUrl({ place: p.id }), actions: [REPLY], reply: { chat: p.chat },
+      ...(quiet ? { muted: true as const } : {}) });
   }
   // an agent's own alert (herdr-task alert), as its toast: a task's always, an Assistant's by its space's Notify
-  // fork Needs you 3/6: a machine's own (memory, a restart, a provider cutting off) is a warning: opt-in on a device
-  for (const a of snap.alerts ?? []) if (a.notify) now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
-    ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}) });
-  // fork Needs you 3/6: a schedule whose run failed (its row in Schedules says so, as the glance feed's events), a warning
-  for (const s of schedulesFailed(snap)) now.set(s.key, { title: s.title, body: s.body, tag: s.key, topic: "ops", place: s.place, url: alertUrl({ place: s.place }) });
+  // fork Needs you 3/6: a machine's own (memory, a restart, a provider cutting off) is a warning: the bell only
+  // (one from a muted space too, kept quiet: its notify is false)
+  for (const a of snap.alerts ?? []) now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
+    ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(a.notify ? {} : { muted: true as const }) });
+  // fork Needs you 3/6: a schedule whose run failed (its row in Schedules says so, as the glance feed's events): the bell only
+  for (const s of schedulesFailed(snap)) now.set(s.key, { title: s.title, body: s.body, tag: s.key, topic: "ops", place: s.place, url: alertUrl({ place: s.place }), ...(s.muted ? { muted: true as const } : {}) });
   // short enough for a watch: its title on one line, its body in two
   for (const a of now.values()) {
     const title = watchTitle(a.title), body = excerpt(a.body, WATCH_BODY);
@@ -95,21 +99,21 @@ export const waitingTags = (alerts: Map<string, Out>) => [...new Set([...alerts.
 /** Tell devices about new alerts. fork Needs you 3/6: nothing is pushed for one that stopped waiting (no "No longer
  *  waiting"): the next push's open tags, and the app when it opens (/api/waiting), close it on each device. */
 export function pushChanges(before: Map<string, Out>, now: Map<string, Out>, badge: number, open = waitingTags(now)) {
-  return [...now].filter(([k]) => !before.has(k)).map(([, a]) => ({ ...a, badge, open }));
+  return [...now].filter(([k, a]) => !before.has(k) && !a.muted).map(([, a]) => ({ ...a, badge, open }));
 }
 
-/** fork Needs you 3/6: the schedules whose last run failed, as the glance feed's events (glance.ts eventsOf), unless
+/** fork Needs you 3/6: the schedules whose last run failed, as the glance feed's events (glance.ts eventsOf); muted:
  *  their space's Notify is Off */
-export function schedulesFailed(snap: any): { key: string; title: string; body: string; place: string }[] {
-  const out: { key: string; title: string; body: string; place: string }[] = [];
+export function schedulesFailed(snap: any): { key: string; title: string; body: string; place: string; muted?: true }[] {
+  const out: { key: string; title: string; body: string; place: string; muted?: true }[] = [];
   const seen = new Set<string>();
   for (const [place, list] of Object.entries((snap.automations ?? {}) as Record<string, any[]>)) for (const a of list ?? []) {
     if (!a?.failed || !a.error) continue;
     const key = `schedule:${a.machine ?? ""}:${a.id ?? a.name}:${a.failed}`;
     const where = a.place ?? place;
-    if (seen.has(key) || (snap.settings && notifyOf(snap, where) === "Off")) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ key, title: `${a.name} · Schedule failed`, body: String(a.error), place: where });
+    out.push({ key, title: `${a.name} · Schedule failed`, body: String(a.error), place: where, ...(snap.settings && notifyOf(snap, where) === "Off" ? { muted: true as const } : {}) });
   }
   return out;
 }
@@ -150,7 +154,7 @@ export function agentAlerts(terminals: Iterable<any>, snap: any, chatOf: (addres
     const memory = a.about && /^Memory at \d+%/.test(String(a.title ?? ""));
     out.push({ id: String(a.id), at: Number(a.at) || 0, title: T.clip(fitWho(who, String(a.title ?? ""), 60), 60), what: T.clip(String(a.title ?? ""), 120), body: T.clip(String(a.body ?? ""), 300), ...(chat ? { chat } : {}), ...(of ? { task: of.id } : {}), ...(place ? { place } : {}), notify,
       ...(ended ? { ended: true as const } : {}), ...(machine ? { machine } : {}), ...(memory ? { memory: true as const } : {}), ...(restart ? { restart: true as const } : {}),
-      // fork Needs you 3/6: a machine's warning (memory, a restart), opt-in on a device
+      // fork Needs you 3/6: a machine's warning (memory, a restart), the bell only
       ...(memory || restart ? { ops: true as const } : {}) });
   }
   // Assistants here that their model's provider kept cutting off (herdr-task tick's .retries.json), once per cut, as
@@ -248,6 +252,7 @@ export class Push {
   constructor(private subject: () => string, private file = join(DATA, "push.json")) {
     try { this.subs = JSON.parse(readFileSync(this.file, "utf8")); } catch {}
     try { this.removed = JSON.parse(readFileSync(this.removedFile, "utf8")); } catch {}
+    try { this.offNodes = JSON.parse(readFileSync(this.offFile, "utf8")); } catch {}
   }
 
   private save() { writeFileSync(this.file, JSON.stringify(this.subs), { mode: 0o600 }); }
@@ -271,6 +276,9 @@ export class Push {
     const had = this.subs.find((s) => s.endpoint === sub.endpoint) ?? (from ? this.subs.find((s) => s.endpoint === from) : undefined);
     const chose = had ? { topics: pushTopics(had.topics), ...(had.muted?.length ? { muted: had.muted } : {}) } : { topics: [...DEFAULT_TOPICS] };
     this.keepRemoved(this.removed.filter((h) => h !== hashOf(sub.endpoint)));
+    // fork Needs you 3/6: alerts on there again
+    const on = node ?? had?.node;
+    if (on) this.keepOff(this.offNodes.filter((n) => n !== on));
     this.subs = [...this.subs.filter((s) => s.endpoint !== sub.endpoint && s !== had), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, device: String(device ?? "").slice(0, 200), at: Date.now(), ...chose,
       ...(node ? { node } : had?.node ? { node: had.node } : {}) }].slice(-20);
     this.save();
@@ -303,6 +311,26 @@ export class Push {
   }
 
   /** fork #96: the removed list, written only when it changed; a failed write never fails a remove or a turn on */
+  /** fork Needs you 3/6: the tailnet devices whose page chose Off (its own alerts off there), kept so their phone app's
+   *  glance feed notifies nothing either; a subscription there again takes it off */
+  private offNodes: string[] = [];
+  private get offFile() { return this.file.replace(/(\.json)?$/, "-off.json"); }
+  private keepOff(next: string[]) {
+    if (next.length === this.offNodes.length && next.every((h, i) => h === this.offNodes[i])) return;
+    this.offNodes = next;
+    try { writeFileSync(this.offFile, JSON.stringify(next), { mode: 0o600 }); } catch {}
+  }
+  /** fork Needs you 3/6: the page's Off: this subscription goes, and its device is kept as off */
+  turnOff(endpoint: string) {
+    const node = this.subs.find((s) => s.endpoint === endpoint)?.node;
+    this.unsubscribe(endpoint);
+    if (node && !this.subs.some((s) => s.node === node)) this.keepOff([...this.offNodes.filter((n) => n !== node), node].slice(-50));
+  }
+  /** fork Needs you 3/6: a tailnet device turned Off on Settings › Notifications, with no subscription since */
+  offOn(node: string | null | undefined): boolean {
+    return !!node && this.offNodes.includes(node) && !this.subs.some((s) => s.node === node);
+  }
+
   private keepRemoved(next: string[]) {
     if (next.length === this.removed.length && next.every((h, i) => h === this.removed[i])) return;
     this.removed = next;

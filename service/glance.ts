@@ -189,7 +189,7 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
     const pushed = alerts.get(w.key);
     const a: any = pushed ?? (w.need ? needAlert(snap, w.need) : { title: w.alert!.title, body: w.alert!.body, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) });
     const it: Item = { key: w.key, kind: "needs", type: w.type, tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY),
-      task: t.id, ...taskRow(t), ...(w.at ? { at: w.at } : {}), alert: !!pushed,
+      task: t.id, ...taskRow(t), ...(w.at ? { at: w.at } : {}), alert: !!pushed && !pushed.muted,
       url: a.url ?? (a.place ?? w.place ? urlOf(a.place ?? w.place) : "./"), ...textOf(w.need ? needText(w.need) : w.alert?.body ?? a.body) };
     if (w.alert?.ops) it.ops = true;
     if (a.accept) it.accept = a.accept;
@@ -386,6 +386,8 @@ export class GlanceFeed {
 
   /** fork Needs you 3/6: the spaces device D muted on Settings › Notifications before (push.ts mutedOn) */
   muted: (device: string) => string[] = () => [];
+  /** fork Needs you 3/6: device D chose Off on Settings › Notifications (push.ts offOn): its phone app notifies nothing */
+  off: (device: string) => boolean = () => false;
 
   /** the doc as device D's phone app hears it: what came while its page was on screen notifies nothing there; nor
    *  (fork Needs you 3/6) a machine's or a schedule's warning (the bell keeps those), nor a space that device muted */
@@ -393,8 +395,9 @@ export class GlanceFeed {
     if (!doc) return doc;
     const seen = device ? this.seen.get(device) : undefined;
     const muted = new Set(device ? this.muted(device) : []);
+    const off = !!device && this.off(device);
     const placeOf = (url?: string) => { try { return new URLSearchParams(String(url ?? "").split("?")[1] ?? "").get("place"); } catch { return null; } };
-    const quietItem = (i: Item) => !!i.alert && (!!seen?.has(i.key) || !!i.ops || muted.has(placeOf(i.url) ?? ""));
+    const quietItem = (i: Item) => !!i.alert && (off || !!seen?.has(i.key) || !!i.ops || muted.has(placeOf(i.url) ?? ""));
     const quietEvent = (e: Event) => !!e.alert;
     if (!doc.items.some(quietItem) && !(doc.events ?? []).some(quietEvent)) return doc;
     const items = doc.items.map((i) => (quietItem(i) ? { ...i, alert: false } : i));
@@ -412,9 +415,11 @@ export class GlanceFeed {
     const text = frame(doc);
     const own = new Map<string, string>();
     for (const s of this.streams) {
-      if (!s.native || !s.device) { s.send(text); continue; }
-      if (!own.has(s.device)) { const d = this.docFor(s.device, doc)!; own.set(s.device, d === doc ? text : frame(d)); }
-      s.send(own.get(s.device)!);
+      if (!s.native) { s.send(text); continue; }
+      // fork Needs you 3/6: a phone app whose device isn't known still gets the native projection (no warning buzzes)
+      const k = s.device ?? "";
+      if (!own.has(k)) { const d = this.docFor(s.device, doc)!; own.set(k, d === doc ? text : frame(d)); }
+      s.send(own.get(k)!);
     }
   }
 
@@ -439,9 +444,9 @@ export class GlanceFeed {
     };
     const body = new ReadableStream<Uint8Array>({
       start: (c) => {
-        s = { device, native: native && !!device, send: (text) => { try { c.enqueue(enc.encode(text)); } catch { end(); } } };
+        s = { device, native, send: (text) => { try { c.enqueue(enc.encode(text)); } catch { end(); } } };
         this.streams.add(s);
-        if (s.native) { const n = this.native.get(device!) ?? { open: 0, closed: 0 }; n.open++; this.native.set(device!, n); }
+        if (s.native && device) { const n = this.native.get(device) ?? { open: 0, closed: 0 }; n.open++; this.native.set(device, n); }
         const d = s.native ? this.docFor(device) : this.doc;
         c.enqueue(enc.encode(`retry: 5000\n\n${d ? frame(d) : ""}`));
         signal?.addEventListener("abort", () => { end(); try { c.close(); } catch {} });
