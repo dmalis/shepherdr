@@ -10,7 +10,7 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, fromBox, LATER, metaOf, offWords, placeOfSpace, sectionsOf, spaceOfPlace, W, writeUpText } from './words.ts'
+import { backWords, doneWords, elsewhereWords, filedWords, fromBox, LATER, metaOf, offWords, chatOfSpace, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
 
@@ -24,11 +24,12 @@ export async function call(b: Record<string, unknown>): Promise<Answer> {
   }
 }
 
-/** The box's Send: kept as the person's report first; the text leaves the box only once it is kept. */
-export async function saveBox(text: string, place: string, setText: (v: string) => void): Promise<Answer> {
+/** The box's Send: kept as the person's report first; the text leaves the box only once it is kept. : the open
+ *  place's chat key, which names its space */
+export async function saveBox(text: string, chat: string, setText: (v: string) => void): Promise<Answer> {
   const t = text.trim()
   if (!t) return { ok: false, error: 'Write what should be better first.' }
-  const r = await call({ do: 'report', text: t, space: spaceOfPlace(place) })
+  const r = await call({ do: 'report', text: t, space: spaceOfChat(chat) })
   if (r.ok) setText('')
   return r
 }
@@ -46,7 +47,7 @@ export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when
 
 /** where a row's space is now: its place, and whether Write it up reaches it */
 export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space'>): { place?: Place; why?: 'gone' | 'away' } {
-  const place = r.space ? snap.places.find((p) => p.id === placeOfSpace(r.space!)) : undefined
+  const place = r.space ? snap.places.find((p) => p.chat === chatOfSpace(r.space!)) : undefined
   if (!r.space) return {}
   if (!place || place.archived) return { why: 'gone' }
   if (place.unreachableSince || place.herdrDown) return { place, why: 'away' }
@@ -162,11 +163,12 @@ function Box({ snap, place }: { snap: Snapshot; place: string }) {
   const box = useRef<HTMLTextAreaElement>(null)
   useGrow(box, text)
   const where = isEverything(snap, place) ? 'Everything' : spaceLabel(snap, place) || 'Everything'
+  const chat = snap.places.find((p) => p.id === place)?.chat ?? everything(snap)?.chat ?? ''
   const send = async () => {
     if (busy || !text.trim()) return box.current?.focus()
     setBusy(true)
     setError('')
-    const r = await saveBox(text, place, setText)
+    const r = await saveBox(text, chat, setText)
     setBusy(false)
     if (r.ok) notice(W.saved, { tone: 'ok' })
     else setError(r.off ? W.boxOff : r.error!)

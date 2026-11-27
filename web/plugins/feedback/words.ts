@@ -47,9 +47,11 @@ export function sectionsOf(list: FeedbackList | undefined) {
   return { found: of('found'), filed: of('filed'), later: of('later'), declined: of('declined') }
 }
 
-/** a herdr space id ("sp3", "vm/sp3") and the app's place id ("p:sp3", "p:vm:sp3"), both ways (service/compat.ts placeKey) */
-export const placeOfSpace = (space: string) => `p:${space.replace('/', ':')}`
-export const spaceOfPlace = (place: string) => place.replace(/^p:/, '').replace(':', '/')
+/** a herdr space id ("sp3", "vm/sp3") and its chat's key ("p:sp3", "p:vm:sp3"), both ways (service/compat.ts placeKey).
+ *  A place is found by its chat: the service names places by their space id, the demo by their chat key, and both agree
+ *  on the chat. */
+export const chatOfSpace = (space: string) => `p:${space.replace('/', ':')}`
+export const spaceOfChat = (chat: string) => chat.replace(/^p:/, '').replace(':', '/')
 
 /** how long ago, as the rest of the app says it: "now", "5 min ago", "2 h ago", "yesterday", "3 days ago" */
 export function agoWords(at: number, now = Date.now()): string {

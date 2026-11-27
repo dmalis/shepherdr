@@ -134,6 +134,10 @@ test("Write it up goes to the origin's chat; to Everything's when that space is 
   expect(originOf(s, { space: 'mac-mini/removed' }).why).toBe('gone')
   const away = { ...s, places: s.places.map((p) => (p.id === 'p:vm:garden-app' ? { ...p, unreachableSince: '14:02' } : p)) }
   expect(writeUpTo(away, { space: 'vm/garden-app' })?.id).toBe(s.everything)
+  // the service names a place by its space id ("sp1", "vm/sp2"), its chat "p:sp1": a row finds it by its chat
+  const real = { ...s, places: [...s.places, { ...s.places[1], id: 'sp1', chat: 'p:sp1', archived: false }, { ...s.places[1], id: 'vm/sp2', chat: 'p:vm:sp2', archived: false }] } as typeof s
+  expect(writeUpTo(real, { space: 'sp1' })?.id).toBe('sp1')
+  expect(writeUpTo(real, { space: 'vm/sp2' })?.id).toBe('vm/sp2')
   expect(W.writeUpText('A mention resolved to eleven tasks')).toBe('Write up the feedback about “A mention resolved to eleven tasks”')
 })
 
