@@ -5,7 +5,8 @@
 import { useEffect, useState } from 'react'
 import { notice } from '@client/kernel.ts'
 import { Btn, cx } from '@client/ui.tsx'
-import type { DeviceNow } from '@plugins/alerts/device.ts'
+import { turnOn, type DeviceNow } from '@plugins/alerts/device.ts'
+import { registerWorker } from '@plugins/alerts/worker.ts'
 import { agoShort } from '@shared/view.ts'
 import { advice, deviceName, deviceOf, lastWords } from './words.ts'
 import './inbox.css'
@@ -33,7 +34,17 @@ function Line({ label, value, tone }: { label: string; value: string; tone?: 'ok
   )
 }
 
-export function DeviceCheck({ now }: { now: DeviceNow | null }) {
+/** a subscription its push service let go of (404/410): this browser's is dropped and a new one made with the same
+ *  choice (the permission is already given, so nothing asks), as a page does on pushsubscriptionchange */
+async function renew(now: DeviceNow): Promise<string | null> {
+  const reg = await registerWorker()
+  await (await reg.pushManager.getSubscription())?.unsubscribe()
+  const failed = await turnOn(now.tell === 'Everything' ? 'Everything' : 'Needs me')
+  if (failed) return null
+  return (await reg.pushManager.getSubscription())?.endpoint ?? null
+}
+
+export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: () => Promise<unknown> }) {
   const [devices, setDevices] = useState<Device[] | null>(null)
   const [busy, setBusy] = useState(false)
   const endpoint = now?.endpoint ?? ''
@@ -53,7 +64,16 @@ export function DeviceCheck({ now }: { now: DeviceNow | null }) {
   const test = async () => {
     setBusy(true)
     try {
-      const r = (await post('test', { endpoint })) as { ok: boolean; said: string }
+      let r = (await post('test', { endpoint })) as { ok: boolean; said: string; gone?: true }
+      if (r.gone && now) {
+        // its subscription expired: renew it, then the same test to the new one
+        const fresh = await renew(now).catch(() => null)
+        await reread()
+        if (fresh) {
+          const again = (await post('test', { endpoint: fresh })) as typeof r
+          r = again.ok ? { ...again, said: "This device's subscription had expired. It's renewed, and the test is sent." } : again
+        }
+      }
       notice(r.said, { tone: r.ok ? 'ok' : 'error' })
     } catch (e) {
       notice(e instanceof Error ? e.message : 'That did not work. Try again.', { tone: 'error' })

@@ -16,7 +16,7 @@
 .inbx-it:hover{background:var(--control)}
 .inbx-it>.i{margin-top:calc((var(--uil) - var(--ic)) / 2)}
 .inbx-it .n{flex:1;min-width:0;display:grid}
-.inbx-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
+.inbx-t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub)}
 .inbx-it.new .inbx-t{color:var(--fg);font-weight:600}
 .inbx-b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .inbx-it:not(.new) .inbx-b{color:var(--muted)}

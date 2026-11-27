@@ -24,13 +24,35 @@ test("pin: alertsOf still makes the alerts the list keeps, keyed, with their wor
   expect(a.get("need:HERD-5/worker:q1")).toMatchObject({ topic: "needs", tag: "HERD-5", waits: true });
 });
 
+test("the list keeps an alert's whole words; the push keeps the watch's cut and never carries them", async () => {
+  const title = "Agent · Pick a payment provider for the checkout";
+  const body = "Stripe or Adyen? The checkout waits on it, and so does the launch on Friday, which is why this cannot wait long.";
+  const before = alertsOf({ ...snap(), alerts: [] });
+  const now = alertsOf({ ...snap(), alerts: [{ id: "a1", title, body, notify: true }] });
+  const pushed = now.get("alert:a1")!;
+  expect(pushed.title.length).toBeLessThanOrEqual(30);
+  expect(pushed.body.length).toBeLessThanOrEqual(80);
+  const box = new Inbox(join(dir(), "inbox.json"));
+  box.record(before, now);
+  expect(box.list()[0]).toMatchObject({ key: "alert:a1", title, body });
+  // what a device gets: the cut words, no `full`
+  const sent: string[] = [];
+  const push = new Push(() => "https://example.test", join(dir(), "push.json")) as any;
+  push.subs = [{ endpoint: "https://push.example/x", keys: {}, at: 1 }];
+  push.deliver = async (_s: unknown, payload: Uint8Array) => { sent.push(new TextDecoder().decode(payload)); return 201; };
+  await push.send({ ...pushed });
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(sent[0])).not.toHaveProperty("full");
+  expect(JSON.parse(sent[0]).title).toBe(pushed.title);
+});
+
 test("a new alert is a record on top, with its task; none for what was there when the service started", () => {
   const box = new Inbox(join(dir(), "inbox.json"));
   const first = alertsOf(snap({ ready: true }));
   box.record(null, first);
   expect(box.list()).toEqual([]);
   box.record(first, alertsOf(snap({ ready: true, need: true })));
-  expect(box.list().map((x) => [x.id, x.task, x.waits])).toEqual([["need:HERD-5/worker:q1", "HERD-5", true]]);
+  expect(box.list().map((x) => [x.key, x.task, x.waits])).toEqual([["need:HERD-5/worker:q1", "HERD-5", true]]);
   expect(box.unread()).toBe(1);
 });
 
@@ -43,15 +65,33 @@ test("an alert that stops waiting is marked resolved, and stays in the list", ()
   expect(box.list()[0].closed).toBeUndefined();
   t += 60_000;
   box.record(ready, none);
-  expect(box.list()[0]).toMatchObject({ id: "ready:HERD-4", closed: t });
-  // Ready again: it moves up, unread and waiting again
+  expect(box.list()[0]).toMatchObject({ key: "ready:HERD-4", closed: t });
+  // Ready again: a new row of its own on top, unread and waiting; the one it resolved stays, read, below
   box.read("all");
+  const first = box.list()[0].id;
   t += 60_000;
   box.record(none, ready);
-  expect(box.list()).toHaveLength(1);
-  expect(box.list()[0]).toMatchObject({ at: t, waits: true });
+  expect(box.list()).toHaveLength(2);
+  expect(box.list()[0]).toMatchObject({ key: "ready:HERD-4", at: t, waits: true });
+  expect(box.list()[0].id).not.toBe(first);
   expect(box.list()[0].read).toBeUndefined();
   expect(box.list()[0].closed).toBeUndefined();
+  expect(box.list()[1]).toMatchObject({ id: first, read: true, closed: expect.any(Number) });
+  // a read of the old row (a page that opened it) never reads the new one
+  box.read([first]);
+  expect(box.unread()).toBe(1);
+});
+
+test("an open alert from a machine that can't be reached stays open until it can say what happened", () => {
+  const box = new Inbox(join(dir(), "inbox.json"));
+  const ready = alertsOf(snap({ ready: true }));
+  box.record(new Map(), ready);
+  // its machine went quiet: the model has no task to show, so no alert either
+  box.record(ready, new Map(), (x) => x.task === "HERD-4");
+  expect(box.list()[0].closed).toBeUndefined();
+  // back, and the task is no longer Ready
+  box.record(new Map(), new Map(), () => false);
+  expect(box.list()[0].closed).toEqual(expect.any(Number));
 });
 
 test("read on one device is read for all: kept in the file, a changed list rebuilds the snapshot", () => {
@@ -61,8 +101,9 @@ test("read on one device is read for all: kept in the file, a changed list rebui
   box.onChange = () => told++;
   box.record(alertsOf(snap()), alertsOf(snap({ ready: true, need: true })));
   expect(box.unread()).toBe(2);
-  expect(box.read(["ready:HERD-4"])).toBe(true);
-  expect(box.read(["ready:HERD-4"])).toBe(false);
+  const id = box.list().find((x) => x.key === "ready:HERD-4")!.id;
+  expect(box.read([id])).toBe(true);
+  expect(box.read([id])).toBe(false);
   expect(told).toBe(1);
   expect(new Inbox(file).unread()).toBe(1);
   box.read("all");
@@ -106,9 +147,65 @@ test("pin: Push lists its devices by a hash, never an endpoint, with last seen a
   expect(list[0].seen).toBeUndefined();
   expect(list[1]).toMatchObject({ seen: 5000 });
   expect(list[1].mine).toBeUndefined();
-  // a delivery that can't reach its push service is kept as status 0 (no network here: a refused address)
-  const q = new Push(() => "mailto:x@example.com", join(dir(), "push.json"));
-  q.subscribe({ endpoint: "https://127.0.0.1:1/x", keys: { p256dh: "BPcYz0Yb0hM7ek9JqVlOHWj5Vq1OdZdOyYFHBeRmn-0oZg8bOyQ6JdYEH6VdNq1kLwFLhM7I8xYeV2q2v0FoJXU", auth: "c2VjcmV0c2VjcmV0MTIzNA" } });
-  await q.test("https://127.0.0.1:1/x");
-  expect(q.devices("")[0].last).toMatchObject({ status: 0 });
+});
+
+/** a real browser's keys (P-256, 16 bytes of auth), so a delivery is encrypted and reaches fetch */
+async function browserKeys() {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+  const b64u = (b: ArrayBuffer | Uint8Array) => Buffer.from(b as ArrayBuffer).toString("base64url");
+  return { p256dh: b64u(await crypto.subtle.exportKey("raw", pair.publicKey)), auth: b64u(crypto.getRandomValues(new Uint8Array(16))) };
+}
+
+test("a device's last alert is its push service's answer: accepted, refused, or not reached; a test of a gone one says so", async () => {
+  const real = globalThis.fetch;
+  let answer: () => Promise<Response> = async () => new Response("", { status: 201 });
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string) => { calls.push(String(url)); return answer(); }) as unknown as typeof fetch;
+  try {
+    const q = new Push(() => "mailto:x@example.com", join(dir(), "push.json"));
+    const endpoint = "https://push.example/mac";
+    q.subscribe({ endpoint, keys: await browserKeys() });
+    expect(await q.test(endpoint)).toMatchObject({ ok: true });
+    expect(q.devices("")[0].last).toMatchObject({ status: 201 });
+    answer = async () => new Response("", { status: 403 });
+    await q.test(endpoint);
+    expect(q.devices("")[0].last).toMatchObject({ status: 403 });
+    answer = async () => { throw new Error("offline"); };
+    await q.test(endpoint);
+    expect(q.devices("")[0].last).toMatchObject({ status: 0 });
+    expect(calls).toHaveLength(3);
+    answer = async () => new Response("", { status: 410 });
+    expect(await q.test(endpoint)).toMatchObject({ ok: false, gone: true });
+    expect(q.devices("")).toEqual([]);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("a failed write of a device's notes never stops its next alert", async () => {
+  const real = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = (async () => { n++; return new Response("", { status: 201 }); }) as unknown as typeof fetch;
+  try {
+    const q = new Push(() => "mailto:x@example.com", join(dir(), "push.json")) as any;
+    q.subscribe({ endpoint: "https://push.example/mac", keys: await browserKeys() });
+    const save = q.save;
+    q.save = () => { throw new Error("ENOSPC"); };
+    await q.send({ title: "a", body: "", tag: "x", topic: "needs" });
+    q.save = save;
+    await q.send({ title: "b", body: "", tag: "y", topic: "needs" });
+    expect(n).toBe(2);
+    expect(q.sending.size).toBe(0);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("last seen is written every 10 minutes of steady use, not only after a gap", () => {
+  const file = join(dir(), "push.json");
+  const p = new Push(() => "mailto:x@example.com", file);
+  p.subscribe({ endpoint: "https://push.example/mac", keys: { p256dh: "x", auth: "y" } });
+  for (let m = 0; m <= 30; m++) p.saw(["https://push.example/mac"], 1_000_000 + m * 60_000);
+  const disk = JSON.parse(readFileSync(file, "utf8"))[0].seen;
+  expect(disk).toBeGreaterThanOrEqual(1_000_000 + 20 * 60_000);
 });

@@ -11,7 +11,7 @@ export const KEEP_MS = 7 * 24 * 3600_000;
 export const KEEP_MAX = 200;
 
 /** what an alert (service/push.ts alertsOf) gives its record */
-export type Made = { title: string; body: string; tag: string; topic: string; place?: string; url?: string; waits?: true };
+export type Made = { title: string; body: string; tag: string; topic: string; place?: string; url?: string; waits?: true; full?: { title: string; body: string } };
 
 /** the task an alert opens: its link's task= */
 function taskOf(url: string | undefined) {
@@ -44,22 +44,25 @@ export class Inbox {
   }
 
   /** The alerts made now (before: the last ones, null when the service just started and nothing is new). A new alert
-   *  is a new record on top (one whose key came back, as a task Ready again, moves up unread; an Assistant's new message
-   *  takes its chat's last one's place). One that waited on you is marked resolved once it no longer does. */
-  record(before: Map<string, Made> | null, now: Map<string, Made>): boolean {
+   *  is a new record on top, with its own id (a task Ready again is a new unread row; the one it resolved stays); an
+   *  Assistant's new message takes its chat's last one's place, as its push does on a phone. One that waited on you is
+   *  marked resolved once it no longer does, unless held says its machine can't be asked (it stays open until then). */
+  record(before: Map<string, Made> | null, now: Map<string, Made>, held: (x: InboxItem) => boolean = () => false): boolean {
     let changed = this.prune();
     const at = this.clock();
     if (before) for (const [id, a] of now) {
       if (before.has(id)) continue;
       const task = taskOf(a.url);
-      this.items = this.items.filter((x) => x.id !== id && !(a.topic === "assistant" && x.topic === "assistant" && x.tag === a.tag));
-      this.items.unshift({ id, at, title: a.title, body: a.body, topic: a.topic, tag: a.tag, ...(a.place ? { place: a.place } : {}), ...(task ? { task } : {}),
+      if (a.topic === "assistant") this.items = this.items.filter((x) => !(x.topic === "assistant" && x.tag === a.tag));
+      let row = `${id}@${at}`;
+      for (let n = 2; this.items.some((x) => x.id === row); n++) row = `${id}@${at}.${n}`;
+      this.items.unshift({ id: row, key: id, at, title: a.full?.title ?? a.title, body: a.full?.body ?? a.body, topic: a.topic, tag: a.tag, ...(a.place ? { place: a.place } : {}), ...(task ? { task } : {}),
         ...(a.url ? { url: a.url } : {}), ...(a.waits ? { waits: true as const } : {}) });
       changed = true;
     }
     for (const x of this.items) {
       if (!x.waits || x.closed) continue;
-      if (now.has(x.id)) continue;
+      if (now.has(x.key ?? x.id) || held(x)) continue;
       x.closed = at;
       changed = true;
     }

@@ -232,7 +232,15 @@ function alertNew(snap: any) {
   try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
   waitingNow = { count: waiting(snap).count, tags: waitingTags(now) };
   if (alerted) for (const a of pushChanges(alerted, now, waitingNow.count, waitingNow.tags)) void push.send(a);
-  inbox.record(alerted, now);
+  // fork #37: an open alert from a machine that can't be reached stays open until it can say what happened
+  const off = new Set((snap.machines ?? []).filter((m: any) => m.status === "off").map((m: any) => m.machine));
+  const away = (x: { task?: string; place?: string }) => {
+    const p = x.place ? (snap.places ?? []).find((q: any) => q.id === x.place) : null;
+    if (p && (p.unreachableSince || p.connecting || off.has(p.machine))) return true;
+    const m = x.task?.includes(":") ? x.task.slice(0, x.task.indexOf(":")) : null;
+    return !!m && (off.has(m) || !(snap.machines ?? []).some((q: any) => q.machine === m));
+  };
+  inbox.record(alerted, now, away);
   alerted = now;
 }
 compat.agents = new Agents(hub);

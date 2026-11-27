@@ -63,6 +63,40 @@ test("a device's last alert: sent, refused, or never reached its push service", 
   expect(lastWords({ at: 1, status: 0 }, ago)).toBe("Last alert couldn't be sent 5m ago")
 })
 
+test("a read the service refused is undone, so the bell never says read here and unread elsewhere", async () => {
+  const { markRead, settle, unreadOf } = await import('./client.tsx')
+  const items = [{ id: 'ready:HERD-4@1', key: 'ready:HERD-4', at: 1, title: 'a', body: '', topic: 'ready', tag: 'HERD-4' }, { id: 'alert:a1@2', key: 'alert:a1', at: 2, title: 'b', body: '', topic: 'needs', tag: 'alert:a1' }]
+  const real = globalThis.fetch
+  try {
+    globalThis.fetch = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch
+    expect(await markRead(['ready:HERD-4@1'])).toBe(false)
+    expect(unreadOf(items)).toBe(2)
+    expect(await markRead('all', items)).toBe(false)
+    expect(unreadOf(items)).toBe(2)
+    globalThis.fetch = (async () => { throw new Error('offline') }) as unknown as typeof fetch
+    expect(await markRead(['alert:a1@2'])).toBe(false)
+    expect(unreadOf(items)).toBe(2)
+    globalThis.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch
+    expect(await markRead(['ready:HERD-4@1'])).toBe(true)
+    expect(unreadOf(items)).toBe(1)
+    // the snapshot has it: the mark held here is let go, and a new row is never read by it
+    settle([{ ...items[0], read: true }, items[1]])
+    expect(unreadOf([{ ...items[0], id: 'ready:HERD-4@9', at: 9 }, items[1]])).toBe(2)
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test('nothing on a covered screen counts as seen: Settings, Search, or on a phone the list of spaces or a pane', async () => {
+  const { covered } = await import('./client.tsx')
+  const ui = { phone: true, drawer: false, pane: null, settings: null, search: false } as any
+  expect(covered(ui)).toBe(false)
+  expect(covered({ ...ui, drawer: true })).toBe(true)
+  expect(covered({ ...ui, pane: 'files' })).toBe(true)
+  expect(covered({ ...ui, phone: false, drawer: true })).toBe(false)
+  expect(covered({ ...ui, phone: false, search: true })).toBe(true)
+})
+
 test('pin: the device states the check reads are still the alerts plugin’s', () => {
   expect(deviceState({ push: true, ios: false, standalone: false, permission: 'denied', subscribed: false })).toBe('blocked')
   expect(deviceState({ push: true, ios: false, standalone: false, permission: 'default', subscribed: false })).toBe('off')
@@ -78,7 +112,7 @@ test('pin: the bell sits in the list’s top row, and the check under Settings �
   const root = join(import.meta.dir, '../../')
   expect(readFileSync(join(root, 'src/list.tsx'), 'utf8')).toContain('registry.sideHead.map(')
   const settings = readFileSync(join(root, 'src/settings.tsx'), 'utf8')
-  expect(settings).toMatch(/<h3>Notifications<\/h3>[\s\S]*<SRow label="Alerts on this device"[\s\S]*<DeviceCheck now=\{now\} \/>/)
+  expect(settings).toMatch(/<h3>Notifications<\/h3>[\s\S]*<SRow label="Alerts on this device"[\s\S]*<DeviceCheck now=\{now\} reread=\{read\} \/>/)
   expect(JSON.parse(readFileSync(join(root, 'plugins.json'), 'utf8')).plugins).toContain('inbox')
   // the service worker still shows a test alert while the app is on screen
   expect(readFileSync(join(root, 'public/sw.js'), 'utf8')).toContain('if (!a.test && list.some((c) => c.visibilityState')

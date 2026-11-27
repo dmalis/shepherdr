@@ -3,7 +3,7 @@
 // until opened or marked read (one tap on the row, or Mark all read), and read on every device at once (the service
 // keeps the list, service/inbox.ts). An alert also counts as read once its task or space is open on a screen you use.
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { definePlugin, openLink, openSettings, useSnap, useUI } from '@client/kernel.ts'
+import { definePlugin, notice, openLink, openSettings, useSnap, useUI, type UI } from '@client/kernel.ts'
 import { openMenu } from '@client/overlay.tsx'
 import { Btn, Cnt, cx, Empty, I, IB, Seg } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
@@ -12,7 +12,8 @@ import { agoShort, spaceLabel } from '@shared/view.ts'
 import { byDay, stateOf } from './words.ts'
 import './inbox.css'
 
-/* read marks sent but not yet back in the snapshot: shown at once */
+/* read marks sent but not yet back in the snapshot: shown at once, dropped once the snapshot has them, undone if the
+ * service said no (the bell must never say read on one device and unread on the others) */
 const sent = new Set<string>()
 let all = 0
 const ls = new Set<() => void>()
@@ -23,12 +24,38 @@ const useSent = () => useSyncExternalStore((l) => (ls.add(l), () => void ls.dele
 const isRead = (x: InboxItem) => !!x.read || sent.has(x.id) || x.at <= all
 
 export async function markRead(ids: string[] | 'all', items: InboxItem[] = []) {
+  const was = all
+  const added = ids === 'all' ? [] : ids.filter((id) => !sent.has(id))
   if (ids === 'all') all = Math.max(all, ...items.map((x) => x.at), 0)
-  else ids.forEach((id) => sent.add(id))
+  else added.forEach((id) => sent.add(id))
   ver++
   tell()
-  await fetch('api/inbox/read', { method: 'POST', headers: { 'content-type': 'application/json', 'x-shepherdr': '1' }, body: JSON.stringify(ids === 'all' ? { all: true } : { ids }) }).catch(() => undefined)
+  const ok = await fetch('api/inbox/read', { method: 'POST', headers: { 'content-type': 'application/json', 'x-shepherdr': '1' }, body: JSON.stringify(ids === 'all' ? { all: true } : { ids }) })
+    .then((r) => r.ok)
+    .catch(() => false)
+  if (ok) return true
+  if (ids === 'all') all = was
+  else added.forEach((id) => sent.delete(id))
+  ver++
+  tell()
+  return false
 }
+
+/** marks the snapshot now has (or whose alert is gone) are no longer held here */
+export function settle(items: InboxItem[]) {
+  const byId = new Map(items.map((x) => [x.id, x]))
+  let changed = false
+  for (const id of sent) {
+    const x = byId.get(id)
+    if (!x || x.read) { sent.delete(id); changed = true }
+  }
+  if (all && items.every((x) => x.at > all || x.read)) { all = 0; changed = true }
+  if (changed) { ver++; tell() }
+}
+
+/** the app covers what it shows: nothing is seen while the page is hidden, Settings or Search is open, or, on a phone,
+ *  while the list of spaces or a pane covers the chat (the rule web/src/read-marks.ts seenChats keeps for chats) */
+export const covered = (ui: Pick<UI, 'phone' | 'drawer' | 'pane' | 'settings' | 'search'>) => !!(ui.settings || ui.search || (ui.phone && (ui.drawer || ui.pane)))
 
 export const unreadOf = (items: InboxItem[] | undefined) => (items ?? []).filter((x) => !isRead(x)).length
 
@@ -39,7 +66,8 @@ function iconOf(x: InboxItem): [IconName, string] {
   if (x.topic === 'ready') return ['ready', 'c-ready']
   if (x.topic === 'done') return ['check', 'c-ready']
   if (x.topic === 'assistant') return ['chat', 'c-mute']
-  if (x.id.startsWith('alert:') || x.id.startsWith('provider:')) return ['bell', 'c-ask']
+  const key = x.key ?? x.id
+  if (key.startsWith('alert:') || key.startsWith('provider:')) return ['bell', 'c-ask']
   return ['ask', 'c-ask']
 }
 
@@ -58,7 +86,7 @@ function Item({ x, snap, close }: { x: InboxItem; snap: Snapshot; close: () => v
       className={cx('inbx-it', !read && 'new')}
       aria-label={`${read ? '' : 'Unread: '}${x.title}`}
       onClick={() => {
-        if (!read) void markRead([x.id])
+        if (!read) void markRead([x.id]).then((ok) => ok || notice("Couldn't mark it read. Try again.", { tone: 'error' }))
         close()
         if (href) openLink(href, true)
       }}
@@ -104,7 +132,7 @@ function Panel({ close }: { close: () => void }) {
       {unread > 0 && (
         <div className="inbx-bar">
           <span>{unread === 1 ? '1 unread' : `${unread} unread`}</span>
-          <Btn small onClick={() => void markRead('all', items)}>Mark all read</Btn>
+          <Btn small onClick={() => void markRead('all', items).then((ok) => ok || notice("Couldn't mark them read. Try again.", { tone: 'error' }))}>Mark all read</Btn>
         </div>
       )}
       <div className="inbx-list">
@@ -152,8 +180,9 @@ function SeenOnScreen() {
       removeEventListener('blur', on)
     }
   }, [])
+  useEffect(() => settle(snap?.inbox ?? []), [snap?.inbox])
   const open = new Set([ui.task, ui.max].filter(Boolean) as string[])
-  const ids = looking && snap && !ui.settings ? (snap.inbox ?? []).filter((x) => !isRead(x) && (x.task ? open.has(x.task) : !!x.place && x.place === ui.at && !ui.task && !ui.max)).map((x) => x.id) : []
+  const ids = looking && snap && !covered(ui) ? (snap.inbox ?? []).filter((x) => !isRead(x) && (x.task ? open.has(x.task) : !!x.place && x.place === ui.at && !ui.task && !ui.max)).map((x) => x.id) : []
   const key = ids.join('\n')
   useEffect(() => {
     if (key) void markRead(key.split('\n'))

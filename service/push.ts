@@ -17,6 +17,8 @@ type Out = {
   actions?: PushAction[]; answer?: { chat: string; question: string }; accept?: { task: string }; reply?: { chat: string; to?: string };
   /** #1545: Restart all, for the Assistants a restart of their machine left stopped (that alert's id) */
   restart?: { alert: string };
+  /** fork #37: its words before the watch's cut, for the alerts list only (never sent) */
+  full?: { title: string; body: string };
 };
 type Recipient = Pick<Out, "topic" | "place">;
 
@@ -72,7 +74,11 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const a of snap.alerts ?? []) if (a.notify) now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
     ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}) });
   // short enough for a watch: its title on one line, its body in two
-  for (const a of now.values()) { a.title = watchTitle(a.title); a.body = excerpt(a.body, WATCH_BODY); }
+  for (const a of now.values()) {
+    const title = watchTitle(a.title), body = excerpt(a.body, WATCH_BODY);
+    if (title !== a.title || body !== a.body) a.full = { title: a.title, body: a.body };
+    a.title = title; a.body = body;
+  }
   return now;
 }
 
@@ -293,8 +299,12 @@ export class Push {
   /** fork #37: how a device's last alert went, kept for its row in Settings › Notifications */
   private delivered(s: Sub, status: number) {
     s.last = { at: Date.now(), status };
-    this.save();
+    // a note for Settings only: a failed write never fails the delivery or holds up the next one
+    try { this.save(); } catch {}
   }
+
+  /** fork #37: when each device's last seen was last written (its time on disk), so steady use still saves it */
+  private seenSaved = new Map<string, number>();
 
   /** fork #37: the devices whose app is on screen now (their pages say so): last seen now, kept every 10 minutes */
   saw(endpoints: Iterable<string>, now = Date.now()) {
@@ -302,10 +312,11 @@ export class Push {
     for (const e of endpoints) {
       const s = this.subs.find((x) => x.endpoint === e);
       if (!s) continue;
-      if (!s.seen || now - s.seen > 10 * 60_000) keep = true;
+      const saved = this.seenSaved.get(e) ?? s.seen ?? 0;
+      if (now - saved > 10 * 60_000) { keep = true; this.seenSaved.set(e, now); }
       s.seen = now;
     }
-    if (keep) this.save();
+    if (keep) try { this.save(); } catch {}
   }
 
   /** fork #37: every device that gets alerts, for Settings › Notifications: its browser, when it was turned on and last
@@ -317,12 +328,12 @@ export class Push {
 
   /** Sends an alert to every subscribed device whose app isn't on screen, whose phone app doesn't show it natively, and
    *  that wants it (its topic, its space). */
-  async send({ replacedBy, ...alert }: Record<string, unknown> & { topic?: string; place?: string; replacedBy?: Recipient[] }) {
+  async send({ replacedBy, full: _full, ...alert }: Record<string, unknown> & { topic?: string; place?: string; replacedBy?: Recipient[] }) {
     const payload = enc(JSON.stringify(alert));
     await Promise.all(this.subs.map(async (s) => {
       if (this.visible.has(s.endpoint) || this.looking(s.node) || this.quiet(s.node) || !wants(s, alert) || replacedBy?.some((a) => wants(s, a))) return;
       // A retraction must reach this device's push service after the alert it replaces.
-      const sent = (this.sending.get(s.endpoint) ?? Promise.resolve()).then(() => this.deliver(s, payload));
+      const sent = (this.sending.get(s.endpoint) ?? Promise.resolve()).then(() => this.deliver(s, payload)).catch(() => 0);
       this.sending.set(s.endpoint, sent);
       await sent;
       if (this.sending.get(s.endpoint) === sent) this.sending.delete(s.endpoint);
@@ -335,7 +346,8 @@ export class Push {
     if (!s) return { ok: false, said: "Alerts are off for this device." };
     const status = await this.deliver(s, enc(JSON.stringify({ title: "Shepherdr · Test", body: "Alerts reach this device.", tag: "test", test: true })));
     if (status >= 200 && status < 300) return { ok: true, said: "Sent. It should show in a few seconds." };
-    if (status === 404 || status === 410) return { ok: false, said: "This device's subscription is gone. Turn alerts on again." };
+    // fork #37: gone tells the page to renew this browser's subscription (Settings › Notifications does, then tests again)
+    if (status === 404 || status === 410) return { ok: false, gone: true, said: "This device's subscription is gone. Turn alerts on again." };
     return { ok: false, said: status ? `The push service refused it (${status}).` : "The push service couldn't be reached." };
   }
 }

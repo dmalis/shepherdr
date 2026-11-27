@@ -1328,6 +1328,8 @@ export type WorktreeAsk = { task: string } & ({ what: 'dir'; path?: string } | {
 /** one alert in the alerts list (service/inbox.ts, fork #37): what it said, its space and task, and where it opens;
  *  waits: it waited on you (Needs you, Ready), closed: when it stopped; read on any device, read on all */
 export interface InboxItem {
+  /** the push alert it records (service/push.ts alertsOf's key): what resolves it */
+  key?: string
   id: string
   at: number
   title: string

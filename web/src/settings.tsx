@@ -196,7 +196,7 @@ function General() {
       <SRow label="Alerts on this device" wrap>
         <Seg<Tell> label="Alerts on this device" values={TELL} value={now?.tell ?? 'Needs me'} onChange={(v) => now && void run(() => choose(v, now))} />
       </SRow>
-      <DeviceCheck now={now} />
+      <DeviceCheck now={now} reread={read} />
     </>
   )
 }
