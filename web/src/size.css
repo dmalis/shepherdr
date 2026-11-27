@@ -1,0 +1,52 @@
+/* Zoom and Chat text size (Settings › General › Appearance; dmalis/shepherdr#36). Loaded after ds.css and styles.css
+   (the zoom plugin imports it), so each rule here takes over the one it names there at the same specificity. */
+
+/* Zoom (web/zoom-css.ts): every px of the app's CSS is times --zoom, rem too. A capital PX stays out of it. A double
+   tap never zooms the page; a pinch still does, for anyone who needs it. Zoomed out on touch, a text box keeps 16 px:
+   under that iOS zooms the page in when it's tapped. */
+:root{--zoom:1;font-size:calc(100% * var(--zoom))}
+html{touch-action:manipulation}
+:root:is([data-zoom="67"],[data-zoom="75"],[data-zoom="80"],[data-zoom="90"]) .app.tap :is(input,textarea,select){font-size:16PX}
+
+/* The chat's reading text, from Chat text size (data-text on <html>, none for Default). --chat and --chatl are the
+   messages: a step over the interface's 14 px on a computer; on touch 16 px, the interface's own size there. --chat2
+   is the chat's smaller lines (quotes, a task's row, chips, tables, a card's second line; never under 14 px on touch),
+   --chatm its code. Line heights stay on whole pixels, and the bubble's padding and corners and the gaps between
+   messages follow --chatl, so Larger isn't cramped and Small isn't loose. Large is the 16/24 every chat had before. */
+.app{--chat:15px;--chatl:22px;--chat2:13px;--chat2l:20px;--chatm:13px;--chatml:20px}
+.app.tap{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="small"] .app{--chat:14px;--chatl:20px;--chat2:13px;--chat2l:18px;--chatm:12px;--chatml:18px}
+:root[data-text="small"] .app.tap{--chat:15px;--chatl:22px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="large"] .app{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+:root[data-text="large"] .app.tap{--chat:18px;--chatl:26px;--chat2:15px;--chat2l:22px;--chatm:14px;--chatml:22px}
+:root[data-text="larger"] .app{--chat:18px;--chatl:28px;--chat2:16px;--chat2l:24px;--chatm:15px;--chatml:22px}
+:root[data-text="larger"] .app.tap{--chat:20px;--chatl:30px;--chat2:17px;--chat2l:24px;--chatm:16px;--chatml:24px}
+
+/* messages and their bubbles: 6px 14px round a 24px line at 16 px, the same proportions at every size */
+.msgs{gap:calc(var(--chatl) / 6);font-size:var(--chat);line-height:var(--chatl)}
+.b{padding:calc(var(--chatl) / 4) calc(var(--chat) * .875);border-radius:calc(var(--chatl) * .75)}
+.rpl{border-radius:calc(var(--chatl) * .75)}
+.gap{margin-top:calc(var(--chatl) / 3)}
+/* the working sign: a one-line bubble round its dots, its step's line on the bubble's middle, Stop centred on it */
+.wsign .wbub{padding:calc(var(--chatl) / 4) calc(var(--chat) * .875);line-height:var(--chatl)}
+.wdots{height:var(--chatl)}
+.wstep{padding-top:calc((var(--chatl) * 1.5 - 20px) / 2)}
+.wrow>.wstop{margin-top:calc((var(--chatl) * 1.5 - var(--ib)) / 2)}
+/* the chat's smaller lines and its code */
+.ref,.quote,button.quote,.quote.qtask,.chip,.donerow{font-size:var(--chat2);line-height:var(--chat2l)}
+.msgs .card{font-size:var(--chat);line-height:var(--chatl)}.msgs .card .s{font-size:var(--chat2);line-height:var(--chat2l)}
+.files,.msgs .code{font-size:var(--chatm);line-height:var(--chatml)}
+/* what a message holds (markdown): its headings at the message's size, code, tables, lists and spacing with it */
+.md p,.md ul,.md ol,.md table,.md blockquote,.md .code.block{margin:calc(var(--chatl,24px) / 3) 0}
+.md ul,.md ol{padding-left:1.375em}
+.md h1,.md h2,.md h3,.md h4{margin:calc(var(--chatl,24px) / 2) 0 calc(var(--chatl,24px) / 6);font-size:var(--chat,16px);line-height:var(--chatl,24px)}
+.md code,.md pre{font-size:var(--chatm,13px);line-height:var(--chatml,20px)}
+.md table{font-size:var(--chat2,14px);line-height:var(--chat2l,20px)}
+/* the message box writes at the chat's size; on touch never under 16 px, at any zoom (else iOS zooms in on a tap) */
+.cin{font-size:var(--chat);line-height:var(--chatl)}
+.app.tap .cin{font-size:max(16PX,var(--chat))}
+
+/* Settings: Zoom's − value + and Reset; under Chat text size, one message at that size */
+.zoomc{display:inline-flex;align-items:center;gap:4px}.zoomc .btn{margin-left:4px}
+.zoomv{min-width:5ch;text-align:center;font-variant-numeric:tabular-nums}
+.tsize{display:flex;padding-block:4px 8px;font-size:var(--chat);line-height:var(--chatl)}.tsize+.hint{margin-bottom:12px}

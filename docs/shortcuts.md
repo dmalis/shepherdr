@@ -21,6 +21,7 @@ folders, artifacts, schedules, Settings pages) and runs any command. On a phone,
 | | Keyboard shortcuts | ? or ⌘/ |
 | | Open Settings | ⌘, |
 | | Show or hide the list | ⌘B |
+| | Zoom in / out / reset (the app, not the browser) | ⌘= or ⌘+ / ⌘− / ⌘0 |
 | Go to | Open Tasks | G then T |
 | | Open Artifacts | G then A |
 | | Open Scheduled | G then S |
@@ -53,6 +54,10 @@ Menus show a row's shortcut at its end. Shortcut hints hide where a finger is th
   so the shell's Ctrl+B, Ctrl+K and Ctrl+L reach it.
 - **A menu, dialog, the palette or Settings open:** single letters wait; chords still work.
 - **The browser** keeps ⌘N, ⌘T, ⌘W (and with ⇧), ⌘Q and Ctrl+Tab: no page gets them, so none are used.
+- **Zoom:** ⌘=, ⌘−, ⌘0 change Settings › General › Zoom in place of the browser's zoom, as Figma, Notion and VS Code
+  for the web do, in a tab and in the installed app. A short notice says the new value, with Reset.
+- **Keyboard layouts:** letters and digits are the key's place, so ⇧ or ⌥ never change them. A sign (/ - = ? +) is
+  the character it types, as in Slack: on a German or Slovenian keyboard ⌘− zooms out, and ⌘/ is ⌘⇧7.
 
 ## Changing them
 

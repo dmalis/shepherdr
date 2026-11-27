@@ -3,6 +3,7 @@
 // "text size" or "font". The rows themselves are in Settings › General › Appearance (web/src/size-rows.tsx).
 import { definePlugin, openSettings } from '@client/kernel.ts'
 import { zoomIn, zoomOut, zoomReset } from '@client/zoom.ts'
+import '@client/size.css'
 
 export default definePlugin({
   name: 'zoom',

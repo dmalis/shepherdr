@@ -58,14 +58,10 @@ function apply() {
   else root.dataset.theme = prefs.theme.toLowerCase()
   // the chat's width grows with the zoom, as the CSS's own px do
   root.style.setProperty('--chat-w', `calc(${CHAT_WIDTH[prefs.width]}px*var(--zoom))`)
-  // Zoom: --zoom times every px (web/zoom-css.ts); data-zoom picks its step's container queries. 100: neither
-  if (prefs.zoom === 100) {
-    root.style.removeProperty('--zoom')
-    delete root.dataset.zoom
-  } else {
-    root.style.setProperty('--zoom', String(prefs.zoom / 100))
-    root.dataset.zoom = String(prefs.zoom)
-  }
+  // Zoom: --zoom times every px (web/zoom-css.ts); data-zoom picks its step's container queries (none at 100)
+  root.style.setProperty('--zoom', String(prefs.zoom / 100))
+  if (prefs.zoom === 100) delete root.dataset.zoom
+  else root.dataset.zoom = String(prefs.zoom)
   // Chat text size: ds.css's --chat sizes for it; Default: none
   if (prefs.text === 'Default') delete root.dataset.text
   else root.dataset.text = prefs.text.toLowerCase()

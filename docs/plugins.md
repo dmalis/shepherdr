@@ -10,6 +10,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | artifacts | always on | The Artifacts pane, a page's tile in a chat, Mark up | |
 | search | always on | The command palette: finds anything and runs any command (⌘K, Ctrl+K) | |
 | shortcuts | always on | The shortcuts sheet (?), Settings › Shortcuts and the app's own commands ([shortcuts.md](shortcuts.md)) | |
+| zoom | always on | Zoom in, out and reset on ⌘= ⌘− ⌘0, and the palette row for Settings › General's Zoom and Chat text size | |
 | alerts | always on | Push alerts, one choice per device | |
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
 | terminal | yes | Your own terminal in a space or a task, and "View as terminal" | No Terminal menu items |

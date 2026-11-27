@@ -22,6 +22,21 @@ test("the key's place, not what Shift or Option types: ? is Shift+/, Option+1 is
   expect(chordOf(ev('Shift', 'ShiftLeft', { shift: true }), false)).toBeNull()
 })
 
+test('a sign is the character it types (dmalis/shepherdr#36): QWERTZ Cmd+- is Mod+-, its Cmd+Shift+7 is Mod+/', () => {
+  expect(chordOf(ev('-', 'Slash', { meta: true }), true)).toBe('Mod+-')
+  expect(chordOf(ev('/', 'Digit7', { meta: true, shift: true }), true)).toBe('Mod+/')
+  expect(chordOf(ev('?', 'Minus', { shift: true }), true)).toBe('Shift+/')
+  expect(chordOf(ev('+', 'BracketRight', { ctrl: true }), false)).toBe('Mod+Shift+=')
+  // a Mac's Cmd may report the unshifted sign: Shift on its own US place still counts
+  expect(chordOf(ev('/', 'Slash', { meta: true, shift: true }), true)).toBe('Mod+Shift+/')
+  // letters and digits keep their place: QWERTZ's Z key is Y's place, Alt+1–9 stay digits, Option's sign is its place
+  expect(chordOf(ev('z', 'KeyY', {}), false)).toBe('Y')
+  expect(chordOf(ev('-', 'Digit6', { alt: true }), false)).toBe('Alt+6')
+  expect(chordOf(ev('–', 'Minus', { alt: true }), true)).toBe('Alt+-')
+  // another script's letter on a sign key: its place
+  expect(chordOf(ev('ю', 'Period', { ctrl: true }), false)).toBe('Mod+.')
+})
+
 test('a chord written by hand reads as its one spelling', () => {
   expect(normal('cmd+shift+k', true)).toBe('Mod+Shift+K')
   expect(normal('ctrl+k', false)).toBe('Mod+K')
