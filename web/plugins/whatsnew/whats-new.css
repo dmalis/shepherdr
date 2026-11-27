@@ -21,12 +21,12 @@
 .wn-g li{padding:2px 0;color:var(--sub);font-size:var(--sec);line-height:var(--secl);overflow-wrap:anywhere}
 .wn-g code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;font-variant-ligatures:none}
 /* a line with more: the whole line opens it, its chevron says so. Its touch pad is the line itself, never over the
-   next one's (ds.css --hit); on touch the lines open up a little to make room for a finger */
+   next one's (ds.css --hit); on touch each is a finger's 44px of its own */
 .wn-g li:has(>.wn-i){padding:0}
 .wn-i{position:relative;--hit:0px;display:block;width:100%;padding:2px 0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:4px}
 .wn-i>.chev{display:inline-block;vertical-align:-3px;margin-left:2px;color:var(--muted);transition:transform .16s cubic-bezier(.2,0,0,1)}
 .wn-i[aria-expanded="false"]>.chev{transform:rotate(-90deg)}
-.app.tap .wn-i{padding:6px 0}
+.app.tap .wn-i{min-height:44px;padding:12px 0}
 .wn-rest{margin:0 0 4px;color:var(--muted)}
 .wn-all{margin:12px 0 0;padding-bottom:16px;font-size:var(--sec);line-height:var(--secl)}
 @media(prefers-reduced-motion:reduce){.wn-h>.chev,.wn-i>.chev{transition:none}}

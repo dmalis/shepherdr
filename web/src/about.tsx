@@ -2,13 +2,12 @@
 // which build of it each is when that isn't exactly the release, the way `git describe` and VS Code's About say it:
 // "3.2.22 · 6 changes on top · 9fedf5c", the commit opening on GitHub. The same number on another build is "newer build", so the two
 // rows can be compared. The stamp is read from the build itself (web/build-stamp.ts); a build without one says only
-// its version. Under the rows, What's new (fork patch #70, whats-new.tsx) lists what changed in each version.
+// its version. Under the rows, a plugin's views.about: What's new (fork patch #70) lists what changed in each version.
 import { aheadWords, commitUrl, exact, short, stampOf, type Stamp } from '@shared/build-stamp.ts'
-import { newerServed, updateNow, useStore } from './kernel.ts'
+import { newerServed, registry, updateNow, useStore } from './kernel.ts'
 import { SRow } from './settings.tsx'
 import { Btn } from './ui.tsx'
 import { OWN_VERSION } from './update.ts'
-import { WhatsNew } from './whats-new.tsx'
 import './about.css'
 
 /** this page's own stamp: its index.html says (vite.config.ts; none under test or for a build without git) */
@@ -43,6 +42,7 @@ export function BuildWords({ version, stamp, more = true }: { version: string; s
 export function About() {
   const served = useStore((s) => s.served)
   const newer = useStore(newerServed)
+  const More = registry.views.about
   return (
     <>
       <SRow label="This device" wrap>
@@ -60,7 +60,7 @@ export function About() {
           <Btn small onClick={updateNow}>Update this device</Btn>
         </div>
       )}
-      <WhatsNew />
+      {More && <More />}
     </>
   )
 }

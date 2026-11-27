@@ -42,12 +42,26 @@ const versionAt = (root: string, rev: string): string => {
   }
 }
 
+/** upstream's "Release Shepherdr <version>" commit at or under `from` (a sync's side of the merge), '' when none */
+function releaseCommit(root: string, from: string | undefined, version: string): string {
+  if (!from) return ''
+  const at = new RegExp(`^Release Shepherdr v?${version.replace(/\./g, '\\.')}(?![\\w.])`)
+  for (const l of (git(root, ['log', '-500', '--format=%H %s', from]) ?? '').split('\n')) {
+    const i = l.indexOf(' ')
+    if (at.test(l.slice(i + 1))) return l.slice(0, i)
+  }
+  return ''
+}
+
 /** The changes on top of each release, newest first, from HEAD back to the newest release commit. */
 export function onTop(root: string, version: string): OnTop[] {
   const SEP = '\x1e'
   const F = '\x1f'
   const log = git(root, ['log', '--first-parent', '--diff-merges=first-parent', '--name-only', `--format=${SEP}%H${F}%P${F}%s${F}%b${F}`, `-${WALK}`, 'HEAD', '--not', '--tags=v*'])
   if (log === null) return []
+  // what isn't merged yet: a branch's own commits, on no main this checkout knows (none known: all of it)
+  const mains = (git(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/main', 'refs/heads/master', 'refs/remotes/*/main', 'refs/remotes/*/master']) ?? '').split('\n').filter(Boolean)
+  const unmerged = new Set(mains.length ? (git(root, ['rev-list', `-${WALK}`, 'HEAD', '--not', ...mains]) ?? '').split('\n').filter(Boolean).map((s) => s.slice(0, SHORT)) : [])
   const out: OnTop[] = []
   let top: OnTop = { v: version, changes: [], trail: [] }
   // the commit before the oldest one walked: the release the oldest changes sat on, a build an update can come from
@@ -69,15 +83,17 @@ export function onTop(root: string, version: string): OnTop[] {
       // a release came in here: what's older sat on the one before
       const now = versionAt(root, sha)
       if (was && was !== now) {
-        // the release itself, merged in (its tag's commit, else the merge's other side): a build to count from too
-        const rel = [git(root, ['rev-parse', '-q', '--verify', `refs/tags/v${now}^{commit}`])?.trim(), parents.trim().split(' ')[1]]
+        // the release itself, merged in (its tag's commit, else its release commit under the merge's other side, which
+        // an install fetched without tags still has), and that other side: builds to count from too
+        const other = parents.trim().split(' ')[1]
+        const rel = [git(root, ['rev-parse', '-q', '--verify', `refs/tags/v${now}^{commit}`])?.trim() || releaseCommit(root, other, now), other]
         for (const r of rel) if (r && !top.trail.includes(r.slice(0, SHORT))) top.trail.push(r.slice(0, SHORT))
         out.push(top)
         top = { v: was, changes: [], trail: [] }
         continue
       }
     }
-    if (shown(t, files)) top.changes.push({ c: id, s: t })
+    if (shown(t, files) && !unmerged.has(id)) top.changes.push({ c: id, s: t })
   }
   if (before) top.trail.push(before.slice(0, SHORT))
   out.push(top)

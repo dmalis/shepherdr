@@ -110,13 +110,16 @@ describe('after an update', () => {
   const full = (s: string) => s + '0'.repeat(33)
 
   test('what came after the old build on the same release: housekeeping between counts nothing', () => {
-    expect(since(log, full('bbbbbbb'))).toEqual({ v: '3.2.22', changes: [{ c: 'ccccccc', s: 'Three' }] })
-    expect(since(log, full('5555555'))).toEqual({ v: '3.2.22', changes: [{ c: 'ccccccc', s: 'Three' }, { c: 'aaaaaaa', s: 'One' }] })
+    expect(since(log, full('bbbbbbb'))).toEqual({ v: '3.2.22', changes: [{ c: 'ccccccc', s: 'Three' }], newest: '3.2.22' })
+    expect(since(log, full('5555555'))).toEqual({ v: '3.2.22', changes: [{ c: 'ccccccc', s: 'Three' }, { c: 'aaaaaaa', s: 'One' }], newest: '3.2.22' })
     expect(since(log, full('ccccccc'))).toEqual({ v: '3.2.22', changes: [] })
   })
 
   test('from an older release: everything since, and the release it sat on', () => {
-    expect(since(log, full('eeeeeee'))).toEqual({ v: '3.2.21', changes: [{ c: 'ccccccc', s: 'Three' }, { c: 'aaaaaaa', s: 'One' }, { c: 'ddddddd', s: 'Old' }] })
+    expect(since(log, full('eeeeeee'))).toEqual({ v: '3.2.21', changes: [{ c: 'ccccccc', s: 'Three' }, { c: 'aaaaaaa', s: 'One' }, { c: 'ddddddd', s: 'Old' }], newest: '3.2.22' })
+    // nothing on top of the new release yet: the newest change is the older release's, so the toast opens there
+    const older = { onTop: [{ v: '3.2.22', changes: [], trail: ['fffffff', '1111111'] }, log.onTop[1]!] }
+    expect(since(older, full('eeeeeee'))).toEqual({ v: '3.2.21', changes: [{ c: 'ddddddd', s: 'Old' }], newest: '3.2.21' })
   })
 
   test('a build not on this branch, or no commit: unknown', () => {

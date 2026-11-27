@@ -1,7 +1,7 @@
-// fork patch #70: What's new's blocks, its dates, and the toast's words after an update
+// fork patch #70 (the whatsnew plugin): What's new's blocks, its dates, and the toast's words after an update
 import { describe, expect, test } from 'bun:test'
 import type { Changelog } from '@shared/changelog.ts'
-import { commitOf, updatedWords } from './update.ts'
+import { commitOf, updatedWords } from './go.ts'
 import { blocks, dateWords } from './whats-new.tsx'
 
 const log: Changelog = {
@@ -59,7 +59,9 @@ describe('the toast after an update', () => {
   })
   test('a new release: its number and what came on top, opening at them, else at the release', () => {
     expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [] })).toEqual({ text: 'Updated to 3.2.22 · 9fedf5c', at: '3.2.22' })
-    expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [{ c: 'aaaaaaa', s: 'A' }, { c: 'bbbbbbb', s: 'B' }] })).toEqual({ text: 'Updated to 3.2.22 · 2 new changes', at: 'top' })
+    expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [{ c: 'aaaaaaa', s: 'A' }, { c: 'bbbbbbb', s: 'B' }], newest: '3.2.22' })).toEqual({ text: 'Updated to 3.2.22 · 2 new changes', at: 'top' })
+    // the changes all sat on the release before: What's new opens at that release, where they are
+    expect(updatedWords('3.2.22', stamp, { v: '3.2.21', changes: [{ c: 'aaaaaaa', s: 'A' }], newest: '3.2.21' })).toEqual({ text: 'Updated to 3.2.22 · 1 new change', at: '3.2.21' })
   })
   test('the old build\'s commit comes from its build id', () => {
     expect(commitOf(`assets/a.js v3.2.22 @${stamp.commit}`)).toBe(stamp.commit)

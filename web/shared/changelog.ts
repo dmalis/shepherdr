@@ -142,7 +142,8 @@ export function shown(t: string, files: string[]): boolean {
 
 /* ---------- after an update ---------- */
 
-export type Since = { v: string; changes: Change[] }
+/** v: the release the old build sat on; newest: the release the newest of the changes sits on top of */
+export type Since = { v: string; changes: Change[]; newest?: string }
 
 /**
  * What a build has that the one it replaced (by its commit) didn't: the changes on top that came after that commit,
@@ -152,15 +153,14 @@ export function since(log: Pick<Changelog, 'onTop'>, commit: string): Since | nu
   if (!/^[0-9a-f]{7,64}$/.test(commit)) return null
   const id = commit.slice(0, SHORT)
   const changes: Change[] = []
+  let newest: string | undefined
   for (const top of log.onTop) {
     const at = top.trail.indexOf(id)
-    if (at < 0) {
-      changes.push(...top.changes)
-      continue
-    }
     const newer = new Set(top.trail.slice(0, at))
-    changes.push(...top.changes.filter((c) => newer.has(c.c)))
-    return { v: top.v, changes }
+    const here = at < 0 ? top.changes : top.changes.filter((c) => newer.has(c.c))
+    if (here.length) newest ??= top.v
+    changes.push(...here)
+    if (at >= 0) return { v: top.v, changes, ...(newest && { newest }) }
   }
   return null
 }

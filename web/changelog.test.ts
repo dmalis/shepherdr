@@ -24,7 +24,7 @@ const CHANGES = '# Changelog\n\n## 1.1.0\n\n- New things. More words.\n\n## 1.0.
  * The fork's shape: upstream's release commits, our pull requests on main, the next release merged in on the second
  * parent (a merge commit, as the sync's pull request is), more of ours after.
  */
-function fork(tags: boolean): string {
+function fork(tags: boolean, syncFix = false): string {
   const d = mkdtempSync(join(tmpdir(), 'changelog-'))
   dirs.push(d)
   git(d, 'init', '-q', '-b', 'main')
@@ -38,6 +38,8 @@ function fork(tags: boolean): string {
   put(d, 'CHANGELOG.md', CHANGES)
   git(d, 'commit', '-q', '-m', 'Release Shepherdr 1.1.0 (#12)')
   if (tags) git(d, 'tag', 'v1.1.0')
+  // the sync's own fix on its branch, above the release (the merge's other side isn't the release then)
+  if (syncFix) commit(d, 'Sync: a test fix', 'test/t.py')
   git(d, 'checkout', '-q', 'main')
   commit(d, 'Fork setup: rules', 'FORK.md')
   commit(d, 'Review rounds back in Settings (#1)')
@@ -85,6 +87,20 @@ describe('changelog at build time', () => {
     const d = fork(true)
     commit(d, 'About: a changelog')
     expect(changelog(d, '1.1.0').onTop[0]!.changes.map((c) => c.s)).toEqual(['Alerts: a list in the app', 'Sidebar: move a space above groups'])
+    // a task branch's own commits, even with an issue number, until main has them
+    git(d, 'checkout', '-q', '-b', 'task/x')
+    commit(d, 'Sends while asked: review round 1 (#59)')
+    expect(changelog(d, '1.1.0').onTop[0]!.changes.map((c) => c.s)).toEqual(['Alerts: a list in the app', 'Sidebar: move a space above groups'])
+    git(d, 'checkout', '-q', 'main')
+    git(d, 'merge', '-q', '--ff-only', 'task/x')
+    expect(changelog(d, '1.1.0').onTop[0]!.changes[0]!.s).toBe('Sends while asked: review round 1')
+  })
+
+  test('without tags, the release commit under a sync branch with its own fix above it is a build to count from', () => {
+    const d = fork(false, true)
+    const top = changelog(d, '1.1.0').onTop[0]!
+    expect(top.trail).toContain(git(d, 'rev-parse', '--short=7', ':/Release Shepherdr 1.1.0'))
+    expect(top.trail).toContain(sha(d, 'upstream'))
   })
 
   test('the repo is the remote the build comes from: an upstream clone fetching the fork from a remote of its own', () => {
@@ -132,11 +148,13 @@ describe('pinned seams', () => {
     const v = (JSON.parse(at('../package.json')) as { version: string }).version
     expect(/^## (\S+)$/m.exec(at('../CHANGELOG.md'))?.[1]).toBe(v)
   })
-  test('the build makes the module and counts it into the stamp; About shows it; the toast after an update asks it', () => {
+  test('the build makes the module and counts it into the stamp; About and the toast after an update have places for it', () => {
     expect(at('./vite.config.ts')).toContain("if (STAMP) STAMP.onTop = onTopCount(LOG, VERSION)")
     expect(at('./vite.config.ts')).toMatch(/name: 'shepherdr-changelog'.*CHANGELOG_ID/)
-    expect(at('./src/about.tsx')).toMatch(/<WhatsNew \/>\n    <\/>/)
+    expect(at('./src/about.tsx')).toContain('const More = registry.views.about')
+    expect(at('./src/about.tsx')).toMatch(/\{More && <More \/>\}\n    <\/>/)
     expect(at('./src/kernel.ts')).toContain("const after = afterLoad(mark, BUILD, OWN_VERSION, Date.now())")
-    expect(at('./src/kernel.ts')).toContain("sayUpdated(said, commitOf(mark?.from ?? ''), notice, () => openSettings('all', 'About'))")
+    expect(at('./src/kernel.ts')).toContain("registry.afterUpdate ? registry.afterUpdate(said, mark?.from ?? '') : notice(said, { ms: 5000 })")
+    expect(at('./plugins.json')).toContain('"whatsnew"')
   })
 })

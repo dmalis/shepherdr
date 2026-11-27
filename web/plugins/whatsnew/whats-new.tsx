@@ -7,9 +7,9 @@
 // button opens it at what the update brought.
 import { useEffect, useState } from 'react'
 import type { Change, Changelog, Item, Release } from '@shared/changelog.ts'
-import { I } from './ui.tsx'
-import { OWN_VERSION } from './update.ts'
-import { loadChangelog, onGoto, takeGoto } from './whats-new-go.ts'
+import { I } from '@client/ui.tsx'
+import { OWN_VERSION } from '@client/update.ts'
+import { loadChangelog, onGoto, takeGoto } from './go.ts'
 import './whats-new.css'
 
 /* ---------- the list ---------- */

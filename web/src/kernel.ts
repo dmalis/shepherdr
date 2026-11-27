@@ -4,8 +4,7 @@
 import { useSyncExternalStore, type FC, type ReactNode } from 'react'
 import { buildId } from '@shared/build.ts'
 import type { Stamp } from '@shared/build-stamp.ts'
-import { afterLoad, commitOf, mayRetry, OWN_VERSION, readMark, safeNow, writeMark, type Now } from './update.ts'
-import { sayUpdated } from './whats-new-go.ts'
+import { afterLoad, mayRetry, OWN_VERSION, readMark, safeNow, writeMark, type Now } from './update.ts'
 import type { Action, Chat, Message, ReplyQuote, ServerEvent, Snapshot, Task, UpdateStatus } from '@shared/types.ts'
 import { everything, placeOf, taskChat, taskOf, type ListFilter, type Space } from '@shared/view.ts'
 import { clean, NO_FILTER, type TaskFilter } from '@shared/task-filter.ts'
@@ -111,6 +110,8 @@ export interface Registry {
     tile?: FC<{ id: string }>
     /** search: one box for spaces, tasks and artifacts */
     search?: FC<{ close: () => void }>
+    /** under Settings › About's version rows (whatsnew: What's new, fork patch #70) */
+    about?: FC
     /** the picker row a dialog shows for an agent choice lives in picker.tsx; the settings window in settings.tsx */
   }
   /** buttons at the right of a chat's header, in order: Artifacts, Tasks (Tasks last: it opens where its pane's Close lands). Terminal and Screen are rows of the space's
@@ -168,13 +169,16 @@ export interface Registry {
   commands: Command[]
   /** a wake word on this device: the voice plugin starts a call */
   voiceWake: (() => void) | null
+  /** the line after the page updated itself (`said`, "Updated to …"), from the build it replaced (`from`, its build
+   *  id): whatsnew says what the update brought (fork patch #70); none: the plain line */
+  afterUpdate: ((said: string, from: string) => void) | null
 }
 
 export const registry: Registry = {
   views: {},
   header: [], taskHeader: [], panes: [], bar: [], spaceMenu: [], taskMenu: [], messageParts: [], messageEdge: [], messageQuick: [],
   messageMenu: [], chatCards: [], chatTail: [], chatBody: [], aboveBox: [], boxButtons: [], drawer: [], sideHead: [], overlays: [], topBars: [], settings: [],
-  keys: [], commands: [], voiceWake: null, middle: [],
+  keys: [], commands: [], voiceWake: null, afterUpdate: null, middle: [],
 }
 
 export interface ClientPlugin {
@@ -827,8 +831,8 @@ if (typeof window !== 'undefined') {
     if (!said || document.visibilityState !== 'visible') return
     document.removeEventListener('visibilitychange', say)
     after.said = null
-    // what the update brought, from the build it replaced (fork patch #70, whats-new.tsx)
-    setTimeout(() => void sayUpdated(said, commitOf(mark?.from ?? ''), notice, () => openSettings('all', 'About')), 600)
+    // a plugin says what the update brought, from the build it replaced (fork patch #70); else the plain line
+    setTimeout(() => (registry.afterUpdate ? registry.afterUpdate(said, mark?.from ?? '') : notice(said, { ms: 5000 })), 600)
   }
   if (after.said) {
     document.addEventListener('visibilitychange', say)

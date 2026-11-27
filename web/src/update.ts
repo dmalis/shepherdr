@@ -4,9 +4,6 @@
 // their own (kept on the device, the URL); a mark left before the reload says "Updated to …" once after it, and stops a
 // reload that brought the same old page back from trying again and again.
 
-import { exact, short, type Stamp } from '@shared/build-stamp.ts'
-import { changesWords, type Since } from '@shared/changelog.ts'
-
 /** the version this page was built as: its index.html says (vite.config.ts; none under test) */
 export const OWN_VERSION = typeof document === 'undefined' ? '' : (document.querySelector<HTMLMetaElement>('meta[name="shepherdr-version"]')?.content ?? '')
 
@@ -66,27 +63,4 @@ export function writeMark(m: Mark | null) {
   } catch {
     /* private mode: no line after, and no guard against trying again */
   }
-}
-
-/* ---------- what the update brought (fork patch #70) ---------- */
-
-/** the commit a build id ends with ("… @<commit>", fork patch #44), or '' for a build without one */
-export const commitOf = (build: string) => /@([0-9a-f]{7,64})$/.exec(build)?.[1] ?? ''
-
-/** the toast's words, and where in What's new its button opens: 'top' (the changes on top) or a release */
-export type Updated = { text: string; at?: 'top' | string }
-
-/**
- * The line after an update, naming the build as About does ("Updated to 3.2.22 · 9fedf5c"). Changes on top that the
- * old build didn't have: how many, opening What's new at them ("Updated · 3 new changes"), the way VS Code says
- * "updated, see the release notes". A new release says its number too ("Updated to 3.2.23 · 3 new changes"), and
- * opens What's new at the changes on top, else at the release.
- */
-export function updatedWords(version: string, stamp: Stamp | null, news: Since | null): Updated {
-  if (!version) return { text: 'Updated to the newest version' }
-  const build = `Updated to ${version}${exact(stamp) ? '' : ` · ${short(stamp!.commit)}`}`
-  const n = news?.changes.length ?? 0
-  if (news && news.v !== version) return n ? { text: `Updated to ${version} · ${changesWords(n)}`, at: 'top' } : { text: build, at: version }
-  if (n) return { text: `Updated · ${changesWords(n)}`, at: 'top' }
-  return { text: build }
 }
