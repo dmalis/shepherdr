@@ -35,7 +35,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
 ## 3. Build it to survive
 
 - **For every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What only suits
-  them is a setting (below). A patch that can't fit everyone is fork-only, and its issue says so (upstream-issue
+  them is a setting (below). A patch that can't fit everyone says so on its issue, so the person can keep it ours (upstream-issue
   skill: "Built for everyone").
 - **New files over edits.** Put our code in our own modules: a new Python module beside upstream's, a plugin under
   `web/plugins/<name>/` (docs/plugins.md), our scripts in `fork/`. Edit upstream's files only at one call site or one
@@ -67,5 +67,5 @@ so the cost of a patch is how often a release breaks it. Build for that.
 - The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
   `check` passed, and the reviewer had no must-fix finding left.
 - The issue's status says "carried since `ours-…`" once it is installed.
-- Once it is merged, offer it upstream with no further yes, unless it is fork-only (upstream-issue skill: "Offering a
-  fix").
+- Once it is merged, its issue is labelled `not-filed`, and the person decides whether to file it upstream, keep it
+  ours or undo it (upstream-issue skill: "After a fix lands").
