@@ -24,6 +24,7 @@ from .launch import default_space
 from .store import locate, read_list, Store, store_files
 from .queues import machine_hold, refresh_ext, set_hold, waiting_ext, waiting_for
 from .archive import archive_pass
+from . import after_merge
 from .browsers import browser_pass
 from .output import progress_clock, say
 from .commands import back_to_work, begin, merge_failed, merge_now, merge_waits, MERGE_FAILED, restack, workers
@@ -492,6 +493,11 @@ def tick_store(s, report):
 
 def tick_turn(s, report):
     for t in s.data["tasks"]:
+        try:
+            # dmalis/shepherdr#48: a merged task stays done, what came after its merge offered (after_merge.py)
+            after_merge.unstick(s, t, report) if t["state"] in ("running", "ready") else after_merge.watch(s, t, report)
+        except Exception as e:  # never stops the tick
+            report.setdefault("github_error", []).append(f"{s.ref(t)}: {e}")
         if t["state"] == "ready":
             back_pass(s, t, report)
         if t["state"] == "ready" and not t.get("waits_why"):

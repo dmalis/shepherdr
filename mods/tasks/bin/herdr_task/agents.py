@@ -195,7 +195,10 @@ def task_status(task, live):
     if busy_again(task, live):
         return "working", None, WORKING_AGAIN
     if task.get("attention"):
-        return "working", None, WORKING_AGAIN if st == "ready" else None
+        # dmalis/shepherdr#48: "Working again" only while its agent works (or was just handed it); quiet, on it, its own
+        # status line says what
+        again = "working" in states or now() - (task.get("handed_at") or 0) < STARTING_MS
+        return "working", None, WORKING_AGAIN if st == "ready" and again else None
     if st == "ready":
         # Nothing for the person yet (SHEP-175): its merge under way (asked, in GitHub's merge queue, or
         # by itself), or its pull request's checks still running. Working, with what it waits for.

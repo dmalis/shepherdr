@@ -196,6 +196,14 @@ function action(a: Record<string, any>): unknown {
   }
   const t = a.chat ? taskOf(a.chat) : undefined
   if (a.type === 'close' && t) return patchTask(t.id, { status: 'done', doneAt: Date.now() }), { ok: true }
+  // dmalis/shepherdr#48: a merged task's commits after its merge, carried by a new Working task
+  if (a.type === 'follow-up' && t?.afterMerge && !t.afterMerge.onMain && !t.afterMerge.followUp) {
+    const id = t.id.replace(/\d+$/, (d) => String(Number(d) + 100))
+    const title = t.afterMerge.commits[0] ?? 'Follow-up'
+    each((snap) => { snap.tasks = [{ ...t, id, name: title, status: 'work', state: 'work', doneAt: undefined, merged: undefined, afterMerge: undefined, needsAtWas: undefined, started: Date.now(), agent: { ...t.agent!, chat: `${id}/worker` }, report: { msg: 'Checking the carried commit' } }, ...snap.tasks] })
+    patchTask(t.id, { afterMerge: { ...t.afterMerge, followUp: { id, title } } })
+    return { ok: true }
+  }
   if (a.type === 'delete' && t) return each((snap) => { snap.tasks = snap.tasks.filter((x) => x.id !== t.id) }), { ok: true }
   if (a.type === 'archive' && t) return patchTask(t.id, { archived: a.on ? Date.now() : undefined }), { ok: true }
   if (a.type === 'task-rename' && t) return patchTask(t.id, { name: a.name }), { ok: true }

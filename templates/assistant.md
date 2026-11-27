@@ -127,13 +127,14 @@ herdr-task start <task> --space "$SPACE" --parent "$HC_TERMINAL_ID" --json   # s
 herdr-task accept <task> --json                  # the person's Mark as done on a task that is Ready for review: merges first if there's something to merge, then done
 herdr-task merge <task> --json                   # merge it (in a GitHub repo: squash-merges its pull request); it becomes done
 herdr-task stop <task>                           # the person's Stop: its agent drops what it was doing and waits; their next message carries on
-herdr-task reply <task> "<their words>"          # their message to a task; a Stopped one carries on, a Done one starts its agent again in the same thread
+herdr-task reply <task> "<their words>"          # their message to a task; a Stopped one carries on, a Done one starts its agent again in the same thread (a merged one stays Done)
 herdr-task resume <task> --space "$SPACE" --parent "$HC_TERMINAL_ID" --json  # Restart: start a Stopped task's agent again on its own session
 herdr-task fix <task>                            # ask its agent to fix what keeps it from merging
 herdr-task fix <task> --withdraw                 # take back a fix that no longer applies (fixed elsewhere, its agent told to stop)
 herdr-task review-more <task>                    # one more review round, only when the person asks, once all are used
 herdr-task done <task>                           # mark it done without merging (only when the person asks): on its own branch it reads "Done · not merged", branch and pull request left as they are
 herdr-task reopen <task>                         # undo done or ready
+herdr-task follow-up <task>                      # a merged task's commits after its merge: a new task from main carrying them (when the person asks, or its card offers it)
 herdr-task archive <task>                        # out of the list, nothing deleted (unarchive <task> brings it back); rm <task> deletes it and stops its agent
 herdr-task edit <task> --title "…" --space <id>  # rename; move to another space only before it has started (--move-to <folder> when that space is another folder)
 herdr-task alert "Deploy is down" --body "why"  # only what truly can't wait: a toast and a sound (--task <task>: about that task)

@@ -1045,6 +1045,8 @@ def finish(s, task, even_if_busy=False, quiet=False):
     s.dirty = True
     if task.get("merged"):
         base_moved(s, task)
+        from .after_merge import note_merged
+        note_merged(s, task)  # dmalis/shepherdr#48: what comes after it on its branch is work after the merge
     # The space's "When a task is accepted" command, in the background (after_accept.py): never waited on.
     # quiet: a schedule's run that ended with nothing to review (ready --nothing / --told): nothing was accepted.
     if not quiet:
@@ -1236,6 +1238,9 @@ def tidy_done(s, t, report=None):
     base = t.get("base") or "main"
     newer = ok and tip and tip != t.get("own") and not any(
         git(main, "merge-base", "--is-ancestor", tip, ref)[0] for ref in (base, f"refs/remotes/{remote_of(main)}/{base}"))
+    if not newer and not busy:
+        from .after_merge import unsaved
+        newer = unsaved(s, t)  # dmalis/shepherdr#48: commits after its merge that only its branch holds
     if busy or newer or not remove_worktree(s, t):
         t["worktree_kept"] = now()
         s.dirty = True

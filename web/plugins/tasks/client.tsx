@@ -22,6 +22,8 @@ import { Markdown } from '@plugins/chat/markdown.tsx'
 import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
 import { StatusIcon } from './icon.tsx'
+import { AfterMergeCard } from './after-merge.tsx'
+import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
 
@@ -308,7 +310,17 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   if (!snap) return null
   const s = tstate(t)
   // closed by its Merge setting with nothing to merge: what it found stays in the line (dmalis/shepherdr#29)
-  if (s === 'done' || s === 'archived') return <DoneRow>{statusWord(t).word} · {t.name}{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}</DoneRow>
+  if (s === 'done' || s === 'archived') {
+    // dmalis/shepherdr#48: what came after its merge, one line with its offer (its pane has the commits and the card)
+    const am = afterMergeNote(t.afterMerge)
+    const offer = offersAfterMerge(t) && !t.afterMerge?.onMain && !t.afterMerge?.followUp
+    return (
+      <DoneRow>
+        {statusWord(t).word} · {t.name}{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}{am ? ` · ${am}` : ''}
+        {offer && <> · <button type="button" className="lk" onClick={() => void tryAct({ type: 'follow-up', chat: taskChat(t) }, 'Follow-up started', 'Starting the follow-up…')}>Start a follow-up</button></>}
+      </DoneRow>
+    )
+  }
   const down = placeDown(snap, t.place)
   const branch = onBranch(t)
   const merging = t.status === 'merging' || !!t.accepting
@@ -422,7 +434,7 @@ function taskCards(snap: Snapshot, thread: Thread): { key: string; at?: number; 
     const alert = taskAlerts(snap).get(t.id)
     // each where it came up among the messages, never held at the end (SHEP-419)
     // a Ready card still waiting goes below what was said after it (#1475)
-    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : [])]
+    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(offersAfterMerge(t) ? [{ key: `after-merge:${t.id}`, at: t.doneAt, after: () => true, node: <AfterMergeCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : [])]
   }
   // cards stay in the chat that asked (SHEP-325): a space's Tasks also holds what works in its folder, its chat does not
   const mine = tasksIn(snap, thread.place).filter((t) => isEverything(snap, thread.place) || t.place === thread.place)

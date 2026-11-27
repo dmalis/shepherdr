@@ -3,6 +3,7 @@
 // row's words and time, a space's "needs you" count. The app, the alerts and the voice all read it from here.
 import type { Artifact, Automation, Machine, Place, Section, Snapshot, Task } from './types.ts'
 import { taskAlerts } from './needs-you.ts'
+import { afterMergeNote } from './after-merge.ts'
 import { inSlots, type Slotted } from './group-slots.ts'
 import { answeredWords } from './answered.ts'
 
@@ -187,7 +188,8 @@ export function statusWord(t: Task): { word: string; tone: Tone } {
 /** how a finished task ended: "Done and merged · 1 link fixed", "Done · not merged", "Done · nothing to do" */
 export function doneWords(t: Task): string {
   if (t.quiet === 'nothing') return 'Done · nothing to do'
-  if (t.merged) return `Done and merged${t.doneNote ? ` · ${t.doneNote}` : ''}`
+  // dmalis/shepherdr#48: what came after its merge, offered as a follow-up (after-merge.ts)
+  if (t.merged) return `Done and merged${t.doneNote ? ` · ${t.doneNote}` : ''}${afterMergeNote(t.afterMerge) ? ` · ${afterMergeNote(t.afterMerge)}` : ''}`
   if (t.quiet === 'told') return `Done · ${t.doneNote ?? 'told you in its chat'}`
   if (t.nothingToMerge) return 'Done · nothing to merge'
   if (onBranch(t)) return 'Done · not merged'
@@ -197,6 +199,9 @@ export function doneWords(t: Task): string {
 /** a task row's second line: what it says now (nothing for a plain task not started yet) */
 /** A report that says the agent needs a decision is only a waiting line when it actually stops. */
 export const waitingReport = (text?: string | null) => /^needs\b/i.test(text?.trim() ?? '')
+
+/** a Working task whose agents are all idle (their live state), with no line of their own: what it waits for */
+export const IDLE = 'Its agent is idle, waiting for a message'
 
 /** a task's row words; just after its prompt was answered, that answer first (dmalis/shepherdr#45) */
 export const taskLine = (t: Task): string => answeredWords(t, rowLine(t))
@@ -212,8 +217,9 @@ function rowLine(t: Task): string {
     if (t.waitsDesktop) return 'Waiting for the desktop'
     if (t.queuedQuestions) return `Working · ${t.queuedQuestions} ${t.queuedQuestions === 1 ? 'question' : 'questions'} for you`
     const report = t.report?.msg
-    if (waitingReport(report)) return 'Working'
-    return report || (t.schedule ? 'Started by its schedule' : '')
+    if (waitingReport(report)) return t.agentIdle ? IDLE : 'Working'
+    // dmalis/shepherdr#48: its agent idle, no line of its own: says so, never a bare Working
+    return report || (t.agentIdle ? IDLE : t.schedule ? 'Started by its schedule' : '')
   }
   return t.afterTitle ? afterWords(t) : t.startsAt ? `Starts ${dayTime(t.startsAt)}` : ''
 }
@@ -280,7 +286,8 @@ export function leftShort(min: number | null | undefined): string {
  *  sign that tells states apart without colour (needs you: the ring's inside softly tinted; stopped: a square; not started, waiting for the person's Start: a dotted ring, as
  *  Linear's Backlog; Up next and Scheduled are a plain empty ring, as its Todo). */
 export interface Ring {
-  kind: 'check' | 'ring'
+  /** pending: a still dot, never a turning ring: its agent idle on a Working task (dmalis/shepherdr#48) */
+  kind: 'check' | 'ring' | 'pending'
   tone: 'working' | 'ask' | 'red' | 'ready' | 'mute'
   pct: number | null
   mark?: 'tint' | 'stop' | 'unstarted'
@@ -297,6 +304,8 @@ export function ringOf(t: Task): Ring {
   const done = pct === null ? '' : `, ${pct}% done`
   if (t.stopped) return t.stopped.by === 'you' ? { kind: 'ring', tone: 'ask', pct, mark: 'stop', label: `Stopped by you${done}` } : { kind: 'ring', tone: 'red', pct, mark: 'stop', label: `Stopped${done}` }
   if (s === 'ask') return { kind: 'ring', tone: 'ask', pct, mark: 'tint', label: `Needs you${done}` }
+  // its agent idle (live state), no progress to draw: a still dot, the turning ring only for real work (dmalis/shepherdr#48)
+  if (s === 'working' && t.agentIdle && pct === null && !t.accepting) return { kind: 'pending', tone: 'working', pct, label: 'Idle' }
   if (s === 'working') return { kind: 'ring', tone: 'working', pct, label: `Working${done}` }
   // added and waiting for the person's Start (SHEP-369): a dotted ring; queued or scheduled (starts by itself): a solid empty one
   if (t.status === 'todo' && !t.agent && !t.started) return { kind: 'ring', tone: 'mute', pct: pct ?? 0, mark: 'unstarted', label: 'Not started' }

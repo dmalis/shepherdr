@@ -144,6 +144,39 @@
    }
   },
   {
+   "name": "Ready, its agent quiet on the failure with its own status: Working, its own line, never Working again (dmalis/shepherdr#48)",
+   "task": {
+    "state": "ready",
+    "ready_at": 1799996400000,
+    "ready_turns": {
+     "t1": 5
+    },
+    "started": 1799992800000,
+    "agents": [],
+    "attention": "Checks failing: check.",
+    "attention_at": 1799999400000,
+    "progress": {
+     "text": "Re-running CI",
+     "set": 1799999700000,
+     "at": 1799999700000,
+     "done": 95
+    }
+   },
+   "live": [
+    {
+     "address": "t1",
+     "status": "idle",
+     "turn": 5,
+     "role": "worker"
+    }
+   ],
+   "expect": {
+    "status": "working",
+    "needs": null,
+    "why": null
+   }
+  },
+  {
    "name": "its own status from before the failure: Needs you",
    "task": {
     "state": "running",
