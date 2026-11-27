@@ -1018,7 +1018,10 @@ def passed(p, s, run_key, folder, repo, sha, words, want_tag):
         st["installs"] = (st.get("installs") or [])[-(state.KEEP - 1):] + [
             {"sha": sha, "version": rec.get("version"), "at": state.stamp(), "tag": pushed,
              "run": r.get("key"), "path": r.get("path")}]
-        if r.get("path") != OURS:
+        if r.get("path") == OURS:
+            from . import merged
+            merged.track(st, sha, rec.get("version"), pushed, r.get("key"))     # CI on main reports after it
+        else:
             # a release sync's install passed main's checks before it went in: a point the person can go back to
             st["recovery"] = {"sha": sha, "version": rec.get("version"), "tag": pushed, "at": state.stamp()}
         state.set_phase(st, "healthy")

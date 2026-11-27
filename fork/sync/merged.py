@@ -234,19 +234,42 @@ def ci_verdict(repo, sha, tip, runs_of=None):
 FINAL_VERDICTS = ("green", "red", "missed")
 
 
+def track(st, sha, version, tag, run):
+    """An install of ours, recorded in `ci` as pending when it goes in: its CI is read from here, so it is never lost
+    when the installs history (KEEP entries) moves on before CI answers."""
+    ci = st.setdefault("ci", {})
+    ci[sha] = {"verdict": "pending", "names": {}, "version": version, "tag": tag, "installed": state.stamp(),
+               "run": run, "told": False}
+
+
+def tracked(st):
+    """[{sha, at, version, tag, run}] of every install of ours the state knows, oldest first: those in `ci` (each
+    pending one stays there until its verdict is final) and those in the installs history."""
+    out, seen = [], set()
+    for sha, v in (st.get("ci") or {}).items():
+        if v.get("installed") and state.SHA.match(sha):
+            out.append({"sha": sha, "at": v["installed"], "version": v.get("version"), "tag": v.get("tag"),
+                        "run": v.get("run")})
+            seen.add(sha)
+    for i in st.get("installs") or []:
+        if i.get("path") == PATH and state.SHA.match(i.get("sha") or "") and i["sha"] not in seen:
+            out.append({k: i.get(k) for k in ("sha", "at", "version", "tag", "run")})
+            seen.add(i["sha"])
+    return sorted(out, key=lambda i: str(i.get("at") or ""))
+
+
 def ci_unresolved(st):
-    """The installs of ours (all the state keeps) whose CI verdict isn't final yet. Each one is final at the latest
-    CI_MISSED_AFTER_S after its install (missed), so the list stays short."""
+    """The installs of ours whose CI verdict isn't final yet, however many came after. Each one is final at the
+    latest CI_MISSED_AFTER_S after its install (missed), so the list stays short."""
     ci = st.get("ci") or {}
-    return [i["sha"] for i in st.get("installs") or [] if i.get("path") == PATH
-            and state.SHA.match(i.get("sha") or "") and (ci.get(i["sha"]) or {}).get("verdict") not in FINAL_VERDICTS]
+    return [i["sha"] for i in tracked(st) if (ci.get(i["sha"]) or {}).get("verdict") not in FINAL_VERDICTS]
 
 
 def ci_read(p, repo, now=time.time, runs_of=None):
     """Reads CI for each install of ours whose verdict isn't final yet, records it, and the recovery point. Returns
     the shas still pending. Nothing when there is nothing to read; a fetch that fails leaves them for later."""
     with state.locked(p) as st:
-        todo = [dict(i) for i in st.get("installs") or [] if i.get("sha") in ci_unresolved(st)]
+        todo = [i for i in tracked(st) if i["sha"] in ci_unresolved(st)]
     if not todo:
         return []
     try:
@@ -271,8 +294,9 @@ def ci_read(p, repo, now=time.time, runs_of=None):
             if (ci.get(sha) or {}).get("verdict") in FINAL_VERDICTS:
                 continue                    # another read settled it meanwhile: never back to pending
             ci[sha] = dict(ci.get(sha) or {}, **v, told=bool((ci.get(sha) or {}).get("told")))
-        for sha in list(ci)[:-CI_KEEP] if len(ci) > CI_KEEP else []:
-            ci.pop(sha, None)
+        final = [sha for sha, v in ci.items() if v.get("verdict") in FINAL_VERDICTS]
+        for sha in final[:-CI_KEEP] if len(final) > CI_KEEP else []:
+            ci.pop(sha, None)               # only final ones go: a pending one stays until it is read
         st["recovery"] = recovery(st)
     return [sha for sha, v in seen.items() if v["verdict"] == "pending"]
 
@@ -320,8 +344,7 @@ def mark_told(st, shas):
 
 def run_installs(st, run):
     """The commits this run installed by our merges' policy, oldest first."""
-    return [i["sha"] for i in st.get("installs") or [] if i.get("run") == run and i.get("path") == PATH
-            and state.SHA.match(i.get("sha") or "")]
+    return [i["sha"] for i in tracked(st) if i.get("run") == run]
 
 
 CI_WAIT_S = 30 * 60      # a run waits this long after its install for CI's verdict; a later run tells what comes after
@@ -353,7 +376,7 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
         raise Refused("finish didn't hand this run to ci: run finish", outcome="stop")
     shas = list(rep.get("ci") or [])
     with state.locked(p) as st:
-        ats = [i.get("at") for i in st.get("installs") or [] if i.get("sha") in shas]
+        ats = [i.get("at") for i in tracked(st) if i["sha"] in shas]
     try:
         newest = max(state.parse_stamp(a) for a in ats)        # the last install of this run's
     except (TypeError, ValueError):

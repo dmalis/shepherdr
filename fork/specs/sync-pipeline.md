@@ -647,7 +647,8 @@ doesn't clear it, but a change to a shipped file does. `settle` ends such a run 
   main runs when main moves, and a later run covers the SHA. When `check`'s push trigger skips the SHA's push
   (`paths-ignore`), an older commit with the same code counts.
 - `finish` reads nothing from GitHub and lets go of the lease first, so the next install never waits for CI. While
-  any install of ours has no final verdict, it says `next: ci`. Then `ci` reads every such install's verdict, however
+  any install of ours has no final verdict, it says `next: ci`. Each install of ours is recorded in `ci` as pending
+  when it goes in, and stays there until its verdict is final, however far the installs history moves on. Then `ci` reads every such install's verdict, however
   many installs came after it, and waits for the run's own, in calls of at most 9 minutes, for up to 30 minutes after
   the install. It then gives the completion command.
 - A red result is told once per SHA, in the run's `--told` words: which check failed and on which commit, that

@@ -100,6 +100,18 @@ class Pending(unittest.TestCase):
         st["ci"][shas[3]] = {"verdict": "pending"}
         self.assertEqual(merged.ci_unresolved(st), [shas[0], shas[3]], "the oldest is never dropped")
 
+    def test_a_pending_install_outlives_the_installs_history(self):
+        st = state.fresh()
+        shas = [f"{n:040x}" for n in range(1, state.KEEP + 12)]
+        for n, x in enumerate(shas):
+            merged.track(st, x, "3.2.21", f"ours-3.2.21-{n}", "SYNC-1")
+            st["ci"][x]["installed"] = f"2026-01-01T00:{n // 60:02d}:{n % 60:02d}Z"
+            st["installs"] = ((st.get("installs") or []) + [{"sha": x, "path": "install-merged", "run": "SYNC-1"}])[
+                -state.KEEP:]
+        self.assertNotIn(shas[0], [i["sha"] for i in st["installs"]], "the history moved on")
+        self.assertEqual(merged.ci_unresolved(st)[0], shas[0], "its CI is still read")
+        self.assertEqual(merged.run_installs(st, "SYNC-1")[0], shas[0], "and its run still waits for it")
+
 
 class Settle(syncworld.World):
     """settle in the sync world: the fork's main is v3.2.21 plus our patch (a.txt changed, a shipped file)."""
@@ -443,6 +455,7 @@ class OursInstall(installworld.World):
         self.assertEqual(st["installs"][-1]["path"], "install-merged")
         self.assertEqual(st["installs"][-1]["run"], self.RUN)
         self.assertIsNone(st.get("recovery"), "only CI's pass makes ours a recovery point")
+        self.assertEqual(st["ci"][self.C]["verdict"], "pending", "tracked for CI from its install")
         self.assertEqual([x["line"] for x in out["lines"]],
                          ["hooks", "record", "files", "web", "tasks", "assistants", "scheduler", "doctor"])
 
