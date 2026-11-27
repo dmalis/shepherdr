@@ -176,7 +176,8 @@ export const SCREEN = {
 // A CLI's folder-trust screen (#1441): Claude Code's "Quick safety check" / "Do you trust the files in this folder?" (its
 // Enter on the wrong choice exits), Codex's "Do you trust the contents of this directory?". The person's choice every
 // time: { yes, no } (the screen's own choice for each, wherever its cursor is) and the folder it names, else null.
-const TRUST_WORDS = /Quick safety check|Do you trust the files in this folder|trust this folder|Do you trust the contents of this directory|allow Codex to work in this folder/i;
+// (and Claude Code's --add-dir one, "Is this a directory you created or one you trust?", a reviewer's: dmalis/shepherdr#62)
+const TRUST_WORDS = /Quick safety check|Do you trust the files in this folder|trust this folder|Do you trust the contents of this directory|allow Codex to work in this folder|Is this a directory you created or one you trust/i;
 export function trustOf(card) {
   if (!card || !TRUST_WORDS.test(`${card.all ?? ""}\n${card.words ?? ""}`)) return null;
   const labels = (card.choices ?? []).map((c) => String(c.label ?? ""));

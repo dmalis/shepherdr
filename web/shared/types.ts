@@ -487,6 +487,21 @@ export interface Choice {
 }
 
 /** An agent needs signing in: the person runs `how` in its own terminal (Shepherdr never signs in for them). */
+/** The trust card's per-repo tip (service/trust-tip.ts): a command the person runs in their own terminal, once, so
+ *  the repo's next tasks don't ask. key: machine and folder, marked seen when it's copied (the "trust-tip" action). */
+export interface TrustTip {
+  key: string
+  /** the task's machine, as Machine.machine */
+  machine: string
+  folder: string
+  lead: string
+  command: string
+  /** what to answer once it runs: "answer Yes, …, then type /exit." */
+  then: string
+  /** why the main checkout covers the task folders, when it does */
+  covers?: string
+}
+
 export interface SignIn {
   cli: string
   connector?: string
@@ -519,7 +534,7 @@ export interface Question {
   press?: boolean
   /** #1441: a CLI's folder-trust screen, as its own card: choice 0 trusts the folder and starts, 1 says no. cli: who
    *  asks; folder: the folder it names; waits and allows: its two plain lines */
-  trust?: { cli: string; folder?: string; waits: string; allows: string }
+  trust?: { cli: string; folder?: string; waits: string; allows: string; tip?: TrustTip }
   /** a task worker's ask in its Assistant's chat (3.0's): headed by its task, "Open chat" goes to its own chat */
   by?: { ref: string; title?: string; chat: string }
   /** A terminal checkbox prompt can be declined without enabling any of its choices. */
@@ -1456,6 +1471,8 @@ export type Action =
   | { type: 'recap'; chat: string }
   | { type: 'text'; chat: string; text: string }
   | { type: 'call'; chat: string; on: boolean }
+  /** the trust card's per-repo tip copied: not shown again for that repo (service/trust-tip.ts) */
+  | { type: 'trust-tip'; key: string; card: string }
   /** place: the level it is set at, as a place id (all when none); a machine's or project's goes to that machine */
   | { type: 'setting'; key: string; value: string | null; place?: string }
   /** archive a task (on: true; its agent stops first) or bring it back; chat is its agent's key (ID/Agent) */

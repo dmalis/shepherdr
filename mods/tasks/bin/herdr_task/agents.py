@@ -447,7 +447,7 @@ REASONS = {"plan": "Plan to approve", "permission": "Asks permission", "question
            "reply": "Waits for your reply", "signed_out": "Signed out", "trust": "Asks to trust this folder"}
 
 # These startup prompts are visible before the agent reports a status.
-CLAUDE_TRUST = re.compile(r"Quick safety check|Do you trust the files in this folder|Yes, I trust this folder", re.I)
+CLAUDE_TRUST = re.compile(r"Quick safety check|Do you trust the files in this folder|Yes, I trust this folder|Is this a directory you created or one you trust", re.I)
 CODEX_TRUST = re.compile(r"Do you trust the contents of this directory|allow Codex to work in this folder", re.I)
 _startup_seen = {}
 
