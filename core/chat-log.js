@@ -13,6 +13,7 @@
 // from one read of /proc, else one ps (macOS) (GitHub #1013: a pgrep per process read every process each
 // time).
 import { codexQuestions } from "./asks.js";
+import { plainSuggests } from "./plain-suggests.js";
 
 export const FIND = `
 kind="$1"; pid="$2"
@@ -1079,7 +1080,17 @@ export class Conversation {
       if (!(a && "no-reply" in a) && !/^<hc\s+no-reply\s*\/>/.test(line.trim()) && !/^<\/?no-reply\b/.test(line.trim())) out.push(line);
       else if (this.pilot) { this.pilot.quiet = true; if (a?.why) this.pilot.why = unattr(a.why); }
     }
-    const said = out.join("\n").trim();
+    let said = out.join("\n").trim();
+    // dmalis/shepherdr#42: a plain "Suggested replies:" list last is never words: its items are the suggestions
+    // (this.rawSaid: the words as written, read again with the rest of the same reply; this.tagged: its own
+    // <hc suggest> lines, which a plain list never replaces)
+    this.rawSaid = said;
+    this.tagged = !!this.suggestion?.length;
+    const plain = plainSuggests(said);
+    if (plain) {
+      said = plain.text;
+      if (!this.tagged) this.suggestion = plain.suggests;
+    }
     if (said && this.pilot) this.pilot.said = true;
     return said;
   }
@@ -1195,23 +1206,33 @@ export class Conversation {
       for (const b of Array.isArray(m.content) ? m.content : []) {
         const told = narration(l, b);
         if (b?.type === "thinking" && !told && !this.open.size) this.doing = "Thinking";
+        this.rawSaid = "";
         const said = b?.type === "text" ? this.agentText(b.text ?? "") : told ? this.agentText(b.thinking) : "";
-        if (said) {
-          // One reply can be written over several lines with the same id.
-          const prev = this.replies.get(id);
-          if (prev && this.items[this.items.length - 1] === prev) {
-            prev.text += "\n\n" + said;
-            // the newest words' suggestion, if they end with one
-            delete prev.suggests;
-            const sg = this.takeSuggest();
-            if (prev.kind !== "recap") Object.assign(prev, sg);
-          } else {
-            const sg = this.takeSuggest();
-            const item = { kind: this.recapping ? "recap" : "agent", id: `a${off}`, text: said, at: time(l.timestamp), ...(this.recapping ? {} : sg) };
-            this.replies.set(id, item);
-            if (this.replies.size > 20) this.replies.delete(this.replies.keys().next().value);
-            this.push(item);
-          }
+        const prev = this.replies.get(id);
+        if (this.rawSaid && prev && this.items[this.items.length - 1] === prev) {
+          // One reply can be written over several lines with the same id: dmalis/shepherdr#42, a plain list is read
+          // over all of them (a list a later block follows is words again; a fence opened earlier holds it)
+          const raw = (this.raws?.get(prev) ?? prev.text) + "\n\n" + this.rawSaid;
+          (this.raws ??= new WeakMap()).set(prev, raw);
+          const plain = plainSuggests(raw);
+          prev.text = plain ? plain.text : raw;
+          // the newest words' suggestion, if they end with one
+          if (!this.tagged) this.suggestion = plain?.suggests ?? null;
+          delete prev.suggests;
+          const sg = this.takeSuggest();
+          if (prev.kind !== "recap") Object.assign(prev, sg);
+        } else if (said) {
+          const sg = this.takeSuggest();
+          const item = { kind: this.recapping ? "recap" : "agent", id: `a${off}`, text: said, at: time(l.timestamp), ...(this.recapping ? {} : sg) };
+          if (this.rawSaid !== said) (this.raws ??= new WeakMap()).set(item, this.rawSaid);
+          this.replies.set(id, item);
+          if (this.replies.size > 20) this.replies.delete(this.replies.keys().next().value);
+          this.push(item);
+        } else if (this.suggestion?.length) {
+          // dmalis/shepherdr#42: a block of suggestions only (its own <hc suggest> lines, or a plain list with nothing
+          // before it in this reply) ends the reply its earlier block wrote: they are that reply's buttons
+          if (prev && prev.kind !== "recap" && this.items[this.items.length - 1] === prev) Object.assign(prev, this.takeSuggest());
+          else this.suggestion = null;
         } else if (b?.type === "tool_use") {
           if (b.name === "AskUserQuestion") {
             const qs = Array.isArray(b.input?.questions) ? b.input.questions : [];
@@ -1298,7 +1319,10 @@ export class Conversation {
       } else if (p.type === "message" && p.role === "assistant") {
         const words = this.agentText((Array.isArray(p.content) ? p.content : []).filter((it) => it?.type === "output_text" && it.text?.trim()).map((it) => it.text.trim()).join("\n\n"));
         const sg = this.takeSuggest();
+        const last = this.items[this.items.length - 1];
         if (words) this.push({ kind: this.recapping ? "recap" : "agent", id: `a${off}`, text: words, at: time(l.timestamp), ...(this.recapping ? {} : sg) });
+        // dmalis/shepherdr#42: a message of suggestions only, right after its question: that question's buttons
+        else if (sg.suggests && last?.kind === "agent" && !this.recapping) Object.assign(last, sg);
       } else if ((p.type === "function_call" || p.type === "custom_tool_call" || p.type === "local_shell_call") && p.name !== "wait" && p.name !== "sleep") {
         const cid = String(p.call_id ?? p.id ?? `c${off}`);
         if (p.name === "request_user_input_async") {

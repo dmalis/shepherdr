@@ -4,6 +4,7 @@
 // status) comes in as arguments, so nothing here reads Herdr.
 // Shared core: the source is core/tasks.js; bin/sync-shared copies it into the mods in lib/COPIES.
 import { REASONS } from "./needs.js";
+import { checksWait } from "./checks-wait.js";
 
 // An agent's own status, most urgent first.
 export const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
@@ -123,6 +124,11 @@ export function retryLine(r, now = Date.now()) {
 export function readyWait(task, live = []) {
   if (task.merge_requested && live.length) return "Merging";
   if (task.merge_queued && task.pr) return "In GitHub's merge queue";
+  // dmalis/shepherdr#42: its checks still run (or one failed): what it waits for, never "Merging" yet
+  const checks = checksWait(task);
+  if (checks) return checks.line;
+  // dmalis/shepherdr#42: GitHub still works out whether it can merge (or it went back to its agent): not Merging yet
+  if (task.auto_merge && task.pr?.wait && !task.merged) return task.pr.wait;
   // #743: waits calmly for a review GitHub requires.
   // Merge "on its own" waits on no check its base doesn't require: Merging.
   if (task.auto_merge && task.pr && !task.merged) return task.pr.needs_approval ? "Merges once it's approved" : task.auto_merge === "auto" ? "Merging" : "Merges once its checks pass";

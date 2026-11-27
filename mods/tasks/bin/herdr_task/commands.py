@@ -1344,6 +1344,8 @@ def finalize(s, t):
         pr["checked"] = 0
         # Working until its checks are done and GitHub knows it can merge (the tick: pr_wait()).
         pr["wait"] = PR_CHECKS_RUNNING
+        from .checkwait import fresh  # dmalis/shepherdr#42: the checks of the commit before aren't this hand-in's
+        fresh(pr)
         msg = (f"{s.name(t)} is ready: pull request #{pr['number']}, {pr['url']}. It shows Working until its checks "
                "pass and GitHub says it can merge; a failing check or a conflict comes back to you to fix.")
     policy = merge_policy(s, t)

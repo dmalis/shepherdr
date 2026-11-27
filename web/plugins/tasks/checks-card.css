@@ -1,0 +1,13 @@
+/* A Ready task waiting on its checks (checks-card.tsx, dmalis/shepherdr#42): GitHub's merge box, in the card's own
+   type; a still amber dot for what runs (GitHub's and Vercel's pending mark), the check's state and time to the right */
+.ckcard .ckhead{display:flex;align-items:center;gap:8px;min-width:0}
+.ckcard .ckdot{flex:none;width:16px;height:16px;color:var(--amber);fill:currentColor;stroke:none}
+.ckcard .ckdot.c-red{color:var(--red)}
+.ckrows{display:grid;gap:2px;margin:2px 0 0;padding:6px 10px;list-style:none;border-radius:8px;background:var(--raised);font-size:var(--sec);line-height:var(--secl)}
+.ckrows>li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 0}
+.ckrows>li>.i{flex:none;width:16px;height:16px}
+.ckrows .ckn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.ckrows .ckw{flex:none;color:var(--muted);font-variant-numeric:tabular-nums}
+.ckrows .ckmore .ckn{color:var(--muted)}
+.ckcard .gh{display:inline-flex;align-items:center;gap:4px;justify-self:start;font-size:var(--sec);line-height:var(--secl)}
+.ckcard .gh>.i{width:14px;height:14px}
