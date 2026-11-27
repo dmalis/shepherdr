@@ -31,5 +31,8 @@ test('every place a chat names a task uses it (pins the call sites in upstream f
   expect(read('client.tsx')).toContain('<span className="qt0">{taskKind(t)}</span>')
   expect(read('mentions.tsx')).toContain('<KindWord t={task} />')
   expect(read('markdown.tsx')).toContain("if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))")
-  expect(read('../tasks/client.tsx')).toContain('<KindName t={t} name={t.name} state={statusWord(t).word} />')
+  // the review card's Done line and the stopped card's line; the Needs your hands card's line
+  expect(read('../tasks/client.tsx').split('<KindName t={t} name={t.name} state={statusWord(t).word} />').length).toBe(3)
+  expect(read('../tasks/client.tsx')).toContain('<StatusIcon t={t} time="none" /><KindName t={t} name={t.name} />')
+  expect(read('../screens/client.tsx')).toContain('<KindName t={t} name={t.name} state={statusWord(t).word} />')
 })
