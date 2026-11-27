@@ -1,6 +1,6 @@
 ---
 name: upstream-issue
-description: Offer our merged fixes to upstream Shepherdr (eliasstravik/shepherdr) and follow the person's issues there. Use after one of our fixes or patches is merged, when Shepherdr lets the person down, when an upstream issue of theirs gets a reply or is closed, or when asked about their upstream issues.
+description: Offer our merged fixes to upstream Shepherdr (eliasstravik/shepherdr) and follow the person's issues there. Use after one of our fixes or patches is merged, when Shepherdr lets the person down or confuses them, when an upstream issue of theirs gets a reply or is closed, or when asked about their upstream issues.
 ---
 
 # Issues on upstream
@@ -20,6 +20,18 @@ Upstream is someone else's public project. It hears from us only what this skill
 **The person's earlier issues count too.** List them with `gh search issues -R eliasstravik/shepherdr --author dmalis`
 (no `--state`: open and closed). Each one that is open, or closed with no fix in a release, and has no `patch` issue
 here yet, gets one (fork-patch skill, step 1), and goes through steps 1–4.
+
+## Confusion is a UX problem
+
+The person knows how Shepherdr works. When its behaviour confuses them, the screen gave a wrong or missing hint, and
+that hint is the problem to fix. Answer their question so they can carry on, then:
+1. **Name the gap:** what the screen showed, what the person expected from it, and the hint that was wrong or
+   missing. Put this in the issue's "Why".
+2. **Find the better UX** (shaping-a-request skill): how upstream and comparable tools show the same state or action.
+   Recommend the hint, label, state or default that would have prevented the confusion for any Shepherdr user.
+3. **Fix it here and offer it** through steps 2–4 above, like any other fix.
+
+The fix is done when the screen makes the behaviour clear, not when the person has understood it.
 
 ## Built for everyone
 

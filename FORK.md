@@ -122,6 +122,9 @@ Shepherdr for everyone, and upstream's author decides whether it goes into their
 - **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
   find later is fixed here as a patch (the fork-patch skill), unless upstream's own release already fixes it. The
   person never waits on upstream.
+- **Confusion is a UX problem.** The person knows how Shepherdr works, so when its behaviour confuses them, the
+  screen gave a wrong or missing hint. Find the better UX, fix it here and offer it upstream like any other fix. An
+  explanation alone doesn't close it.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone stays
   fork-only and isn't offered.
