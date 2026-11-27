@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import postcss from 'postcss'
 import { registry, type Command, type Registry } from '@client/kernel.ts'
-import { handleKey, resetPending } from '@client/commands.ts'
+import { appTakes, handleKey, resetPending } from '@client/commands.ts'
 import { chordOf } from '@client/keys.ts'
 import { stepZoom, ZOOMS } from '@client/zoom-steps.ts'
 import { zoomCss, zoomValue } from '../../zoom-css.ts'
@@ -60,7 +60,7 @@ test("QWERTZ (Slovenian, German): Cmd+- zooms out where US has /, never the shor
 
 test('no layout turns Cmd+- or Cmd+= into another shortcut', () => {
   // [code, key, Shift held]: US, QWERTZ, AZERTY and the numpad
-  const minus: [string, string, boolean][] = [['Minus', '-', false], ['Slash', '-', false], ['Digit6', '-', false], ['NumpadSubtract', '-', false]]
+  const minus: [string, string, boolean][] = [['Minus', '-', false], ['Slash', '-', false], ['Digit6', '-', false], ['NumpadSubtract', '-', false], ['KeyC', '-', false]]
   const plus: [string, string, boolean][] = [['Equal', '=', false], ['Digit0', '=', true], ['BracketRight', '+', false], ['Equal', '+', true], ['NumpadAdd', '+', false]]
   const chord = ([code, key, shift]: [string, string, boolean]) => chordOf({ key, code, metaKey: true, ctrlKey: false, altKey: false, shiftKey: shift }, true)
   for (const k of minus) expect(chord(k)).toBe('Mod+-')
@@ -109,4 +109,18 @@ test('pinned: the build runs the zoom pass, the layout follows it, Settings show
   expect(read('./client.tsx')).toContain("import '@client/size.css'")
   expect(read('../../src/prefs.ts')).toContain('zoom: ZOOMS.includes(v.zoom as Zoom)')
   expect(read('../../plugins.json')).toContain('"zoom"')
+  // a computer zoomed into the phone's layout keeps the sheet on its keys; a phone with a finger doesn't list it
+  expect(read('../shortcuts/client.tsx')).toContain("when: () => !getState().ui.phone || !touch(), run: openSheet")
+})
+
+test('from inside a terminal the zoom keys are the app’s, as VS Code’s are; the shell keeps its own keys', () => {
+  const ev = (code: string, key: string, m: { meta?: boolean; ctrl?: boolean; shift?: boolean } = {}) => ({ key, code, metaKey: !!m.meta, ctrlKey: !!m.ctrl, shiftKey: !!m.shift, altKey: false })
+  expect(appTakes(ev('Equal', '=', { ctrl: true }), false)).toBe(true)
+  expect(appTakes(ev('Minus', '-', { ctrl: true }), false)).toBe(true)
+  expect(appTakes(ev('Digit0', '0', { ctrl: true }), false)).toBe(true)
+  expect(appTakes(ev('Slash', '-', { meta: true }), true)).toBe(true)
+  // the shell's own: Ctrl+C, Ctrl+L, Ctrl+/ stay in the terminal
+  expect(appTakes(ev('KeyC', 'c', { ctrl: true }), false)).toBe(false)
+  expect(appTakes(ev('KeyL', 'l', { ctrl: true }), false)).toBe(false)
+  expect(appTakes(ev('Slash', '/', { ctrl: true }), false)).toBe(false)
 })

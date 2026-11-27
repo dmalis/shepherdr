@@ -212,8 +212,12 @@ function ShortcutsSettings() {
 
 /* ---------- the app's own commands ---------- */
 
+/** a finger is the pointer: a phone's layout there has no keyboard to want the sheet; a computer zoomed into the
+ *  phone's layout (Zoom, dmalis/shepherdr#36) still has one */
+const touch = () => typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches
+
 const appCommands = (): Command[] => [
-  { id: 'shortcuts.sheet', title: 'Keyboard shortcuts', area: 'General', icon: 'keyboard', keys: ['Shift+/', 'Mod+/'], words: 'help keys cheat sheet hotkeys', when: () => !getState().ui.phone, run: openSheet },
+  { id: 'shortcuts.sheet', title: 'Keyboard shortcuts', area: 'General', icon: 'keyboard', keys: ['Shift+/', 'Mod+/'], words: 'help keys cheat sheet hotkeys', when: () => !getState().ui.phone || !touch(), run: openSheet },
   { id: 'shortcuts.settings', title: 'Open Settings', area: 'General', icon: 'gear', keys: ['Mod+,'], words: 'preferences options', run: () => openSettings('all') },
   { id: 'shortcuts.list', title: 'Show or hide the list', area: 'General', icon: 'panel', keys: ['Mod+B'], words: 'sidebar toggle spaces', when: () => !getState().ui.phone, run: () => {
     const { ui } = getState()

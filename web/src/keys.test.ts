@@ -35,6 +35,13 @@ test('a sign is the character it types (dmalis/shepherdr#36): QWERTZ Cmd+- is Mo
   expect(chordOf(ev('–', 'Minus', { alt: true }), true)).toBe('Alt+-')
   // another script's letter on a sign key: its place
   expect(chordOf(ev('ю', 'Period', { ctrl: true }), false)).toBe('Mod+.')
+  // a letter's place that types a sign is that sign: Ergo-L's - on C is never Mod+C, Dvorak's ' on Q never Mod+Q,
+  // AZERTY's , on M is Mod+, (Settings); Option or Alt over it keeps the letter
+  expect(chordOf(ev('-', 'KeyC', { ctrl: true }), false)).toBe('Mod+-')
+  expect(chordOf(ev("'", 'KeyQ', { ctrl: true }), false)).toBe("Mod+'")
+  expect(chordOf(ev('/', 'KeyQ', { meta: true }), true)).toBe('Mod+/')
+  expect(chordOf(ev(',', 'KeyM', { ctrl: true }), false)).toBe('Mod+,')
+  expect(chordOf(ev('-', 'KeyC', { alt: true }), false)).toBe('Alt+C')
 })
 
 test('a chord written by hand reads as its one spelling', () => {

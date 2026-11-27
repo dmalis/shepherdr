@@ -1,12 +1,11 @@
 /* Zoom and Chat text size (Settings › General › Appearance; dmalis/shepherdr#36). Loaded after ds.css and styles.css
    (the zoom plugin imports it), so each rule here takes over the one it names there at the same specificity. */
 
-/* Zoom (web/zoom-css.ts): every px of the app's CSS is times --zoom, rem too. A capital PX stays out of it. A double
-   tap never zooms the page; a pinch still does, for anyone who needs it. Zoomed out on touch, a text box keeps 16 px:
-   under that iOS zooms the page in when it's tapped. */
+/* Zoom (web/zoom-css.ts): every px of the app's CSS is times --zoom, rem too. A capital PX stays out of it. On a touch
+   screen Zoom never goes under 100% (prefs.ts), so what a finger taps keeps its 44 px and a text box its 16 px. A
+   double tap never zooms the page; a pinch still does, for anyone who needs it. */
 :root{--zoom:1;font-size:calc(100% * var(--zoom))}
 html{touch-action:manipulation}
-:root:is([data-zoom="67"],[data-zoom="75"],[data-zoom="80"],[data-zoom="90"]) .app.tap :is(input,textarea,select){font-size:16PX}
 
 /* The chat's reading text, from Chat text size (data-text on <html>, none for Default). --chat and --chatl are the
    messages: a step over the interface's 14 px on a computer; on touch 16 px, the interface's own size there. --chat2
@@ -36,6 +35,8 @@ html{touch-action:manipulation}
 .ref,.quote,button.quote,.quote.qtask,.chip,.donerow{font-size:var(--chat2);line-height:var(--chat2l)}
 .msgs .card{font-size:var(--chat);line-height:var(--chatl)}.msgs .card .s{font-size:var(--chat2);line-height:var(--chat2l)}
 .files,.msgs .code{font-size:var(--chatm);line-height:var(--chatml)}
+/* an agent-to-agent message opened, and the line under an artifact's tile, in a chat */
+.msgs .quietb .qt,.msgs .tile>.l2{font-size:var(--chat2);line-height:var(--chat2l)}
 /* what a message holds (markdown): its headings at the message's size, code, tables, lists and spacing with it */
 .md p,.md ul,.md ol,.md table,.md blockquote,.md .code.block{margin:calc(var(--chatl,24px) / 3) 0}
 .md ul,.md ol{padding-left:1.375em}
@@ -47,6 +48,8 @@ html{touch-action:manipulation}
 .app.tap .cin{font-size:max(16PX,var(--chat))}
 
 /* Settings: Zoom's − value + and Reset; under Chat text size, one message at that size */
-.zoomc{display:inline-flex;align-items:center;gap:4px}.zoomc .btn{margin-left:4px}
+/* at a big zoom on a phone, Zoom's buttons and a row's choices wrap rather than run off the side */
+.zoomc{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:100%}.zoomc .btn{margin-left:4px}
+.srow.wrap .seg{flex-wrap:wrap}
 .zoomv{min-width:5ch;text-align:center;font-variant-numeric:tabular-nums}
 .tsize{display:flex;padding-block:4px 8px;font-size:var(--chat);line-height:var(--chatl)}.tsize+.hint{margin-bottom:12px}

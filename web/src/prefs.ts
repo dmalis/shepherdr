@@ -45,6 +45,12 @@ function load(): Prefs {
 let prefs = load()
 const listeners = new Set<() => void>()
 const system = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
+const finger = typeof matchMedia === 'function' ? matchMedia('(pointer:coarse)') : null
+
+/** Zoom's lowest step here: on a touch screen 100%, so nothing a finger taps shrinks under its 44 px */
+export const minZoom = (): Zoom => (finger?.matches ? 100 : ZOOMS[0]!)
+/** the zoom the page has now: the one picked, never under this device's lowest */
+export const zoomNow = (): Zoom => (prefs.zoom < minZoom() ? minZoom() : prefs.zoom)
 
 /** dark or night: the app's dark pictures (artifact thumbnails) and colours */
 export const isDark = () => prefs.theme === 'Dark' || prefs.theme === 'Night' || (prefs.theme === 'System' && !!system?.matches)
@@ -59,9 +65,10 @@ function apply() {
   // the chat's width grows with the zoom, as the CSS's own px do
   root.style.setProperty('--chat-w', `calc(${CHAT_WIDTH[prefs.width]}px*var(--zoom))`)
   // Zoom: --zoom times every px (web/zoom-css.ts); data-zoom picks its step's container queries (none at 100)
-  root.style.setProperty('--zoom', String(prefs.zoom / 100))
-  if (prefs.zoom === 100) delete root.dataset.zoom
-  else root.dataset.zoom = String(prefs.zoom)
+  const z = zoomNow()
+  root.style.setProperty('--zoom', String(z / 100))
+  if (z === 100) delete root.dataset.zoom
+  else root.dataset.zoom = String(z)
   // Chat text size: ds.css's --chat sizes for it; Default: none
   if (prefs.text === 'Default') delete root.dataset.text
   else root.dataset.text = prefs.text.toLowerCase()
@@ -78,6 +85,7 @@ function apply() {
 if (typeof document !== 'undefined') {
   apply()
   system?.addEventListener('change', apply)
+  finger?.addEventListener('change', apply)
   addEventListener('storage', (e: StorageEvent) => {
     if (e.key !== KEY) return
     prefs = load()
@@ -110,7 +118,7 @@ export function widthUpTo(px: number): Pick<MediaQueryList, 'matches'> & { addEv
   if (typeof matchMedia !== 'function') return null
   const fns = new Set<() => void>()
   // up to 767 px is below 768; zoomed, below 768 × the zoom
-  const query = () => matchMedia(prefs.zoom === 100 ? `(max-width:${px}px)` : `(max-width:${Math.round((px + 1) * prefs.zoom - 2) / 100}px)`)
+  const query = (z = zoomNow()) => matchMedia(z === 100 ? `(max-width:${px}px)` : `(max-width:${Math.round((px + 1) * z - 2) / 100}px)`)
   let mq = query()
   let was = mq.matches
   const check = () => {
@@ -120,10 +128,10 @@ export function widthUpTo(px: number): Pick<MediaQueryList, 'matches'> & { addEv
   }
   const watch = () => mq.addEventListener('change', check)
   watch()
-  let zoom = prefs.zoom
+  let zoom = zoomNow()
   listeners.add(() => {
-    if (prefs.zoom === zoom) return
-    zoom = prefs.zoom
+    if (zoomNow() === zoom) return
+    zoom = zoomNow()
     mq.removeEventListener('change', check)
     mq = query()
     watch()

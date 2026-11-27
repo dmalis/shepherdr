@@ -48,14 +48,13 @@ function signOf(e: KeyLike): { k: string; shift: boolean } | null {
 function keyOf(e: KeyLike): { k: string; shift: boolean } | null {
   const c = e.code ?? ''
   const shift = e.shiftKey
-  let m = /^Key([A-Z])$/.exec(c)
-  if (m) return { k: m[1], shift }
   if (/^F\d{1,2}$/.test(c)) return { k: c, shift }
   const sign = signOf(e)
-  m = /^(?:Digit|Numpad)(\d)$/.exec(c)
-  // a digit key that types a sign (QWERTZ's Shift+7 is /, Shift+0 is =; AZERTY's 6 is -) is that sign, except with
-  // Option or Alt held: Alt+1–9 pick a space on every keyboard
-  if (m && !(sign && !e.altKey)) return { k: m[1], shift }
+  // a letter or digit key that types a sign is that sign (QWERTZ's Shift+7 is /, Shift+0 is =; AZERTY's 6 is -, its
+  // M place a comma; Ergo-L's C place is -, Dvorak's Q place a quote), except with Option or Alt held: Alt+1–9 pick a
+  // space on every keyboard, and Option over a letter keeps the letter
+  const m = /^Key([A-Z])$|^(?:Digit|Numpad)(\d)$/.exec(c)
+  if (m && !(sign && !e.altKey)) return { k: (m[1] ?? m[2])!, shift }
   if (sign) return sign
   if (CODE[c]) return { k: CODE[c], shift }
   // no code (a test, an odd keyboard): the key's own name
