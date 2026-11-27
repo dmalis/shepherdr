@@ -13,6 +13,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | zoom | always on | Zoom in, out and reset on ⌘= ⌘− ⌘0, and the palette row for Settings › General's Zoom and Chat text size | |
 | alerts | always on | Push alerts, one choice per device | |
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
+| installed | always on | The installed app: the icon's shortcuts (Everything, Needs you, New task) and links opened in it reach the open window, the headers in a desktop window's title bar, a phone's safe areas on every screen (fork #34) | |
 | terminal | yes | Your own terminal in a space or a task, and "View as terminal" | No Terminal menu items |
 | screens | yes | An agent's browser and desktop: watch, Take over, Hand back | No Screen menu item, live picture or card |
 | voice | yes | Voice over the whole app, dictation in the message box, and Settings › Voice (the ElevenLabs key) | No voice or mic button, no Voice page |
