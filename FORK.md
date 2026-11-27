@@ -144,7 +144,7 @@ whether it goes into theirs.
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.
   - Standard keys keep their standard meaning, on every keyboard layout. Match a shortcut by the character it types,
-    not only by the key's place. For example, Cmd/Ctrl with −, + or 0 zooms, Cmd/Ctrl with / or ? opens the shortcuts
+    not only by the key's place. For example, Cmd/Ctrl with −, + or 0 zooms, ? or Cmd/Ctrl / opens the shortcuts
     sheet, Esc closes, Cmd/Ctrl K searches.
   - Never move a standard key or pattern to make room for ours. Where Shepherdr breaks a standard today, that's a UX
     bug: fix it here like any other fix.
