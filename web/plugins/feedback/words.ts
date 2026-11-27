@@ -1,6 +1,6 @@
 // What the Feedback page says (friction loop, slice 2, #94: fork/specs/friction-loop.md), as plain functions the tests
 // read. Never "Assistant", "worker" or a key: the person reads these, and an agent's name for itself is not theirs.
-import type { FeedbackList, FeedbackRow } from '@shared/types.ts'
+import type { FeedbackList, FeedbackMatch, FeedbackRow } from '@shared/types.ts'
 
 export const W = {
   title: 'Feedback',
@@ -28,6 +28,9 @@ export const W = {
   open: 'Open',
   onGitHub: 'On GitHub',
   noFix: 'No fix proposed yet',
+  follow: 'Follow this one',
+  unreachable: "GitHub isn't reachable here: this is the last check",
+  checkLabel: 'What a check on GitHub found',
 } as const
 
 /** Not now's menu, in the order Linear's Snooze and iOS Mail's Remind me list theirs */
@@ -93,7 +96,36 @@ export function backWords(until: number | null | undefined, now = Date.now()): s
 }
 
 /** a filed row's state, only from what herdr-task knows */
-export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url'>) => (r.state === 'filing' ? 'Posting' : 'Filed')
+export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url' | 'following'>) =>
+  r.following ? followingWords(r.following.title) : r.state === 'filing' ? 'Posting' : 'Filed'
+
+/** a row that follows an issue the check found (Follow this one): nothing was posted */
+export const followingWords = (title: string) => `Following “${title}”`
+
+/** what a match is, before its title (slice 3; herdr-task's feedback_check.SAID says the same): GitHub's close reason
+ *  tells fixed from declined, and Shepherdr's own repo, when problems go to another one, is its makers' */
+export function matchWords(m: Pick<FeedbackMatch, 'state' | 'reason' | 'makers'>): { lead: string; open: boolean } {
+  const kind = m.state === 'open' ? 'open' : m.reason ?? 'closed'
+  const [here, makers] = ({
+    open: ['Maybe the same', "Shepherdr’s makers have it"],
+    completed: ['Fixed before', "Shepherdr’s makers fixed it before"],
+    not_planned: ['Declined before', "Shepherdr’s makers declined it before"],
+    duplicate: ['Closed as a duplicate', "Shepherdr’s makers closed it as a duplicate"],
+    closed: ['Closed before', "Shepherdr’s makers closed it"],
+  } as const)[kind]
+  return { lead: m.makers ? makers : here, open: kind === 'open' }
+}
+
+/** a version as numbers ("3.2.23"), else null */
+const version = (v?: string) => (/^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? '')?.slice(1).map(Number) ?? null)
+
+/** a newer Shepherdr is out than the one installed: said with both versions, else null */
+export function newerWords(newest?: string, installed?: string): string | null {
+  const a = version(newest), b = version(installed)
+  if (!a || !b) return null
+  const d = a.map((x, i) => x - b[i]).find((x) => x !== 0) ?? 0
+  return d > 0 ? `A newer version is out (${newest}; you have ${installed})` : null
+}
 
 /** what a call did, for its toast */
 export function doneWords(what: 'later' | 'no' | 'undo', when?: string): string {

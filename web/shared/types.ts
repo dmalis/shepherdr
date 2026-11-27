@@ -1521,6 +1521,23 @@ export interface FeedbackRow {
   off?: boolean
   /** no chat runs in its origin now: Write it up goes to Everything's (the spec's "no Assistant running") */
   noChat?: boolean
+  /** what its last check on GitHub found (herdr-task feedback --check, slice 3): possible matches, the newest release;
+      failed: GitHub couldn't be reached since, so this is the last check (or none yet) */
+  check?: { matches: FeedbackMatch[]; newest?: string; installed?: string; failed?: true }
+  /** the issue it follows (the person's Follow this one): nothing was posted */
+  following?: { title: string; url: string }
+}
+
+/** an issue on GitHub a check found that may be the same problem (a duplicate's canonical issue, when GitHub names one) */
+export interface FeedbackMatch {
+  repo: string
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'closed'
+  reason?: 'completed' | 'not_planned' | 'duplicate'
+  /** in Shepherdr's own repo, when problems are filed to another one (a fork): Follow only */
+  makers?: true
 }
 
 export interface FeedbackList {

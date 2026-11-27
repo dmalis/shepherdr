@@ -8,9 +8,9 @@ import { openMenu } from '@client/overlay.tsx'
 import { DictateButton } from '@client/dictate.tsx'
 import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
-import type { FeedbackList, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
+import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, fromBox, LATER, metaOf, offWords, chatOfSpace, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromBox, LATER, matchWords, metaOf, newerWords, offWords, chatOfSpace, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
 
@@ -35,7 +35,7 @@ export async function saveBox(text: string, chat: string, setText: (v: string) =
 }
 
 /** Not now, Never or Undo on a row; its toast offers Undo (Gmail's and Linear's pattern) */
-export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string, expect?: 'later' | 'declined'): Promise<boolean> {
+export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string, expect?: 'later' | 'declined' | 'following'): Promise<boolean> {
   const a = await call({ do: what, key: r.id, ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
@@ -43,6 +43,45 @@ export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when
   }
   notice(doneWords(what, when), { tone: 'ok', ...(what === 'undo' ? {} : { act: { label: W.undo, run: () => void decide(r, 'undo', undefined, what === 'no' ? 'declined' : 'later') } }) })
   return true
+}
+
+/** Follow this one (slice 3): the row follows an issue its check found and moves to Filed; nothing is posted. Its
+ *  toast offers Undo, as Not now's does */
+export async function follow(r: FeedbackRow, m: FeedbackMatch): Promise<boolean> {
+  const a = await call({ do: 'follow', key: r.id, url: m.url })
+  if (!a.ok) {
+    notice(a.error!, { tone: 'error' })
+    return false
+  }
+  notice(followingWords(m.title), { tone: 'ok', act: { label: W.undo, run: () => void decide(r, 'undo', undefined, 'following') } })
+  return true
+}
+
+/** what a check on GitHub found, under the row's quiet line: each possible match (its title opens it on GitHub) with
+ *  Follow this one, a newer version, and when GitHub couldn't be reached since. GitHub's own duplicate hints and
+ *  Linear's Triage suggestions show theirs the same way: advisory, one line each, beside the problem */
+function CheckView({ r, busy, onFollow }: { r: FeedbackRow; busy: boolean; onFollow: (m: FeedbackMatch) => void }) {
+  const c = r.check
+  if (!c) return null
+  const newer = newerWords(c.newest, c.installed)
+  if (!c.matches.length && !newer && !c.failed) return null
+  return (
+    <ul className="fb-check" aria-label={W.checkLabel}>
+      {c.matches.map((m) => {
+        const w = matchWords(m)
+        return (
+          <li key={m.url} className="fb-m">
+            <p className="fb-mw">
+              {w.lead}: <a className="fb-ml" href={m.url} target="_blank" rel="noreferrer">“{m.title}”</a>{w.open ? ' (open)' : ''}
+            </p>
+            <Btn small disabled={busy} aria-label={`${W.follow}: ${m.title}`} onClick={() => onFollow(m)}>{W.follow}</Btn>
+          </li>
+        )
+      })}
+      {newer && <li className="fb-m"><p className="fb-mw">{newer}</p></li>}
+      {c.failed && <li className="fb-m"><p className="fb-mw quiet">{W.unreachable}</p></li>}
+    </ul>
+  )
 }
 
 /** where a row's space is now: its place, and whether Write it up reaches it */
@@ -98,6 +137,7 @@ function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snaps
         <p className="fb-line">{r.line}</p>
         <p className={cx('fb-fix', !r.fix && 'none')}>{r.fix ? <><span className="fb-k">Fix:</span> {r.fix}</> : W.noFix}</p>
         <p className="fb-meta">{metaOf(r, where, now)}</p>
+        {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
         <div className="fb-acts">{btns()}</div>
       </div>
