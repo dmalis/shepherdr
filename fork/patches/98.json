@@ -1,0 +1,15 @@
+{
+  "issue": 98,
+  "name": "Secrets: no overlap, search, A to Z",
+  "files": [
+    "web/src/secrets-list.tsx",
+    "web/src/secrets-list.css",
+    "web/src/settings.tsx",
+    "web/demo/data.ts",
+    "web/src/secrets-page.test.tsx"
+  ],
+  "tests": [
+    "web/src/secrets-list.test.tsx",
+    "web/src/secrets-page.test.tsx"
+  ]
+}

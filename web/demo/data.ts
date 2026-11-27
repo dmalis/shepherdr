@@ -168,8 +168,17 @@ const LONG_NAMES: Record<string, string> = {
   'SHOP-12': 'Faster product search: results as you type, with typo tolerance and the top sellers first',
   'BLOG-9': 'Dark mode for code blocks, matching the theme the reader picked in their system settings',
 }
+// Settings › Secrets with fifteen made-up ones, in no order, long and short, every level (fork: Secrets: no overlap)
+const v = (name: string, scope: 'everywhere' | 'machine' | 'space', at: string | null = null) => ({ name, at: NOW - 3 * day, scope, machine: scope === 'machine' ? at : null, space: scope === 'space' ? at : null, where: '' })
+const LONG_SECRETS = [
+  v('ACME_PAYMENTS_WEBHOOK_SECRET', 'everywhere'), v('GITHUB_TOKEN', 'everywhere'), v('SENTRY_AUTH_TOKEN', 'machine', 'vm'), v('OPENWEATHER_API_KEY', 'everywhere'),
+  v('DEPLOY_KEY', 'machine', 'vm'), v('STRIPE_KEY', 'space', P.shop), v('SHOP_STOREFRONT_PREVIEW_DEPLOY_HOOK_URL', 'space', P.shop), v('NPM_TOKEN', 'everywhere'),
+  v('POSTGRES_PASSWORD', 'machine'), v('CLOUDFLARE_R2_SECRET_ACCESS_KEY', 'everywhere'), v('MAILER_SMTP_PASSWORD', 'space', P.blog), v('S3_BUCKET_UPLOAD_SIGNING_SECRET', 'machine', 'vm'),
+  v('GITHUB_TOKEN', 'space', P.shop), v('GOOGLE_MAPS_BROWSER_KEY', 'everywhere'), v('RELEASENOTESBOTTOKENFORTHECHANGELOG', 'everywhere'),
+]
 const longDay = (s: Snapshot): Snapshot => ({
   ...s,
+  settings: s.settings?.map((x) => (x.name === 'Secrets' ? { ...x, vault: LONG_SECRETS } : x)),
   places: s.places.map((p) => (p.id === P.shop ? { ...p, name: 'shop-storefront-and-checkout' } : p)),
   tasks: s.tasks.map((t) => ({ ...t, ...(LONG_NAMES[t.id] ? { name: LONG_NAMES[t.id] } : {}), ...(t.id === 'BLOG-9' ? { afterTitle: LONG_NAMES['SHOP-12'], afterMore: 5 } : {}) })),
   artifacts: s.artifacts.map((a: any, i: number) => (i === 0 ? { ...a, title: `${a.title}: the whole story, with every screenshot and the numbers behind it` } : a)),
