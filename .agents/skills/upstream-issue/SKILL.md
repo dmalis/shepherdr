@@ -9,8 +9,9 @@ description: Label our merged fixes for the person's decision, list the ones not
 person decides, fix by fix, whether we offer it upstream, and upstream's author decides whether it goes into theirs.
 It covers every problem the person filed upstream (open, or closed without a fix) and every one they find later.
 1. **Shape it** (shaping-a-request skill).
-2. **Fix it here** as a patch (fork-patch skill), built for every Shepherdr user (below). Skip this only when
-   upstream's own release already fixes it; see "A fix upstream already has".
+2. **Fix it here** as a patch (fork-patch skill), built for every Shepherdr user (below). Skip this when upstream
+   already fixed it, in a release or on its main (the upstream check, fork-patch skill, step 1); see "A fix upstream
+   already has".
 3. **Mark it as not filed** once our pull request is merged and installed ("After a fix lands"). Nothing goes
    upstream yet.
 4. **The person decides:** file it, keep it ours, or undo it. They see what waits in the not-filed list ("The
@@ -22,7 +23,8 @@ Upstream is someone else's public project. It hears from us only what the person
 
 **The person's earlier issues count too.** List them with `gh search issues -R eliasstravik/shepherdr --author dmalis`
 (no `--state`: open and closed). Each one that is open, or closed with no fix in a release, and has no `patch` issue
-here yet, gets one (fork-patch skill, step 1), and goes through steps 1–5.
+here yet, goes through the upstream check (fork-patch skill, step 1). One upstream hasn't fixed gets an issue and goes
+through steps 1–5.
 
 ## Confusion is a UX problem
 
@@ -97,23 +99,27 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
    each one's status line for its pull requests; an issue with several fixes may have only one still waiting.
 2. **One line per fix, named by what it does** in plain words, then how to try it (from its status line), its
    issue's number last: "A settings notice no longer ends the Assistant's work mid-turn; try it: change a setting
-   while it works (#7)". Add a few words when they help the decision: upstream already has an issue for it, it
-   can't fit everyone (keep it ours), or it is being reverted.
+   while it works (#7)". Add a few words when they help the decision: upstream fixed it since, in a release or on
+   main (nothing to file: the sync drops ours), upstream has an issue for it, it can't fit everyone (keep it ours),
+   or it is being reverted. Find the first two with the upstream check (fork-patch skill, step 1). A fix upstream
+   has since fixed is offered as "Keep it ours", "Undo it" or "Not yet", never "File it".
 3. **End with the link** that opens exactly those issues on GitHub:
    https://github.com/dmalis/shepherdr/issues?q=is%3Aissue+is%3Aopen+label%3Anot-filed
 4. **When the person asked:** the Assistant gives the list, then asks with the question tool, one question per fix
-   (up to four at a time): "File it upstream", "Keep it ours", "Undo it", "Not yet". It does what "After a fix
+   (up to four at a time): "File it upstream", "Keep it ours", "Undo it", "Not yet". "File it upstream" only
+   for a fix step 2 didn't find fixed upstream. It does what "After a fix
    lands" says for each answer. "Not yet" changes nothing. Nothing waits: say so in one line.
 5. **The daily run** is a task of its own: it changes nothing and asks nothing. It ends with
-   `ready --told "<the list and the link, then: say file it, keep it ours or undo it for any of them>"`, or
+   `ready --told "<the list and the link, then: say file it, keep it ours or undo it for any of them; file it only
+   for one upstream hasn't fixed>"`, or
    `ready --nothing` when none waits. The Assistant tells the person those words, and their answer comes to the Assistant like any message.
 
 ## Filing a fix
 
 Only for a fix the person said to file. Never post upstream without their yes for that fix.
-1. **Find the upstream issue.** Start from our issue's "Upstream" line, then search for a duplicate:
-   `gh search issues -R eliasstravik/shepherdr "<words>"`. Leave out `--state`: without it, the search covers open and
-   closed issues.
+1. **Check upstream again** (fork-patch skill, step 1), from our issue's "Upstream checked" line: a release or
+   upstream's main that fixed it since means nothing to post (tell the person why), and a duplicate filed since is
+   found with a few short keyword searches, open and closed.
 2. **Pick what to post** from what you found:
 
    | Found | Post |
@@ -154,9 +160,10 @@ the person, name an upstream issue by its title (FORK.md: Rules).
 
 ## A fix upstream already has
 
-Look at `git log upstream/main` first.
-- **In a release:** nothing to build. Show the person how to use it, and post nothing upstream.
-- **On main, not released yet:** don't write our own fix.
+The upstream check (fork-patch skill, step 1) finds these.
+- **In a release:** nothing to build. Show the person how to use it (or that the next sync brings it, when our main
+  doesn't carry that release yet), and post nothing upstream.
+- **On main, not released yet:** don't write our own fix. The release brings it. Only if it hurts now:
   - Carry upstream's own commit as a temporary patch (`git cherry-pick -x`).
   - Label its issue `fixed-upstream`.
   - The next release replaces it.
@@ -189,7 +196,7 @@ Look at `git log upstream/main` first.
 - **When the author fixes it, their way or ours,** the sync drops our patch and keeps theirs (upstream-sync skill,
   step 3).
 - **When the author closes one of the person's issues without a fix,** our patch stays, or we build it now if we
-  haven't yet.
+  haven't yet, after the upstream check (fork-patch skill, step 1) finds it isn't fixed on upstream's main.
   - Don't ask the person whether to build it: the standing rule covers every decline.
   - Let the author's reasons shape how it's built (shaping-a-request).
   - Our issue's status line says "declined upstream: <link>", with the author's reason.

@@ -30,8 +30,9 @@ here like any other request.
 
 - **Upstream first.**
   - Does Shepherdr already do it? Check docs/, Settings and the templates.
-  - Search upstream's issues and commits, including the closed and not-planned ones:
-    `gh search issues -R eliasstravik/shepherdr "<words>"` (no `--state`: it searches open and closed) and `git log upstream/main -i --grep <words>`.
+  - Is it fixed or reported upstream already? Check upstream first (FORK.md, and the fork-patch skill's step 1 for
+    the commands): our release against upstream's, upstream's main since then on the files involved, and short
+    keyword searches of its issues, open, closed and not planned.
   - Read the maintainer's reasoning. Read upstream's stated principles: the Rules in docs/develop.md,
     docs/settings.md and the README.
 - **Industry practice.**
