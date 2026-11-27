@@ -38,7 +38,7 @@ exactly how far, and what stays forbidden.
 | `preflight` | Checks the repo, takes the run's lease, reads state, resumes an unfinished phase. |
 | `baseline [--capture]` | Reads what is installed and proves it matches the install folder. `--capture` writes it as the baseline (first run only). |
 | `select` | Finds the newest stable release and decides the outcome path. |
-| `review-inputs` | Writes the reviewer's three diffs for the sync branch to files in the run's worktree's git dir. |
+| `review-inputs` | Writes the reviewer's three diffs for the sync branch to files in the run's worktree's git dir, and records the pushed head they cover as the state's expected head. |
 | `merge <pr>` | The one merge route for a sync PR ([Merge and finish](#merge-and-finish)). |
 | `install <sha>` | Moves the install folder and asks for the update, then reads its outcome. |
 | `health <sha>` | The health check. Runs again by itself after a rollback, against the baseline. |
@@ -140,7 +140,8 @@ calls `fire`). The serial point is ours:
 - Every `fork/bin/sync` call holds the `flock` while it reads and writes state.
 - The state's `lease` names the run's task key and when it took it. A run takes the lease in `preflight`. Another
   run's lease holds while `herdr-task show <its key> --json` says that task isn't done. A done or missing owner with an
-  unfinished phase: this run takes over and resumes.
+  unfinished phase: this run takes over and resumes. The run record (its path, merge and sync branch) becomes this
+  run's, and the merge's review gate reads the rounds of the run that recorded the sync branch's head.
 - The lease is let go at the end of a run whose phase is final (`healthy`, `rolled-back`, `held`), never on
   `installing`, `rolling-back` or `broken`.
 - A manual run (the person asks the Assistant to sync now) is a task like any other and takes the same lease.
@@ -386,7 +387,10 @@ The reviewer reviews only our side. Upstream's own commits are not reviewed.
 4. **Ancestry**: the release SHA is an ancestor of the head.
 5. **Checks**: the check runs named `check` and `fork-check` for exactly the head SHA (`gh api
    repos/dmalis/shepherdr/commits/<sha>/check-runs`) all ended `success`. Still running: wait, up to 30 minutes.
-6. **Trial**: the state says `fork/bin/trial` passed on that head SHA.
+   One call waits at most 9 minutes (a shell call's limit), then ends `wait`; called again, it counts the 30 minutes
+   from the first wait, which the state keeps.
+6. **Trial**: the state says `fork/bin/trial` passed on that head SHA. The trial records each PASS there itself,
+   with the commit's tree; nothing else writes it.
 7. Merge: `gh pr merge <pr> -R dmalis/shepherdr --merge --match-head-commit <sha>`.
 8. Verify: the PR's `mergeCommit`, after `git fetch origin main`, is origin/main's tip or its ancestor; its parents are
    the old main tip and the head; its tree is the head's tree; the release SHA is its ancestor. The state records it as
@@ -443,7 +447,8 @@ run the table with local main stale and fast-forwarded, with and without recorde
 | Rolled back | as installed | `… --told "Rolled back: …"` |
 | Unknown | `herdr-task alert`, as installed | `… --told "…"` |
 
-`finish` prints the right one from the state, and checks the branch is in a state the command accepts.
+`finish` prints the right one from the state, runs the `git fetch origin main` itself when the run merged, and checks
+the branch is in a state the command accepts.
 
 #### What was tried
 
