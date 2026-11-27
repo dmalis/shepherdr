@@ -244,9 +244,12 @@ export class Push {
     return this.vapid.publicKey;
   }
 
-  /** a device turned on (or again, with a new subscription: from: the one it had); it keeps what it chose */
-  subscribe(sub: any, device?: string, from?: string, node?: string | null) {
+  /** a device turned on (or again, with a new subscription: from: the one it had); it keeps what it chose. turnOn
+   *  (fork #96): the person turned alerts on there; without it (a page giving back a subscription it holds, any build)
+   *  a device removed from another one's list stays off */
+  subscribe(sub: any, device?: string, from?: string, node?: string | null, turnOn = false) {
     if (typeof sub?.endpoint !== "string" || !/^https:\/\//.test(sub.endpoint) || typeof sub?.keys?.p256dh !== "string" || typeof sub?.keys?.auth !== "string") throw new Error("Not a push subscription.");
+    if (!turnOn && this.removed.includes(hashOf(sub.endpoint))) throw new Error("This device was removed from the list of devices that get alerts. Turn alerts on here to get them again.");
     const had = this.subs.find((s) => s.endpoint === sub.endpoint) ?? (from ? this.subs.find((s) => s.endpoint === from) : undefined);
     const chose = had ? { topics: pushTopics(had.topics), ...(had.muted?.length ? { muted: had.muted } : {}) } : { topics: [...DEFAULT_TOPICS] };
     this.keepRemoved(this.removed.filter((h) => h !== hashOf(sub.endpoint)));

@@ -66,11 +66,22 @@ test("removing this device by its id is the same as turning alerts off here", as
   expect(JSON.parse(readFileSync(one.f, "utf8")).map((s) => s.endpoint)).toEqual(JSON.parse(readFileSync(two.f, "utf8")).map((s) => s.endpoint));
 });
 
+test("a removed device's page giving its subscription back on its own (an older build too) is refused: it stays removed", async () => {
+  const { p, a, c } = await three();
+  p.remove(idOf(p, a.endpoint, "old laptop"));
+  // a tab left open since before this change runs the old readNow: subscribe with no turnOn
+  expect(() => p.subscribe(c, "old laptop")).toThrow("removed from the list");
+  expect(() => p.subscribe(c, "old laptop", c.endpoint, null)).toThrow("removed from the list");
+  expect(p.state(c.endpoint)).toEqual({ on: false, topics: ["needs", "ready"], muted: [], devices: 2, removed: true });
+  await p.send({ title: "x", topic: "needs" });
+  expect(hits.sort()).toEqual(["dev1", "dev2"]);
+});
+
 test("a removed device turned on again on that device is on, and no longer removed", async () => {
   const { p, a, c } = await three();
   p.remove(idOf(p, a.endpoint, "old laptop"));
   expect(p.state(c.endpoint).removed).toBe(true);
-  p.subscribe(c, "old laptop");
+  p.subscribe(c, "old laptop", undefined, null, true);
   expect(p.state(c.endpoint)).toEqual({ on: true, topics: ["needs", "ready"], muted: [], devices: 3 });
   // a device turned off on its own (not removed) says nothing of removal
   p.unsubscribe(a.endpoint);
@@ -81,5 +92,8 @@ test("the service takes a removal by id beside unsubscribe and the devices list,
   const main = readFileSync(join(import.meta.dir, "main.ts"), "utf8");
   const block = main.slice(main.indexOf('if (path.startsWith("/api/push/") && req.method === "POST")'), main.indexOf("fork #37: the bell's list"));
   expect(block).toContain('if (path === "/api/push/unsubscribe")');
+  // only a page's own Turn on brings a removed device back (alerts/device.ts turnOn sends it)
+  expect(main).toContain('await deviceFrom(req, pass.via), body?.turnOn === true);');
+  expect(readFileSync(join(import.meta.dir, "../web/plugins/alerts/device.ts"), "utf8")).toContain("await post('subscribe', { sub, device: navigator.userAgent, turnOn: true })");
   expect(block).toContain('if (path === "/api/push/remove") return json({ ok: true, removed: push.remove(typeof body?.id === "string" ? body.id : ""), devices: push.devices(endpoint) });');
 });

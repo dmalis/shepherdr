@@ -1135,7 +1135,7 @@ const server = Bun.serve<{ who: string }>({
     if (path === "/api/waiting") return json(waitingNow);
     if (path === "/api/push/subscribe" && req.method === "POST") {
       const body = await req.json().catch(() => null);
-      try { push.subscribe(body?.sub, body?.device, typeof body?.from === "string" ? body.from : undefined, await deviceFrom(req, pass.via)); return json({ ok: true, ...push.state(body.sub.endpoint) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
+      try { push.subscribe(body?.sub, body?.device, typeof body?.from === "string" ? body.from : undefined, await deviceFrom(req, pass.via), body?.turnOn === true); return json({ ok: true, ...push.state(body.sub.endpoint) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
     }
     // Settings › Notifications: this device's alerts as the server keeps them, turned off, chosen, tested
     if (path.startsWith("/api/push/") && req.method === "POST") {

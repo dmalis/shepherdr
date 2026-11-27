@@ -75,7 +75,8 @@ export async function turnOn(tell: Exclude<Tell, 'Off'> = 'Needs me'): Promise<s
   if ((await Notification.requestPermission()) !== 'granted') return 'Alerts were not allowed on this device.'
   const { key } = (await fetch('api/push/key').then((r) => r.json())) as { key: string }
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }))
-  await post('subscribe', { sub, device: navigator.userAgent })
+  // turnOn (fork #96): asked for here, so a device removed from another one's list is on again
+  await post('subscribe', { sub, device: navigator.userAgent, turnOn: true })
   await post('choose', { endpoint: sub.endpoint, topics: TOPICS[tell], muted: [], all: false })
   setPushEndpoint(sub.endpoint)
   want(tell)
