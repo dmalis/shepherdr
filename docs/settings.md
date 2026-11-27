@@ -8,7 +8,7 @@ Settings is one window. Open it from the foot of the list. On a phone it is a li
 |---|---|
 | General | Theme, Chat width, Motion, and "Alerts on this device": Needs me, Everything or Off. Kept in that browser |
 | Agents | What Chats, Tasks and Reviews run on. Each row opens the picker with Agent, Model, Effort, Speed and Permissions |
-| Tasks | Review by a second agent, Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
+| Tasks | Review by a second agent, and while it is on Review rounds (1, 2 or 3) and Must fix ("Blockers", "Major and up", "Everything"); Merge ("When I mark it as done", "When all checks pass", "Right away"), Proof |
 | Secrets | Add or replace a secret. Agents use it by name and never see it |
 | Machines | Each machine's agents, processor, memory and disk. Add a machine. Open desktop, where a machine has one |
 | Usage | How much of each plan your agents have used, with reset times |
@@ -99,7 +99,6 @@ edits the file, or edit it yourself.
 | `agents.reactions` | Agents react to some of your messages with an emoji |
 | `agents.suggestions` | Suggested replies: an agent ends its message with one to three replies you can send with a tap, or one per option (up to five) when it asks a question with options; each at most 30 characters, what a phone's bubble holds (one far longer isn't shown) |
 | `agents.feedback`, `agents.feedback_repo` | Agents offer once to file a problem with Shepherdr, and where |
-| `tasks.review_rounds`, `tasks.must_fix` | How many review rounds, and what a review must get fixed |
 | `tasks.archive_after` | Days before a Done task is archived |
 | `tasks.worktrees` | Off: tasks work in the folder itself |
 | `tasks.worktree_root` | The folder new task worktrees go in |

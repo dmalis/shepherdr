@@ -15,6 +15,7 @@ import { MOTIONS, setPref, THEMES, usePrefs, WIDTHS } from './prefs.ts'
 import { canKeepAwake, setAwake, useAwake } from './awake.ts'
 import { setChatSide, useSides, type Layout, type Side } from './sides.ts'
 import { OWN_VERSION } from './update.ts'
+import { ReviewRows } from './review-rows.tsx'
 import { IconButton } from './space-icon.tsx'
 import { Btn, cx, I, IB, Meter, Row, Seg, Tgl } from './ui.tsx'
 
@@ -34,7 +35,7 @@ export function SRow({ label, wrap, children }: { label: ReactNode; wrap?: boole
 const set = (place: string, key: string, value: unknown) => tryAct({ type: 'config', place, key, value })
 
 /** the small print under a space's value: "Same as Everything", or "Set here" with Reset beside it */
-function Own({ place, own, k }: { place: string; own: boolean; k: string }) {
+export function Own({ place, own, k }: { place: string; own: boolean; k: string }) {
   if (place === 'all') return null
   return (
     <small>
@@ -237,6 +238,7 @@ function TaskRows({ snap, place }: { snap: Snapshot; place: string }) {
   return (
     <>
       <SRow label={<>Review by a second agent<Own place={place} own={own('review')} k="review" /></>}><Tgl label="Review by a second agent" on={lv.review} onChange={(v) => void set(place, 'review', v)} /></SRow>
+      <ReviewRows place={place} lv={lv} own={own} />
       <SRow label={<>Merge<Own place={place} own={own('merge')} k="merge" /></>} wrap>
         <Seg label="Merge" values={MERGE.map((m) => m[1])} value={MERGE.find((m) => m[0] === lv.merge)?.[1] ?? MERGE[0]![1]} onChange={(v) => void set(place, 'merge', MERGE.find((m) => m[1] === v)![0])} />
       </SRow>
