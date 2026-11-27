@@ -8,13 +8,16 @@ import './kind.css'
 
 type Named = { schedule?: string } | null | undefined
 
-/** one line: its kind, its name (cut short first), then its state word */
+/** one line: its kind, its name, then its state word. On a narrow screen a state's tail ("· told you in Everything")
+ *  gives way first, then the name; the kind and the state's first words ("Done") always stay. */
 export function KindName({ t, name, state }: { t?: Named; name: string; state?: string }) {
+  const [word, ...tail] = (state ?? '').split(' · ')
   return (
     <span className="knd">
       <span className="kd">{taskKind(t)}</span>
       <span className="kn">{name}</span>
-      {state ? <span className="ks">{state}</span> : null}
+      {word ? <span className="ks">{word}</span> : null}
+      {word && tail.length ? <span className="kx">{tail.join(' · ')}</span> : null}
     </span>
   )
 }

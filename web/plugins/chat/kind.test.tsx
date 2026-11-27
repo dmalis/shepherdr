@@ -12,6 +12,8 @@ test("a task's line: its kind, its title, its state; a schedule's run says so", 
   expect(text(renderToStaticMarkup(<KindName t={{}} name="Fix login" state="Working" />))).toBe('Task Fix login Working')
   const run = renderToStaticMarkup(<KindName t={{ schedule: 'Install merged' }} name="Install merged" state="Done" />)
   expect(text(run)).toBe('Schedule run Install merged Done')
+  // a state's tail in a part of its own that gives way first
+  expect(renderToStaticMarkup(<KindName name="Install merged" state="Done · told you in Everything" />)).toContain('<span class="ks">Done</span><span class="kx">told you in Everything</span>')
   // the kind and state in their own quiet parts, the title the part that is cut short
   expect(run).toContain('<span class="kd">Schedule run</span><span class="kn">Install merged</span><span class="ks">Done</span>')
   expect(text(renderToStaticMarkup(<KindName name="Fix login" />))).toBe('Task Fix login')

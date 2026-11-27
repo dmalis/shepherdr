@@ -3,9 +3,13 @@
 .knd{display:inline-flex;align-items:baseline;min-width:0;max-width:100%;white-space:nowrap}
 .knd>.kd,.knd>.ks{flex:none;color:var(--muted)}
 .knd>.kn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+/* a state's tail ("told you in Everything") takes only the room left after the name (a basis of 0) */
+.knd>.kx{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.knd>.kx::before{content:"·" / "";margin-inline:4px}
 .knd>.kd::after,.knd>.ks::before{content:"·" / "";margin-inline:4px;color:var(--muted)}
-/* inside a link in words: a quiet word, not underlined with the title */
-.kdi{display:inline-block;margin-inline-end:.3em;opacity:.72;font-size:.92em}
+/* inside a link in words: the link's own colour (its contrast kept), set apart by having no underline: an inline-block
+   takes no text-decoration from the link around it */
+.kdi{display:inline-block;margin-inline-end:.3em;font-size:.92em}
 /* a reply to a task, quoted above its words: its kind before its title (ds.css .quote.qtask) */
 .quote.qtask>.qt0{flex:none;color:var(--muted)}.quote.qtask>.qt0::after{content:"·" / "";margin-inline:4px}
 .card .t .knd>.kn{color:inherit}
