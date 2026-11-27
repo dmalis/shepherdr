@@ -13,10 +13,10 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | zoom | always on | Zoom in, out and reset on ⌘= ⌘− ⌘0, and the palette row for Settings › General's Zoom and Chat text size | |
 | alerts | always on | Push alerts, one choice per device | |
 | inbox | always on | The bell in the list's top row: every alert of the last 7 days, read on one device and so on all; and Settings › Notifications' check of this device and the list of the others | |
-| typing | always on | While a phone's keyboard is up the chat gets the room: the bottom tabs and their home-bar band step aside, the header keeps one line (the model stays in the message box), a note on top waits; all back as the keyboard closes (fork #86) | |
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
 | installed | always on | The installed app: the icon's shortcuts (Everything, Needs you, New task) and links opened in it reach the open window, the headers in a desktop window's title bar, a phone's safe areas on every screen (fork #34) | |
 | whatsnew | always on | What's new under Settings › About: what changed in each version, read at build time, and the toast after an update saying what it brought (fork #70) | |
+| typing | always on | While a phone's keyboard is up the chat gets the room: the bottom tabs and their home-bar band step aside, the header keeps one line (the model stays in the message box), a note on top waits; all back as the keyboard closes (fork #86) | |
 | terminal | yes | Your own terminal in a space or a task, and "View as terminal" | No Terminal menu items |
 | screens | yes | An agent's browser and desktop: watch, Take over, Hand back | No Screen menu item, live picture or card |
 | voice | yes | Voice over the whole app, dictation in the message box, and Settings › Voice (the ElevenLabs key) | No voice or mic button, no Voice page |
