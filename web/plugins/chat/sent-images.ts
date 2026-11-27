@@ -4,3 +4,6 @@
 
 /** "1 image", "3 images · shows once read" */
 export const imagesLine = (n: number, waiting?: boolean) => `${n === 1 ? '1 image' : `${n} images`}${waiting ? ' · shows once read' : ''}`
+
+/** a sent picture that can't be read now (its machine is away, or its log moved on): never a broken picture to tap */
+export const lostLine = '1 image · not available'

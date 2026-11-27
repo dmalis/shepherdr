@@ -56,31 +56,63 @@ test("a picture typed while the agent worked shows from the log, and opens as th
   expect(pic.file.name).toBe("Image.png");
   // only a file the chat names is served, and it is the bytes the agent got
   expect(c.fileOf("p:local:shop", pic.file.path)).toBe(pic.file.path);
-  const img = await readLogImage(reader, pic.file.path);
+  const img = await readLogImage([reader], pic.file.path);
   expect(img?.type).toBe("image/png");
   expect(Buffer.from(img!.bytes).toString("base64")).toBe(PNG);
   done();
 });
 
 test("a picture pasted in the terminal shows from the log too; one with its source line shows its own file", async () => {
+  const shot = join(mkdtempSync(join(tmpdir(), "sent-shot-")), "after.png");
+  writeFileSync(shot, Buffer.from(PNG, "base64"));
   const { chat, done } = await chatOf([
     user("u1", [{ type: "text", text: "[Image #1] look" }, image], 0), reply("a1", "Nice.", 1),
-    user("u2", [{ type: "text", text: "[Image #2] and this" }, image], 2), meta("m2", "[Image: source: /work/shots/after.png]", 2), reply("a2", "Ok.", 3),
+    user("u2", [{ type: "text", text: "[Image #2] and this" }, image], 2), meta("m2", `[Image: source: ${shot}]`, 2), reply("a2", "Ok.", 3),
   ]);
   const files = chat.messages.filter((m: any) => m.file).map((m: any) => m.file.path);
   expect(files.length).toBe(2);
   expect(files[0]).toMatch(LOG_IMAGE);
-  expect(files[1]).toBe("/work/shots/after.png");
+  expect(files[1]).toBe(shot);
+  rmSync(shot.replace(/\/after.png$/, ""), { recursive: true });
   done();
 });
 
-test("a picture the page sent shows its own upload while the send is known (no reload as it goes in)", async () => {
+test("the same words twice: each message shows its own picture, never the other's upload", async () => {
   const c = new Compat() as any;
-  c.noteSend("t2", { cid: "c1", text: "look at this", files: ["/data/chat-attach/web-1-shot.png"], at: Date.parse(at(2)) });
-  const { chat, done } = await chatOf([user("u1", "hi", 0), reply("a1", "Hi.", 1), takenMidTurn("q1", "look at this", 2)], c);
-  const pic = chat.messages.find((m: any) => m.file);
-  expect(pic.file.path).toBe("/data/chat-attach/web-1-shot.png");
-  expect(pic.cid).toBe("c1");
+  // the page's two sends with the same words (its send record matches words and time only)
+  c.noteSend("t2", { cid: "c1", text: "look", files: ["/data/chat-attach/web-1-first.png"], at: Date.parse(at(2)) });
+  c.noteSend("t2", { cid: "c2", text: "look", files: ["/data/chat-attach/web-2-second.png"], at: Date.parse(at(22)) });
+  const { chat, reader, done } = await chatOf([user("u1", "hi", 0), reply("a1", "Hi.", 1), takenMidTurn("q1", "look", 2), reply("a2", "Ok.", 10), takenMidTurn("q2", "look", 22)], c);
+  const pics = chat.messages.filter((m: any) => m.file).map((m: any) => m.file.path as string);
+  expect(pics.length).toBe(2);
+  for (const p of pics) expect(p).toMatch(LOG_IMAGE);
+  expect(new Set(pics.map((p: string) => LOG_IMAGE.exec(p)![2])).size).toBe(2);
+  expect((await readLogImage([reader], pics[1]!))?.type).toBe("image/png");
+  done();
+});
+
+test("a named file that is gone shows from the log; history above the chat is read from its own log", async () => {
+  const { chat, reader, done } = await chatOf([user("u1", [{ type: "text", text: "[Image #1] look" }, image], 0), meta("m1", "[Image: source: /nowhere/gone.png]", 0)]);
+  const path = chat.messages.find((m: any) => m.file).file.path as string;
+  expect(path).toMatch(LOG_IMAGE);
+  // the chat's own reader is another log now: the history's reader serves it
+  const other = { ...reader, path: "/another/log.jsonl" };
+  expect(await readLogImage([other], path)).toBeNull();
+  expect((await readLogImage([other, null, reader], path))?.type).toBe("image/png");
+  done();
+});
+
+test("one picture is picked out of a line too big to read whole", async () => {
+  const big = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: Buffer.alloc(3_000_000, 7).toString("base64") } };
+  const line = { ...takenMidTurn("q1", "two", 0) } as any;
+  line.attachment = { ...line.attachment, prompt: [{ type: "text", text: "[Image #1][Image #2]two" }, big, image] };
+  const { chat, reader, done } = await chatOf([line]);
+  const pics = chat.messages.filter((m: any) => m.file).map((m: any) => m.file.path as string);
+  // a whole-line read fails (as herdr-core cuts a reply over its limit): each picture still comes alone
+  const cut = { ...reader, run: (s: string, a: string[]) => a[0] === "line" ? Promise.resolve({ code: 0, stdout: "{cut" }) : reader.run(s, a) };
+  const second = await readLogImage([cut], pics[1]!);
+  expect(Buffer.from(second!.bytes).toString("base64")).toBe(PNG);
+  expect((await readLogImage([cut], pics[0]!))?.bytes.length).toBe(3_000_000);
   done();
 });
 
@@ -88,17 +120,18 @@ test("only a picture of a message the chat has now, in the log it reads now", as
   const { chat, reader, done } = await chatOf([takenMidTurn("q1", "look", 0)]);
   const path = chat.messages.find((m: any) => m.file).file.path as string;
   const [, , id] = LOG_IMAGE.exec(path)!;
-  expect(await readLogImage(reader, path.replace(/:0$/, ":1"))).toBeNull();
-  expect(await readLogImage(reader, logImage("/another/log.jsonl", `u${id}`, 0))).toBeNull();
-  expect(await readLogImage(reader, logImage(reader.path, "u999999", 0))).toBeNull();
-  expect(await readLogImage(reader, "/etc/passwd")).toBeNull();
+  expect(await readLogImage([reader], path.replace(/:0$/, ":1"))).toBeNull();
+  expect(await readLogImage([reader], logImage("/another/log.jsonl", `u${id}`, 0))).toBeNull();
+  expect(await readLogImage([reader], logImage(reader.path, "u999999", 0))).toBeNull();
+  expect(await readLogImage([reader], "/etc/passwd")).toBeNull();
   done();
 });
 
 test("which pictures a message shows", () => {
   const x = { id: "u10", images: 2 };
   expect(sentPictures({ ...x, paths: ["/a/1.png", "/a/2.png"] }, "/log").files.map((f) => f.path)).toEqual(["/a/1.png", "/a/2.png"]);
-  expect(sentPictures(x, "/log", { files: ["/c/a.png", "/c/notes.pdf", "/c/b.jpg"] }).files.map((f) => f.path)).toEqual(["/c/a.png", "/c/b.jpg"]);
+  // named, but gone from this machine: from the log
+  expect(sentPictures({ ...x, paths: ["/nowhere/1.png", "/nowhere/2.png"] }, "/log", true).files[0]!.path).toMatch(LOG_IMAGE);
   const log = sentPictures({ ...x, paths: ["/a/1.png"] }, "/log");
   expect(log.files.map((f) => f.alt)).toEqual(["Image 1 of 2", "Image 2 of 2"]);
   expect(log.unseen).toBe(0);
@@ -119,8 +152,9 @@ test("a picture still in the CLI's queue keeps its line (it has no picture there
 test("pins: the hooks and the reader sent-images uses", async () => {
   const { readFileSync } = await import("node:fs");
   const src = (f: string) => readFileSync(join(import.meta.dir, f), "utf8");
-  expect(src("compat.ts")).toContain("const pics = sentPictures(x, reader.path ?? null, sentCid ? sends.find((s) => s.cid === sentCid) : null);");
-  expect(src("main.ts")).toMatch(/if \(LOG_IMAGE\.test\(want\)\) \{[^]*?readLogImage\(live\.chats\?\.reader\(a\), want\)/);
+  expect(src("compat.ts")).toContain("const pics = sentPictures(x, reader.path ?? null, !machine);");
+  expect(src("main.ts")).toContain("if (LOG_IMAGE.test(want)) {");
+  expect(src("main.ts")).toContain("const addrs = compat.fileOf(key, want) ? [compat.addrOf(key), compat.historyOf(key)] : [];");
   const { ChatReader } = await import("../core/chat-reader.js");
   expect(typeof (ChatReader as any).prototype.run).toBe("function");
   // a person's message is u<its line's byte offset>, with how many images it had

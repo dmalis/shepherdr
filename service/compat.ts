@@ -793,7 +793,7 @@ export class Compat {
         if (x.text) messages.push({ id: x.id, who: "you", text: x.text, at: x.at, ...cid, ...(x.replyTo ? { reply: x.replyTask ? { text: x.replyTo, task: String(x.replyTask) } : { text: x.replyTo, ...(to ? { id: to.id, who: to.kind === "user" ? "you" : "agent" } : {}) } } : {}), ...reactions, ...mentions } as Message);
         // the images sent with it, under its words as the window shows them; only files a chat names are ever served
         // (fileOf). One Claude Code didn't say the source of shows from its log (service/sent-images.ts).
-        const pics = sentPictures(x, reader.path ?? null, sentCid ? sends.find((s) => s.cid === sentCid) : null);
+        const pics = sentPictures(x, reader.path ?? null, !machine);
         for (const [n, file] of pics.files.entries()) {
           (this.files.get(key) ?? this.files.set(key, new Set()).get(key)!).add(file.path);
           messages.push({ id: `${x.id}:f${n}`, who: "you", at: x.at, ...cid, file } as Message);

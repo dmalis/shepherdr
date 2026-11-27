@@ -2,6 +2,7 @@
 // ("[Image: source: <path>]") only for a message it took between turns. One typed while it worked (taken mid-turn: its
 // queued_command) and one pasted into its terminal have no such line: the picture is only inside the log, as the
 // image block the agent got. The chat shows those from the log itself, so every sent picture is one you can open.
+import { existsSync } from "node:fs";
 import { keep } from "./media.ts";
 
 /** a picture inside a log: which log (a short tag of its path), the message's item id (its line's byte offset) and
@@ -11,41 +12,48 @@ const tagOf = (log: string) => Bun.hash(log).toString(36);
 export const logImage = (log: string, id: string, n: number) => `image:${tagOf(log)}:${id}:${n}`;
 
 type File = { name: string; path: string; alt?: string };
-const IMAGE = /\.(png|jpe?g|gif|webp|avif|heic|bmp)$/i;
 const base = (p: string) => p.split("/").pop() || "image";
-const named = (paths: string[]) => paths.map((p) => ({ name: base(p), path: p }));
 
-/** The pictures to show under one of the person's messages in the log ({ id, images, paths }; log: the log's path):
- *  the files Claude Code named, when it named them all; else the pictures the page sent with it (its send, while still
- *  known); else each image from the log. -> the files, and how many are left that none of these can show. */
-export function sentPictures(x: { id: string; images?: number; paths?: string[] }, log: string | null, sent?: { files: string[] } | null): { files: File[]; unseen: number } {
+/** The pictures to show under one of the person's messages in the log ({ id, images, paths }; log: the log's path;
+ *  here: the log is on this machine, so a named file that is gone is known): the files Claude Code named, when it
+ *  named them all and they are there; else each image from the log itself (what the agent got, so never another
+ *  message's). -> the files, and how many are left that none of these can show. */
+export function sentPictures(x: { id: string; images?: number; paths?: string[] }, log: string | null, here = false): { files: File[]; unseen: number } {
   const n = x.images ?? 0, paths = x.paths ?? [];
-  if (paths.length >= n) return { files: named(paths), unseen: 0 };
-  const pics = (sent?.files ?? []).filter((p) => IMAGE.test(p));
-  if (pics.length === n) return { files: named(pics), unseen: 0 };
-  if (!log || !/^u\d+$/.test(x.id)) return { files: named(paths), unseen: n - paths.length };
+  const named = paths.map((p) => ({ name: base(p), path: p }));
+  if (paths.length >= n && !(here && n && paths.some((p) => p.startsWith("/") && !existsSync(p)))) return { files: named, unseen: 0 };
+  if (!log || !/^u\d+$/.test(x.id)) return { files: named, unseen: Math.max(0, n - paths.length) };
   return { files: Array.from({ length: n }, (_, i) => ({ name: n > 1 ? `Image ${i + 1}.png` : "Image.png", path: logImage(log, x.id, i), alt: n > 1 ? `Image ${i + 1} of ${n}` : "Image" })), unseen: 0 };
 }
+
+const IMAGE_TYPE = /^image\/[\w.+-]+$/;
+const blockOf = (b: any) => b?.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string" && IMAGE_TYPE.test(String(b.source.media_type))
+  ? { type: String(b.source.media_type), data: b.source.data as string } : null;
 
 /** the image blocks in one log line: a message's (message.content) or one taken mid-turn (attachment.prompt) */
 export function imagesIn(line: string): { type: string; data: string }[] {
   let l: any;
   try { l = JSON.parse(line); } catch { return []; }
   const c = l?.type === "user" ? l.message?.content : l?.type === "attachment" && l.attachment?.type === "queued_command" ? l.attachment.prompt : null;
-  return (Array.isArray(c) ? c : [])
-    .filter((b: any) => b?.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string" && /^image\/[\w.+-]+$/.test(String(b.source.media_type)))
-    .map((b: any) => ({ type: String(b.source.media_type), data: b.source.data }));
+  return (Array.isArray(c) ? c : []).map(blockOf).filter((b): b is { type: string; data: string } => !!b);
 }
 
-/** one whole line of the log, from its byte offset, on the agent's machine (sh -c LINE line <offset> <log>) */
+/** Only the nth image block of the line at a byte offset, read on the agent's machine (sh -c PICK pick <offset> <log>
+ *  <n>): a line with several pictures can be bigger than one herdr-core call carries, one picture never is (the API
+ *  takes at most 5 MB each). Its block is `"type":"image","source":{…}` as Claude Code writes it (the source has no
+ *  braces inside). */
+const PICK = `tail -c +$(($1 + 1)) "$2" | head -n 1 | grep -o '"type":"image","source":{[^}]*}' | sed -n "$(($3 + 1))p"`;
+/** the whole line, when its blocks are written some other way */
 const LINE = 'tail -c +$(($1 + 1)) "$2" | head -n 1';
 const types = new Map<string, string>();
 
-/** A picture inside the log the chat follows (a path sentPictures gave): only one of the person's messages that its
- *  conversation has now, in the log it reads now. -> its bytes and type, or null */
-export async function readLogImage(reader: any, path: string): Promise<{ type: string; bytes: Uint8Array } | null> {
+/** A picture inside a log a chat follows (a path sentPictures gave), from the reader whose log it is (the chat's own,
+ *  or the earlier history it shows above it): only one of the person's messages its conversation has now.
+ *  -> its bytes and type, or null */
+export async function readLogImage(readers: any[], path: string): Promise<{ type: string; bytes: Uint8Array } | null> {
   const m = LOG_IMAGE.exec(path);
-  if (!m || !reader?.path || typeof reader.run !== "function" || m[1] !== tagOf(reader.path)) return null;
+  const reader = m && readers.find((r) => r?.path && typeof r.run === "function" && tagOf(r.path) === m[1]);
+  if (!m || !reader) return null;
   const off = m[2]!, n = Number(m[3]);
   const x = (reader.conv?.items ?? []).find((i: any) => i.kind === "user" && i.id === `u${off}`);
   if (!x || n >= (x.images ?? 0)) return null;
@@ -53,8 +61,13 @@ export async function readLogImage(reader: any, path: string): Promise<{ type: s
   const k = `log-image\0${reader.machine ?? ""}\0${reader.path}\0${off}\0${n}`;
   const was = keep(k), type = types.get(k);
   if (was && type) return { type, bytes: was };
-  const r = await reader.run(LINE, ["line", off, reader.path]).catch(() => null);
-  const img = r && r.code === 0 ? imagesIn(String(r.stdout ?? "").trim())[n] : undefined;
+  const picked = await reader.run(PICK, ["pick", off, reader.path, String(n)]).catch(() => null);
+  let img: { type: string; data: string } | null | undefined = null;
+  try { img = picked?.code === 0 && String(picked.stdout).trim() ? blockOf(JSON.parse(`{${String(picked.stdout).trim()}}`)) : null; } catch {}
+  if (!img) {
+    const r = await reader.run(LINE, ["line", off, reader.path]).catch(() => null);
+    img = r && r.code === 0 ? imagesIn(String(r.stdout ?? "").trim())[n] : undefined;
+  }
   if (!img) return null;
   const bytes = new Uint8Array(Buffer.from(img.data, "base64"));
   types.set(k, img.type);

@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat, Message } from '@shared/types.ts'
-import { imagesLine } from './sent-images.ts'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { imagesLine, lostLine } from './sent-images.ts'
 
 const realMarkdown = await import('./markdown.tsx')
 mock.module('./markdown.tsx', () => ({ ...realMarkdown, Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, toHtml: (t: string) => t, linked: (t: string) => t }))
@@ -26,4 +28,12 @@ test("a picture still in the CLI's queue says so; the line is never a link or bu
   expect(imagesLine(3)).toBe('3 images')
   expect(imagesLine(1, true)).toBe('1 image · shows once read')
   expect(imagesLine(2, true)).toBe('2 images · shows once read')
+})
+
+test('a picture that fails to load turns into a plain line, never a broken picture to tap', () => {
+  expect(lostLine).toBe('1 image · not available')
+  const src = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
+  expect(src).toContain('onError={() => setLost(small)}')
+  expect(src).toContain("if (lost && lost === small && isImage(f.name)) return")
+  expect(src).toContain("<span>{lostLine}</span>")
 })

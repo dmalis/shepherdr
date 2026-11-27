@@ -1027,8 +1027,9 @@ const server = Bun.serve<{ who: string }>({
       const key = url.searchParams.get("chat") ?? "", want = url.searchParams.get("path") ?? "";
       // a picture that is only inside the agent's log (service/sent-images.ts)
       if (LOG_IMAGE.test(want)) {
-        const a = compat.fileOf(key, want) ? compat.addrOf(key) : null;
-        const img = a ? await readLogImage(live.chats?.reader(a), want).catch(() => null) : null;
+        // (from the chat's own log, or the earlier history it shows above it)
+        const addrs = compat.fileOf(key, want) ? [compat.addrOf(key), compat.historyOf(key)] : [];
+        const img = await readLogImage(addrs.map((a) => (a ? live.chats?.reader(a) : null)), want).catch(() => null);
         return img ? fileResponse(new Blob([img.bytes as Uint8Array<ArrayBuffer>]), img.type, req.headers.get("range")) : json({ error: "not found" }, 404);
       }
       const upload = want.startsWith(ATTACH + "/") && !want.slice(ATTACH.length + 1).includes("/") && !!statSync(want, { throwIfNoEntry: false })?.isFile();

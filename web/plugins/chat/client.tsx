@@ -37,7 +37,7 @@ import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './sugges
 import { UpdateHint, updateRows } from './update.tsx'
 import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
-import { imagesLine } from './sent-images.ts'
+import { imagesLine, lostLine } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
@@ -537,6 +537,9 @@ export function FileRow({ msg, chat, gap }: { msg: Message; chat: Chat; gap: boo
   const f = msg.file! as NonNullable<Message['file']> & { id?: string }
   const mine = msg.who === 'you'
   const { small, full, box } = sourcesOf(chat.key, f)
+  // one that can't be read (its machine is away, its log moved on): a plain line that says so, never a broken link (#56)
+  const [lost, setLost] = useState('')
+  if (lost && lost === small && isImage(f.name)) return <div className={cx('ref', mine && 'mine')} data-msg={msg.id}><I n="image" c="s16" /><span>{lostLine}</span></div>
   // a picture or video shows itself (this screen's own copy while it still goes up); a tap opens the preview
   if (full && (isImage(f.name) || isVideo(f.name)))
     return (
@@ -553,7 +556,7 @@ export function FileRow({ msg, chat, gap }: { msg: Message; chat: Chat; gap: boo
           openPreview(chat.key, f)
         }}
       >
-        {isVideo(f.name) ? <video src={full} controls playsInline preload="metadata" /> : <img src={small} alt={f.alt || f.name} loading="lazy" style={box} />}
+        {isVideo(f.name) ? <video src={full} controls playsInline preload="metadata" /> : <img src={small} alt={f.alt || f.name} loading="lazy" style={box} onError={() => setLost(small)} />}
       </a>
     )
   return (
