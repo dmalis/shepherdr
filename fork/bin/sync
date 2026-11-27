@@ -16,6 +16,7 @@ when its step passed.
   finish --run <key> --folder <space> [--says "<what's new>"]   the exact completion command for the outcome
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
   held                                     reads the held records, and whether each one's question is due
+  patch-tests [--issue <n>]                runs each fork/patches.json line's tests in this tree (only those named)
   clear-broken                             the person's only: clears a broken phase (refused in a task's terminal)
 
 The git steps work in the current folder, the run's worktree (--repo names another). Every subcommand takes
@@ -29,7 +30,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import gate, install, public, release, state  # noqa: E402
+from sync import gate, install, patches, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -151,6 +152,33 @@ def clear_broken(a, p):
     with state.locked(p) as st:
         state.clear_broken(st)
     return {"phase": None}
+
+
+def patch_tests(a, p):
+    """Each line's tests, in the tree at --repo (the sync's merge, its step 4): first the list itself is checked."""
+    repo = os.path.abspath(a.repo)
+    try:
+        lines = patches.read(repo)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Refused(f"{patches.FILE} can't be read ({type(e).__name__})", outcome="stop")
+    found = patches.problems(repo, lines)
+    if found:
+        raise Refused(f"{patches.FILE} doesn't match this tree: " + "; ".join(found), outcome="stop", problems=found)
+    if a.issue is not None:
+        lines = [x for x in lines if x["issue"] == a.issue]
+        if not lines:
+            raise Refused(f"{patches.FILE} has no line for #{a.issue}", outcome="stop")
+    done = [{"issue": x["issue"], "name": x["name"], "tests": patches.run(repo, x)} for x in lines]
+    failed = [d["issue"] for d in done if not all(t["ok"] for t in d["tests"])]
+    if failed:
+        raise Refused("a patch's tests fail: " + ", ".join(f"#{n}" for n in failed), outcome="stop", failed=failed,
+                      patches=done)
+    return {"patches": done}
+
+
+def patch_tests_args(c):
+    c.add_argument("--repo", default=".", help="the tree whose fork/patches.json runs (default: here)")
+    c.add_argument("--issue", type=int, help="only that patch's line")
 
 
 def run_args(c):
@@ -278,6 +306,7 @@ COMMANDS = [
     ("finish", "the exact completion command for the run's outcome", finish_args, finish),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),
+    ("patch-tests", "runs each fork/patches.json line's tests", patch_tests_args, patch_tests),
     ("clear-broken", "the person's only: clears a broken phase", None, clear_broken),
 ]
 
