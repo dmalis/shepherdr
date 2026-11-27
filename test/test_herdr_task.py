@@ -3766,7 +3766,7 @@ class ChecksBeforeReady(PrLooks):
 
     def test_working_while_checks_run_then_ready(self):
         t = self.said_ready()
-        self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Checks running"))
+        self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Waiting for GitHub's checks"))  # dmalis/shepherdr#42
         self.github_says(checks=[self.RUNNING])
         # dmalis/shepherdr#42: what it waits for, from the checks' real state
         self.assertEqual(self.look(t), ("working", "Waiting for GitHub's checks · 0 of 1 passed", None))
@@ -3837,7 +3837,8 @@ class ChecksBeforeReady(PrLooks):
     def test_merging_by_itself_is_working_then_done(self):
         t = self.said_ready()
         t["auto_merge"] = "checks"
-        self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Merges once its checks pass"))
+        # dmalis/shepherdr#42: its checks not read yet: what it waits for; the card says it merges by itself then
+        self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Waiting for GitHub's checks"))
         t["merge_requested"] = 1
         self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Merging"))
 
@@ -3971,7 +3972,7 @@ class RequiredChecksOnly(PrLooks):
         t = self.auto()
         self.requires()
         self.github_says(checks=[self.BUILD, self.LINT_RUNS])
-        self.assertEqual(self.agents.ready_wait(t, []), "Merges once its checks pass")
+        self.assertEqual(self.agents.ready_wait(t, []), "Waiting for GitHub's checks")  # dmalis/shepherdr#42
         self.assertEqual(self.merge(t), self.commands.CHECKS_RUNNING)
         self.assertFalse(self.merged())
 
@@ -4082,8 +4083,8 @@ class ChecksUnreadable(PrLooks):
     def test_blocked_waits_a_while_then_is_ready_anyway(self):
         t = self.said_ready()
         self.github_says("BLOCKED")
-        self.assertEqual(self.look(t, after=60_000)[:2], ("working", "Checks running"))
-        self.assertEqual(self.look(t, after=10 * 60_000)[:2], ("working", "Checks running"))
+        self.assertEqual(self.look(t, after=60_000)[:2], ("working", "Waiting for GitHub's checks"))  # dmalis/shepherdr#42
+        self.assertEqual(self.look(t, after=10 * 60_000)[:2], ("working", "Waiting for GitHub's checks"))
         self.assertEqual(self.look(t, after=10 * 60_000), ("ready", None, "ready"))
 
     def test_rest_check_runs_still_count_when_graphql_refuses(self):
@@ -12000,8 +12001,15 @@ class ChecksWait(unittest.TestCase):
 
     def ms(self, task):
         pr = dict(task["pr"])
+        def scale(v):  # minutes; kept as text too: then text in ms
+            if isinstance(v, str):
+                try:
+                    return str(int(float(v) * self.MIN))
+                except ValueError:
+                    return v
+            return v * self.MIN
         if "runs" in pr:
-            pr["runs"] = [{**r, **{k: r[k] * self.MIN for k in ("at", "end", "typ") if r.get(k)}} for r in pr["runs"]]
+            pr["runs"] = [{**r, **{k: scale(r[k]) for k in ("at", "end", "typ") if r.get(k)}} for r in pr["runs"]]
         return {**task, "pr": pr}
 
     def test_the_shared_cases(self):
@@ -12013,14 +12021,14 @@ class ChecksWait(unittest.TestCase):
 
     def test_ready_wait_says_it_before_merging(self):
         """The seam in agents.ready_wait: merging on its own while checks run is never "Merging" yet."""
-        t = {"state": "ready", "auto_merge": "auto", "pr": {"number": 3, "checks": "running", "runs": [{"n": "check", "s": "running"}]}}
+        t = {"state": "ready", "auto_merge": "auto", "pr": {"number": 3, "checks": "running", "wait": "Checks running", "runs": [{"n": "check", "s": "running"}]}}
         self.assertEqual(self.agents.ready_wait(t, []), "Waiting for GitHub's checks · 0 of 1 passed")
         self.assertEqual(self.agents.ready_wait({**t, "merge_requested": True}, [{"address": "t1"}]), self.agents.MERGING)
 
     def test_the_tick_keeps_each_check_and_its_usual_time(self):
         """keep() from gh pr view's rows: names, states and times; a check's usual time is the middle of what it took on
         this repo's earlier pull requests, never another repo's."""
-        earlier = lambda i, mins, repo="o/r": {"id": i, "ready_at": i, "pr": {"repo": repo, "runs": [
+        earlier = lambda i, mins, repo="o/r": {"id": i, "ready_at": i, "merged": True, "pr": {"repo": repo, "runs": [
             {"n": "check", "s": "passed", "at": self.MIN, "end": (mins + 1) * self.MIN}, {"n": "lint", "s": "failed", "at": self.MIN, "end": 2 * self.MIN}]}}
         task = {"id": 9, "state": "ready", "pr": {"repo": "o/r", "checks": "running"}}
         s = types.SimpleNamespace(data={"tasks": [earlier(1, 10), earlier(2, 12), earlier(3, 30), earlier(4, 99, "x/y"), task]}, dirty=False)
@@ -12043,6 +12051,17 @@ class ChecksWait(unittest.TestCase):
         self.assertFalse(s.dirty)
         self.cw.keep(s, task, v, missing=True)
         self.assertTrue(task["pr"]["runs_more"])
+
+    def test_more_checks_than_rows_keep_the_failed_one(self):
+        """Past MOST rows, the failed and open checks are kept first and the passed ones that didn't fit still count."""
+        task = {"id": 9, "state": "ready", "pr": {"repo": "o/r", "checks": "failed", "wait": "Back to its agent to fix"}}
+        s = types.SimpleNamespace(data={"tasks": [task]}, dirty=False)
+        rows = [{"name": f"job {i}", "status": "COMPLETED", "conclusion": "SUCCESS"} for i in range(40)]
+        self.cw.keep(s, task, {"statusCheckRollup": rows + [{"name": "e2e", "status": "COMPLETED", "conclusion": "FAILURE"}]})
+        self.assertEqual(len(task["pr"]["runs"]), self.cw.MOST)
+        self.assertEqual(task["pr"]["runs"][0]["n"], "e2e")
+        self.assertEqual(task["pr"]["runs_cut"], 41 - self.cw.MOST)
+        self.assertEqual(self.cw.line(task, 0), "“e2e” failed · back to its agent to fix")
 
     def test_the_tick_calls_keep(self):
         """The seam in tick.facts: the checks are kept where it reads its pull request's checks."""

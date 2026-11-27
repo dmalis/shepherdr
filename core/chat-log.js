@@ -1082,8 +1082,11 @@ export class Conversation {
     }
     let said = out.join("\n").trim();
     // dmalis/shepherdr#42: a plain "Suggested replies:" list last is never words: its items are the suggestions
+    // (this.plainCut: the words as written, should later words of the same reply make that list not last after all)
+    this.plainCut = null;
     const plain = plainSuggests(said);
     if (plain) {
+      this.plainCut = said;
       said = plain.text;
       if (!this.suggestion?.length) this.suggestion = plain.suggests;
     }
@@ -1207,7 +1210,11 @@ export class Conversation {
           // One reply can be written over several lines with the same id.
           const prev = this.replies.get(id);
           if (prev && this.items[this.items.length - 1] === prev) {
+            // dmalis/shepherdr#42: a list taken as suggestions from its earlier words isn't last any more: words again
+            const cut = this.cuts?.get(prev);
+            if (cut) { prev.text = cut; this.cuts.delete(prev); }
             prev.text += "\n\n" + said;
+            if (this.plainCut) (this.cuts ??= new WeakMap()).set(prev, prev.text.slice(0, prev.text.length - said.length) + this.plainCut);
             // the newest words' suggestion, if they end with one
             delete prev.suggests;
             const sg = this.takeSuggest();
@@ -1215,10 +1222,17 @@ export class Conversation {
           } else {
             const sg = this.takeSuggest();
             const item = { kind: this.recapping ? "recap" : "agent", id: `a${off}`, text: said, at: time(l.timestamp), ...(this.recapping ? {} : sg) };
+            if (this.plainCut) (this.cuts ??= new WeakMap()).set(item, this.plainCut);
             this.replies.set(id, item);
             if (this.replies.size > 20) this.replies.delete(this.replies.keys().next().value);
             this.push(item);
           }
+        } else if (this.suggestion?.length) {
+          // dmalis/shepherdr#42: a block of suggestions only (its own <hc suggest> lines, or a plain list) ends the
+          // reply its earlier block wrote: they are that reply's buttons
+          const prev = this.replies.get(id);
+          if (prev && prev.kind !== "recap" && this.items[this.items.length - 1] === prev) Object.assign(prev, this.takeSuggest());
+          else this.suggestion = null;
         } else if (b?.type === "tool_use") {
           if (b.name === "AskUserQuestion") {
             const qs = Array.isArray(b.input?.questions) ? b.input.questions : [];

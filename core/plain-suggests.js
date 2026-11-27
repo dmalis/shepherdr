@@ -17,10 +17,10 @@ const clean = (t) => t.replace(/^[*_]+|[*_]+$/g, "").trim().replace(/^[“"'`]+|
 export function plainSuggests(text) {
   const lines = String(text ?? "").replace(/\s+$/, "").split("\n");
   if (lines.some((l) => l.trim().startsWith("```"))) {
-    // a fence after the heading would mean the list is in code: leave it
-    const last = lines.map((l) => l.trim().startsWith("```")).lastIndexOf(true);
+    // a fence after the heading, or an odd number before it (one left open), would mean the list is in code: leave it
+    const fences = lines.map((l) => l.trim().startsWith("```"));
     const head = lines.findLastIndex((l) => HEAD.test(l));
-    if (head < 0 || last > head) return null;
+    if (head < 0 || fences.lastIndexOf(true) > head || fences.slice(0, head).filter(Boolean).length % 2) return null;
   }
   let i = lines.length - 1;
   const items = [];
@@ -35,8 +35,11 @@ export function plainSuggests(text) {
   const h = HEAD.exec(lines[i]);
   if (!h) return null;
   // items on the heading's own line: quoted ones ("Suggested replies: “Yes”, “Not yet”")
+  // only quoted items, with commas, "or" and a full stop between them: anything else is a sentence ("Suggested
+  // replies: replace “Stop” with “Pause”."), the agent's to say
+  if (h[1] && h[1].replace(QUOTED, "").replace(/\b(or|and)\b|[,;.\s]/gi, "") !== "") return null;
   const inline = h[1] ? [...h[1].matchAll(QUOTED)].map((m) => clean(m[1])) : [];
-  if (h[1] && !inline.length) return null; // a sentence about suggested replies, not a list of them
+  if (h[1] && !inline.length) return null;
   const suggests = [...new Set([...inline, ...items].filter(Boolean))];
   if (!suggests.length) return null;
   return { text: lines.slice(0, i).join("\n").replace(/\s+$/, ""), suggests };

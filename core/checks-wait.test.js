@@ -8,9 +8,10 @@ import { plainSuggests } from "./plain-suggests.js";
 
 const MIN = 60000;
 const { cases } = JSON.parse(readFileSync(new URL("./checks-wait.cases.json", import.meta.url), "utf8"));
-// the cases' times are minutes
+// the cases' times are minutes (kept as text too: then text in ms)
+const scale = (v) => (typeof v === "string" ? (Number.isFinite(Number(v)) ? String(Number(v) * MIN) : v) : v * MIN);
 const inMs = (task) => ({ ...task, pr: { ...task.pr, ...(task.pr.runs ? { runs: task.pr.runs.map((r) => ({ ...r,
-  ...(r.at ? { at: r.at * MIN } : {}), ...(r.end ? { end: r.end * MIN } : {}), ...(r.typ ? { typ: r.typ * MIN } : {}) })) } : {}) } });
+  ...(r.at ? { at: scale(r.at) } : {}), ...(r.end ? { end: scale(r.end) } : {}), ...(r.typ ? { typ: scale(r.typ) } : {}) })) } : {}) } });
 
 for (const c of cases) {
   test(`checks wait: ${c.name}`, () => {
@@ -23,6 +24,7 @@ test("what happens next: merges by itself, yours to merge, its agent fixes it", 
   expect(waitWords({ runs: run, more: false, auto: true }, MIN).next).toBe("It merges by itself once they pass.");
   expect(waitWords({ runs: run, more: false, auto: false }, MIN).next).toBe("Once they pass, it's yours to merge.");
   expect(waitWords({ runs: [{ ...run[0], state: "failed" }], more: false, auto: true }).state).toBe("failed");
+  expect(waitWords({ runs: run, more: false, auto: true, approval: true }, MIN).next).toBe("It merges by itself once they pass and it's approved.");
 });
 
 test("one check's words", () => {
@@ -30,12 +32,13 @@ test("one check's words", () => {
   expect(runWords({ state: "running", at: MIN, typical: 9 * MIN }, 5 * MIN)).toBe("running · 4 min of about 9");
   expect(runWords({ state: "running", at: MIN }, 5 * MIN)).toBe("running · 4 min");
   expect(runWords({ state: "queued", typical: 9 * MIN })).toBe("queued · usually 9 min");
+  expect(runWords({ state: "running", at: 0, typical: 9 * MIN })).toBe("running · usually 9 min"); // no start time: not queued
   expect(runWords({ state: "skipped" })).toBe("skipped");
 });
 
 // the seam in core/tasks.js: a Ready task merging on its own whose checks run says what it waits for, never "Merging"
 test("readyWait says what it waits for before Merging", () => {
-  const t = { state: "ready", auto_merge: "auto", pr: { number: 3, checks: "running", runs: [{ n: "check", s: "running", at: Date.now() - MIN, typ: 9 * MIN }] } };
+  const t = { state: "ready", auto_merge: "auto", pr: { number: 3, checks: "running", wait: "Checks running", runs: [{ n: "check", s: "running", at: Date.now() - MIN, typ: 9 * MIN }] } };
   expect(readyWait(t)).toBe("Waiting for GitHub's checks · 0 of 1 passed · about 8 min");
   expect(readyWait({ ...t, merge_requested: true })).toBe("Merging");
 });
@@ -49,4 +52,8 @@ test("a plain Suggested replies list last in a message is read as suggestions", 
   expect(plainSuggests("Suggested replies are on for this space.")).toBeNull();
   expect(plainSuggests("```\nSuggested replies:\n- a\n```")).toBeNull();
   expect(plainSuggests("Changed:\n- a\n- b")).toBeNull();
+  // a sentence with quotes in it, a list in a code block left open
+  expect(plainSuggests('Done.\nSuggested replies: replace "Stop" with "Pause".')).toBeNull();
+  expect(plainSuggests("Here:\n```\nSuggested replies:\n- a")).toBeNull();
+  expect(plainSuggests('Done.\nSuggested replies: "Yes" or "No".')).toEqual({ text: "Done.", suggests: ["Yes", "No"] });
 });
