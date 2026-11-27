@@ -60,6 +60,11 @@ test("Codex 0.172's own trust screen (Trust and continue, Quit) is a trust card 
   const q = tipOn(card);
   expect(q.title).toBe("Trust this folder?");
   expect(q.trust.tip).toMatchObject({ key: "mini:codex:/home/me/dev/shop", command: "cd /home/me/dev/shop && codex", then: "choose to trust it, then type /exit." });
+  // a small terminal: Codex shortens the folder with "…", and still prints the repository root in full
+  const short = fromScreen(CODEX("/home/me/…/shop/fix-the-cart", "/home/me/dev/shop"), "Codex");
+  expect(tipOn(short).trust.tip).toMatchObject({ command: "cd /home/me/dev/shop && codex" });
+  // a shortened folder with no root of this task's shown: no tip
+  expect(tipOn(fromScreen(CODEX("/home/me/…/other/x", "/home/me/dev/other"), "Codex")).trust.tip).toBeUndefined();
   // the older screen still reads as one
   const old = fromScreen(["> You are in /home/me/dev/shop", "", "  Do you trust the contents of this directory?", "", "› 1. Yes, continue", "  2. No, quit"].join("\n"), "Codex");
   expect(trustOf(old)).toMatchObject({ yes: 0, no: 1 });
@@ -90,8 +95,10 @@ test("the --add-dir screen wrapped, a folder with spaces, a folder of the person
   const wrapped = fromScreen(ADD_DIR([TPL], [" This session hasn't worked here before. Is this a directory you created", " or one you trust?"]), "Claude Code", "scr-t9-1", "t9");
   expect(trustOf(wrapped)).toMatchObject({ yes: 1, no: 0 });
   expect(tipOn(wrapped, [reviewer]).trust.tip.folder).toBe(TPL);
-  // the folder wrapped where the terminal ended
-  expect(addDirFolder(ADD_DIR(["/home/me/.config/herdr-co", "re/templates"]))).toBe(TPL);
+  // the folder wrapped where the terminal ended: a space at the wrap can't be told apart, so no command at all
+  expect(addDirFolder(ADD_DIR(["/home/me/.config/herdr-co", "re/templates"]))).toBeNull();
+  const atSpace = fromScreen(ADD_DIR(["/home/me/custom role", "templates"]), "Claude Code", "scr-t9-1", "t9");
+  expect(tipOn(atSpace, [reviewer]).trust.tip).toBeUndefined();
   // a folder with spaces in it: the tip quotes it; the card itself can't read a folder with spaces (trustOf's folder)
   const spaced = fromScreen(ADD_DIR(["/config with spaces/herdr-core/templates"]), "Claude Code", "scr-t9-1", "t9");
   expect(tipOn(spaced, [reviewer]).trust.tip).toMatchObject({ folder: "/config with spaces/herdr-core/templates", command: "cd '/config with spaces/herdr-core/templates' && claude" });

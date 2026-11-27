@@ -25,8 +25,9 @@ const ADD_DIR = /Adding a new directory:/i;
 const ADD_DIR_ASK = /Is this a directory you created or one you trust/i;
 
 /** The folder Claude Code's --add-dir screen names (a reviewer's extra folder, the role templates, or one in the
- *  person's own flags): the lines under "Adding a new directory:" up to the next blank one, joined where the terminal
- *  wrapped it. Spaces in it stay. null when it isn't that screen or no folder can be read from it. */
+ *  person's own flags): the line under "Adding a new directory:", spaces in it kept. null when it isn't that screen,
+ *  no folder can be read from it, or the terminal wrapped it over several lines (a space at the wrap is lost, so the
+ *  folder can't be told for sure: no command beats a wrong one). */
 export function addDirFolder(all: string | null | undefined): string | null {
   if (!all || !ADD_DIR.test(all) || !ADD_DIR_ASK.test(all.replace(/\s+/g, " "))) return null;
   const lines = all.split("\n");
@@ -39,8 +40,9 @@ export function addDirFolder(all: string | null | undefined): string | null {
     if (ADD_DIR_ASK.test(t) || /^This session\b/i.test(t)) break;
     parts.push(t);
   }
-  const folder = parts.join("").replace(/\/+$/, "");
-  return /^(\/|~\/|[A-Z]:\\)/.test(folder) ? folder : null;
+  if (parts.length !== 1) return null;
+  const folder = parts[0].replace(/\/+$/, "");
+  return /^(\/|~\/|[A-Z]:\\)/.test(folder) && !folder.includes("…") ? folder : null;
 }
 
 /** The folder to trust once, on the task's machine: the folder Claude Code's --add-dir screen names when that is what
@@ -55,9 +57,13 @@ export function tipFolder(screen: string | null | undefined, row: Row | null | u
   }
   if (!row || row.kind !== "repo" || !row.folder || !row.worktree || row.worktree === row.folder) return null;
   // a screen that names another folder than this task's (its agent moved): no tip for a folder we can't place. A
-  // path cut where the terminal wrapped it still counts when it is the start of the task's own.
+  // path cut where the terminal wrapped it still counts when it is the start of the task's own; so does a screen
+  // that shows the task's folder or its repo's on a line of its own (Codex shortens a long folder with "…" but prints
+  // the repository root its trust applies to in full).
   const cut = (p: string) => !!screen && screen.length >= 8 && p.startsWith(screen);
-  if (screen && !under(screen, row.worktree) && !under(screen, row.folder) && !cut(row.worktree)) return null;
+  const shown = new Set((all ?? "").split("\n").map((l) => l.trim().replace(/\/+$/, "")));
+  if (screen && !under(screen, row.worktree) && !under(screen, row.folder) && !cut(row.worktree)
+    && !shown.has(row.folder.replace(/\/+$/, "")) && !shown.has(row.worktree.replace(/\/+$/, ""))) return null;
   return { folder: row.folder, extra: false };
 }
 
