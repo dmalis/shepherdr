@@ -241,6 +241,14 @@ class BeforeAnythingMoves(World):
         with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": "OTHER-2"}):
             self.assertEqual(self.refused().fields["kind"], "permission")
 
+    def test_a_scratch_root_never_asks_herdr_task(self):
+        # its runner would update this home's Shepherdr: without its own updater, a scratch root stops
+        with mock.patch.dict(os.environ):
+            del os.environ["FORK_SYNC_SCRATCH_UPDATER"]
+            e = self.refused(live=False)
+        self.assertEqual((e.fields["outcome"], e.fields["gate"]), ("held", "updater"))
+        self.assertEqual(self.calls("herdr-task"), [], "herdr-task isn't called at all")
+
     def test_the_assistants_must_be_readable(self):
         self.set(assistants="not a list")
         self.assertEqual(self.refused().fields["gate"], "assistants")
@@ -277,7 +285,7 @@ class Outcomes(World):
         out = self.health()
         self.assertEqual((out["outcome"], out["version"], out["tag"]), ("installed", "3.2.22", "ours-3.2.22-1"))
         self.assertEqual([x["line"] for x in out["lines"]],
-                         ["record", "files", "assistants", "scheduler", "hooks", "doctor"])
+                         ["hooks", "record", "files", "assistants", "scheduler", "doctor"])
         st = self.st()
         self.assertEqual(st["phase"], "healthy")
         self.assertEqual((st["baseline"]["sha"], st["baseline"]["version"]), (self.C, "3.2.22"))
@@ -328,8 +336,37 @@ class Outcomes(World):
         with self.assertRaises(Refused) as e:
             self.health()
         self.assertEqual(e.exception.fields["outcome"], "rollback")
+        failed = [x for x in e.exception.fields["lines"] if not x["ok"]]
+        self.assertEqual([x["line"] for x in failed], ["doctor"])
+        self.assertEqual(self.calls("doctor"), [], "doctor (which lets go of the sync hold) never runs on it")
         self.assertEqual(self.rollback()["outcome"], "rolled-back")
         self.assertEqual(self.st()["baseline"]["sha"], self.B)
+        self.assertEqual(len(self.calls("doctor")), 1, "only health on the baseline runs doctor")
+
+    def test_a_tag_that_cant_be_pushed_is_retried_alone(self):
+        self.set(plan=["ok"])
+        self.install()
+        with mock.patch.object(install, "push_tag", return_value=None):
+            with self.assertRaises(Refused) as e:
+                self.health()
+        self.assertEqual((e.exception.fields["outcome"], e.exception.fields["next"]), ("wait", "health"))
+        st = self.st()
+        self.assertEqual((st["phase"], st["install"]["passed"], st["baseline"]["sha"]), ("installed", True, self.B))
+        with self.assertRaises(Refused):
+            self.rollback()                    # a passed install isn't rolled back for its tag
+        with self.assertRaises(Refused):
+            self.finish(says="x")              # nor finished without it
+        out = self.health()
+        self.assertEqual((out["outcome"], out["tag"]), ("installed", "ours-3.2.22-1"))
+        self.assertEqual(len(self.calls("doctor")), 1, "the lines don't run again")
+        self.assertEqual(self.st()["baseline"]["sha"], self.C)
+
+    def test_a_tag_already_on_the_commit_is_reused(self):
+        # a push that landed but said it failed
+        subprocess.run(["git", "-C", self.origin, "tag", "ours-3.2.22-1", self.C], check=True)
+        self.set(plan=["ok"])
+        self.install()
+        self.assertEqual(self.health()["tag"], "ours-3.2.22-1")
 
     def test_rolled_back_when_doctor_fails(self):
         self.set(plan=["ok", "ok"], doctor_fails=True)
@@ -381,7 +418,7 @@ class Outcomes(World):
         self.set(plan=["ok"], stale_scheduler=True, assistants="not read")
         self.install(live=False)
         out = self.health(live=False)
-        self.assertEqual([x["line"] for x in out["lines"]], ["record", "files", "hooks", "doctor"])
+        self.assertEqual([x["line"] for x in out["lines"]], ["hooks", "record", "files", "doctor"])
         self.assertIsNone(out["tag"], "no tag from a scratch root")
         self.assertEqual(self.calls("doctor")[0][1], ["doctor", "--root", os.path.realpath(self.root)])
 
@@ -405,6 +442,18 @@ class Outcomes(World):
         with self.assertRaises(Refused) as e:
             self.rollback()
         self.assertEqual(e.exception.fields["outcome"], "stop")
+
+    def test_changed_hooks_are_the_persons_whatever_else_failed(self):
+        self.set(plan=["landed-failed"], touch_hooks=True, not_whole=True)
+        with self.assertRaises(Refused):
+            self.install()
+        with self.assertRaises(Refused) as e:
+            self.health()
+        self.assertEqual((e.exception.fields["outcome"], e.exception.fields["kind"]), ("unknown", "hooks"))
+        self.assertEqual(self.st()["phase"], "broken")
+        with self.assertRaises(Refused):
+            self.rollback()
+        self.assertEqual(self.head(), self.C, "nothing rolls back over it")
 
     def test_hook_files_changed_by_the_update(self):
         self.set(plan=["ok"], touch_hooks=True)
@@ -545,6 +594,26 @@ class Resume(World):
         self.assertEqual((st["phase"], st["install"]["ask"], self.head()), ("installing", None, self.B))
         self.assertEqual(self.install()["update"], "ok")
         self.assertEqual(len(self.asks()), 1)
+
+    def test_a_resume_before_the_ask_checks_the_folder_again(self):
+        self.set(plan=["ok"])
+        with mock.patch.object(install, "move_and_ask", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.install()
+        # meanwhile the person edits the install folder: a checkout would carry the edit into the update
+        with open(os.path.join(self.folder, "install.sh"), "a") as f:
+            f.write("# by hand\n")
+        with self.assertRaises(Refused) as e:
+            self.install()
+        self.assertEqual((e.exception.fields["outcome"], e.exception.fields["gate"]), ("unknown", "resume"))
+        self.assertEqual((self.head(), self.asks()), (self.B, []), "nothing moved, nothing asked")
+        # the schedule's permission taken away meanwhile: the same
+        git(self.folder, "checkout", "-q", "--", "install.sh")
+        self.set(autos={"7": {"may_update": False}})
+        with self.assertRaises(Refused) as e:
+            self.install()
+        self.assertEqual(e.exception.fields["gate"], "resume")
+        self.assertEqual(self.asks(), [])
 
     def test_an_ask_recorded_but_never_made_reads_as_failed(self):
         self.set(plan=["ok", "ok"])

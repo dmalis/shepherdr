@@ -368,26 +368,40 @@ def may_ask(run_key, folder, env=None):
     return None
 
 
-def ask_update(run_key, folder):
+def updater(s):
+    """What asks for the update. The real home: herdr-task. A scratch root never asks herdr-task (its runner updates
+    this home's Shepherdr, whatever the root): it names its own updater with that CLI's update-shepherdr
+    (FORK_SYNC_SCRATCH_UPDATER: the rehearsal's direct path, build task 6, or a test's fake), else nothing moves."""
+    if s.live:
+        return "herdr-task"
+    u = os.environ.get("FORK_SYNC_SCRATCH_UPDATER")
+    if not u:
+        raise Refused("a scratch root never asks herdr-task for the update (that would update this home's Shepherdr): "
+                      "name its updater in FORK_SYNC_SCRATCH_UPDATER; nothing moved", outcome="held",
+                      kind="pipeline", gate="updater")
+    return u
+
+
+def ask_update(s, run_key, folder):
     """`herdr-task update-shepherdr <run> --folder <space> --no-wait`, from the run's own terminal. Its exit code
     says little: the outcome is read from its state (read_outcome)."""
-    run(["herdr-task", "update-shepherdr", run_key, "--folder", folder, "--no-wait"], timeout=120)
+    run([updater(s), "update-shepherdr", run_key, "--folder", folder, "--no-wait"], timeout=120)
 
 
-def update_status(task, folder):
+def update_status(s, task, folder):
     """The task's shepherdr_update ({state, at, done_at, ...}), or None when it can't be read."""
-    code, out, _ = run(["herdr-task", "update-shepherdr", task, "--folder", folder, "--status", "--json"], timeout=60)
+    code, out, _ = run([updater(s), "update-shepherdr", task, "--folder", folder, "--status", "--json"], timeout=60)
     v = json_line(out) if code == 0 else None
     return v if isinstance(v, dict) else None
 
 
-def read_outcome(ask, now=time.time, sleep=time.sleep):
+def read_outcome(s, ask, now=time.time, sleep=time.sleep):
     """Polls the asking task's update state (Reading the outcome). -> ("ok" | "failed" | "unknown" | "wait",
     {state, at, done_at}). An update whose `at` is before the ask isn't this one: the ask was refused, so it failed.
     Running 40 minutes after its `at`: unknown. One call waits at most a shell call's share, then "wait"."""
     began = now()
     while True:
-        u = update_status(ask["task"], ask["folder"])
+        u = update_status(s, ask["task"], ask["folder"])
         if u is None:
             return "unknown", {}
         seen = {k: u.get(k) for k in ("state", "at", "done_at", "version") if u.get(k) is not None}
@@ -491,7 +505,8 @@ def before_checks(s, st, repo, sha, run_key, folder, env=None):
     """Install's checks, in order (Before anything moves). Each one that fails stops with nothing changed. Returns
     the before-pictures for health."""
     # 1 the machine: site() checked it
-    installed_cli(s)                                                                                    # 2
+    updater(s)                                                    # a scratch root names its own updater, or stops
+    installed_cli(s)                                                                                  # 2
     recorded_source(s)                                                                                  # 3
     base = (st.get("baseline") or {}).get("sha")
     head, _, clean = folder_head(s)                                                                     # 4
@@ -566,7 +581,12 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
         if ins.get("sha") != sha:
             raise Refused(f"the install under way is {str(ins.get('sha'))[:12]}, not {sha[:12]}", outcome="stop")
         if not ins.get("ask"):
-            return move_and_ask(p, s, run_key, folder, sha, now=now, sleep=sleep)
+            # a run died before its ask: whoever had the folder since, the checks that guard it run again
+            why = resume_checks(s, ins, run_key, folder, env)
+            if why:
+                raise Refused(f"the install stopped before its update was asked for, and now {why}: nothing was "
+                              "asked; the person looks", outcome="unknown", gate="resume")
+            return move_and_ask(p, s, run_key, folder, sha, base=ins.get("baseline"), now=now, sleep=sleep)
         return outcome(p, s, ins["ask"], now=now, sleep=sleep)
     if phase == "installed":
         raise Refused("the update already ended: run health", outcome="stop")
@@ -592,11 +612,40 @@ def install(p, run_key, folder, repo, sha, live=True, hostname=None, env=None, n
                          "base_version": base.get("version"), "at": state.stamp(), "before": before, "ask": None,
                          "update": None, "health": None}
         st["rollback"] = None
-    return move_and_ask(p, s, run_key, folder, sha, now=now, sleep=sleep)
+    return move_and_ask(p, s, run_key, folder, sha, base=before_base(snap), now=now, sleep=sleep)
 
 
-def move_and_ask(p, s, run_key, folder, sha, now=time.time, sleep=time.sleep):
+def before_base(st):
+    return (st.get("baseline") or {}).get("sha")
+
+
+def folder_at(s, *shas):
+    """The install folder clean, its HEAD one of these SHAs (a checkout with changes would carry them along)."""
+    head, _, clean = folder_head(s)
+    return bool(clean and head and head in [x for x in shas if x])
+
+
+def resume_checks(s, ins, run_key, folder, env=None):
+    """Before a resumed install moves the folder: the updater, the CLI, the source, the folder clean at the
+    baseline (or already at the candidate), and (live) the ask allowed. None, or why not."""
+    try:
+        updater(s)
+        installed_cli(s)
+        recorded_source(s)
+    except Refused as e:
+        return e.why
+    if not folder_at(s, ins.get("baseline"), ins.get("sha")):
+        return "the install folder is at neither the baseline nor the candidate, or has changes"
+    if s.live:
+        return may_ask(run_key, folder, env)
+    return None
+
+
+def move_and_ask(p, s, run_key, folder, sha, base=None, now=time.time, sleep=time.sleep):
     """Phase installing, nothing asked yet: the folder to the candidate, then the ask, recorded at once."""
+    if not folder_at(s, base, sha):
+        raise Refused("the install folder changed before it moved (someone else's change): nothing was asked; the "
+                      "person looks", outcome="unknown", gate="folder")
     if not checkout(s, sha):
         # HEAD may not have moved: the update wasn't asked for; the rollback finds HEAD at either SHA
         with state.locked(p) as st:
@@ -608,12 +657,12 @@ def move_and_ask(p, s, run_key, folder, sha, now=time.time, sleep=time.sleep):
     ask = {"task": run_key, "folder": folder, "asked": int(time.time() * 1000)}
     with state.locked(p) as st:
         st["install"] = dict(st.get("install") or {}, ask=ask)
-    ask_update(run_key, folder)
+    ask_update(s, run_key, folder)
     return outcome(p, s, ask, now=now, sleep=sleep)
 
 
 def outcome(p, s, ask, now=time.time, sleep=time.sleep):
-    got, seen = read_outcome(ask, now=now, sleep=sleep)
+    got, seen = read_outcome(s, ask, now=now, sleep=sleep)
     if got == "wait":
         raise Refused("the update is still running: call install again", outcome="wait", update=seen)
     if got == "unknown":
@@ -637,13 +686,21 @@ def outcome(p, s, ask, now=time.time, sleep=time.sleep):
 
 def health_lines(s, repo_folder, sha, ins, update, candidate=True, sleep=time.sleep):
     """[(line, ok, why)] for each health line, doctor last; it stops at the first that fails (doctor never runs on
-    an install another line failed, so it can't let go of the sync hold)."""
+    an install another line failed, nor on one whose update said it failed, so it can't let go of the sync hold).
+    On the candidate the hooks line comes first: a changed hook file is the person's to look at, whatever else
+    failed."""
     out = []
 
     def line(name, why):
         out.append((name, why is None, why))
         return why is None
 
+    if candidate:
+        was = ins.get("before", {}).get("hooks") or {}
+        now_h = hook_shas(s)
+        changed = [f for f in HOOK_FILES if now_h.get(f) != was.get(f)]
+        if not line("hooks", ("changed: " + ", ".join(HOOK_NAMES[f] for f in changed)) if changed else None):
+            return out
     rec = record(s) or {}
     want = version_at(repo_folder, sha)
     at, started = stamp_epoch(rec.get("at")), (update or {}).get("at")
@@ -674,12 +731,9 @@ def health_lines(s, repo_folder, sha, ins, update, candidate=True, sleep=time.sl
         if not line("scheduler", None if until(lambda: scheduler_runs_new_code(s), health_wait_s(), sleep) else
                     "the scheduler doesn't run the installed herdr-task"):
             return out
-    if candidate:
-        was = ins.get("before", {}).get("hooks") or {}
-        now_h = hook_shas(s)
-        changed = [f for f in HOOK_FILES if now_h.get(f) != was.get(f)]
-        if not line("hooks", ("changed: " + ", ".join(HOOK_NAMES[f] for f in changed)) if changed else None):
-            return out
+    if candidate and ins.get("failed"):
+        line("doctor", f"not run: {ins['failed']} failed")
+        return out
     line("doctor", doctor(s))
     return out
 
@@ -736,6 +790,9 @@ def health(p, run_key, folder, repo, sha, live=True, hostname=None, tag=None, sl
     if phase != "installed" or ins.get("sha") != sha:
         raise Refused(f"health runs on the installed candidate (phase {phase or 'none'}, "
                       f"candidate {str(ins.get('sha'))[:12]})", outcome="stop")
+    if ins.get("passed"):
+        # health passed and only its tag is pending: never the lines (or doctor) again
+        return passed(p, s, run_key, folder, repo, sha, ins.get("health") or [], live if tag is None else tag)
     lines = health_lines(s, s.folder, sha, ins, ins.get("update"), candidate=True, sleep=sleep)
     failed = next(((n, w) for n, ok, w in lines if not ok), None)
     words = [{"line": n, "ok": ok, **({"why": w} if w else {})} for n, ok, w in lines]
@@ -752,16 +809,24 @@ def health(p, run_key, folder, repo, sha, live=True, hostname=None, tag=None, sl
             st["install"] = dict(st.get("install") or {}, health=words,
                                  failed=st.get("install", {}).get("failed") or f"health ({failed[0]})")
         raise Refused(f"health failed at {failed[0]}: {failed[1]}", outcome="rollback", next="rollback", lines=words)
-    if ins.get("failed"):
-        # the update said it failed, yet every line holds: still a failed install, never the new baseline
-        with state.locked(p) as st:
-            st["install"] = dict(st.get("install") or {}, health=words)
-        raise Refused("the update said it failed: roll back", outcome="rollback", next="rollback", lines=words)
+    with state.locked(p) as st:
+        st["install"] = dict(st.get("install") or {}, health=words, passed=True)
+    return passed(p, s, run_key, folder, repo, sha, words, live if tag is None else tag)
+
+
+def passed(p, s, run_key, folder, repo, sha, words, want_tag):
+    """Health passed: the tag (live), then the candidate is the baseline. A tag that can't be pushed keeps the phase
+    installed with the pass recorded, so the next health call (or run) retries only the tag."""
     rec = record(s) or {}
-    pushed = push_tag(repo, sha, rec.get("version")) if (live if tag is None else tag) else None
+    pushed = None
+    if want_tag:
+        pushed = push_tag(repo, sha, rec.get("version"))
+        if not pushed:
+            raise Refused(f"health passed, but the tag ours-{rec.get('version')}-<n> couldn't be pushed: call health "
+                          "again (it retries only the tag)", outcome="wait", next="health", lines=words)
     with state.locked(p) as st:
         state.owns_lease(st, run_key, folder)
-        st["install"] = dict(st.get("install") or {}, health=words)
+        st["install"] = dict(st.get("install") or {}, health=words, tag=pushed)
         st["baseline"] = {"sha": sha, "branch": None, "version": rec.get("version"), "source": s.p.show(s.folder),
                           "at": rec.get("at"), "whole": rec.get("whole"), "installed": state.stamp(), "tag": pushed}
         st["installs"] = (st.get("installs") or [])[-(state.KEEP - 1):] + [
@@ -772,14 +837,19 @@ def health(p, run_key, folder, repo, sha, live=True, hostname=None, tag=None, sl
 
 def push_tag(repo, sha, version):
     """`ours-<version>-<n>` on that commit, pushed to the fork: n is one more than the highest the fork has for that
-    version. Only after health passed. None when it couldn't be pushed (the install stays healthy; said)."""
+    version, or the fork's existing one on this commit (a push that landed but said it failed). Only after health
+    passed. None when it couldn't be pushed."""
     if not version:
         return None
     ok, out, _ = git(repo, "ls-remote", "--tags", "origin", f"refs/tags/ours-{version}-*", timeout=120)
     if not ok:
         return None
-    ns = [int(m.group(1)) for m in re.finditer(rf"refs/tags/ours-{re.escape(version)}-(\d+)$", out, re.M)]
-    name = f"ours-{version}-{max(ns, default=0) + 1}"
+    tags = [(m.group(1), int(m.group(2))) for m in
+            re.finditer(rf"^([0-9a-f]+)\trefs/tags/ours-{re.escape(version)}-(\d+)$", out, re.M)]
+    mine = sorted(n for at, n in tags if at == sha)
+    if mine:
+        return f"ours-{version}-{mine[0]}"
+    name = f"ours-{version}-{max((n for _, n in tags), default=0) + 1}"
     ok, _, _ = git(repo, "push", "--quiet", "origin", f"{sha}:refs/tags/{name}", timeout=300)
     return name if ok else None
 
@@ -798,8 +868,11 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
         raise Refused(f"nothing to roll back (phase {phase or 'none'})", outcome="stop")
     base_sha = ins.get("baseline") or base.get("sha")
     if phase != "rolling-back":
+        if ins.get("passed"):
+            raise Refused("health passed on the candidate (its tag is pending): run health, not rollback",
+                          outcome="stop")
         if phase == "installing" and ins.get("ask"):
-            u = update_status(ins["ask"]["task"], ins["ask"]["folder"])
+            u = update_status(s, ins["ask"]["task"], ins["ask"]["folder"])
             if u is None or (u.get("state") == "running" and (u.get("at") or 0) >= ins["ask"]["asked"]):
                 raise Refused("the candidate's update may still be running: install reads its outcome first",
                               outcome="stop")
@@ -811,8 +884,7 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
             state.set_phase(st, "rolling-back")
             st["rollback"] = rb = {"sha": base_sha, "from": cand, "at": state.stamp(), "ask": None, "update": None}
     if not rb.get("ask"):
-        head, _, clean = folder_head(s)
-        if head not in (cand, base_sha) or not clean:
+        if not folder_at(s, cand, base_sha):
             broken(p, cand, base_sha, "the install folder changed during the rollback")
             raise Refused("the install folder is at neither the candidate nor the baseline, or has changes: "
                           "someone else's change; nothing moved", outcome="broken")
@@ -823,8 +895,8 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
         ask = {"task": run_key, "folder": folder, "asked": int(time.time() * 1000)}
         with state.locked(p) as st:
             st["rollback"] = rb = dict(st.get("rollback") or {}, ask=ask)
-        ask_update(run_key, folder)
-    got, seen = read_outcome(rb["ask"], now=now, sleep=sleep)
+        ask_update(s, run_key, folder)
+    got, seen = read_outcome(s, rb["ask"], now=now, sleep=sleep)
     if got == "wait":
         raise Refused("the rollback's update is still running: call rollback again", outcome="wait", update=seen)
     with state.locked(p) as st:
@@ -851,12 +923,12 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
 def rollback_checks(s, run_key, folder, cand, base_sha, env=None):
     """Rollback's own checks before it moves anything: None, or why not."""
     try:
+        updater(s)
         installed_cli(s)
         recorded_source(s)
     except Refused as e:
         return e.why
-    head, _, clean = folder_head(s)
-    if head not in (cand, base_sha) or not clean:
+    if not folder_at(s, cand, base_sha):
         return "the install folder is at neither the candidate nor the baseline, or has changes"
     if not base_sha or not git(s.folder, "cat-file", "-e", f"{base_sha}^{{commit}}")[0]:
         return "the baseline commit isn't in the install folder"

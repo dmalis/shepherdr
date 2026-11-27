@@ -238,6 +238,7 @@ class World(unittest.TestCase):
                                      os.environ["PATH"]]),
             "FAKE_IW": self.iw, "FAKE_IW_LIB": os.path.dirname(os.path.abspath(__file__)),
             "HERDR_TASK_STORE": self.store, "HERDR_BROWSER_TASK": self.RUN,
+            "FORK_SYNC_SCRATCH_UPDATER": os.path.join(self.bin, "herdr-task"),
             "FORK_SYNC_POLL_S": "0", "FORK_SYNC_CALL_WAIT_S": "0", "FORK_SYNC_UPDATE_POLL_S": "0",
             "FORK_SYNC_HEALTH_WAIT_S": "0"})
         self.env.start()
