@@ -37,6 +37,8 @@ so the cost of a patch is how often a release breaks it. Build for that.
 - **For every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What only suits
   them is a setting (below). A patch that can't fit everyone says so on its issue, so the person can keep it ours (upstream-issue
   skill: "Built for everyone").
+- **UI follows the industry standard** (FORK.md: "Industry standard first"): the common pattern of well-known apps,
+  standard keys kept on every keyboard layout, and the apps you followed named in the pull request.
 - **New files over edits.** Put our code in our own modules: a new Python module beside upstream's, a plugin under
   `web/plugins/<name>/` (docs/plugins.md), our scripts in `fork/`. Edit upstream's files only at one call site or one
   hook point.
