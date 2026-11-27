@@ -346,6 +346,13 @@ export const chats: Record<string, Chat> = Object.fromEntries(
     // working, nothing written yet: the working sign alone (SHEP-313)
     chat(P.blog, [a('To see it yourself, run this in the blog folder:\n\n```\nbun run dev\n```'), me('!git status --short', { command: { state: 'done', out: ' M web/src/archive.ts\n?? drafts/november.md' } }), me('!bun test archive', { command: { state: 'failed', out: 'archive.test.ts:\n✗ links to every month [4.21ms]\n  Expected: "/archive/2026/11"\n  Received: "/archive/undefined"\n\n 0 pass\n 1 fail' } }), me('The link to the archive is broken too. Can you fix it?', { reactions: [{ emoji: '👍', by: 'both' }] })], sonnet, { working: true, doing: "Running python3 - <<'EOF' p='web/src/archive.ts'" }),
     chat(P.notes, [], sonnet),
+    // dmalis/shepherdr#51: bubbles that point at a list a few messages up show which message they answer, and a tapped
+    // one goes as a reply to it
+    chat(P.docs, [
+      a("Here's what I'd change in the docs:\n\n1. Add the Everything hint to Getting started\n2. Shorten the install page\n3. Fix the broken links in the FAQ\n4. Rewrite the Settings page\n\nThe first three are quick. The fourth is a bigger job.", { at: today(10, 2) }),
+      me('What would the Everything hint say?', { at: today(10, 4) }),
+      a('One line under the sidebar\'s Everything row: "Your chats with every space, in one place." Should I start on them?', { at: today(10, 5), suggests: ['Yes, do those three', 'Do all four', 'status?'] }),
+    ], sonnet),
     chat(P.garden, [a('GARDEN-3 is in progress, about 20 minutes left.'), { id: `m${++n}`, who: 'agent', news: { task: 'vm:GARDEN-4', ref: 'GARDEN-4', mark: 'needs', what: '', text: 'I need an image library to resize the photos.' } }, ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' })], gpt),
     chat('SHOP-14/worker', [a('I compared both for the shop. Stripe is already used for your invoices. Adyen gets cheaper above 50k a month but needs two weeks of paperwork.'), ...payQ().map((x, i) => (i ? x : { ...x, suggests: ['Go with Stripe', 'Compare the fees again'] }))], opus),
     // said after it handed in (#1475): its Ready card still comes last
