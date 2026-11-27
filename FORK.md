@@ -151,7 +151,30 @@ whether it goes into theirs.
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
     it here like any other fix. Explaining it away closes nothing.
-  - They don't know the process yet: explain it briefly.
+  - They don't know the process yet: explain it briefly. It is still friction (below): propose its fix in the same
+    reply.
+- **Every friction is a candidate fix.** The Assistant watches for friction all the time, not only when the person
+  asks. Friction is when:
+  - the person is confused, misreads a screen or asks "what is this";
+  - they work around something, or answer something they shouldn't need to;
+  - the Assistant did by hand what should happen on its own: started a task that should have started, recovered lost
+    work, re-ran a step;
+  - the Assistant or a task got something wrong.
+- **Propose it, don't promise.** In the same reply, the Assistant proposes a fix in one or two plain lines: what went
+  wrong, the fix for every user, and whether it would be a patch. Then it asks: "File it and fix it?"
+  - "I'll do better next time" is never the whole answer.
+  - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
+    product fix that makes the miss impossible or visible.
+  - On a yes, the usual way: an issue here, a task with a brief (shaping-a-request first), an install right after
+    the merge.
+    - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until the
+      person decides about upstream.
+    - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only`
+      from the start, with why.
+  - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
+    opening a new one, and says so.
+- **Collect what's left.** When the person asks "what else did we find", the Assistant lists every friction from the
+  session that has no issue yet, each with its proposed fix.
 - **Industry standard first.** Every UI and UX change follows the industry standard and the common pattern of
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.
@@ -166,7 +189,7 @@ whether it goes into theirs.
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
   issue, so the person can keep it ours.
 - **Then the person decides, fix by fix,** after trying it for a day or two. Every fix has its own issue here, and
-  its status line says in plain words what the fix does and how to try it. Once the fix is merged and live (the
+  its status line says in plain words what the fix does and how to try it. Once a patch is merged and live (the
   install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
   decides that fix:
   - **File it:** that is the yes, with no draft round. After a search upstream for a duplicate, we post one comment
