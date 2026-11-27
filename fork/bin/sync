@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""fork/bin/sync: every step of the upstream sync run that reads or writes state, git refs or GitHub, so the agent
+decides and the code checks (fork/specs/sync-pipeline.md). Each subcommand prints one JSON line and exits 0 only
+when its step passed.
+
+  preflight --run <key> --folder <space>   checks the repo, takes the run's lease, reads state, says where to resume
+  hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
+  held                                     reads the held records, and whether each one's question is due
+  clear-broken                             the person's only: clears a broken phase (refused in a task's terminal)
+
+Every subcommand takes --root <dir> (the home unless named: the rehearsal and tests use a scratch one). A new step
+is one more entry in COMMANDS."""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
+
+from sync import state  # noqa: E402
+from sync.state import Refused  # noqa: E402
+
+
+def git(folder, *args):
+    r = subprocess.run(["git", "-C", folder, *args], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+ORIGIN = re.compile(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$")
+
+
+def check_repo(folder):
+    """`gh repo set-default --view` prints the fork, `origin` is the fork, and the space folder is on main (tasks
+    take its current branch as their base)."""
+    if not os.path.isdir(folder):
+        raise Refused("the space folder isn't there", outcome="stop")
+    try:
+        r = subprocess.run(["gh", "repo", "set-default", "--view"], cwd=folder, capture_output=True, text=True,
+                           timeout=60)
+        default = r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        default = ""
+    if default != state.REPO:
+        raise Refused(f"gh's default repo here isn't {state.REPO}; nothing was written", outcome="held", kind="pipeline")
+    m = ORIGIN.match(git(folder, "remote", "get-url", "origin") or "")
+    if not m or m.group(1) != state.REPO:
+        raise Refused(f"origin isn't {state.REPO}; nothing was written", outcome="held", kind="pipeline")
+    branch = git(folder, "branch", "--show-current")
+    if branch != "main":
+        raise Refused(f"the space folder is on {branch or 'a detached HEAD'}, not main; nothing was written",
+                      outcome="held", kind="pipeline")
+
+
+# --- the subcommands: each takes (args, paths) and returns its JSON fields, or raises Refused ---
+
+def preflight(a, p):
+    check_repo(a.folder)
+    state.check_machine(state.config(p))
+    with state.locked(p) as st:
+        if st.get("phase") == "broken":
+            raise Refused("the last rollback failed (phase broken): only the person clears it "
+                          "(fork/bin/sync clear-broken)", outcome="broken")
+        took = state.take_lease(st, a.run, a.folder)
+        return {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
+                "held": len(st.get("held") or [])}
+
+
+def preflight_args(c):
+    c.add_argument("--run", required=True, help="the run's task key")
+    c.add_argument("--folder", required=True, help="the space folder")
+
+
+def hold(a, p):
+    with state.locked(p) as st:
+        state.owns_lease(st, a.run, a.folder)
+        if a.asked:
+            rec = state.ask(st, a.blocker, a.run, a.folder)
+            return {"held": rec}
+        if a.answer is not None:
+            rec = state.answer(st, a.blocker, a.answer)
+            return {"held": rec}
+        if not (a.tag and a.sha and a.kind):
+            raise Refused("hold names --tag, --sha and --kind (or --asked, or --answer)", outcome="stop")
+        state.set_phase(st, "held")
+        rec, new = state.hold(st, a.tag, a.sha, a.kind, a.blocker, a.line, branch=a.branch, pr=a.pr,
+                              head=a.head, files=a.files, issue=a.issue)
+        return {"held": rec, "new": new}
+
+
+def hold_args(c):
+    c.add_argument("--run", required=True, help="the run's task key (it must own the lease)")
+    c.add_argument("--folder", required=True, help="the space folder")
+    c.add_argument("--blocker", required=True, help="the patch's issue number, else the gate's name")
+    c.add_argument("--tag", help="the release held, vX.Y.Z")
+    c.add_argument("--sha", help="the release's full SHA")
+    c.add_argument("--kind", choices=state.HELD_KINDS)
+    c.add_argument("--line", default="", help="one sanitized line on what holds it")
+    c.add_argument("--branch", help="a draft's branch")
+    c.add_argument("--pr", type=int, help="a draft's pull request")
+    c.add_argument("--head", help="a draft's head SHA")
+    c.add_argument("--files", nargs="+", help="a conflict's conflicted paths")
+    c.add_argument("--issue", type=int, help="the sync-blocked issue")
+    one = c.add_mutually_exclusive_group()
+    one.add_argument("--asked", action="store_true", help="records that this run asks the 24-hour question now")
+    one.add_argument("--answer", help="records the person's answer to it")
+
+
+def held(a, p):
+    with state.locked(p) as st:
+        recs = [dict(h) for h in st.get("held") or []]
+    for h in recs:
+        h["due"] = state.question_due(h)
+    return {"held": recs}
+
+
+def clear_broken(a, p):
+    with state.locked(p) as st:
+        state.clear_broken(st)
+    return {"phase": None}
+
+
+COMMANDS = [
+    ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", preflight_args, preflight),
+    ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
+    ("held", "reads the held records", None, held),
+    ("clear-broken", "the person's only: clears a broken phase", None, clear_broken),
+]
+
+
+def main(argv=None):
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--root", help=argparse.SUPPRESS)
+    ap = argparse.ArgumentParser(prog="fork/bin/sync", description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="step", required=True, metavar="<step>")
+    run = {}
+    for name, words, setup, fn in COMMANDS:
+        c = sub.add_parser(name, help=words, parents=[common])
+        if setup:
+            setup(c)
+        run[name] = fn
+    a = ap.parse_args(argv)
+    p = state.Paths(a.root)
+    try:
+        fields = run[a.step](a, p)
+        ok = True
+    except Refused as e:
+        fields, ok = {"why": e.why, **e.fields}, False
+    print(json.dumps({"ok": ok, "step": a.step, **fields}))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
