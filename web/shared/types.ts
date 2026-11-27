@@ -1534,6 +1534,9 @@ export interface LevelConfig {
   merge: 'done' | 'checks' | 'now'
   /** the agent attaches proof whenever there is something to show */
   proof: boolean
+  /** fork #11: how many rounds a review has (tasks.review_rounds; 0: no review), and what it must get fixed (tasks.must_fix) */
+  rounds?: number
+  mustFix?: 'blocker' | 'major' | 'minor'
 }
 
 export interface RepoConfig extends LevelConfig {

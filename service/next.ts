@@ -8,6 +8,7 @@ import { HOME } from "./paths.ts";
 import { everythingOf, sameFolder } from "../core/spaces.js";
 import { readSettings, repoLayer, REPO_SECTIONS, writeSettings } from "./settings.ts";
 import { repoKey, repoOf } from "../core/host.js";
+import { MUST_FIX, ROUNDS } from "../core/settings.js";
 
 /** the plugins: Tasks, Artifacts, Search and Alerts are always on; the rest each have a switch */
 /** offByDefault: off until switched on in Settings › Plugins (kept in everywhere.plugins_on) */
@@ -78,6 +79,7 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
   if (has("review_rounds")) own.push("review");
   if (has("merge")) own.push("merge");
   if (has("proof")) own.push("proof");
+  if (has("must_fix")) own.push("must_fix");
   return {
     own,
     lv: {
@@ -85,6 +87,9 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
       review: has("review_rounds") ? Number(t.review_rounds) > 0 : base.review,
       merge: has("merge") ? MERGE[t.merge] ?? base.merge : base.merge,
       proof: has("proof") ? !!t.proof : base.proof,
+      // fork #11: Review rounds and Must fix
+      rounds: has("review_rounds") ? Number(t.review_rounds) || 0 : base.rounds,
+      mustFix: has("must_fix") && MUST_FIX.some(([v]: any) => v === t.must_fix) ? t.must_fix : base.mustFix,
     },
   };
 }
@@ -128,7 +133,7 @@ export function reposOf(spaces: { id: string; folder?: string; machine?: string 
 
 export function configOf(input: { defaults: Defaults; spaces: string[]; secrets: { name: string; space: string | null }[]; plans: Config["plans"]; addMachine?: string; desktops?: string[]; repos?: RepoInfo[] }): Config {
   const f = file();
-  const start: LevelConfig = { agents: input.defaults, review: false, merge: "done", proof: true };
+  const start: LevelConfig = { agents: input.defaults, review: false, merge: "done", proof: true, rounds: 0, mustFix: "major" };
   const all = levelOf(f.everywhere, start).lv;
   const spaces: Config["spaces"] = {};
   // a space keeps only what is about itself (its Assistant: Chats); its tasks' settings are its repo's
@@ -186,7 +191,7 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
   }
   const all = place === "all";
   const repoPlace = place.startsWith("repo:") ? place.slice(5) : null;
-  const forTasks = /^agents\.(Tasks|Reviews)$/.test(key) || ["review", "merge", "proof"].includes(key);
+  const forTasks = /^agents\.(Tasks|Reviews)$/.test(key) || ["review", "merge", "proof", "review_rounds", "must_fix"].includes(key);
   const repo = repoPlace ?? (forTasks && !all ? scope?.repo ?? null : null);
   if (repo !== null && !/^(\/|[\w.-]+:\/)/.test(repo)) throw new Error("That repo isn't here any more.");
   if (repoPlace && !forTasks) throw new Error("That is set per space.");
@@ -218,7 +223,11 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
     if (value !== null && !(String(value) in MERGE_BACK)) throw new Error("Not one of its choices.");
     task("merge", value === null ? null : MERGE_BACK[value as LevelConfig["merge"]]);
   } else if (key === "proof") task("proof", value === null ? null : !!value);
-  else throw new Error("That setting can't be changed here.");
+  else if (key === "review_rounds" || key === "must_fix") {
+    // fork #11: one of the row's own choices (core/settings.js ROUNDS, MUST_FIX), as the settings file keeps it
+    if (value !== null && !(key === "must_fix" ? MUST_FIX : ROUNDS).some(([v]: any) => v === value)) throw new Error("Not one of its choices.");
+    task(key, value);
+  } else throw new Error("That setting can't be changed here.");
   writeSettings(next);
 }
 
