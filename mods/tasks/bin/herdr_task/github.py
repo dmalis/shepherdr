@@ -9,6 +9,7 @@ import shutil
 from .base import Fail, GH, git, hc_json, now, run, STORE
 from .agents import agent_running, detail, live_agents, live_helpers, mid_turn_agents
 from .after_accept import start as after_accept
+from . import rebased_push
 
 
 # ---- GitHub ---------------------------------------------------------------------------------
@@ -106,7 +107,12 @@ def pr_push(s, task, repo):
         raise Fail(f"Can't push this task to {to}. Use the task's own branch or explicitly take its pull request.")
     ref = f"refs/heads/{to}"
     has, tip, _ = git(wt, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}")
-    seen, there, _ = git(wt, "ls-remote", remote, ref)
+    seen, there, err = git(wt, "ls-remote", remote, ref)
+    if not seen:  # dmalis/shepherdr#97: never a lease on the tracking ref alone, which a fetch moves to someone else's push
+        seen, there, err = rebased_push.look_again(wt, remote, ref)
+        if not seen:
+            raise Fail(f"Couldn't read {to} on GitHub to push {br}, twice, a few seconds apart; nothing was pushed. "
+                       "Run ready again in a minute.\n" + push_error("", err))
     if has and tip and seen and there.split()[:1] == [tip]:
         if (task.get("pushed") or {}).get("sha") != tip:  # dmalis/shepherdr#74: its merge is pinned to it (merge_wait)
             task["pushed"] = {"sha": tip, "at": now()}
@@ -132,12 +138,18 @@ def pr_push(s, task, repo):
                        f"commits since. Put them on a new branch (a new task) rather than a second pull request.")
     tracking = git(wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{to}")[1]
     expected = (pr.get("lease") or tracking) if to != br else ("" if gone else tracking)
+    # dmalis/shepherdr#97: the commit there when the task had it (a stale tracking ref, a taken PR with no saved tip), else
+    # one git refuses; never the tracking ref alone, which a fetch moves to someone else's push
+    if seen and there.strip():
+        saved = [pr.get("lease"), (task.get("pushed") or {}).get("sha")]
+        expected = rebased_push.lease(wt, br, there.split()[0], saved)
     # Older taken PRs may have no saved tip and no tracking ref. Git can still push a fast-forward.
     lease = [f"--force-with-lease={ref}:{expected}"] if to == br or expected else []
     with released(s):
-        ok, out, err = git(wt, "push", *lease, *(["-u"] if to == br else []), remote, f"refs/heads/{br}:{ref}")
+        ok, out, err, again = rebased_push.push(wt, remote, ref, br, tip, [*lease, *(["-u"] if to == br else []), remote,
+                                                                       f"refs/heads/{br}:{ref}"])
     if not ok:
-        raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {push_error(out, err)}")
+        raise Fail(f"Couldn't push {br}" + (f" to {to}" if to != br else "") + f": {rebased_push.said(out, err, again, push_error)}")
     task["pushed"] = {"sha": tip, "at": now()}
     current = task.get("pr") or {}
     if to != br and current.get("branch") == to and current.get("number") == pr.get("number"):

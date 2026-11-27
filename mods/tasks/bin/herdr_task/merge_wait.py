@@ -36,6 +36,47 @@ def head_waits(task, v):
             "for it. Run ready again to push its branch.")
 
 
+# dmalis/shepherdr#97: right after a push GitHub works out whether the pull request merges, and meanwhile says UNKNOWN,
+# or for a few seconds still CONFLICTING, the answer it had for the commit before a rebase. Ready then sent a cleanly
+# rebased task to Fixing for a conflict that wasn't there.
+MERGEABLE_WAIT_MS = 2 * 60000  # GitHub's answer for the commit pushed comes within this; after it, what it says stands
+
+
+def merges_here(s, task, head):
+    """Its head merges into its base's newest here: True when the base is in it or a real merge of the two is clean,
+    False when that merge conflicts, None when this git can't say (no base, an old git without merge-tree). Never
+    fetched: the task list stays held (a fetch lets it go, and the tick's pull request record goes stale), and the base
+    its agent just rebased onto is here."""
+    main = s.loc["folder"]
+    ref = github.base_tip_ref(s, task)
+    if not ref or not head:
+        return None
+    if github.git(main, "merge-base", "--is-ancestor", ref, head)[0]:
+        return True
+    r = github.run(["git", "-C", main, "merge-tree", "--write-tree", "--no-messages", ref, head])
+    return True if r.returncode == 0 else False if r.returncode == 1 else None
+
+
+def mergeable_waits(s, task, v):
+    """True while GitHub's view (v), at the commit Herdr just pushed, hasn't worked out yet whether it merges: UNKNOWN,
+    or CONFLICTING while it merges cleanly here (merges_here()). Only within MERGEABLE_WAIT_MS of the push; a conflict
+    git finds too, or one GitHub keeps saying past that, is a conflict."""
+    p, said = task.get("pushed") or {}, (v.get("mergeable") or "").upper()
+    if said not in ("UNKNOWN", "CONFLICTING") or v.get("state") != "OPEN" or not p.get("sha") or v.get("headRefOid") != p["sha"]:
+        return False
+    if github.now() - (p.get("at") or 0) >= MERGEABLE_WAIT_MS:
+        return False
+    return said != "CONFLICTING" or merges_here(s, task, p["sha"]) is True
+
+
+def mergeable_now(s, task, v):
+    """v as the tick reads it: CONFLICTING that is only GitHub catching up (mergeable_waits()) reads UNKNOWN, so nothing
+    sends it back to its agent; it waits as any UNKNOWN does (github.pr_wait())."""
+    if (v.get("mergeable") or "").upper() == "CONFLICTING" and mergeable_waits(s, task, v):
+        return {**v, "mergeable": "UNKNOWN"}
+    return v
+
+
 def _json(out):
     try:
         return json.loads(out)
