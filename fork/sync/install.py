@@ -418,6 +418,8 @@ def service_page(s, timeout=5):
             return f"another app answers on port {port}, not the Shepherdr service"
         code, page = get("/")
     except (OSError, ValueError, AttributeError) as e:
+        if hasattr(e, "close"):
+            e.close()                   # an HTTPError holds its response open
         return f"the service doesn't serve the web app ({type(e).__name__})"
     if code != 200 or b"<html" not in page[:4000].lower():
         return "the service doesn't serve the built web app"

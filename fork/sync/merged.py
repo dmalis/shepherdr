@@ -316,13 +316,16 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
     if not rep or rep.get("folder") != folder:
         raise Refused("finish didn't hand this run to ci: run finish", outcome="stop")
     shas = list(rep.get("ci") or [])
+    with state.locked(p) as st:
+        ats = [i.get("at") for i in st.get("installs") or [] if i.get("sha") in shas]
+    try:
+        newest = max(state.parse_stamp(a) for a in ats)        # the last install of this run's
+    except (TypeError, ValueError):
+        newest = 0
     began = now()
     while True:
         left = set(ci_read(p, repo, now=now)) & set(shas)
-        try:
-            age = now() - state.parse_stamp(rep.get("at"))
-        except (TypeError, ValueError):
-            age = CI_WAIT_S
+        age = now() - newest
         if not left or age >= CI_WAIT_S:
             break
         if now() - began >= gate.call_wait_s():

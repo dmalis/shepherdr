@@ -258,7 +258,7 @@ class World(unittest.TestCase):
         paths_ok: the line may name files in the scratch world (review-inputs' files, which a real run's home
         shows as ~/…)."""
         argv = [sys.executable, SYNC, *args, "--root", self.root]
-        if args and args[0] in ("preflight", "select", "review-inputs", "merge", "finish"):
+        if args and args[0] in ("preflight", "select", "review-inputs", "merge", "finish", "settle", "ci"):
             argv += ["--run", run or self.RUN, "--folder", self.space]
         r = subprocess.run(argv, capture_output=True, text=True, env=self.env(env), cwd=self.wt, timeout=120,
                            input=stdin)
