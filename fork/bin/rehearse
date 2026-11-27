@@ -678,8 +678,18 @@ def main(argv=None):
     ap.add_argument("--baseline", help="the commit installed first (default: the sync state's baseline, else the "
                                        "newest release the commit holds)")
     ap.add_argument("--no-build", action="store_true", help="install the web app as it is in the checkout (faster)")
+    ap.add_argument("--own-code", action="store_true",
+                    help="Install merged: refuse at once unless the pipeline code running here (fork/bin, fork/sync, "
+                         "as committed) is <sha>'s own, so the PASS recorded is the one its install looks for")
     ap.add_argument("--root", help=argparse.SUPPRESS)   # the sync state's home, where a PASS is recorded (tests)
     a = ap.parse_args(argv)
+    if a.own_code:
+        mine = code_hash()
+        want = install.pipeline_hash(os.path.abspath(a.repo), a.sha)
+        if not mine or mine != want:
+            print("FAIL: own-code: the pipeline code running here isn't " + a.sha[:12] + "'s own (check the run's "
+                  "worktree out at it, committed, and run this checkout's fork/bin/rehearse)", flush=True)
+            return 1
 
     def stop(sig, frame):
         raise Interrupted(signal.Signals(sig).name)

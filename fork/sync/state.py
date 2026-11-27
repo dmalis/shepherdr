@@ -26,21 +26,24 @@ REPO = "dmalis/shepherdr"
 LOCK_WAIT_S = 60
 
 # selected → branch-pushed → tried → merged → installing → installed → healthy, with side exits held,
-# rolling-back → rolled-back, and broken. A run ends on a final phase; any other is resumed by the next run.
-PHASES = ("selected", "branch-pushed", "tried", "merged", "installing", "installed", "healthy",
+# rolling-back → rolled-back, and broken. Installing our own merges has its own way in: settled → installing (main's
+# tip pinned by settle; no trial, no wait on main's checks). A run ends on a final phase; any other is resumed by the
+# next run.
+PHASES = ("selected", "branch-pushed", "tried", "merged", "settled", "installing", "installed", "healthy",
           "held", "rolling-back", "rolled-back", "broken")
 FINAL = ("healthy", "rolled-back", "held")
 # Once the install folder may have moved, the run must finish what it began: no new selection, no hold.
 MOVING = ("installing", "installed", "rolling-back", "broken")
-_BEFORE_MOVING = (None, "selected", "branch-pushed", "tried", "merged", "healthy", "held", "rolled-back")
+_BEFORE_MOVING = (None, "selected", "branch-pushed", "tried", "merged", "settled", "healthy", "held", "rolled-back")
 # Which phases each phase may follow. Writing the phase a run is already in is always allowed (a resume).
 AFTER = {
     "selected": _BEFORE_MOVING,
+    "settled": _BEFORE_MOVING,
     "held": _BEFORE_MOVING,
     "branch-pushed": ("selected",),
     "tried": ("selected", "branch-pushed"),
     "merged": ("tried",),
-    "installing": ("tried", "merged"),
+    "installing": ("tried", "merged", "settled"),
     "installed": ("installing",),
     "healthy": ("installed",),
     "rolling-back": ("installing", "installed"),
@@ -51,6 +54,9 @@ AFTER = {
 HELD_KINDS = ("conflict", "draft", "trial", "gate", "install", "hooks", "permission", "pipeline")
 QUESTION_AFTER_S = 24 * 3600
 QUESTION_ASKS = 2   # asked once, and once more if the asking run ended without an answer, never more
+# A held record of Installing our own merges names its gate with this prefix ("main-checks", "main-permission"): it
+# holds main's tip, not a release, so no release sync carries on from it and no 24-hour question is asked about it.
+MAIN_BLOCKER = "main-"
 
 TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -113,6 +119,9 @@ def fresh():
         # build task 4 (fork/sync/install.py):
         "install": None,          # the install under way: {sha, version, baseline, before, ask, update, health, ...}
         "rollback": None,         # the rollback under way: {sha, from, ask, update, health, failed}
+        # build task 9 (fork/sync/merged.py): pending is {at, ms, titles}; installs carry their run and path
+        "ci": {},                 # {sha: {verdict, by, names, at, told}}: main's CI after an install of our merges
+        "recovery": None,         # the newest install whose CI on main passed: {sha, version, tag, at}
     }
 
 
@@ -419,6 +428,8 @@ def question_due(rec, now=None, owner=task_state):
     q = rec.get("question")
     if q and q.get("answer") is not None:
         return False
+    if str(rec.get("blocker") or "").startswith(MAIN_BLOCKER):
+        return False        # main's tip waits on a gate, not on a patch: a new merge is the fix
     if not q:
         return (time.time() if now is None else now) - parse_stamp(rec["first_seen"]) > QUESTION_AFTER_S
     if int(q.get("asks") or 0) >= QUESTION_ASKS:

@@ -506,17 +506,48 @@ def ready_cmd(run, folder, told=None):
 
 def held_words(rec):
     rel = (rec.get("release") or {}).get("tag") or "the release"
+    blocker = str(rec.get("blocker") or "")
+    line = " ".join(str(rec.get("line") or "").split())
+    if blocker.startswith(state.MAIN_BLOCKER):
+        # a hold of Installing our own merges: main's tip waits, not a release
+        what = f"our merged work ({str(rec.get('head') or '')[:12]})"
+        if rec.get("kind") == "permission":
+            return f"Held: {what} is ready to install."
+        return f"Held: {what} waits on the {blocker[len(state.MAIN_BLOCKER):]} gate" + (f": {line}" if line else ".")
     if rec.get("kind") == "permission":
         return f"{rel.lstrip('v')} is ready to install"
-    blocker = str(rec.get("blocker") or "")
     by = f"patch #{blocker}" if blocker.isdigit() else f"the {blocker} gate"
-    line = " ".join(str(rec.get("line") or "").split())
     return f"Held: {rel} waits on {by}" + (f": {line}" if line else ".")
+
+
+WENT = ("take", "install-main", "install-merged")     # paths whose phase select or settle set: the run acted
+SYNCED = ("take", "install-main")                      # a release sync's paths (the issue cursor moves on theirs)
+
+
+def rolled_back_words(q, candidate, base):
+    return (f"Rolled back: the install of {str(q.get('sha') or candidate or '')[:12]} failed at "
+            f"{q.get('step') or 'health'}; back on {base.get('version') or 'the last healthy install'}.")
+
+
+def earlier_round(snap, rnd):
+    """(outcome, words, path) of a round this run finished before it settled again (Installing our own merges)."""
+    phase, held_by, path = rnd.get("phase"), rnd.get("held") or {}, rnd.get("path")
+    if phase == "healthy":
+        return "installed", None, path
+    if phase == "rolled-back":
+        return "rolled-back", rolled_back_words(rnd.get("quarantined") or {}, rnd.get("candidate"),
+                                                rnd.get("baseline") or {}), path
+    if phase == "held" and held_by.get("new"):
+        rec = state.held_record(snap, held_by.get("blocker")) or rnd.get("held_record")
+        if rec:
+            return "held", held_words(rec), path
+    return "nothing", None, path
 
 
 def finish(p, run, folder, repo, says=None, cfg_hostname=None):
     """The exact completion command for the run's outcome (Completion commands), after checking the branch is in
-    a state it accepts. Lets go of the lease when the phase is final."""
+    a state it accepts. Lets go of the lease when the phase is final, unless merges are pending: then the run settles
+    again first (Installing our own merges). A run that went more than once tells every round in one --told."""
     with state.locked(p) as st:
         lease = st.get("lease") or {}
         mine = (lease.get("run"), lease.get("folder")) == (run, folder)
@@ -548,52 +579,81 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
         raise Refused("the phase is installed: run health first", outcome="stop")
     r = r or {}
     path, held_by = r.get("path"), r.get("held")
-    went = path in ("take", "install-main")      # select set this run's phase; anything after it is this run's
-    told = None
+    went = path in WENT          # select or settle set this run's phase; anything after it is this run's
     if phase == "held" and held_by:
         rec = state.held_record(snap, held_by.get("blocker"))
         if not rec:
             raise Refused("the phase is held but this run's held record is gone", outcome="stop")
         if rec.get("kind") == "draft" and pushed_head(repo, rec.get("branch")) != rec.get("head"):
             raise Refused(f"the draft {rec.get('branch')} isn't pushed at {str(rec.get('head'))[:12]}", outcome="stop")
-        if r.get("merged"):
-            fetch_for_finish(repo)
         # the person hears of a held record once: the run that first holds it
-        outcome, told = ("held", held_words(rec)) if held_by.get("new") else ("nothing", None)
+        now = ("held", held_words(rec)) if held_by.get("new") else ("nothing", None)
     elif went and phase == "healthy":
-        if not says:
-            raise Refused("an install ends --told with what's new: finish --says \"<what's new>\"", outcome="stop")
-        if r.get("merged"):
-            fetch_for_finish(repo)
-        outcome, told = "installed", " ".join(says.split())
+        now = ("installed", None)
     elif went and phase == "rolled-back":
-        if r.get("merged"):
-            fetch_for_finish(repo)
-        q = (snap.get("quarantine") or [{}])[-1]
-        base = snap.get("baseline") or {}
-        outcome = "rolled-back"
-        told = (f"Rolled back: the install of {str(q.get('sha') or snap.get('candidate') or '')[:12]} failed at "
-                f"{q.get('step') or 'health'}; back on {base.get('version') or 'the last healthy install'}.")
-        if says:
-            told += " " + " ".join(says.split())
+        now = ("rolled-back", rolled_back_words((snap.get("quarantine") or [{}])[-1], snap.get("candidate"),
+                                                snap.get("baseline") or {}))
     elif not went:
-        outcome = "nothing"
+        now = ("nothing", None)
     else:
         raise Refused(f"the run took the {path} path and hasn't ended (phase {phase or 'none'})", outcome="stop")
+    rounds = [earlier_round(snap, x) for x in r.get("rounds") or []] + [(*now, path)]
+    kinds = [o for o, _, _ in rounds]
+    words = [w for _, w, _ in rounds if w]
+    says = " ".join(says.split()) if says else None
+    if "installed" in kinds:
+        if not says:
+            raise Refused("an install ends --told with what's new: finish --says \"<what's new>\"", outcome="stop")
+        outcome, told = "installed", " ".join([says] + words)
+    elif "rolled-back" in kinds:
+        outcome, told = "rolled-back", " ".join(words + ([says] if says else []))
+    elif "held" in kinds:
+        outcome, told = "held", " ".join(words)
+    else:
+        outcome, told = "nothing", None
+    if r.get("merged") and outcome != "nothing":
+        fetch_for_finish(repo)
     branch_problem(repo, r.get("start"))
+    # CI on main after installs of our merges: a red or missing result already read and not told yet goes in these
+    # words. Nothing is read from GitHub here: that is `ci`'s, with the lease let go, so a pending merge never waits
+    from . import merged
+    with state.locked(p) as st:
+        ci_said = merged.ci_untold(st, mark=False)
+    base, base_outcome = told, outcome
+    told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in ci_said])
     if told is not None:
         found = public.problems(told, cfg_hostname)
         if found:
             raise Refused(f"the --told words carry {public.words(found)}", outcome="stop")
     with state.locked(p) as st:
+        pending = st.get("pending")
+        if pending and (st.get("lease") or {}).get("run") == run and not state.resume_point(st):
+            # read under the same lock that lets go of the lease: a merge recorded meanwhile is never stranded
+            raise Refused("merges came in while this run owned the lease: settle again and install them first",
+                          outcome="again", pending=list(pending.get("titles") or []))
         if st.get("lease") and not state.resume_point(st):
             state.release_lease(st, run, folder)
+        # told once per commit: another run's `ci` may have told one meanwhile (the words are a subset of the checked)
+        kept = merged.still_untold(st, ci_said)
+        merged.mark_told(st, [sha for sha, _ in kept])
+        told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in kept])
+        unread = merged.ci_unresolved(st)
+        waits = [sha for sha in merged.run_installs(st, run) if sha in unread]
+        if unread:
+            # installs of ours whose CI hasn't answered: `ci` reads it with the lease let go, waits for this run's
+            # own, then gives the completion command with what it found
+            st.setdefault("reports", {})[run] = {"folder": folder, "outcome": outcome, "told": told, "ci": waits,
+                                                 "at": state.stamp()}
         if (st.get("run") or {}).get("key") == run:
             st["run"] = dict(st["run"], finished=outcome)
-            # the person's upstream issues are reported by an install's words: the cursor moves to the run's start
-            # (its select) only then, so a run that told nothing never skips a reply (Patch inventory)
-            if outcome == "installed" and st["run"].get("at"):
-                st["issue_cursor"] = st["run"]["at"]
+            # the person's upstream issues are reported by a release sync's install words: the cursor moves to that
+            # sync's start (its select) only then, so a run that told nothing never skips a reply (Patch inventory)
+            synced_at = st["run"].get("synced_at") or (st["run"].get("at") if path in SYNCED else None)
+            if outcome == "installed" and synced_at and any(o == "installed" and pth in SYNCED
+                                                            for o, _, pth in rounds):
+                st["issue_cursor"] = synced_at
+    if unread:
+        return {"outcome": outcome, "before": [], "next": "ci", "ci": waits, **({"told": told} if told else {})}
     return {"outcome": outcome, "before": [], "command": ready_cmd(run, folder, told),
             **({"told": told} if told else {})}
 

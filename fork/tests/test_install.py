@@ -318,7 +318,7 @@ class Outcomes(World):
         out = self.health()
         self.assertEqual((out["outcome"], out["version"], out["tag"]), ("installed", "3.2.22", "ours-3.2.22-1"))
         self.assertEqual([x["line"] for x in out["lines"]],
-                         ["hooks", "record", "files", "assistants", "scheduler", "doctor"])
+                         ["hooks", "record", "files", "web", "tasks", "assistants", "scheduler", "doctor"])
         st = self.st()
         self.assertEqual(st["phase"], "healthy")
         self.assertEqual((st["baseline"]["sha"], st["baseline"]["version"]), (self.C, "3.2.22"))
@@ -464,6 +464,9 @@ class Outcomes(World):
             "assistants": lambda: self.set(assistants_after=[{"target": "t9", "route": ""}]),
             "scheduler": lambda: self.set(stale_scheduler=True),
             "record": lambda: self.set(not_whole=True),
+            "web": lambda: os.remove(os.path.join(self.share, "web", "dist", "index.html")),
+            "web ": lambda: self.set(page="the service doesn't serve the built web app"),
+            "tasks": lambda: os.environ.update(FAKE_HT_BROKEN="1"),
         }
         for line, spoil in cases.items():
             with self.subTest(line):
@@ -479,8 +482,9 @@ class Outcomes(World):
                     self.health()
                 self.assertEqual(e.exception.fields["outcome"], "rollback")
                 failed = [x for x in e.exception.fields["lines"] if not x["ok"]]
-                self.assertEqual([x["line"] for x in failed], [line])
-                self.set(stale_scheduler=False, not_whole=False, assistants_after=None)
+                self.assertEqual([x["line"] for x in failed], [line.strip()])
+                self.set(stale_scheduler=False, not_whole=False, assistants_after=None, page=None)
+                os.environ.pop("FAKE_HT_BROKEN", None)
                 self.assertEqual(self.rollback()["outcome"], "rolled-back")
 
     def test_a_far_assistant_dropping_isnt_this_install(self):
@@ -492,7 +496,7 @@ class Outcomes(World):
         self.set(plan=["ok"], stale_scheduler=True, assistants="not read")
         self.install(live=False)
         out = self.health(live=False)
-        self.assertEqual([x["line"] for x in out["lines"]], ["hooks", "record", "files", "doctor"])
+        self.assertEqual([x["line"] for x in out["lines"]], ["hooks", "record", "files", "web", "tasks", "doctor"])
         self.assertIsNone(out["tag"], "no tag from a scratch root")
         self.assertEqual(self.calls("doctor")[0][1], ["doctor", "--root", os.path.realpath(self.root)])
 

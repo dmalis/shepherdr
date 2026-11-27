@@ -4,8 +4,10 @@ decides and the code checks (fork/specs/sync-pipeline.md). Each subcommand print
 when its step passed.
 
   preflight --run <key> --folder <space>   checks the repo, takes the run's lease, reads state, says where to resume
-                                           and what (resuming: the path, release, candidate and sync branch)
+                                           and what (resuming: the path, release, candidate and sync branch);
+                                           --pending "<title>": Install merged's merge, kept for the lease's owner
   select --run <key> --folder <space>      the newest stable release, and the run's path: nothing, install-main, take
+  settle --run <key> --folder <space>      Install merged: main's tip pinned, and the path: nothing, skip, install-merged
   review-inputs --run <key> --folder <space>   the reviewer's three diffs for the pushed sync branch, as files
   merge <pr> --run <key> --folder <space>  the one merge route for a sync PR: its gates, the merge, main's checks
   baseline --run <key> --folder <space> [--capture]   what is installed, proven to match the install folder
@@ -14,6 +16,9 @@ when its step passed.
   rollback --run <key> --folder <space>    back to the baseline, verified by health on it
   public-check <file>                      refuses text with paths, hosts, emails or raw output before GitHub
   finish --run <key> --folder <space> [--says "<what's new>"]   the exact completion command for the outcome
+                                           (outcome again: merges are pending, settle again; next: ci)
+  ci --run <key> --folder <space>          CI's verdict on this run's installs of our merges, the lease let go, then
+                                           the completion command
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
   held                                     reads the held records, and whether each one's question is due
   patch-tests [--issue <n>]                runs each fork/patches.json line's tests in this tree (only those named)
@@ -30,7 +35,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import gate, install, patches, public, release, state  # noqa: E402
+from sync import gate, install, merged, patches, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -69,19 +74,37 @@ def check_repo(folder):
 def preflight(a, p):
     check_repo(a.folder)
     state.check_machine(state.config(p))
+    refused = None
     with state.locked(p) as st:
-        if st.get("phase") == "broken":
-            raise Refused("the last rollback failed (phase broken): only the person clears it "
-                          "(fork/bin/sync clear-broken)", outcome="broken")
-        took = state.take_lease(st, a.run, a.folder)
-        if took:
-            ok, head, _ = release.git(os.path.abspath(a.repo), "rev-parse", "--verify", "HEAD^{commit}")
-            adopted = state.adopt_run(st, a.run, a.folder, start=head if ok else None)
-            if adopted:
-                took["selection"] = adopted     # the selection this run resumes was that run's
-        return {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
-                "held": len(st.get("held") or []), "resuming": resuming(st),
-                "issue_cursor": st.get("issue_cursor")}
+        try:
+            if st.get("phase") == "broken":
+                raise Refused("the last rollback failed (phase broken): only the person clears it "
+                              "(fork/bin/sync clear-broken)", outcome="broken")
+            took = state.take_lease(st, a.run, a.folder)
+        except Refused as e:
+            if a.pending is None:
+                raise
+            # Installing our own merges: the merge waits in `pending` for the lease's owner (or the person's clear),
+            # written in this same lock (raising inside it would discard the write)
+            merged.record_pending(st, a.pending, cfg_hostname=hostname(p))
+            e.fields["pending"] = True
+            refused, took = e, None
+        if not refused:
+            if a.pending is not None:
+                # a takeover resumes the old owner's candidate: this merge waits in pending all the same (a settle
+                # that pins main after it clears it)
+                merged.record_pending(st, a.pending, cfg_hostname=hostname(p))
+            if took:
+                ok, head, _ = release.git(os.path.abspath(a.repo), "rev-parse", "--verify", "HEAD^{commit}")
+                adopted = state.adopt_run(st, a.run, a.folder, start=head if ok else None)
+                if adopted:
+                    took["selection"] = adopted     # the selection this run resumes was that run's
+            out = {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
+                   "held": len(st.get("held") or []), "resuming": resuming(st),
+                   "issue_cursor": st.get("issue_cursor"), "pending": bool(st.get("pending"))}
+    if refused:
+        raise refused
+    return out
 
 
 def resuming(st):
@@ -98,6 +121,12 @@ def resuming(st):
 def preflight_args(c):
     c.add_argument("--run", required=True, help="the run's task key")
     c.add_argument("--folder", required=True, help="the space folder")
+
+
+def preflight_only_args(c):
+    run_args(c)
+    c.add_argument("--pending", metavar="TITLE", help="Install merged: the merged task's title, kept in pending when "
+                                                       "another run owns the lease (its owner installs it)")
 
 
 def hold(a, p):
@@ -205,7 +234,8 @@ def select(a, p):
             state.set_phase(st, "selected")
             st["release"], st["candidate"], st["sync"] = dict(got["release"]), got["candidate"], None
         held_now = [h.get("blocker") for h in st.get("held") or []
-                    if (h.get("release") or {}).get("tag") == got["release"]["tag"]]
+                    if (h.get("release") or {}).get("tag") == got["release"]["tag"]
+                    and not str(h.get("blocker") or "").startswith(state.MAIN_BLOCKER)]
         cursor = st.get("issue_cursor")      # the person's upstream issues are searched from here (finish moves it)
     return {**got, "held": held_now, "issue_cursor": cursor}
 
@@ -288,14 +318,24 @@ def finish(a, p):
     return gate.finish(p, a.run, a.folder, os.path.abspath(a.repo), says=a.says, cfg_hostname=hostname(p))
 
 
+def settle(a, p):
+    return merged.settle(p, a.run, a.folder, os.path.abspath(a.repo))
+
+
+def ci(a, p):
+    return merged.ci_step(p, a.run, a.folder, os.path.abspath(a.repo), cfg_hostname=hostname(p))
+
+
 def finish_args(c):
     run_args(c)
     c.add_argument("--says", help="what's new, for an install's --told (the rest of the words are the state's)")
 
 
 COMMANDS = [
-    ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", run_args, preflight),
+    ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", preflight_only_args,
+     preflight),
     ("select", "the newest stable release and the run's path", run_args, select),
+    ("settle", "Install merged: main's tip pinned, and the run's path", run_args, settle),
     ("review-inputs", "the reviewer's three diffs for the sync branch, as files", run_args, review_inputs),
     ("merge", "the one merge route for a sync PR", merge_args, merge),
     ("baseline", "reads what is installed and proves it matches the install folder", baseline_args, baseline),
@@ -304,6 +344,7 @@ COMMANDS = [
     ("rollback", "back to the baseline, verified", run_args, rollback),
     ("public-check", "refuses text with paths, hosts, emails or raw output", public_check_args, public_check),
     ("finish", "the exact completion command for the run's outcome", finish_args, finish),
+    ("ci", "CI's verdict on this run's installs of our merges, then the completion command", run_args, ci),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),
     ("patch-tests", "runs each fork/patches.json line's tests", patch_tests_args, patch_tests),

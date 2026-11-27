@@ -32,7 +32,7 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
 |---|---|
 | Our repo (public) | github.com/dmalis/shepherdr: remote `origin`, and `gh repo set-default` |
 | Upstream | github.com/eliasstravik/shepherdr: remote `upstream`. Releases are tags `vX.Y.Z` |
-| `main` | The newest upstream release we took, plus our patches. Changed only by pull request, once the `check` workflow passes |
+| `main` | The newest upstream release we took, plus our patches. Changed only by pull request. A sync of an upstream release merges once its checks pass; our own merges in this space merge right away, and CI reports after (see Our own merges) |
 | Install tags | `ours-<upstream version>-<n>`, e.g. `ours-3.2.21-1`: a commit that was tried and installed |
 | This space | `~/development/projects/shepherdr-dev`. Tasks work in worktrees of it |
 | Install folder | `~/development/projects/shepherdr`: the checkout the live Shepherdr is installed from, detached at the installed tag. Only the install step moves it |
@@ -126,6 +126,18 @@ The schedule "Upstream sync" runs at 06:00 and 18:00 and follows the upstream-sy
 4. Install it, and roll back if the health check fails.
 
 A release whose patches don't fit yet waits until they do. After 24 hours waiting, the person is asked.
+
+## Our own merges
+
+Our merges in this space merge right away, without waiting for CI, and install right away. The schedule "Install
+merged" runs each time a task here is merged, and follows the upstream-sync skill's install-merged steps:
+1. Take main's tip as it is now. Fixes merged during an install go in with the next one, right after.
+2. Install it with no trial and no wait for CI. Its health check also reads the web app and herdr-task. Roll back if
+   the health check fails.
+3. Then CI on main reports. A red result is told once, to open a fix task. Nothing rolls back on it. The last install
+   whose CI passed is kept, to go back to on the person's request.
+
+A change to the pipeline's own code (`fork/bin`, `fork/sync`) is rehearsed on a scratch root before it installs.
 
 ## Upstream issues
 
