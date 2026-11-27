@@ -11,7 +11,7 @@ import './machine-card.css'
 
 export interface CardLimit { name: string; value: string; off: boolean }
 
-/** a bar, how full, with its start limit marked on it; amber once over that limit, red past the alert one */
+/** a bar, how full, with its start limit marked on it; amber once over that limit or the alert one (as upstream's meter) */
 export function LimitBar({ pct, level, limit }: { pct: number | undefined; level: Gauge['level']; limit?: number }) {
   const w = Math.max(0, Math.min(100, pct ?? 0))
   return (
