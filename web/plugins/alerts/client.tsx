@@ -2,11 +2,12 @@
 // alerts left on the phone in step with what still waits, and takes a tapped alert straight to its task. The choice
 // itself is in Settings › Notifications (device.ts).
 import { useEffect, useState } from 'react'
-import { definePlugin, notice, openLink, setPushEndpoint, useSnap, useStore, visibleChats } from '@client/kernel.ts'
+import { definePlugin, getState, notice, openLink, setPushEndpoint, useSnap, useStore, visibleChats } from '@client/kernel.ts'
 import { alertUrl, keptTags } from '@shared/alerts.ts'
 import { ALERT_FRESH_MS } from '@shared/needs-you.ts'
-import { needsCount } from '@shared/view.ts'
+import { isEverything, needsCount, spaceLabel } from '@shared/view.ts'
 import { registerWorker } from './worker.ts'
+import { spaceAlertsRow } from './space.tsx'
 
 const TITLE = 'Shepherdr'
 
@@ -60,7 +61,8 @@ function AlertToasts() {
     for (const a of fresh) seen.add(a.id)
     if (!primed) return void (primed = true)
     for (const a of fresh) {
-      if (!a.notify || a.ended || !(Date.now() - (Number(a.at) || 0) < ALERT_FRESH_MS)) continue
+      // fork Needs you 3/6: a machine's warning (memory, a restart, a provider cutting off) stays in the bell, no toast
+      if (!a.notify || a.ended || a.ops || !(Date.now() - (Number(a.at) || 0) < ALERT_FRESH_MS)) continue
       const url = a.place ? alertUrl({ place: a.place, ...(a.task ? { task: a.task } : {}) }) : a.task ? `./?${new URLSearchParams({ task: a.task })}` : null
       notice(a.title, { sub: a.body || undefined, sticky: true, ...(url ? { act: { label: 'Open', run: () => openLink(url, true) } } : {}) })
     }
@@ -72,6 +74,14 @@ export default definePlugin({
   name: 'alerts',
   setup(reg) {
     reg.overlays.push(Keeper, AlertToasts)
+    // fork Needs you 3/6: Mute alerts / Unmute alerts on a space's menu (Everything's has none: it is every space)
+    reg.spaceMenu.push({
+      order: 30,
+      rows: (p) => {
+        const snap = getState().snap
+        return snap && !isEverything(snap, p.id) ? spaceAlertsRow(snap, p, spaceLabel(snap, p.id)) : []
+      },
+    })
     if (!('serviceWorker' in navigator)) return
     registerWorker()
       // tell the server which push subscription is this screen, so it sends none while the app is on screen

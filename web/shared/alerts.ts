@@ -6,6 +6,7 @@ import { machineName, splitFacts, taskChatId, type Alert, type Chat, type Messag
 import * as T from '../../core/toasts.js'
 import { needsYou, waitingTasks, type NeedsSnap } from './needs-you.ts'
 import { cutKindTitle, kindWho, taskKind } from './kinds.ts'
+import { canonical, spaceAlertsOf, type SpaceAlertsSnap } from './reach.ts'
 
 /** about what an iPhone's lock screen shows of a title (one line) and of a body (a few lines) */
 export const TITLE_MAX = 40
@@ -204,7 +205,9 @@ export const NOTIFY_DEFAULT: Notify = 'Needs me'
 export const notifyRow = (snap: Pick<Snapshot, 'settings'>, place: string) => snap.settings.filter((s) => s.level === place).flatMap((s) => s.rows).find((r) => r.key === NOTIFY_KEY)
 
 /** a place's Notify, as Settings has it at that place's level */
-export function notifyOf(snap: Pick<Snapshot, 'settings'>, place: string): Notify {
+export function notifyOf(snap: Pick<Snapshot, 'settings'> & SpaceAlertsSnap, place: string): Notify {
+  // fork Needs you 3/6: Space alerts Muted (a space's own, else Everything's) is the old Off
+  if (spaceAlertsOf(snap, place) === 'Muted') return 'Off'
   const v = notifyRow(snap, place)?.value
   return NOTIFY.find((n) => n === v) ?? NOTIFY_DEFAULT
 }
@@ -278,6 +281,8 @@ export const PUSH_TOPICS = [
   { id: 'ready', label: 'Ready for review', about: 'A task finished and waits for you to look at it' },
   { id: 'done', label: 'Done', about: 'A task merged or closed' },
   { id: 'assistant', label: 'Messages in a chat', about: 'Shepherdr wrote in a chat' },
+  // fork Needs you 3/6 (web/shared/reach.ts): machine and schedule warnings, opt-in
+  { id: 'ops', label: 'Machine and schedule warnings', about: 'Memory, a restart, a provider cutting off, a schedule that failed' },
 ] as const
 export type PushTopic = (typeof PUSH_TOPICS)[number]['id']
 /** a device turned on now: what needs you (its questions among them) and a task ready for its Accept; never routine
@@ -286,7 +291,8 @@ export const DEFAULT_TOPICS: PushTopic[] = ['needs', 'ready']
 /** a device turned on before it could choose: what it got then. A stored choice that names a topic there no longer
  *  is (3.1's 'autopilot') still loads: pushTopics keeps only the topics there are */
 export const LEGACY_TOPICS: PushTopic[] = ['needs', 'ready']
-export const pushTopics = (v: unknown): PushTopic[] => (Array.isArray(v) ? PUSH_TOPICS.map((t) => t.id).filter((id) => v.includes(id)) : [...LEGACY_TOPICS])
+// fork Needs you 3/6: always one of the page's levels (reach.ts canonical)
+export const pushTopics = (v: unknown): PushTopic[] => (Array.isArray(v) ? canonical(PUSH_TOPICS.map((t) => t.id).filter((id) => v.includes(id))) : [...LEGACY_TOPICS])
 
 /** what this device's alerts are, from what the browser and the server say: never "off" for one that is on */
 export type DeviceState = 'on' | 'off' | 'blocked' | 'install' | 'unsupported'

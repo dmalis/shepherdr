@@ -82,6 +82,8 @@ function iconOf(x: InboxItem): [IconName, string] {
   if (x.topic === 'ready') return ['ready', 'c-ready']
   if (x.topic === 'done') return ['check', 'c-ready']
   if (x.topic === 'assistant') return ['chat', 'c-mute']
+  // fork Needs you 3/6: a machine or schedule warning
+  if (x.topic === 'ops') return ['server', 'c-mute']
   const key = x.key ?? x.id
   if (key.startsWith('alert:') || key.startsWith('provider:')) return ['bell', 'c-ask']
   return ['ask', 'c-ask']

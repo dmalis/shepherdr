@@ -40,30 +40,34 @@ test("alerts go by each device's topics and muted spaces, never to one on screen
   const [a, b, c] = [await fakeSub(1), await fakeSub(2), await fakeSub(3)];
   p.subscribe(a); p.subscribe(b); p.subscribe(c);
   p.choose(b.endpoint, { topics: ["needs", "ready", "done"], muted: ["sp2"] });
-  p.choose(c.endpoint, { topics: ["ready"] });
-  p.choose(a.endpoint, { topics: ["needs"] });
+  p.choose(c.endpoint, { topics: ["needs", "ready", "done", "assistant"] });
+  p.choose(a.endpoint, { topics: ["needs", "ready"] });
 
   await p.send({ title: "x", topic: "needs", place: "sp1" });
-  expect(hits.sort()).toEqual(["dev1", "dev2"]);
+  expect(hits.sort()).toEqual(["dev1", "dev2", "dev3"]);
   hits = [];
-  await p.send({ title: "x", topic: "ready", place: "sp1" });
+  // Done: Needs you and done (an older Everything is that too)
+  await p.send({ title: "x", topic: "done", place: "sp1" });
   expect(hits.sort()).toEqual(["dev2", "dev3"]);
+  hits = [];
+  // fork Needs you 3/6: a new message in a chat reaches no device (the bell keeps it)
+  await p.send({ title: "x", topic: "assistant", place: "sp1" });
+  expect(hits).toEqual([]);
   hits = [];
   // dev2 mutes sp2
   await p.send({ title: "x", topic: "ready", place: "sp2" });
-  expect(hits).toEqual(["dev3"]);
+  expect(hits.sort()).toEqual(["dev1", "dev3"]);
   hits = [];
   // dev1's app is on screen
   p.visible = new Set([a.endpoint]);
   await p.send({ title: "x", topic: "needs", place: "sp1" });
-  expect(hits).toEqual(["dev2"]);
+  expect(hits.sort()).toEqual(["dev2", "dev3"]);
 });
 
-test("a resolution waits for that device's original push and skips devices getting its replacement", async () => {
+test("one device's alerts reach its push service in the order they were made", async () => {
   const p = new Push(() => "https://example.test", file());
   const [a, b] = [await fakeSub(1), await fakeSub(2)];
   p.subscribe(a); p.subscribe(b);
-  p.choose(a.endpoint, { topics: ["needs"] });
   const calls: string[] = [];
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -77,16 +81,16 @@ test("a resolution waits for that device's original push and skips devices getti
   };
   const first = p.send({ topic: "needs" });
   await started.promise;
-  const cleared = p.send({ topic: "needs", resolved: true, replacedBy: [{ topic: "ready" }] });
+  const second = p.send({ topic: "ready" });
   try {
     await Promise.resolve();
     expect(calls.filter((device) => device === a.endpoint)).toHaveLength(1);
   } finally {
     release.resolve();
-    await Promise.all([first, cleared]);
+    await Promise.all([first, second]);
   }
   expect(calls.filter((device) => device === a.endpoint)).toHaveLength(2);
-  expect(calls.filter((device) => device === b.endpoint)).toHaveLength(1);
+  expect(calls.filter((device) => device === b.endpoint)).toHaveLength(2);
 });
 
 test("turned off: it gets nothing more; on again it keeps its choice; one choice for all", async () => {
@@ -94,12 +98,13 @@ test("turned off: it gets nothing more; on again it keeps its choice; one choice
   const p = new Push(() => "https://example.test", f);
   const [a, b] = [await fakeSub(1), await fakeSub(2)];
   p.subscribe(a); p.subscribe(b);
-  p.choose(a.endpoint, { topics: ["needs", "assistant"] });
+  // fork Needs you 3/6: an older pick of single topics is its level's whole set (a message topic is dropped)
+  p.choose(a.endpoint, { topics: ["needs", "assistant", "done"] });
   p.subscribe(a); // the page gives back a subscription the server lost or already has: its choice stays
-  expect(p.state(a.endpoint).topics).toEqual(["needs", "assistant"]);
+  expect(p.state(a.endpoint).topics).toEqual(["needs", "ready", "done"]);
   // 3.1's "autopilot" topic is gone: a choice that still names it (a page not reloaded, a kept subscription) loads without it
   p.choose(a.endpoint, { topics: ["needs", "autopilot", "done"], muted: ["sp9"] }, true);
-  expect(p.state(b.endpoint)).toEqual({ on: true, topics: ["needs", "done"], muted: ["sp9"], devices: 2 });
+  expect(p.state(b.endpoint)).toEqual({ on: true, topics: ["needs", "ready", "done"], muted: ["sp9"], devices: 2 });
   p.unsubscribe(a.endpoint);
   expect(p.state(a.endpoint).on).toBe(false);
   await p.send({ title: "x", topic: "needs" });

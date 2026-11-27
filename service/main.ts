@@ -168,6 +168,8 @@ inbox.onChange = () => model.rebuild();
 // that device gets no web push, never two notifications of one alert
 const glance = new GlanceFeed();
 push.quiet = (node) => glance.quiet(node);
+// fork Needs you 3/6: a phone app hears nothing from a space its device muted
+glance.muted = (device) => push.mutedOn(device);
 // the app on screen on a device (SHEP-338): no system notification there, web push nor its phone app's own
 push.looking = (node) => live.looking(node);
 glance.looking = (device) => live.looking(device);
