@@ -59,6 +59,11 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - Never run `shepherdr update` or `shepherdr install`, and never change the install folder.
   - Never stop or restart the live Shepherdr, herdr-core or their agents.
   - Every check runs on throwaway sessions and scratch roots, as AGENTS.md's Tests section says.
+- **Name issues and pull requests by what they are.** The person doesn't follow numbers. In anything written for
+  them (chat, `--told` words, summaries and details they read), name an issue or pull request by a short title or
+  summary; its link or number may follow: "the install step's terminal check (#25)".
+  - GitHub's own text keeps its numbers: a pull request's `Part of #n`, issues linking each other.
+  - Upstream issues are still written as plain text, as the upstream-issue skill says.
 - **Never use GitHub's fork sync buttons on dmalis/shepherdr.**
   - "Sync fork" › "Update branch" merges upstream's `main`, which isn't a release yet, into ours.
   - "Discard commits" throws our patches away.
