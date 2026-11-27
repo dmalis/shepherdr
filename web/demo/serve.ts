@@ -21,11 +21,14 @@ let n = 1000
 /** the group a Remove group took, for its Undo */
 let gone: NonNullable<Snapshot['sections']>[number] | null = null
 const held = new Map<string, any>()
+// the devices taken off Settings › Notifications' list (fork #96), until the page loads again
+const removedDevices = new Set<string>()
 function resetDemo() {
   for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   n = 1000
+  removedDevices.clear()
 }
 
 const push = () => socks.forEach((s) => s.send(JSON.stringify({ type: 'snapshot', snapshot: state[s.data.mode] })))
@@ -317,11 +320,14 @@ Bun.serve<Sock['data'], never>({
     // a page that holds a push subscription (a real browser's, or a stub's) is on: its state, a test, and itself first
     if (path === '/api/push/state') return Response.json({ on: true, topics: ['needs', 'ready'], muted: [], devices: 3 })
     if (path === '/api/push/test') return Response.json({ ok: true, said: 'Sent. It should show in a few seconds.' })
-    if (path === '/api/push/devices') return Response.json({ devices: [
+    if (path === '/api/push/remove') removedDevices.add(String(((await req.clone().json().catch(() => ({}))) as { id?: string }).id ?? ''))
+    if (path === '/api/push/devices' || path === '/api/push/remove') return Response.json({ devices: [
       ...(((await req.clone().json().catch(() => ({}))) as { endpoint?: string }).endpoint ? [{ id: 'd0', device: req.headers.get('user-agent') ?? '', at: Date.now() - 3 * 86400_000, seen: Date.now(), last: { at: Date.now() - 20 * 60_000, status: 201 }, topics: ['needs', 'ready'], mine: true }] : []),
       { id: 'd1', device: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', at: Date.now() - 20 * 86400_000, seen: Date.now() - 3600_000, last: { at: Date.now() - 5 * 60_000, status: 201 }, topics: ['needs', 'ready'] },
       { id: 'd2', device: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', at: Date.now() - 9 * 86400_000, seen: Date.now() - 2 * 60_000, last: { at: Date.now() - 2 * 86400_000, status: 201 }, topics: ['needs', 'ready', 'done'] },
-    ] })
+      // an old laptop, last seen weeks ago: the one to remove
+      { id: 'd3', device: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0', at: Date.now() - 60 * 86400_000, seen: Date.now() - 23 * 86400_000, last: { at: Date.now() - 3 * 3600_000, status: 201 }, topics: ['needs', 'ready'] },
+    ].filter((d) => !removedDevices.has(d.id)) })
     // the # list's spaces (service/main.ts reachOf): every space but Everything, this machine's and the others'
     // the / list's commands (service/main.ts, core/slash.js): Claude Code's, and one of the person's own
     if (path === '/api/commands') return Response.json({ commands: commandList('claude', [{ name: 'ship', about: 'Commit, push and open a pull request' }]) })

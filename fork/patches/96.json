@@ -1,0 +1,17 @@
+{
+  "issue": 96,
+  "name": "remove a device from Notifications",
+  "files": [
+    "service/push.ts",
+    "service/main.ts",
+    "web/plugins/inbox/device-check.tsx",
+    "web/plugins/inbox/inbox.css",
+    "web/plugins/alerts/device.ts",
+    "web/demo/serve.ts"
+  ],
+  "tests": [
+    "service/push-remove.test.ts",
+    "web/plugins/alerts/removed.test.ts",
+    "web/plugins/inbox/inbox.test.tsx"
+  ]
+}
