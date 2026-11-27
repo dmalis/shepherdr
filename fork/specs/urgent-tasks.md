@@ -35,12 +35,18 @@ The app never says Assistant, worker or coordinator (docs/develop.md, Rules). It
 - **Shepherdr has no task priority or urgency.** `urgent` in `service/glance.ts` means "what notifies" in the
   phone feed; `machine.low_priority` is the CPU priority of agents; Codex's `priority` tier and Claude Code's fast
   mode are speeds. None of these says which task matters.
-- **Upstream issue 1193 and its pull request 1196** proposed P0 Urgent to P4 Backlog flags, a sort, and colour
-  settings: about 28 files, both closed by their author unmerged, with no maintainer comment.
-- **Upstream issue 1195** asked for queue jump and start order. The maintainer: "since 3.2.0 tasks start as soon as
-  they're asked, so start order no longer applies. We're leaving queue jump and queue position out to keep Shepherdr
-  small." The code agrees: `tick.py` (~555) samples the machine's start limits once per pass and starts every
-  startable queued task in that pass, so a place in the queue changes nothing.
+- **Upstream [issue 1193](https://github.com/eliasstravik/shepherdr/issues/1193) and its
+  [pull request 1196](https://github.com/eliasstravik/shepherdr/pull/1196)** proposed P0 Urgent to P4 Backlog flags,
+  a sort, and colour settings: about 28 files, both closed by their author unmerged, with no maintainer comment.
+- **Upstream [issue 1195](https://github.com/eliasstravik/shepherdr/issues/1195)** asked for queue jump and start
+  order. The maintainer: "since 3.2.0 tasks start as soon as they're asked, so start order no longer applies. We're
+  leaving queue jump and queue position out to keep Shepherdr small." The code mostly agrees: `tick.py` (~547–590)
+  walks each list's queued tasks by `queued_at`, samples the machine's start limits once for the run, and starts
+  every task that waits for nothing. The order still decides one thing: which tasks get the run's three checks of
+  tasks on other machines they come after (`budget`), so a later one may wait a pass longer. A second `herdr-task
+  start` of a queued task goes past a busy machine but still after the tasks it comes after (`commands.py` ~593);
+  the app's Start on a queued task passes `--now`, which skips both, as its dialog says
+  (`web/plugins/tasks/client.tsx` ~251).
 - **Upstream main since v3.2.22** (68be7817): nothing on priority or urgency (`git log -i --grep 'urgent|priorit'`).
 - So we build our own, shaped by the maintainer's reasoning: one flag, a handful of files, nothing that reorders
   starts or merges.
@@ -49,14 +55,17 @@ The app never says Assistant, worker or coordinator (docs/develop.md, Rules). It
 
 | Product | What urgent changes | What it never changes, or its guard | What we take |
 |---|---|---|---|
-| **Linear** ([issue properties](https://linear.app/docs/issue-property), [notifications](https://linear.app/docs/notifications), [SLAs](https://linear.app/changelog/2023-03-16-slas)) | Urgent sorts first (no priority sorts last); marking an issue Urgent notifies its assignee; the default SLA rule is "Urgent: 24 hours". | No overuse guard; levels are fixed. | Sorts first. The notification goes to the one who acts: here that is Shepherdr, the one who acts first, not the person who set the mark. |
+| **Linear** ([issue properties](https://linear.app/docs/issue-property), [notifications](https://linear.app/docs/notifications), [SLAs](https://linear.app/docs/sla)) | Urgent sorts first (no priority sorts last); marking an issue Urgent notifies its assignee; the default SLA rule is "Urgent: 24 hours". | No overuse guard; levels are fixed. | Sorts first. The notification goes to the one who acts: here that is Shepherdr, the one who acts first, not the person who set the mark. |
 | **Jira, Jira Service Management** ([impact × urgency](https://support.atlassian.com/jira-service-management-cloud/docs/how-do-i-create-a-matrix-using-impact-and-urgency-values/), [SLA goals](https://support.atlassian.com/jira-service-management-cloud/docs/use-priority-to-group-sla-goals)) | In plain Jira, priority is only a field. Service Management derives it from impact and urgency and ties SLA goals to it. | Priority is separate from severity. | Five levels with no distinct consequence are colour and sort only. |
 | **Todoist** ([priorities](https://www.todoist.com/help/articles/set-a-priority-in-todoist-Wy82Jp)) | P1 is red, sorts first, filters across projects. | No reminder or notification change. | Same as above: levels that change nothing but colour. |
+| **Asana** ([My tasks](https://help.asana.com/s/article/my-tasks?language=en_US)) | Priority is a custom field a team makes; My tasks can group or sort by it. | Nothing else follows from it. | The same: a field to sort by. |
+| **Gmail** ([importance markers](https://support.google.com/mail/answer/186543)) | Gmail guesses importance from what you open, reply to and star, and shows a marker; a click corrects it. | No notification change. | The opposite of ours: a guess the person corrects. Ours is only ever the person's own mark; Shepherdr never guesses it. Only the wording "Mark as important" is borrowed. |
 | **PagerDuty** ([urgency](https://docs.pagerduty.com/incident-management/services/configurable-service-settings), [alert fatigue](https://www.pagerduty.com/resources/digital-operations/learn/alert-fatigue/)) | Two levels only, high and low. Urgency decides the notification rules and escalation; low never escalates. | Warns that constant alerts make people miss real ones. | Binary is enough to carry real behaviour. The person's notification choices stay theirs. |
+| **Opsgenie** ([alert priorities](https://support.atlassian.com/jira-service-management-cloud/docs/what-are-alert-priorities/), [update priority](https://support.atlassian.com/opsgenie/docs/update-alert-priority-level/), [notification rules](https://docs.opsgenie.com/docs/notification-rule-api)) | Five levels, P1 Critical to P5 Informational (default P3). Priority decides who is notified, how, and how fast; raising it restarts the notification flow. Each person's notification rules can filter on it. | The person's own rules decide what reaches them. | Where levels do carry behaviour, they do it through each person's own notification rules, which Shepherdr leaves to the device's choice. |
 | **Kanban's expedite class of service** ([Kanban University glossary](https://kanban.university/glossary/), [classes of service](https://businessmap.io/kanban-resources/getting-started/kanban-classes-of-service)) | For work where "the impact of delay is both high and immediate": pulled first. In common practice it gets a WIP limit of one and may exceed the board's WIP limit. | The limit of one is the only real guard against "everything is urgent" we found (secondary source). | The meaning. Not the limit-breaking: Shepherdr has no WIP limit since 3.2, and its machine start limits protect the machine (a full disk), not a policy. |
 | **Buildkite job priority** ([docs](https://buildkite.com/docs/pipelines/configure/workflows/job-priority.md)), **Jenkins Priority Sorter** ([plugin](https://plugins.jenkins.io/PrioritySorter)) | Reorders only what waits. | Never overrides dependencies or concurrency limits, never interrupts running work. | Urgent reorders attention, never gates. It never interrupts a running agent. |
 | **GitHub merge queue jump** ([docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)) | Puts a pull request at the front of the queue. | It "will cause a full rebuild of all in-progress pull requests" and slows merges. | Left out, as upstream decided: it costs every other task. |
-| **Slack** ([pause notifications](https://slack.com/help/articles/214908388)), **Microsoft Teams** (urgent messages, secondary sources) | Slack: a sender may notify through Do Not Disturb once. Teams: an urgent message notifies again every 2 minutes for 20, through Do Not Disturb; admins can turn it off. | Both are one deliberate send, not a lasting mark. | A lasting mark is no licence to interrupt. No repeats. |
+| **Slack** ([pause notifications](https://slack.com/help/articles/214908388)), **Microsoft Teams** ([messaging policies](https://learn.microsoft.com/en-us/microsoftteams/messaging-policies-in-teams)) | Slack: a sender may notify through Do Not Disturb once. Teams: an urgent message's priority notifications come "every 2 minutes for 20 minutes or until" it is read; admins can turn the option off for a policy, and a recipient can't turn it off for themselves. | Both are one deliberate send, not a lasting mark. | A lasting mark is no licence to interrupt. No repeats. |
 | **Apple** ([interruption levels](https://developer.apple.com/documentation/usernotifications/unnotificationinterruptionlevel), [HIG: managing notifications](https://developer.apple.com/design/human-interface-guidelines/managing-notifications), [web push](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)) | Time Sensitive breaks through Focus, "only for notifications that are relevant in the moment". | "Build trust by accurately representing the urgency of each notification." A home-screen web app has no documented interruption level, only the `Urgency` header, which Shepherdr's push already sends as `high` (`service/push.ts` ~328). | Nothing to add on iOS, and nothing that would bend Apple's rule. |
 | **Android** ([channels](https://developer.android.com/develop/ui/views/notifications/channels), [full-screen intent policy](https://support.google.com/googleplay/android-developer/answer/13392821)) | A channel's importance, owned by the person once created; full-screen intents only for calls and alarms. | The person controls each channel. | The phone app keeps its own channels; nothing here asks for more. |
 
@@ -92,20 +101,26 @@ only once that machine confirms.
 
 1. **First in Tasks' Working and Up next.** Inside those two groups, urgent tasks come first, in their usual order
    among themselves. Needs you keeps its own order (oldest first, the shared list in `web/shared/needs-you.ts`, which
-   the sidebar's counts and the phone feed also follow); urgent joins that order only in slice 3, through the Needs
-   you design's one action list, so counts, cards and links never disagree. Done and Archived keep newest first.
+   the sidebar's counts and the phone feed also follow), so counts, cards and links never disagree; this spec never
+   reorders it. Done and Archived keep newest first.
 2. **The mark.** One icon before the title on its row, and "Urgent" in its task header (below).
-3. **Shepherdr takes its news first.** Every news line about an urgent task carries `urgent="yes"` on its tag
-   (`<herdr-news task="…" event="…" urgent="yes">`), read at the moment the batch goes, not when the line was
-   queued. In each message to one Shepherdr, urgent tasks' lines come first. The line's text is unchanged, so the
-   chat's news rows read as before (`core/chat-log.js` reads the tag's attributes one by one; a test pins that an
-   extra one is ignored).
-4. **Shepherdr knows what it means.** One line in Shepherdr's settings note (the "Your settings" block every
-   Shepherdr chat gets at each start, resume, compaction and handoff, `assistant_settings.py`): "Urgent tasks: the
-   person marks a task urgent (`urgent: true` in `herdr-task list --json`; `urgent="yes"` on its news). Handle its
-   news before other tasks', and hand it to the person as soon as only they can settle it. Mark or unmark one only
-   when the person asks (`herdr-task edit <id> --urgent` / `--urgent off`)." Behaviour stays words
-   (docs/develop.md): the code carries the mark; Shepherdr decides what to do.
+3. **Shepherdr takes its task news first.** A task-status news line (`news_pass`'s `<herdr-news>` lines to a space's
+   Shepherdr) about an urgent task carries `urgent="yes"` on its tag (`<herdr-news task="…" event="…"
+   urgent="yes">`). The flag is noted on the outbox entry when the line is queued, and read again from the task's
+   record when the message goes for every list that pass has open; an entry from a list the pass didn't read (a
+   folder-scoped pass) keeps what was noted. In each message to one Shepherdr, urgent tasks' lines come first. The
+   line's text is unchanged, so the chat's news rows read as before (`core/chat-log.js` `newsOf` reads `task` and
+   `event` by name from the tag; a test pins that an extra attribute changes nothing). Not covered: Everything's
+   overview of other machines (`home.py`'s `<herdr-overview>`, which rewrites news in its own shape), GitHub news
+   (`<herdr-github>`), and alerts.
+4. **Shepherdr knows what it means.** One new row in Shepherdr's settings note (the "Your settings" block every
+   Shepherdr chat gets at each start, resume, compaction and handoff, `assistant_settings.py` `rows`): "Urgent
+   tasks: the person marks a task urgent (`urgent: true` in `herdr-task list --json`; `urgent="yes"` on its news).
+   Handle its news before other tasks', and hand it to the person as soon as only they can settle it. Mark or unmark
+   one only when the person asks (`herdr-task edit <id> --urgent` / `--urgent off`)." Because it's a row with its
+   own key, a Shepherdr chat already running when the update lands gets it once as a settings notice, through the
+   same `settings_pass` that tells running chats a changed setting (its digest gains the new key). Behaviour stays
+   words (docs/develop.md): the code carries the mark; Shepherdr decides what to do.
 
 That is all: four changes, no setting, no new message to anyone.
 
@@ -119,7 +134,7 @@ That is all: four changes, no setting, no new message to anyone.
 | **The agent's model, effort or speed** | Fast mode costs extra usage credits on a subscription, and Codex's faster tiers cost more. The picker is one tap away; Shepherdr changes them only when the person asks, by restarting with documented flags, as today. |
 | **The brief** | No "urgent" line for the worker: "smallest safe change" can narrow the work, and "ask sooner" brings questions Shepherdr could settle. |
 | **A running agent** | Marking never sends anything to a task's agents and never restarts one. |
-| **Start order and start limits** | Every startable task already starts at once (3.2); the limits protect the machine (a nearly full disk). Nothing jumps a queue, and a held urgent task waits in Up next with its reason like any other. Starting it anyway stays the person's own Start. |
+| **Start order and start limits** | Every task that waits for nothing starts in the same pass (3.2); the limits protect the machine (a nearly full disk). Nothing jumps a queue, the queue's walk keeps `queued_at` order, and a held urgent task waits in Up next with its reason like any other. Starting it anyway stays the person's own Start, as today (the app's Start passes `--now`). |
 | **`--after`** | An urgent task still waits for the tasks it comes after. |
 | **Hand-up time (Ask me after)** | A wait's deadline is set when the wait is first confirmed and stays fixed (Needs you design); marking never changes a wait's id, owner or deadline. Someone who wants every wait at once already has "Right away". |
 | **Notifications** | The device's choice (Needs you / Needs you and done / Off) and space mutes hold for urgent tasks too. Its Ready notifies on Needs you, as every Ready does; its Done on Needs you and done. No repeats, no Time Sensitive, no extra sound. |
@@ -137,9 +152,8 @@ person sets it, so a cap would get in their way in the one hour two things reall
 
 ### How it shows
 
-All UI follows FORK.md's "Industry standard first" and "All UI work uses the UI skills": `frontend-design`,
-`better-ui`, `better-colors`, `better-accessibility`, `mobile-responsiveness`, and `web-design-guidelines` before
-ready, within `web/src/ds.css`.
+All UI follows FORK.md's "Industry standard first" and "All UI work uses the UI skills", within `web/src/ds.css`;
+slice 2 names the skills.
 
 - **The icon:** Linear's urgent shape, an exclamation mark in a filled rounded square, 16 px, before the title on the
   row's first line. A new `urgent` icon in `web/src/icons.ts` (the bolt is taken: it means a faster speed).
@@ -160,10 +174,15 @@ ready, within `web/src/ds.css`.
   no notification event, and toggling it never changes a wait's id, owner or deadline.
 - Shepherdr's waits on an urgent task stay Shepherdr's, quiet, with their usual deadline. Shepherdr takes them first
   because their news says urgent and its settings note says what that means.
-- What this build can't do yet: a wait that was open before the task was marked sends no new news, so Shepherdr
-  learns of the mark at that task's next news, or when it lists its tasks. Slice 3 closes that once Needs you's
-  action records exist (part 5, one list; part 6a, waits kept with their generation): urgent then orders Shepherdr's
-  open waits and the Needs you list in that one projection.
+- **What slices 1 and 2 ship, and what they don't.** They ship: the meaning, in every Shepherdr chat's settings
+  note (running ones get it once); the mark on every task-status news line queued after it; urgent lines first in
+  each message; the mark in `herdr-task list` whenever Shepherdr looks. They don't: marking a task sends nothing, so
+  a task that already waits With Shepherdr, with no news left to come, is seen as urgent only at its next news or
+  when Shepherdr lists its tasks. The settings note's line tells Shepherdr to check `urgent` when it does; the
+  person can also say so in chat, as today.
+- **Slice 3 closes that gap,** once Needs you's action records and hand-up exist (parts 5, 6a and 6b): urgent then
+  orders Shepherdr's own open waits in the one action list. The person's Needs you list keeps its own order
+  (oldest first); nothing in this spec reorders the person's cards, counts or phone feed.
 - The words module (`web/shared/needs-words.ts`) gets nothing new: "Urgent" is a property of the task, shown by its
   mark, not a kind of wait.
 
@@ -173,8 +192,8 @@ ready, within `web/src/ds.css`.
 |---|---|---|
 | herdr-task's task record | `urgent`: when it was marked (ms); removed by `--urgent off` | Old task files have none: not urgent. Kept when a task moves to another folder or machine. |
 | `herdr-task show`, `list --json` | `urgent: true` only when `urgent_now(t)` | `output.py` copies the record, so it drops the raw field and writes this one. `show` adds the line "Urgent: yes". |
-| The service (`service/model.ts` reads the raw lists, `service/compat.ts` builds the web's `Task`) | `Task.urgent?: true` only when `isUrgent(raw)` | Old clients ignore it. |
-| The web action | `{type: "task-urgent", chat, on: boolean}` | In `TASK_ACTS` and the chat-to-task resolution beside `task-rename` (`service/actions.ts`); `on` must be a boolean. Runs `herdr-task edit <ref> --urgent` or `--urgent off` on the task's own machine, found from the snapshot, never by ref alone. |
+| The service | `Task.urgent?: true` only when `isUrgent(raw)` | `service/model.ts` reads the raw lists and builds each task's row, keeping only the fields it names (~340–380): the row gets `urgent` there, through `isUrgent(task)` on the raw task. `service/compat.ts` (~488) copies it from the row onto the web's `Task`. Old clients ignore it. |
+| The web action | `{type: "task-urgent", chat, on: boolean}` | `service/actions.ts`: the case, `on` checked to be a boolean, and the chat-to-task resolution beside `task-rename` (~773). `service/main.ts`: the type in `TASK_ACTS` (~726), so the task's list is read again at once after the edit, remote ones too (~926). Runs `herdr-task edit <ref> --urgent` or `--urgent off` on the task's own machine, found from the snapshot, never by ref alone. |
 
 No settings key. Nothing people's state hangs on beyond the task field.
 
@@ -194,6 +213,7 @@ No settings key. Nothing people's state hangs on beyond the task field.
 | Case | What happens |
 |---|---|
 | Marking a Done or archived task | Refused, with why; the menu doesn't offer it there. |
+| `edit --urgent` together with `--move-to` | `cmd_edit` moves a task (`move_task`, `commands.py` ~1489) before it opens the store for the other changes (~1543), so the urgency checks run first, under the source list's lock, before any move: a refused mark moves nothing. |
 | A task's own agent runs `add` or `edit` with `--urgent` | Refused before anything is sent anywhere: "Only the person marks a task urgent." |
 | The task's machine can't be reached | The action fails with the usual "Can't reach vm-a"; nothing changes on screen. |
 | The reply is lost after the other machine saved it | The app doesn't claim either result: the next snapshot shows the truth, and the menu row follows it. |
@@ -209,57 +229,70 @@ No settings key. Nothing people's state hangs on beyond the task field.
 
 ## Build plan
 
-Each slice is its own task, branch and pull request, `Part of #119`, with its own `fork/patches/<issue>.json` (the
-fork-patch skill), and checks upstream first again when it starts. Slice 2 is added `--after` slice 1. Slice 3
-waits for Needs you parts 5 and 6a.
+Each slice is its own task, branch and pull request, `Part of #119`, and checks upstream first again when it starts
+(the fork-patch skill). They are one patch, carried and dropped together, so they share one patch file,
+`fork/patches/119.json`: slice 1 creates it, and each later slice adds its own files and tests to it. That's safe
+because they run one after the other: slice 2 is added `--after` slice 1, and slice 3 waits for Needs you parts 5,
+6a and 6b.
 
 ### 1. Urgent: the mark in herdr-task and Shepherdr's news
 
 - **What:** the task field and its one rule; `add --urgent`, `edit --urgent [on|off]`; the refusals (done, archived,
-  a task's own agents, checked before remote dispatch); `show` and `list --json`; the `urgent="yes"` attribute, read
-  at send time, and urgent lines first in each message; the settings note's line.
-- **Files:** a new `mods/tasks/bin/herdr_task/urgent.py` (the field, `urgent_now(t)`, the caller check, the note's
-  words); one call site each in `cli.py` (the flag on `add` and `edit`, and the refusal before `--on`/`--detach`),
-  `commands.py` (`cmd_add`, `cmd_edit`), `news.py` (the attribute in `news_line`'s tag, the batch's order),
-  `output.py` (the JSON field), `assistant_settings.py` (the note's line).
-- **Tests:** `test/test_herdr_task.py::Urgent` with a real throwaway store and a faked hc: mark, unmark, refusals
-  (also from a fake task terminal, and before `--on`), done by each path ends it, reopen and resume don't bring it
-  back, `list --json`, the attribute, the order in a batch, the note's line. A pinning test that fails if
-  `news_line`'s tag shape, `browser_env`'s variable or the settings note's hook change. `core/chat-log` test: a news
-  tag with an extra `urgent` attribute reads the same.
+  a task's own agents), checked before any remote dispatch and before any move; `show` ("Urgent: yes") and
+  `list --json`; the `urgent="yes"` attribute, noted when a line is queued and read again when it goes; urgent lines
+  first in each message; the settings note's row.
+- **Files:** a new `mods/tasks/bin/herdr_task/urgent.py` (the field, `urgent_now(t)`, the caller check, the row's
+  words); one call site each in `cli.py` (the flag on `add` and `edit`, and the caller check before `--on` and
+  `--detach` dispatch), `commands.py` (`cmd_add`; `cmd_edit`, its checks before `move_task`; `cmd_show`'s line),
+  `news.py` (the attribute in `news_line`'s tag, the outbox entry's note, the batch's order), `output.py` (the JSON
+  field), `assistant_settings.py` (the row in `rows`).
+- **Tests:** `test/test_herdr_task.py::Urgent` with a real throwaway store and a faked hc: mark, unmark, the
+  refusals (also from a fake task terminal, before `--on`, and with `--move-to`: nothing moves), done by each path
+  ends it, reopen, resume and switch don't bring it back, `show` and `list --json`, the attribute, a line queued and
+  then marked or unmarked before a folder-scoped send, the order in a batch, the settings row and its one notice to a
+  running chat. A pinning test that fails if `news_line`'s tag shape, `browser_env`'s variable, `move_task`'s place
+  in `cmd_edit` or `settings_pass`'s digest compare change. A `core/chat-log.test.js` case: a news tag with an extra
+  `urgent` attribute reads the same.
 - **Demo:** none (no UI).
 
 ### 2. Urgent: in the app
 
-- **What:** the snapshot field; the `task-urgent` action, routed to the task's machine; in the Tasks plugin, the menu
-  rows, the row icon, the header word, and urgent first in Working and Up next.
-- **Files:** `service/compat.ts` (one field, through `isUrgent`), `service/actions.ts` (one case and its
-  `TASK_ACTS` entry), `web/shared/types.ts` (one field), a new `web/shared/urgent.ts` (`isUrgent(raw)`,
-  `urgentFirst(tasks)`: a stable partition), a new `web/plugins/tasks/urgent.tsx` (the icon, the two menu rows, the
-  header word), with one call each in `web/plugins/tasks/client.tsx` (the menu rows, `TaskRow`'s title, the header's
-  facts, `urgentFirst` on Working and Up next where `Now` renders them); the icon in `web/src/icons.ts`; two urgent
-  tasks in `web/demo/data.ts` and the action in `web/demo/serve.ts`, so the proof uses the real menu. Everything in
-  the Tasks plugin: it owns the title, the facts line and both menus (docs/plugins.md), so no new Registry place and
-  no second plugin.
-- **Tests:** `web/shared/urgent.test.ts` (the rule's table shared with slice 1's, the order, stable ties, Needs you
-  and Done untouched), `web/plugins/tasks/urgent.test.tsx` (menu rows per state, the action sent, none on Done, the
-  row's accessible name, the Needs you count unchanged by a mark), a `service` test for the action's route (two
-  machines, same key; a refused flag), `bunx tsc`, `bun run build`.
+- **What:** the snapshot field; the `task-urgent` action, routed to the task's machine and read again at once; in the
+  Tasks plugin, the menu rows, the row icon, the header word, and urgent first in Working and Up next.
+- **Files:** `service/model.ts` (the row's field, through `isUrgent` on the raw task), `service/compat.ts` (copies it
+  onto the `Task`), `service/actions.ts` (the case and the chat-to-task resolution), `service/main.ts` (the type in
+  `TASK_ACTS`), `web/shared/types.ts` (one field), a new `web/shared/urgent.ts` (`isUrgent(raw)`, `urgentFirst(tasks)`:
+  a stable partition), a new `web/plugins/tasks/urgent.tsx` (the icon, the two menu rows, the header word), with one
+  call each in `web/plugins/tasks/client.tsx` (the menu rows, `TaskRow`'s title, the header's facts, `urgentFirst` on
+  Working and Up next where `Now` renders them); the icon in `web/src/icons.ts`; two urgent tasks in
+  `web/demo/data.ts` and the action in `web/demo/serve.ts`, so the proof clicks the real menu. Everything sits in the
+  Tasks plugin: it owns the title, the facts line and both menus (docs/plugins.md), so no new Registry place and no
+  second plugin.
+- **UI skills:** `frontend-design:frontend-design`, `better-ui`, `better-colors`, `better-layout` (the changed order,
+  the title's room), `better-accessibility`, `mobile-responsiveness` and `mobile-ios-design` (the phone row), and
+  `web-design-guidelines` before ready.
+- **Tests:** `web/shared/urgent.test.ts` (the rule's table, the same cases as slice 1's; the order, stable ties, Needs
+  you and Done untouched), `web/plugins/tasks/urgent.test.tsx` (menu rows per state, the action sent, none on Done,
+  the row's accessible name, the Needs you count unchanged by a mark), a `service` test for the snapshot field from a
+  raw list and for the action's route (two machines with the same key; a remote toggle read again at once; an older
+  herdr-task refusing the flag), `bunx tsc`, `bun run build`.
 - **Proof:** the demo at 390 px and 1280 px, light, dark and night: Tasks with two urgent tasks first in Working, the
-  menu, the header. The UI skills above named in the summary.
+  menu, the header.
 
-### 3. Urgent: first among Shepherdr's waits (after Needs you parts 5 and 6a)
+### 3. Urgent: first among Shepherdr's waits (after Needs you parts 5, 6a and 6b)
 
-- **What:** in the one action list (`service/attention.ts` `projectAttention`), urgent tasks' actions first: in the
-  Needs you list, its sidebar taps and the phone feed alike, with ids, counts and deadlines unchanged. Marking a task
-  urgent while one of its waits is open With Shepherdr makes that wait's news go again, once, with `urgent="yes"`
-  (a new delivery of the same wait id, never a new wait). Updates docs/agents-and-terms.md if that resend is a new
-  kind of message.
-- **Files and tests:** named when parts 5 and 6a have merged, in that part's own shapes.
+- **What:** in the one action list (`service/attention.ts` `projectAttention`), Shepherdr's own open waits (owner
+  "Shepherdr") on urgent tasks come first, with ids, owners, counts and deadlines unchanged. The person's Needs you
+  list, counts and phone feed keep their order.
+- **Telling Shepherdr about a wait that was already open** is its own part, if it's still wanted after the above is
+  tried: a second delivery of the same wait id with `urgent="yes"`, sent only after a fresh check that the wait is
+  still open, still Shepherdr's and still the same generation, never to a Shepherdr chat whose agent has ended
+  (`news_send` can start one again), deduplicated across passes and machines, with race tests, and the dated
+  update to docs/agents-and-terms.md, since it is a new kind of message to an agent.
+- **Files and tests:** named once parts 5, 6a and 6b have merged, in their own shapes.
 
 ### Not in this spec
 
-- The Herdr window's own Tasks panel (`mods/tasks`): a later slice once the web one is tried.
 - A mark on the phone feed's task items (`service/glance.ts`; its own `urgent` field means "what notifies", so the
   mark would need another name), if the phone app asks for it.
 - A Tasks filter for urgent ones.
@@ -301,9 +334,22 @@ reopen only. What changed:
 - **Remote marking named in full** (major): `TASK_ACTS`, the machine from the snapshot, an older install, a lost
   reply.
 - **Needs you keeps its order** (major). Sorting inside `nowGroups` would give Tasks one Needs you order and the
-  shared list (counts, the sidebar's taps, the phone feed) another. Urgent sorts only Working and Up next now, and
-  Needs you in slice 3, in the one action list.
+  shared list (counts, the sidebar's taps, the phone feed) another. Urgent sorts only Working and Up next; Needs you
+  keeps its order, and slice 3 orders only Shepherdr's own waits.
 - **No new Registry place, no second plugin** (minor). The Tasks plugin owns the title and both menus; the palette
   picks up menu rows. The demo gets the action, so the proof clicks the real menu.
 - **The refusal covers add too, before remote dispatch** (blocker), and the spec says plainly it guards against
   mistakes only.
+
+## Review
+
+The spec was reviewed like code (Codex, gpt-6.2-sol, high, read-only). Round 1 found eight majors, all fixed above:
+the service seams the mark passes through (`model.ts` builds the row, `main.ts`'s `TASK_ACTS` reads it again); how a
+running Shepherdr chat learns the meaning (a settings row, so `settings_pass` tells it once) and what slices 1 and 2
+can't do (a wait open before the mark); the send-time promise scoped to task-status batches, with the overview,
+GitHub news and alerts named as not covered; slice 3 cut to Shepherdr's own waits, after Needs you's hand-up too,
+with any re-telling as its own part; a refused mark that `--move-to` could still have moved; the start-order wording
+(the queue's order still sets which other-machine checks a pass makes, and the app's Start passes `--now`); the
+missing research (Opsgenie, Asana, Gmail, Teams from Microsoft's own page, Linear's 24 hours from its SLA page, links
+to upstream's issues); and one shared patch file for the slices. Two minors were taken too: the retired window Tasks
+panel is out of the plan, and the review's base is the merge base.
