@@ -2,6 +2,7 @@
 
 This repo is a fork, dmalis/shepherdr: read [FORK.md](FORK.md) first. It adds the fork's rules and never loosens
 the ones below. Claude Code loads it in full, every session: @FORK.md
+All UI work uses the UI skills, not only frontend-design: see FORK.md's "Industry standard first".
 
 How to run, build and lay out the code: [docs/develop.md](docs/develop.md).
 

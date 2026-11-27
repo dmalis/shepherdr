@@ -97,8 +97,9 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
    each one's status line for its pull requests; an issue with several fixes may have only one still waiting.
 2. **One line per fix, named by what it does** in plain words, then how to try it (from its status line), its
    issue's number last: "A settings notice no longer ends the Assistant's work mid-turn; try it: change a setting
-   while it works (#7)". Add a few words when they help the decision: upstream already has an issue for it, it
-   can't fit everyone (keep it ours), or it is being reverted.
+   while it works (#7)". Add a few words when they help the decision: upstream fixed it since, in a release or on
+   main (nothing to file: the sync drops ours), upstream has an issue for it, it can't fit everyone (keep it ours),
+   or it is being reverted. Find the first two with the upstream check (fork-patch skill, step 1).
 3. **End with the link** that opens exactly those issues on GitHub:
    https://github.com/dmalis/shepherdr/issues?q=is%3Aissue+is%3Aopen+label%3Anot-filed
 4. **When the person asked:** the Assistant gives the list, then asks with the question tool, one question per fix
@@ -111,9 +112,8 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
 ## Filing a fix
 
 Only for a fix the person said to file. Never post upstream without their yes for that fix.
-1. **Find the upstream issue.** Start from our issue's "Upstream" line, then search for a duplicate:
-   `gh search issues -R eliasstravik/shepherdr "<words>"`. Leave out `--state`: without it, the search covers open and
-   closed issues.
+1. **Find the upstream issue.** Start from our issue's "Upstream checked" line, then search again for a duplicate
+   filed since, as the fork-patch skill's step 1 does: a few short keyword searches, open and closed.
 2. **Pick what to post** from what you found:
 
    | Found | Post |
@@ -154,9 +154,10 @@ the person, name an upstream issue by its title (FORK.md: Rules).
 
 ## A fix upstream already has
 
-Look at `git log upstream/main` first.
-- **In a release:** nothing to build. Show the person how to use it, and post nothing upstream.
-- **On main, not released yet:** don't write our own fix.
+The upstream check (fork-patch skill, step 1) finds these.
+- **In a release:** nothing to build. Show the person how to use it (or that the next sync brings it, when our main
+  doesn't carry that release yet), and post nothing upstream.
+- **On main, not released yet:** don't write our own fix. The release brings it. Only if it hurts now:
   - Carry upstream's own commit as a temporary patch (`git cherry-pick -x`).
   - Label its issue `fixed-upstream`.
   - The next release replaces it.

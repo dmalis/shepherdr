@@ -37,7 +37,7 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
 | This space | `~/development/projects/shepherdr-dev`. Tasks work in worktrees of it |
 | Install folder | `~/development/projects/shepherdr`: the checkout the live Shepherdr is installed from, detached at the installed tag. Only the install step moves it |
 | Record of all work | Issues and pull requests on dmalis/shepherdr (see below) |
-| Our own files | `FORK.md`, `fork/` (specs, scripts, their tests), `.agents/skills/` (linked from `.claude/skills/`), the first line of AGENTS.md |
+| Our own files | `FORK.md`, `fork/` (specs, scripts, their tests), `.agents/skills/` (linked from `.claude/skills/`), the fork paragraph at the top of AGENTS.md |
 
 ## Rules
 
@@ -110,6 +110,15 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
 ## How a change becomes a patch
 
 First shape it (the shaping-a-request skill). Then use the fork-patch skill. In short:
+- **Check upstream first,** before an issue here for a bug or fix in Shepherdr, and again when its task starts
+  building. It may be fixed already. The commands are in the fork-patch skill, step 1.
+  1. **Are we up to date?** Upstream's newest release against the one our main carries, and upstream's main since
+     then, on the files involved. Fixed there: nothing to build. Say so and let the sync bring it, or carry upstream's
+     own commit early if it hurts now (upstream-issue skill: "A fix upstream already has").
+  2. **Is it reported upstream?** A few short keyword searches of upstream's issues, open and closed. Read the close
+     reason and the maintainer's words of each match.
+  3. **Then file here,** with one line: "Upstream checked: v<release>, main <short sha>; related: <upstream issues as
+     plain text, or none>". A match declined upstream is built our own way; one fixed upstream is not built.
 - **Spec first** for anything bigger than a small fix. Write it in `fork/specs/<name>.md`; the reviewer reviews it
   like code. The building tasks are then added `--after` it.
 - **Build on upstream's own extension points:** a plugin for UI (docs/plugins.md), a settings key, a new module.
@@ -145,8 +154,8 @@ The upstream-issue skill. The person's standing rule: our Shepherdr works for th
 Shepherdr for everyone. The person decides, fix by fix, whether we offer it upstream, and upstream's author decides
 whether it goes into theirs.
 - **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
-  find later is fixed here as a patch (the fork-patch skill), unless upstream's own release already fixes it. The
-  person never waits on upstream.
+  find later is fixed here as a patch (the fork-patch skill), unless upstream already fixed it ("Check upstream
+  first"). The person never waits on upstream.
 - **Confusion is a UX problem.** When Shepherdr's behaviour confuses the person, first check whether they know the
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
@@ -183,8 +192,20 @@ whether it goes into theirs.
     sheet, Esc closes, Cmd/Ctrl K searches.
   - Never move a standard key or pattern to make room for ours. Where Shepherdr breaks a standard today, that's a UX
     bug: fix it here like any other fix.
-  - Every piece of UI work uses the frontend-design skill (`frontend-design:frontend-design`), within Shepherdr's
-    own design system (`web/src/ds.css`) and these standard patterns. Every task brief that touches UI says so.
+  - **All UI work uses the UI skills** (the Skill tool), within Shepherdr's own design system (`web/src/ds.css`) and
+    these standard patterns. Every task brief that touches UI says so.
+    - Always `frontend-design:frontend-design`.
+    - Plus every one that fits the change: `better-ui` (surfaces, radii, shadows, icon states), `better-layout`
+      (grouping, responsive, phone), `better-typography`, `better-colors` (tokens, contrast in light, dark and
+      night), `better-accessibility` (focus, ARIA, screen readers, zoom), `design-motion-principles` and
+      `emil-design-eng` (any animation or transition; `fixing-motion-performance` if it could jank),
+      `mobile-responsiveness` and `mobile-ios-design` (phone layouts).
+    - `web-design-guidelines` as a review pass before ready.
+    - **Motion:** every animation follows Shepherdr's Motion setting (Settings › General › Motion: Reduced sets
+      `html[data-motion="reduced"]`, `web/src/prefs.ts`) as well as `prefers-reduced-motion`. When either asks for
+      less, nothing moves: the change is instant or opacity only.
+    - **Check the result** in screenshots at 390px and desktop width, light and dark. The summary names the skills
+      used.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
   issue, so the person can keep it ours.
