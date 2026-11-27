@@ -38,9 +38,14 @@ test('a computer: header with its role, work and status words, then Health and S
   expect(html).not.toContain('<dt>Shepherdr</dt>')
 })
 
-test('the start limit is marked on its bar; none at 100% or off', () => {
+test('every enabled start limit is marked on its bar; none when off', () => {
   expect(renderToStaticMarkup(<LimitBar pct={44} level="ok" limit={80} />)).toContain('<b style="--at:80%"></b>')
-  expect(renderToStaticMarkup(<LimitBar pct={44} level="ok" limit={100} />)).not.toContain('<b')
+  expect(renderToStaticMarkup(<LimitBar pct={44} level="ok" limit={100} />)).toContain('<b style="--at:100%"></b>')
+  expect(renderToStaticMarkup(<LimitBar pct={44} level="ok" />)).not.toContain('<b')
+  // a processor limit past its cores: the bar reaches to it, the load keeps its share of the cores
+  const over = renderToStaticMarkup(<LimitBar pct={75} level="ok" limit={150} />)
+  expect(over).toContain('--w:50%')
+  expect(over).toContain('<b style="--at:100%"></b>')
   expect(renderToStaticMarkup(<LimitBar pct={130} level="over" />)).toContain('class="mc-bar over"')
   expect(renderToStaticMarkup(<LimitBar pct={130} level="over" />)).toContain('--w:100%')
 })
@@ -49,7 +54,7 @@ test('a phone: folded to its header and one line, status first; a button that sa
   const html = card({ foldable: true, m: { ...vps, system: { ...vps.system!, hc: '0.1.22' } } })
   expect(html).toContain('<h3 class="mc-hh"><button type="button" class="mc-h" aria-expanded="false" aria-controls="mc-m_vps">')
   expect(html).toContain('<span class="mc-h2">OK · disk 4% · up 2 days</span>')
-  expect(html).not.toContain('mc-body')
+  expect(html).toContain('<div class="mc-body" id="mc-m_vps" hidden="">')
   expect(html).not.toContain('mc-hst')
 })
 

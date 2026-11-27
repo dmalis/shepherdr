@@ -27,6 +27,12 @@ function freeOf(free: string, total: string) {
   return fu === tu ? `${fn} of ${tn} ${tu} free` : `${free} free of ${total}`
 }
 
+/** "286 of 494 GB used", "78 GB of 1.8 TB used": the second unit only when the two differ */
+function usedOf(used: string, total: string) {
+  const [un, uu] = used.split(' '), [tn, tu] = total.split(' ')
+  return uu === tu ? `${un} of ${tn} ${tu} used` : `${used} of ${total} used`
+}
+
 /** "2 days", "5 hours", "12 minutes" */
 export function upWords(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60000))
@@ -47,7 +53,7 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-type Disk = { path: string; pct: number; free_gb?: number; free?: number; size?: number }
+type Disk = { path: string; pct: number; free_gb?: number; free?: number; used?: number; size?: number }
 type Raw = { cores?: number; load?: number; mem_total?: number; mem_used?: number; disks?: Disk[] }
 const rawOf = (m: Machine): Raw => (m.stats?.health ?? {}) as Raw
 
@@ -71,7 +77,9 @@ export function gauges(m: Machine): Gauge[] {
   const memLine = raw.mem_total ? freeOf(memSize(Math.max(0, raw.mem_total - (raw.mem_used ?? 0))), memSize(raw.mem_total)) : ''
   const disks = [...(raw.disks ?? [])].sort((a, b) => b.pct - a.pct)
   const diskLine = (d: Disk) => {
-    const amount = typeof d.free === 'number' && d.size ? freeOf(diskSize(d.free), diskSize(d.size)) : typeof d.free_gb === 'number' ? `${d.free_gb} GB free` : ''
+    // as df -H and Finder: used of its whole size (blocks kept for the system count in the size, not in either), then free
+    const amount = typeof d.free === 'number' && typeof d.used === 'number' && d.size ? `${usedOf(diskSize(d.used), diskSize(d.size))} · ${diskSize(d.free)} free`
+      : typeof d.free === 'number' && d.size ? freeOf(diskSize(d.free), diskSize(d.size)) : typeof d.free_gb === 'number' ? `${d.free_gb} GB free` : ''
     // one disk: its amounts; home and /tmp on two disks: each named, the fullest first (the meter shows it)
     return disks.length > 1 ? `${d.path === 'home' ? 'Home' : d.path} ${d.pct}%${amount ? ` · ${amount}` : ''}` : amount
   }
@@ -133,6 +141,10 @@ export const attentionWords = (m: Machine, serving?: Machine) => attention(m, se
  *  an older version. */
 export function moreWarnings(machines: Machine[]): { id: string; kind: 'machine'; text: string }[] {
   const serving = servingOf(machines)
-  return machines.filter((m) => !(m.status === 'off' && !m.connecting)).flatMap((m) =>
-    attention(m, serving).filter((a) => a.id !== 'disk' && a.id !== 'memory').map((a) => ({ id: `m:${m.machine}:${a.id}`, kind: 'machine' as const, text: `${m.name}: ${lower(a)}` })))
+  return machines.filter((m) => !(m.status === 'off' && !m.connecting)).flatMap((m) => [
+    // upstream's line says the first full one of memory and disk; the other too, in its words, dismissed on its own
+    ...(m.health?.meters ?? []).filter((x) => /disk|memory/i.test(x.name) && x.pct > ALERT).slice(1)
+      .map((x) => ({ id: `m:${m.machine}:${x.name.toLowerCase()}`, kind: 'machine' as const, text: `${m.name}: ${/disk/i.test(x.name) ? 'disk' : 'memory'} nearly full` })),
+    ...attention(m, serving).filter((a) => a.id !== 'disk' && a.id !== 'memory').map((a) => ({ id: `m:${m.machine}:${a.id}`, kind: 'machine' as const, text: `${m.name}: ${lower(a)}` })),
+  ])
 }

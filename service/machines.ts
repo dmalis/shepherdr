@@ -8,7 +8,7 @@ import { settingsFile } from "./paths.ts";
 import { exec } from "./model.ts";
 import * as MC from "../core/machines.js";
 import { notRead } from "../core/agent-usage.js";
-import { readSystem } from "./machine-system.ts";
+import { lastSeen, readSystem, systemDue } from "./machine-system.ts";
 
 const { holdOf, nextRead, healthMeters } = MC as any;
 // Run this version's probe on every machine, including machines with an older install.
@@ -76,8 +76,8 @@ export class Machines {
         const was = this.stats.get(m) ?? {};
         const limits = now - (was.limitsAt ?? 0) > 10 * 60_000;
         if (!limits && now - (was.at ?? 0) < 45_000) return;
-        // dmalis/shepherdr#107: its system facts with its plan limits, and again once it answers after it couldn't
-        const sys = limits || was.error || !was.system ? readSystem(this.hub, m) : null;
+        // dmalis/shepherdr#107: its system facts with its plan limits, and again once it answers after it couldn't or was away
+        const sys = systemDue(was, limits, now) ? readSystem(this.hub, m) : null;
         const r = await exec(this.hub, ["python3", "-c", script, ...(limits ? ["--limits"] : [])], m, 90).catch(() => null);
         const system = await sys;
         const line = r?.stdout.split("\n").find((l) => l.startsWith("{"));
@@ -86,6 +86,7 @@ export class Machines {
           const d = JSON.parse(line);
           out.health = d.health;
           delete out.error;
+          out.seenAt = Date.now(); // dmalis/shepherdr#107: last seen, once it can't be reached
           if (d.limits) { out.limits = Object.fromEntries(Object.entries(d.limits).map(([k, v]) => [k, nextRead(was.limits?.[k], v)])); out.limitsAt = Date.now(); }
         } else {
           // as the window's (lib/machines.js): why it couldn't, its header's red dot; the last numbers stay
@@ -112,12 +113,13 @@ export class Machines {
     const stats = { at: s.at, ...(s.error ? { error: s.error } : {}), ...(s.limitsAt ? { limitsAt: s.limitsAt } : {}), hold: s.hold,
       ...(s.health ? { health: s.health } : {}), ...(s.limits ? { limits: s.limits } : {}) };
     const system = s.system ? { system: s.system } : {};
-    if (!s.health) return { stats, ...system };
+    const seen = lastSeen(m, s.seenAt, this.list()); // dmalis/shepherdr#107
+    if (!s.health) return { stats, ...system, ...seen };
     const health = { engine: "core", herdr: true, working: 0, held: 0, at: new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       meters: healthMeters(s).map((x: any) => ({ name: x.name, pct: x.pct, detail: x.detail, level: x.level })) };
     const limits = s.limits ? Object.fromEntries(Object.entries<any>(s.limits).map(([k, v]) => [k, v.state === "ok"
       ? { state: "ok", plan: v.plan, at: v.at ?? s.limitsAt, windows: (v.windows ?? []).map((w: any) => ({ name: w.name, used: w.used, ...(w.resets_at ? { resetsAt: w.resets_at } : {}) })) }
       : { state: v.state ?? "unknown", why: v.why ?? "", at: v.at ?? s.limitsAt }])) : undefined;
-    return { health, stats, ...system, ...(limits ? { limits } : {}) };
+    return { health, stats, ...system, ...seen, ...(limits ? { limits } : {}) };
   }
 }

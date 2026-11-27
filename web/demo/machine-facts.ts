@@ -9,7 +9,7 @@ const hour = 3600_000, day = 24 * hour
 type Facts = Pick<Machine, 'stats' | 'system'>
 const raw = (x: { cores: number; load: number; mem: number; used: number; disks: { path: string; free: number; size: number }[] }) => ({
   cores: x.cores, load: x.load, cpu: Math.round((x.load * 100) / x.cores), mem_total: x.mem * GiB, mem_used: x.used * GiB, memory: Math.round((x.used * 100) / x.mem),
-  disks: x.disks.map((d) => ({ path: d.path, pct: Math.round(((d.size - d.free) * 100) / d.size), free_gb: Math.round(d.free / GiB), free: d.free, size: d.size })),
+  disks: x.disks.map((d) => ({ path: d.path, pct: Math.round(((d.size - d.free) * 100) / d.size), free_gb: Math.round(d.free / GiB), free: d.free, used: d.size - d.free, size: d.size })),
 })
 const hold = { start_load: 1, start_memory: 80, start_disk: 90 }
 

@@ -13,11 +13,14 @@ export interface CardLimit { name: string; value: string; off: boolean }
 
 /** a bar, how full, with its start limit marked on it; amber once over that limit or the alert one (as upstream's meter) */
 export function LimitBar({ pct, level, limit }: { pct: number | undefined; level: Gauge['level']; limit?: number }) {
-  const w = Math.max(0, Math.min(100, pct ?? 0))
+  // a processor limit past 100% (load over the cores, up to 400%): the bar reaches to it, so its mark still shows
+  const on = typeof limit === 'number' && limit > 0, top = on ? Math.max(100, limit) : 100
+  const w = Math.max(0, Math.min(100, ((pct ?? 0) * 100) / top))
+  const at = on ? Math.round((limit * 1000) / top) / 10 : 0
   return (
     <div className={cx('mc-bar', level !== 'ok' && level)} aria-hidden="true">
-      <i style={{ ['--w' as string]: `${w}%` }} />
-      {typeof limit === 'number' && limit > 0 && limit < 100 && <b style={{ ['--at' as string]: `${limit}%` }} />}
+      <i style={{ ['--w' as string]: `${Math.round(w * 10) / 10}%` }} />
+      {on && <b style={{ ['--at' as string]: `${at}%` }} />}
     </div>
   )
 }
@@ -94,8 +97,8 @@ export function MachineCard({ m, serving, role, agents, working, limits, foldabl
       ) : (
         <h3 className="mc-hh"><div className="mc-h">{head}</div></h3>
       )}
-      {shown && (
-        <div className="mc-body" id={bodyId}>
+      {/* folded: kept in the page, hidden, so its button's aria-controls always names it */}
+      <div className="mc-body" id={bodyId} hidden={!shown}>
           {warns.length > 0 && (
             <ul className="mc-warn">
               {warns.map((w) => <li key={w.id}><I n="warn" c="c-ask" />{w.words}</li>)}
@@ -131,8 +134,7 @@ export function MachineCard({ m, serving, role, agents, working, limits, foldabl
             </>
           )}
           {actions && <div className="acts mc-acts">{actions}</div>}
-        </div>
-      )}
+      </div>
     </section>
   )
 }

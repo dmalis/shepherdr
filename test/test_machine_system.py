@@ -40,11 +40,12 @@ class Linux(unittest.TestCase):
         self.files["/proc/uptime"] = ""
         self.assertIsNone(ms.uptime())
 
-    def test_restart_needed_where_debian_says(self):
-        self.assertIs(ms.restart_needed(ms.os_release(UBUNTU), exists=lambda p: p == ms.REBOOT_FILE), True)
-        self.assertIs(ms.restart_needed(ms.os_release(UBUNTU), exists=lambda p: False), False)
-        # Fedora has no such file: it can't say, so it says nothing (never "not needed")
-        self.assertIsNone(ms.restart_needed(ms.os_release(FEDORA), exists=lambda p: False))
+    def test_restart_needed_where_something_writes_the_flag(self):
+        self.assertIs(ms.restart_needed(exists=lambda p: p == ms.REBOOT_FILE), True)
+        for writer in ms.REBOOT_WRITERS:
+            self.assertIs(ms.restart_needed(exists=lambda p, w=writer: p == w), False)
+        # nothing installed that would write it (Fedora, a bare Debian): its absence says nothing, so nothing is said
+        self.assertIsNone(ms.restart_needed(exists=lambda p: False))
 
 
 class MacOS(unittest.TestCase):
@@ -85,10 +86,15 @@ class Versions(unittest.TestCase):
                     mock.patch.object(ms, "RECORD", str(rec)):
                 self.assertEqual(ms.hc_version(), "0.1.22")
                 self.assertEqual(ms.shepherdr_version(), "3.2.22")
+            # 3.1 and older kept it in the Herdr app's data folder
+            old = Path(tmp) / "old.json"
+            old.write_text(json.dumps({"version": "3.1.9"}))
+            with mock.patch.object(ms, "RECORD", str(Path(tmp) / "none.json")), mock.patch.object(ms, "OLD_RECORD", str(old)):
+                self.assertEqual(ms.shepherdr_version(), "3.1.9")
             rec.write_text("not json")
             with mock.patch.object(ms, "RECORD", str(rec)):
                 self.assertIsNone(ms.shepherdr_version())
-            with mock.patch.object(ms, "RECORD", str(Path(tmp) / "none.json")):
+            with mock.patch.object(ms, "RECORD", str(Path(tmp) / "none.json")), mock.patch.object(ms, "OLD_RECORD", str(Path(tmp) / "none2.json")):
                 self.assertIsNone(ms.shepherdr_version())
 
     def test_version_in(self):
@@ -113,14 +119,15 @@ class Probe(unittest.TestCase):
             self.assertNotIn(word, src)
 
     def test_machine_probe_gives_disk_bytes(self):
-        # the card's "1.7 of 1.8 TB free" (upstream's machine.py, one line of ours: free and size beside free_gb)
+        # the card's "78 GB of 1.8 TB used · 1.7 TB free" (upstream's machine.py, one line of ours: free and size beside free_gb)
         sys.path.insert(0, str(BIN))
         import herdr_task.machine as machine
         disks = machine._disks()
         self.assertTrue(disks)
         for d in disks:
-            self.assertEqual({"path", "pct", "free_gb", "free", "size"}, set(d))
-            self.assertLessEqual(d["free"], d["size"])
+            self.assertEqual({"path", "pct", "free_gb", "free", "used", "size"}, set(d))
+            # df -H's three: blocks kept for the system count in its size, in neither used nor free
+            self.assertLessEqual(d["used"] + d["free"], d["size"])
 
 
 if __name__ == "__main__":

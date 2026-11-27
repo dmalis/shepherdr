@@ -26,11 +26,13 @@ with the plan limits, every 10 minutes and once a machine answers again (`machin
 |---|---|---|
 | OS | `/etc/os-release` | `sw_vers` |
 | Up | `/proc/uptime` | `sysctl -n kern.boottime` |
-| Restart needed | `/var/run/reboot-required` (Debian, Ubuntu); other Linux has no such file: not shown | Not shown: there is no documented way short of `softwareupdate --list`, which is slow and asks Apple's servers |
+| Restart needed | `/var/run/reboot-required` (Debian, Ubuntu). "Not needed" only where something that writes it is installed (update-notifier-common, reboot-notifier or unattended-upgrades); elsewhere not shown | Not shown: there is no documented way short of `softwareupdate --list`, which is slow and asks Apple's servers |
 | herdr-core | `hc --version` | `hc --version` |
-| Shepherdr | its install record (`~/.local/share/shepherdr/installed.json`); none there: not shown | the same |
+| Shepherdr | its install record (`~/.local/share/shepherdr/installed.json`, or 3.1's); none there: not shown | the same |
 
-Disks are in decimal GB and TB, as Finder shows them; memory in GB of 2^30 bytes, as About This Mac does. Needs
+Disks are in decimal GB and TB, as Finder shows them, with used, free and size as `df -H` gives them (blocks a Linux disk
+keeps for the system count in its size only); memory in GB of 2^30 bytes, as About This Mac does. A linked machine
+herdr-core can't reach says when it last answered (known from its first read after the service starts). Needs
 attention: a disk or memory over 90%, a restart waiting, or a Shepherdr or herdr-core older than the machine serving the
 app. The warnings line says each of them too.
 

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { systemOf, SYSTEM_PROBE } from "./machine-system.ts";
+import { lastSeen, systemDue, systemOf, SYSTEM_PROBE } from "./machine-system.ts";
+import { when } from "../core/machines.js";
 import { warningsOf } from "./next.ts";
 
 // Machines: more health facts, clearer cards (dmalis/shepherdr#107): machine_system.py's line as the page gets it, and
@@ -31,7 +32,9 @@ test("seams: machines.ts reads the facts with the limits and passes them to the 
   const src = (f: string) => readFileSync(join(import.meta.dir, f), "utf8");
   const m = src("machines.ts");
   expect(m).toContain('readSystem(this.hub, m)');
-  expect(m).toMatch(/const sys = limits \|\| was\.error \|\| !was\.system \? readSystem/);
+  expect(m).toContain("const sys = systemDue(was, limits, now) ? readSystem(this.hub, m) : null;");
+  expect(m).toContain("out.seenAt = Date.now();");
+  expect(m).toContain("const seen = lastSeen(m, s.seenAt, this.list());");
   expect(m).toContain("...(system ? { system } : {})");
   expect(m).toContain("return { health, stats, ...system,");
   expect(src("next.ts")).toContain("out.push(...moreWarnings(snap.machines));");
@@ -43,4 +46,22 @@ test("the warnings line says a restart waits", () => {
   const vm = { id: "m:vm", machine: "vm", name: "vm", status: "idle", system: { at: NOW, os: null, arch: null, bootAt: null, restart: true, hc: null, shepherdr: null } };
   const w = warningsOf({ machines: [{ id: "m:mini", machine: "mini", name: "mini", status: "idle", here: true }, vm] } as any, []);
   expect(w).toEqual([{ id: "m:vm:restart", kind: "machine", text: "vm: restart needed to finish updates" }]);
+});
+
+test("the system facts are read again once it answers after it was away (a restart changes them)", () => {
+  const sys = { at: NOW } as any;
+  expect(systemDue({ at: NOW - 45_000, system: sys }, false, NOW)).toBe(false);
+  expect(systemDue({ at: NOW - 45_000, system: sys }, true, NOW)).toBe(true);
+  expect(systemDue({ at: NOW - 45_000, system: sys, error: "No answer" }, false, NOW)).toBe(true);
+  expect(systemDue({ at: NOW - 45_000 }, false, NOW)).toBe(true);
+  // herdr-core skipped it while it couldn't reach it: its last read is old
+  expect(systemDue({ at: NOW - 5 * 60_000, system: sys }, false, NOW)).toBe(true);
+});
+
+test("last seen: a linked machine herdr-core can't reach, from its last good read", () => {
+  const seen = NOW - 3_600_000;
+  expect(lastSeen("vm", seen, ["studio"])).toEqual({ unreachableSince: when(seen) });
+  expect(lastSeen("vm", seen, ["vm"])).toEqual({});
+  expect(lastSeen(null, seen, [])).toEqual({});
+  expect(lastSeen("vm", undefined, [])).toEqual({});
 });

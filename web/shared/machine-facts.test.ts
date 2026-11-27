@@ -10,7 +10,7 @@ const meters = (cpu: number, mem: number, disk: number): MachineHealth => ({ eng
   meters: [{ name: 'CPU', pct: cpu, detail: '', level: 'ok' }, { name: 'Memory', pct: mem, detail: '', level: mem > 90 ? 'over' : 'ok' }, { name: 'Disk', pct: disk, detail: '', level: disk > 90 ? 'over' : 'ok' }] })
 const machine = (x: Partial<Machine> = {}): Machine => ({
   id: 'm:vps', machine: 'vps', name: 'vps', status: 'idle', health: meters(18, 44, 4),
-  stats: { at: NOW, health: { cores: 32, load: 5.88, mem_total: 59 * GiB, mem_used: 26 * GiB, disks: [{ path: 'home', pct: 4, free_gb: 1583, free: 1.7e12, size: 1.78e12 }] } },
+  stats: { at: NOW, health: { cores: 32, load: 5.88, mem_total: 59 * GiB, mem_used: 26 * GiB, disks: [{ path: 'home', pct: 4, free_gb: 1583, free: 1.7e12, used: 78e9, size: 1.78e12 }] } },
   system: { at: NOW, os: 'Ubuntu 26.04.1 LTS', arch: 'x86_64', bootAt: NOW - 2 * day - 3_600_000, restart: false, hc: '0.1.22', shepherdr: null },
   ...x,
 })
@@ -27,11 +27,11 @@ test('sizes as macOS gives them: disks decimal, memory in GB of 2^30 bytes, one 
   expect(memSize(9.3 * GiB)).toBe('9.3 GB')
 })
 
-test('the agent\'s own answer, as the card says it: 1.7 of 1.8 TB free, 33 of 59 GB free, up 2 days', () => {
+test('the agent\'s own answer, as the card says it: 78 GB of 1.8 TB used, 1.7 TB free, 33 of 59 GB free, up 2 days', () => {
   const [cpu, mem, disk] = gauges(machine())
   expect(cpu).toMatchObject({ name: 'Processor', pct: 18, lines: ['Load 5.9 on 32 cores'] })
   expect(mem).toMatchObject({ name: 'Memory', pct: 44, lines: ['33 of 59 GB free'] })
-  expect(disk).toMatchObject({ name: 'Disk', pct: 4, lines: ['1.7 of 1.8 TB free'] })
+  expect(disk).toMatchObject({ name: 'Disk', pct: 4, lines: ['78 GB of 1.8 TB used · 1.7 TB free'] })
   expect(summaryOf(machine(), here, NOW)).toBe('OK · disk 4% · up 2 days')
 })
 
@@ -40,6 +40,9 @@ test('two disks: each named, the fullest first; a different unit each side says 
   expect(gauges(m)[2]!.lines).toEqual(['/tmp 19% · 24 of 30 GB free', 'Home 4% · 1.7 of 1.8 TB free'])
   const one = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 99, free: 820e6, size: 250e9 }] } } })
   expect(gauges(one)[2]!.lines).toEqual(['820 MB free of 250 GB'])
+  // df -H's three: used of its whole size (blocks kept for the system in neither), then free
+  const df = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 58, used: 274e9, free: 207.5e9, size: 494e9 }, { path: '/tmp', pct: 13, used: 4e9, free: 28e9, size: 32e9 }] } } })
+  expect(gauges(df)[2]!.lines).toEqual(['Home 58% · 274 of 494 GB used · 208 GB free', '/tmp 13% · 4 of 32 GB used · 28 GB free'])
 })
 
 test('an older probe without bytes still says what it has', () => {
@@ -80,6 +83,11 @@ test('an unreachable machine: when it was last seen, and nothing else', () => {
   expect(statusOf(off, here)).toBe('off')
   expect(summaryOf(off, here, NOW)).toBe("Can't reach · last seen Tue 9:12")
   expect(moreWarnings([here, off])).toEqual([])
+})
+
+test('memory and disk both full: upstream says the first, this the other, each dismissed on its own', () => {
+  const both = machine({ health: meters(12, 94, 95) })
+  expect(moreWarnings([here, both])).toEqual([{ id: 'm:vps:disk', kind: 'machine', text: 'vps: disk nearly full' }])
 })
 
 test('the warnings line gets a restart and an older version (upstream already says disk, memory and can\'t reach)', () => {
