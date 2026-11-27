@@ -39,6 +39,8 @@ so the cost of a patch is how often a release breaks it. Build for that.
   skill: "Built for everyone").
 - **UI follows the industry standard** (FORK.md: "Industry standard first"): the common pattern of well-known apps,
   standard keys kept on every keyboard layout, and the apps you followed named in the pull request.
+- **UI work uses the frontend-design skill** (`frontend-design:frontend-design`), within Shepherdr's design system
+  (`web/src/ds.css`) and those standard patterns. Every task brief that touches UI says so.
 - **New files over edits.** Put our code in our own modules: a new Python module beside upstream's, a plugin under
   `web/plugins/<name>/` (docs/plugins.md), our scripts in `fork/`. Edit upstream's files only at one call site or one
   hook point.

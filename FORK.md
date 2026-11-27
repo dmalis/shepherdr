@@ -148,6 +148,8 @@ whether it goes into theirs.
     sheet, Esc closes, Cmd/Ctrl K searches.
   - Never move a standard key or pattern to make room for ours. Where Shepherdr breaks a standard today, that's a UX
     bug: fix it here like any other fix.
+  - Every piece of UI work uses the frontend-design skill (`frontend-design:frontend-design`), within Shepherdr's
+    own design system (`web/src/ds.css`) and these standard patterns. Every task brief that touches UI says so.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
   issue, so the person can keep it ours.
