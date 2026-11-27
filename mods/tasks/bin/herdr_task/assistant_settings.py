@@ -299,6 +299,7 @@ def settings_pass(report, quiet):
             if not k.get("turn"):
                 continue  # just started: its hook is about to tell it
             # started before Assistants were told their settings: the whole block, once
+            rs = urgent.for_running(rs, k)  # dmalis/shepherdr#119: its row only to a running agent
             on = next(r for r in rs if r["key"] == "reactions")["value"] == "on"
             guide = reactions.GUIDE if on and labels.get(reactions.LABEL) != "on" else ""
             text = (f'<herdr-setting name="all">{block(rs)}' + (f"\n{guide}" if guide else "") + f" {NOTICE_END}</herdr-setting>")

@@ -287,7 +287,7 @@ def news_pass(report, folder=None):
         k = hc_json("get", to) if to else None
         # dmalis/shepherdr#119: urgent tasks' lines first, each marked as its task is now, led by what urgent means
         # for a running chat not told yet
-        batch = urgent.first(batch, marks)
+        batch = urgent.first(batch, marks, k)
         lead = urgent.lead(k, batch) if to else None
         if to and news_send(to, "\n".join(([lead[0]] if lead else []) + [x["text"] for x in batch])):
             urgent.told(to, lead)

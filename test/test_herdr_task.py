@@ -13693,6 +13693,9 @@ class Urgent(unittest.TestCase):
         # the same agent's other edits go as before; Shepherdr's own chat marks it
         self.ht("edit", "1", "--title", "Fix the checkout", env=worker)
         self.ht("edit", "1", "--urgent", env={"HC_TERMINAL_ID": "t5"})
+        # after a bare --, --urgent is a word (a title), not the flag
+        self.ht("add", "--here", "--space", "sp1", "--", "--urgent", env=worker)
+        self.assertNotIn("urgent", self.listed()["--urgent"])
         self.assertIs(self.listed()["Fix the checkout"]["urgent"], True)
 
     def test_the_rule(self):
@@ -13753,7 +13756,8 @@ class Urgent(unittest.TestCase):
                                     {"id": 5, "title": "Fix checkout", "state": "running", "space": "sp1"}]
         self.status = {4: "working", 5: "working"}
         self.labelled = []
-        self.k = k
+        # by default a running chat told what urgent means already (its label has the row)
+        self.k = k or self.k_of(settings=f"review:aaaaaa,{urgent.KEY}:{urgent._hash()}")
         for mod, name, value in ((self.news, "live_agents", lambda key: []), (self.news, "stall_of", lambda *a: None),
                                  (self.news, "view", lambda s, t, live=None: {"status": self.status[t["id"]], "needs": None, "why": None}),
                                  (self.news, "hc_json", lambda *a: self.k if a[:2] == ("get", "asst-1") else {}),
@@ -13847,8 +13851,10 @@ class Urgent(unittest.TestCase):
         self.assertFalse(any(x.startswith("<herdr-setting") for x in self.sent[-1][1].split("\n")))
         self.assertEqual(len(self.labelled), 1)
 
-    def test_no_notice_without_an_urgent_line_to_a_shell_or_to_a_chat_never_labelled(self):
-        for k, urgent_line in ((self.k_of(), False), (self.k_of(fg="zsh"), True), (self.k_of(settings=None), True)):
+    def test_no_notice_without_an_urgent_line_nor_to_a_shell_or_a_chat_just_started(self):
+        just_started = self.k_of(settings=None)
+        just_started["turn"] = 0
+        for k, urgent_line in ((self.k_of(), False), (self.k_of(fg="zsh"), True), (just_started, True)):
             with self.subTest(k=k, urgent=urgent_line):
                 self.news_setup(k)
                 if urgent_line:
@@ -13857,6 +13863,28 @@ class Urgent(unittest.TestCase):
                 self.news.news_pass({})
                 self.assertFalse(any(x.startswith("<herdr-setting") for x in self.sent[0][1].split("\n")), self.sent)
                 self.assertEqual(self.labelled, [])
+
+    def test_a_shell_in_front_gets_no_mark(self):
+        """news_send starts a chat with a shell in front again, its news its first message: the mark never goes that way
+        (its new session's settings note says what urgent means, and `list` which tasks are)."""
+        self.news_setup(self.k_of(fg="zsh"))
+        self.nth(5)["urgent"] = 1
+        self.status.update({4: "ready", 5: "ready"})
+        self.news.news_pass({})
+        self.assertNotIn("urgent=", self.sent[0][1])
+        self.assertIn('<herdr-news task="SHEP-5" event="ready">"Fix checkout" is ready</herdr-news>', self.sent[0][1])
+
+    def test_a_running_chat_never_labelled_hears_what_it_means_first(self):
+        """One started before Shepherdr told chats their settings: the notice leads its urgent line too; its label is
+        left for settings_pass, which tells it the whole block once."""
+        self.news_setup(self.k_of(settings=None))
+        self.nth(5)["urgent"] = 1
+        self.status[5] = "ready"
+        self.news.news_pass({})
+        lines = self.sent[0][1].split("\n")
+        self.assertTrue(lines[0].startswith('<herdr-setting name="urgent"'))
+        self.assertEqual(lines[1], '<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>')
+        self.assertEqual(self.labelled, [])
 
     # ---- the settings note ------------------------------------------------------------------------
 
@@ -13903,3 +13931,18 @@ class Urgent(unittest.TestCase):
         self.assertEqual([a for a, _ in self.sent], ["t5", "t5", "t6"])
         self.assertNotIn('name="urgent"', self.sent[2][1])
         self.assertIn('name="merge"', self.sent[2][1])
+
+    def test_the_whole_block_to_a_chat_never_labelled_has_the_row_only_while_its_agent_runs(self):
+        """settings_pass tells one started before chats were told their settings the whole block once: with its row only
+        to a running agent; to a shell in front (sending starts it again) without it."""
+        self.settings_setup()
+        self.assistant("t5", "sp1")
+        self.assistant("t6", "sp2")
+        self.terminals["t6"]["foreground"] = {"name": "zsh"}
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertTrue(sent["t5"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertIn("\n- Urgent tasks: ", sent["t5"])
+        self.assertTrue(sent["t6"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertNotIn("Urgent tasks", sent["t6"])
+        self.assertNotIn("urgent", self.aset.parse(self.terminals["t6"]["labels"]["herdr.settings"]))

@@ -55,7 +55,8 @@ def _asks(argv):
         rest = rest[1:] if rest[0] == "--detach" else rest[2:]
     if rest[:1] not in (["add"], ["edit"]):
         return False
-    return any(len(o) > 2 and "--urgent".startswith(o) for o in (a.split("=", 1)[0] for a in rest[1:] if a.startswith("--")))
+    opts = rest[1:rest.index("--")] if "--" in rest else rest[1:]  # after a bare --, words only (a title)
+    return any(len(o) > 2 and "--urgent".startswith(o) for o in (a.split("=", 1)[0] for a in opts if a.startswith("--")))
 
 
 def task_agent():
@@ -125,14 +126,23 @@ def tagged(text, on):
     return head + (ATTR if on else "") + gt + rest
 
 
-def first(batch, marks):
-    """One message's lines: each one's mark read again from its task (marks: key -> urgent_now, for every list this pass
-    read; an entry from a list it didn't read keeps what was noted when it was queued), urgent ones first, in their
-    order. The entries are updated in place (the outbox holds them)."""
+def running(k):
+    """Its agent is in front now (news_send would start a chat with a shell in front again: the mark never goes that
+    way, its next start's settings note says what urgent means and `list` which tasks are)."""
+    from .agents import front
+    return front(k) == "agent"
+
+
+def first(batch, marks, k):
+    """One message's lines for chat k: each one's mark read again from its task (marks: key -> urgent_now, for every list
+    this pass read; an entry from a list it didn't read keeps what was noted when it was queued), urgent ones first, in
+    their order; marked on the tag only for a chat whose agent is running. The entries are updated in place (the outbox
+    holds them; each send renders the tag again from the note)."""
+    on = running(k)
     for x in batch:
         if x.get("key") in marks:
             x["urgent"] = marks[x["key"]]
-        x["text"] = tagged(x["text"], bool(x.get("urgent")))
+        x["text"] = tagged(x["text"], on and bool(x.get("urgent")))
     return sorted(batch, key=lambda x: not x.get("urgent"))
 
 
@@ -143,30 +153,30 @@ def _hash():
 def lead(k, batch):
     """The settings notice a message with an urgent line starts with, for a running Shepherdr chat whose settings label
     doesn't have this row yet (meaning before mark): (notice, its new label), else None. Never for a chat whose agent
-    isn't in front (a shell: its next start's note says it), nor one never labelled (settings_pass tells it all)."""
-    from .agents import front
+    isn't in front (a shell: its next start's note says it), nor one just started (its hook is telling it). One never
+    labelled (started before settings were told) gets it too, its label left for settings_pass's whole block."""
     from .assistant_settings import LABEL as SETTINGS, notice, parse
-    if not any(x.get("urgent") for x in batch) or front(k) != "agent":
+    if not any(x.get("urgent") for x in batch) or not running(k):
         return None
-    had = parse(((k or {}).get("labels") or {}).get(SETTINGS))
-    if had is None or had.get(KEY) == _hash():
+    had = parse((k.get("labels") or {}).get(SETTINGS))
+    if (had is None and not k.get("turn")) or (had or {}).get(KEY) == _hash():
         return None
-    label = ",".join(f"{a}:{b}" for a, b in {**had, KEY: _hash()}.items())
+    label = None if had is None else ",".join(f"{a}:{b}" for a, b in {**had, KEY: _hash()}.items())
     return notice([{"key": KEY, "label": LABEL, "text": TEXT, "value": "on", "by": None, "scope": "everywhere"}]), label
 
 
 def told(to, lead_):
     """After the message went: its chat's settings label has this row now, so settings_pass doesn't say it again."""
-    if lead_:
+    if lead_ and lead_[1]:
         from .assistant_settings import LABEL as SETTINGS
         run(["hc", "label", to, f"{SETTINGS}={lead_[1]}"])
 
 
 def for_running(changed, k):
-    """settings_pass: this row's notice goes only to a chat whose agent is running now, never to one a shell is in front
-    of (sending would start it again). The other changes as they are; None when nothing is left to send now."""
-    from .agents import front
-    if front(k) == "agent" or not any(r.get("key") == KEY for r in changed):
+    """settings_pass: this row goes only to a chat whose agent is running now, never to one a shell is in front of
+    (sending would start it again). The other rows as they are (changed ones, or the whole block's); None when nothing
+    is left to send now."""
+    if running(k) or not any(r.get("key") == KEY for r in changed):
         return changed
     rest = [r for r in changed if r.get("key") != KEY]
     return rest or None
