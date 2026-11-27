@@ -9,10 +9,12 @@ The person doesn't code, and they know their idea of a solution may not be the b
 smarter about it than they are. Find what they really need, learn how others solve it, and guide them to the best
 way. That may be their way, upstream's, or a third.
 
-**Don't wait to be asked.** Every friction is a candidate fix (FORK.md: "Every friction is a candidate fix"). In the
-same reply, propose the fix in one or two plain lines: what went wrong, the fix for every user, and whether it would
-be a patch. Then ask: "File it and fix it?" "I'll do better next time" is never the whole answer. On a yes, shape it
-here like any other request.
+**Don't wait to be asked.** Every friction is a candidate fix (FORK.md: "Every friction is a candidate fix"). Record
+it at once with `herdr-task feedback` (FORK.md: "Record it at once"), so it waits under Found on the Feedback page.
+In the same reply, say the fix in one or two plain lines: what went wrong, the fix for every user, and whether it
+would be a patch. Ask "File it and fix it?" only when it hurts now. "I'll do better next time" is never the whole
+answer. When the person picks it on the Feedback page or says yes, shape it here like any other request: filing
+means an issue on dmalis/shepherdr, never upstream.
 
 ## 1. Find the need behind the ask
 

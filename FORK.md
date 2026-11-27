@@ -5,7 +5,8 @@ patches sit on top of each release and are adapted to it.
 
 This file adds the fork's own rules. It never loosens AGENTS.md's safety and test rules, or the rules for agents'
 own logins and settings. It makes exactly two exceptions to AGENTS.md:
-- **Upstream issues:** they are posted as the upstream-issue skill says.
+- **Upstream issues:** they are posted only in an upstream round the person asked for, as the upstream-issue skill
+  says.
 - **The install step:** the "Upstream sync" schedule's run may install, once #2 has proven it, and may push
   `ours-*` tags. Install tags are not releases; AGENTS.md's release rules still hold.
 
@@ -104,12 +105,13 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
 - **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
   every issue its installed patch list (`fork/patches/`) names, and takes it off one whose fix left (upstream-sync skill,
   step 7). No `live`: not installed yet.
-- **What the person decided about a fix:** one of these describes the issue as a whole (the upstream-issue skill:
+- **Where a fix stands with upstream:** one of these describes the issue as a whole (the upstream-issue skill:
   "After a fix lands").
-  - `not-filed`: the fix is merged and live, and the person hasn't decided yet.
-  - `upstream-proposed`: they said file it, and we posted it upstream.
-  - `fork-only`: they said keep it ours.
-  - `reverted`: they said undo it, and the revert has merged and installed.
+  - `not-filed`: the fix is merged and live, and not offered upstream yet. The next upstream round picks it up.
+  - `upstream-proposed`: an upstream round offered it.
+  - `fork-only`: it stays ours: the person said keep it ours, it can't fit everyone, or it changes only our own
+    files.
+  - `reverted`: the person said undo it, and the revert has merged and installed.
 
 ## How a change becomes a patch
 
@@ -158,8 +160,8 @@ A change to the pipeline's own code (`fork/bin`, `fork/sync`) is rehearsed on a 
 ## Upstream issues
 
 The upstream-issue skill. The person's standing rule: our Shepherdr works for them, built in a way that fits
-Shepherdr for everyone. The person decides, fix by fix, whether we offer it upstream, and upstream's author decides
-whether it goes into theirs.
+Shepherdr for everyone. It is a closed loop: every problem and request is filed here and fixed here. Upstream hears
+from us only in an upstream round the person asks for, and upstream's author decides what goes into theirs.
 - **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
   find later is fixed here as a patch (the fork-patch skill), unless upstream already fixed it ("Check upstream
   first"). The person never waits on upstream.
@@ -167,30 +169,43 @@ whether it goes into theirs.
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
     it here like any other fix. Explaining it away closes nothing.
-  - They don't know the process yet: explain it briefly. It is still friction (below): propose its fix in the same
-    reply.
-- **Every friction is a candidate fix.** The Assistant watches for friction all the time, not only when the person
-  asks. Friction is when:
+  - They don't know the process yet: explain it briefly. It is still friction (below): record it and propose its
+    fix in the same reply.
+- **Every friction is a candidate fix.** Every agent watches for friction all the time, the Assistant and task
+  agents alike, not only when the person asks. Friction is when:
   - the person is confused, misreads a screen or asks "what is this";
   - they work around something, or answer something they shouldn't need to;
-  - the Assistant did by hand what should happen on its own: started a task that should have started, recovered lost
+  - an agent did by hand what should happen on its own: started a task that should have started, recovered lost
     work, re-ran a step;
-  - the Assistant or a task got something wrong.
-- **Propose it, don't promise.** In the same reply, the Assistant proposes a fix in one or two plain lines: what went
-  wrong, the fix for every user, and whether it would be a patch. Then it asks: "File it and fix it?"
+  - an agent got something wrong, or met a likely bug in Shepherdr.
+- **Record it at once.** Each friction is recorded the moment it's noticed, so it lands under Found on the Feedback
+  page, the person's pick list:
+  `herdr-task feedback "<the problem in one line>" --kind <bug|confusing|workaround|manual|miss> --details "<goal;
+  what happened; what was expected>" --fix "<the fix for every user, in one line>"`. A report keeps `--details`;
+  `--goal`, `--happened` and `--expected` count only when filing.
+  - Task agents already report Shepherdr problems with the feedback command at the end of every brief (upstream's
+    worker template). They also report, the same way, every Shepherdr step that confused them or that they did by
+    hand. Tasks in this repo read that here. For every other space, it goes in the Everywhere "When a task starts"
+    notes (`tasks.start_notes`), never in `templates/worker.md`: "Also report with the feedback command at the end
+    of your brief every Shepherdr step that confused you or that you did by hand."
+- **Propose it, don't promise.** In the same reply, the Assistant says the friction and its fix in one or two plain
+  lines: what went wrong, the fix for every user, and whether it would be a patch. It asks "File it and fix it?"
+  only when it hurts now, even when the feedback command says to offer it. Otherwise the row waits on the Feedback
+  page for the person to pick. Picking it there, or a yes in chat, means an issue here, in our fork, and a fix task.
   - "I'll do better next time" is never the whole answer.
   - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
     product fix that makes the miss impossible or visible.
-  - On a yes, the usual way: an issue here, a task with a brief (shaping-a-request first), an install right after
-    the merge.
-    - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until the
-      person decides about upstream.
+  - On a pick or a yes, the usual way: an issue here, a task with a brief (shaping-a-request first), an install
+    right after the merge.
+    - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until an
+      upstream round offers it.
     - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only`
       from the start, with why.
   - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
     opening a new one, and says so.
-- **Collect what's left.** When the person asks "what else did we find", the Assistant lists every friction from the
-  session that has no issue yet, each with its proposed fix.
+- **Collect what's left.** When the person asks "what else did we find", the Assistant first records any friction
+  from the session it hasn't yet, then lists what waits under Found (`herdr-task feedback --list`), each with its
+  proposed fix.
 - **Industry standard first.** Every UI and UX change follows the industry standard and the common pattern of
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.
@@ -215,21 +230,21 @@ whether it goes into theirs.
       used.
 - **Build it for every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
-  issue, so the person can keep it ours.
-- **Then the person decides, fix by fix,** after trying it for a day or two. Every fix has its own issue here, and
-  its status line says in plain words what the fix does and how to try it. Once a patch is merged and live (the
-  install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
-  decides that fix:
-  - **File it:** that is the yes, with no draft round. After the upstream check again (fixed upstream since: nothing to post), we post one comment
-    on their existing issue, or one new upstream issue, linking our pull request. `upstream-proposed`.
-  - **Keep it ours:** `fork-only`. Nothing is posted.
+  issue: no upstream round offers it, and the first round marks it `fork-only`.
+- **Every fix stays in sight here.** Every fix has its own issue, and its status line says in plain words what the
+  fix does and how to try it. Once a patch is merged and live (the install that carries it), its issue is labelled
+  `not-filed` and stays open. Nobody asks the person about upstream per fix, and no list of waiting fixes is sent.
+  At any time they may say about a fix:
+  - **Keep it ours:** `fork-only`. No round offers it.
   - **Undo it:** a revert pull request first. `reverted` goes on, and the issue closes, only once the revert has
     merged and installed healthily.
+- **Upstream rounds, only when the person asks** (about once a week). Their ask is the yes for that round. The round
+  gathers every live fix not offered yet, checks upstream first for each, and groups them by theme: one
+  self-contained upstream issue per theme, a few in a round, never one per fix and never one mega issue. The person
+  sees the round's plan in one message, and their "go" posts it. Each fix it offered gets `upstream-proposed`.
 
-  What we post always says it is the author's to take as it is, do differently or drop. One comment per issue, ever,
-  and never a second issue for the same problem.
-- **The person sees what waits.** The Assistant lists the `not-filed` fixes when asked, and once a day, with a link
-  that opens exactly those issues on GitHub.
+  What we post always says it is the author's to take as it is, do differently or drop. One comment per upstream
+  issue, ever, and never a second issue for the same problem.
 - **Our pull request stays in our fork,** linked from upstream. No pull request on upstream unless the person asks
   for that one.
 - **When the author fixes it their own way,** the next sync drops our patch and keeps theirs.

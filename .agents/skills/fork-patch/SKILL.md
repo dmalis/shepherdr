@@ -46,8 +46,8 @@ so the cost of a patch is how often a release breaks it. Build for that.
 ## 3. Build it to survive
 
 - **For every Shepherdr user.** Nothing in it is tied to the person's machines, projects or habits. What only suits
-  them is a setting (below). A patch that can't fit everyone says so on its issue, so the person can keep it ours (upstream-issue
-  skill: "Built for everyone").
+  them is a setting (below). A patch that can't fit everyone says so on its issue, so no upstream round offers it
+  (upstream-issue skill: "Built for everyone").
 - **UI follows the industry standard** (FORK.md: "Industry standard first"): the common pattern of well-known apps,
   standard keys kept on every keyboard layout, and the apps you followed named in the pull request.
 - **UI work uses the UI skills** (FORK.md: "All UI work uses the UI skills"), within Shepherdr's design system
@@ -103,5 +103,6 @@ so the cost of a patch is how often a release breaks it. Build for that.
   <one line>. Try it: <what to open or do, and what you should see>". On an older issue that already holds several
   fixes, it adds this pull request as "#m: building", with its own what and try-it.
 - The install that makes it live puts "carried since `ours-…`" in front of that line and labels the issue
-  `not-filed`. It stays open, with `not-filed`, until the person decides whether to file it upstream, keep it ours or
-  undo it (upstream-issue skill: "After a fix lands").
+  `not-filed`: not offered upstream yet. It stays open, with `not-filed`, until an upstream round the person asks
+  for offers it, or they say keep it ours or undo it (upstream-issue skill: "After a fix lands"). Nobody asks them
+  about upstream per fix.

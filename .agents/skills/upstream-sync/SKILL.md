@@ -135,8 +135,8 @@ it found: report that, never a guess at why, and never repair `main` by force.
 1. After a healthy install: each issue in the patch list at the candidate (`fork/bin/sync patch-list --at
    <candidate>`, which also reads an older commit's `fork/patches.json`) gets "carried since `<tag>`" at the
    start of its status line, in place of "building" or an older "carried since". The rest of the line stays as it
-   is: what the fix does and how to try it, what the person decided, upstream links, each pull request's part. A
-   `fixed-upstream` issue the candidate's list no longer has no longer waits on the person: remove `not-filed`,
+   is: what the fix does and how to try it, where it stands with upstream, upstream links, each pull request's part. A
+   `fixed-upstream` issue the candidate's list no longer has no longer waits for an upstream round: remove `not-filed`,
    its status line says "fixed upstream in `vX.Y.Z`, then dropped", and it is closed now.
    - **`live` follows the install:** every issue in the patch list at the installed commit gets `live`. An
      issue with `live` that the list no longer has (its fix reverted, or dropped for upstream's) loses it:
