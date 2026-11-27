@@ -1135,7 +1135,7 @@ const server = Bun.serve<{ who: string }>({
     if (path === "/api/waiting") return json(waitingNow);
     if (path === "/api/push/subscribe" && req.method === "POST") {
       const body = await req.json().catch(() => null);
-      try { push.subscribe(body?.sub, body?.device, typeof body?.from === "string" ? body.from : undefined, await deviceFrom(req, pass.via)); return json({ ok: true, ...push.state(body.sub.endpoint) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
+      try { push.subscribe(body?.sub, body?.device, typeof body?.from === "string" ? body.from : undefined, await deviceFrom(req, pass.via), body?.turnOn === true); return json({ ok: true, ...push.state(body.sub.endpoint) }); } catch (err) { return json({ error: (err as Error).message }, 400); }
     }
     // Settings › Notifications: this device's alerts as the server keeps them, turned off, chosen, tested
     if (path.startsWith("/api/push/") && req.method === "POST") {
@@ -1148,6 +1148,8 @@ const server = Bun.serve<{ who: string }>({
       }
       if (path === "/api/push/test") return json(await push.test(endpoint));
       if (path === "/api/push/devices") return json({ devices: push.devices(endpoint) });
+      // fork #96: a device taken off the list from any device, by its row's id; the list as it is now
+      if (path === "/api/push/remove") return json({ ok: true, removed: push.remove(typeof body?.id === "string" ? body.id : ""), devices: push.devices(endpoint) });
     }
     // fork #37: the bell's list, read on one device and so on all ({ ids } or { all: true })
     if (path === "/api/inbox/read" && req.method === "POST") {

@@ -4,8 +4,9 @@
 // (macOS, Windows, Focus) is out of a page's sight: it is named, never guessed.
 import { useEffect, useState } from 'react'
 import { notice } from '@client/kernel.ts'
+import { confirm } from '@client/overlay.tsx'
 import { Btn, cx } from '@client/ui.tsx'
-import { turnOn, type DeviceNow } from '@plugins/alerts/device.ts'
+import { choose, turnOn, type DeviceNow } from '@plugins/alerts/device.ts'
 import { registerWorker } from '@plugins/alerts/worker.ts'
 import { agoShort } from '@shared/view.ts'
 import { advice, deviceName, deviceOf, lastWords } from './words.ts'
@@ -86,6 +87,28 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
       post('devices', { endpoint }).then((j: { devices?: Device[] }) => setDevices(j.devices ?? [])).catch(() => undefined)
     }
   }
+  // fork #96: a device taken off the list, asked first and named (GitHub's Sessions, Google's "Your devices"); this
+  // one is alerts turned off here, as Off does; another goes by its row's id only
+  const remove = (x: Device) => {
+    const name = deviceName(x.device)
+    confirm({
+      title: `Stop alerts to ${x.mine ? 'this device' : name}?`,
+      body: x.mine ? 'Alerts turn off here, as Off does. Turn them on again any time above.' : 'It won’t get alerts until it turns them on again.',
+      ok: 'Remove',
+      danger: true,
+      run: async () => {
+        try {
+          if (x.mine) {
+            await choose('Off', now)
+            await reread()
+          } else setDevices(((await post('remove', { id: x.id, endpoint })) as { devices?: Device[] }).devices ?? [])
+          notice(x.mine ? 'Alerts are off on this device' : `Removed ${name}`, { tone: 'ok' })
+        } catch (e) {
+          notice(e instanceof Error ? e.message : 'That did not work. Try again.', { tone: 'error' })
+        }
+      },
+    })
+  }
   const others = (devices ?? []).filter((x) => !x.mine)
   return (
     <div className="dchk">
@@ -115,7 +138,10 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
               {x.mine ? 'This device' : x.seen ? `Seen ${ago(x.seen)}` : `Turned on ${ago(x.at)}`} · {lastWords(x.last, ago)}
             </span>
           </span>
-          <span className="val">{x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
+          <span className="val">Alerts: {x.topics.includes('done') ? 'Everything' : 'Needs me'}</span>
+          <Btn small aria-label={`Remove ${x.mine ? 'this device' : deviceName(x.device)}`} onClick={() => remove(x)}>
+            Remove
+          </Btn>
         </div>
       ))}
     </div>

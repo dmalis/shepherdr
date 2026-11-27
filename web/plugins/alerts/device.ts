@@ -10,7 +10,7 @@ export const TELL = ['Needs me', 'Everything', 'Off'] as const
 export type Tell = (typeof TELL)[number]
 const TOPICS: Record<Exclude<Tell, 'Off'>, PushTopic[]> = { 'Needs me': ['needs', 'ready'], Everything: ['needs', 'ready', 'done'] }
 
-type Server = { on: boolean; topics: PushTopic[]; muted: string[]; devices: number }
+type Server = { on: boolean; topics: PushTopic[]; muted: string[]; devices: number; removed?: true }
 
 const post = (path: string, body: unknown) =>
   fetch(`api/push/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shepherdr': '1' }, body: JSON.stringify(body) }).then(async (r) => {
@@ -42,7 +42,9 @@ export async function readNow(): Promise<DeviceNow> {
   let server: Server | null = null
   if (sub && permission === 'granted') {
     server = await post('state', { endpoint: sub.endpoint }).catch(() => null)
-    if (server && !server.on) server = await post('subscribe', { sub, device: navigator.userAgent }).catch(() => server)
+    // fork #96: one removed from another device's list stays off here, with its usual Turn on
+    if (server?.removed) want('Off')
+    else if (server && !server.on) server = await post('subscribe', { sub, device: navigator.userAgent }).catch(() => server)
   }
   const state = deviceState({ push: pushable(), ios: ios(), standalone: standalone(), permission, subscribed: !!sub && !!server?.on })
   const tell: Tell = state !== 'on' ? (wanted() ?? 'Needs me') : server?.topics.includes('done') ? 'Everything' : 'Needs me'
@@ -73,7 +75,8 @@ export async function turnOn(tell: Exclude<Tell, 'Off'> = 'Needs me'): Promise<s
   if ((await Notification.requestPermission()) !== 'granted') return 'Alerts were not allowed on this device.'
   const { key } = (await fetch('api/push/key').then((r) => r.json())) as { key: string }
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }))
-  await post('subscribe', { sub, device: navigator.userAgent })
+  // turnOn (fork #96): asked for here, so a device removed from another one's list is on again
+  await post('subscribe', { sub, device: navigator.userAgent, turnOn: true })
   await post('choose', { endpoint: sub.endpoint, topics: TOPICS[tell], muted: [], all: false })
   setPushEndpoint(sub.endpoint)
   want(tell)

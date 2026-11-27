@@ -206,6 +206,11 @@ export async function encrypt(payload: Uint8Array, p256dh: string, auth: string)
   return cat(head, asPub, sealed);
 }
 
+/** a subscription's endpoint, hashed: what is kept of a removed one (fork #96) */
+const hashOf = (endpoint: string) => new Bun.CryptoHasher("sha256").update(endpoint).digest("hex");
+/** a device's id in Settings › Notifications' list (fork #37): never its endpoint */
+const idOf = (endpoint: string) => hashOf(endpoint).slice(0, 12);
+
 export class Push {
   private subs: Sub[] = [];
   private sending = new Map<string, Promise<number>>();
@@ -217,8 +222,14 @@ export class Push {
   /** a tailnet device with the app on screen now, whichever of its pages (live.ts looking, SHEP-338): no web push */
   looking: (node: string | undefined) => boolean = () => false;
 
+  /** fork #96: the devices removed from another one's list (each its endpoint's sha256, never the endpoint): a page there
+   *  that still holds its subscription doesn't sign it up again on its own (alerts/device.ts readNow) */
+  private removed: string[] = [];
+  private get removedFile() { return this.file.replace(/(\.json)?$/, "-removed.json"); }
+
   constructor(private subject: () => string, private file = join(DATA, "push.json")) {
     try { this.subs = JSON.parse(readFileSync(this.file, "utf8")); } catch {}
+    try { this.removed = JSON.parse(readFileSync(this.removedFile, "utf8")); } catch {}
   }
 
   private save() { writeFileSync(this.file, JSON.stringify(this.subs), { mode: 0o600 }); }
@@ -233,11 +244,15 @@ export class Push {
     return this.vapid.publicKey;
   }
 
-  /** a device turned on (or again, with a new subscription: from: the one it had); it keeps what it chose */
-  subscribe(sub: any, device?: string, from?: string, node?: string | null) {
+  /** a device turned on (or again, with a new subscription: from: the one it had); it keeps what it chose. turnOn
+   *  (fork #96): the person turned alerts on there; without it (a page giving back a subscription it holds, any build)
+   *  a device removed from another one's list stays off */
+  subscribe(sub: any, device?: string, from?: string, node?: string | null, turnOn = false) {
     if (typeof sub?.endpoint !== "string" || !/^https:\/\//.test(sub.endpoint) || typeof sub?.keys?.p256dh !== "string" || typeof sub?.keys?.auth !== "string") throw new Error("Not a push subscription.");
+    if (!turnOn && this.removed.includes(hashOf(sub.endpoint))) throw new Error("This device was removed from the list of devices that get alerts. Turn alerts on here to get them again.");
     const had = this.subs.find((s) => s.endpoint === sub.endpoint) ?? (from ? this.subs.find((s) => s.endpoint === from) : undefined);
     const chose = had ? { topics: pushTopics(had.topics), ...(had.muted?.length ? { muted: had.muted } : {}) } : { topics: [...DEFAULT_TOPICS] };
+    this.keepRemoved(this.removed.filter((h) => h !== hashOf(sub.endpoint)));
     this.subs = [...this.subs.filter((s) => s.endpoint !== sub.endpoint && s !== had), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, device: String(device ?? "").slice(0, 200), at: Date.now(), ...chose,
       ...(node ? { node } : had?.node ? { node: had.node } : {}) }].slice(-20);
     this.save();
@@ -258,10 +273,30 @@ export class Push {
     if (this.subs.length !== n) this.save();
   }
 
-  /** what the server keeps for a device: whether it is on, what it hears about, and how many devices are on */
+  /** fork #96: a device removed from Settings › Notifications' list, on any device, by its row's id (never by an
+   *  endpoint a page sends): it gets nothing more, as if it turned alerts off itself. An unknown id changes nothing. */
+  remove(id: string) {
+    const s = id ? this.subs.find((x) => idOf(x.endpoint) === id) : undefined;
+    if (!s) return false;
+    this.unsubscribe(s.endpoint);
+    const h = hashOf(s.endpoint);
+    this.keepRemoved([...this.removed.filter((x) => x !== h), h].slice(-50));
+    return true;
+  }
+
+  /** fork #96: the removed list, written only when it changed; a failed write never fails a remove or a turn on */
+  private keepRemoved(next: string[]) {
+    if (next.length === this.removed.length && next.every((h, i) => h === this.removed[i])) return;
+    this.removed = next;
+    try { writeFileSync(this.removedFile, JSON.stringify(next), { mode: 0o600 }); } catch {}
+  }
+
+  /** what the server keeps for a device: whether it is on, what it hears about, and how many devices are on; removed
+   *  (fork #96): taken off another device's list, so its page shows alerts off until they are turned on there again */
   state(endpoint: string) {
     const s = this.subs.find((x) => x.endpoint === endpoint);
-    return { on: !!s, topics: pushTopics(s?.topics ?? DEFAULT_TOPICS), muted: s?.muted ?? [], devices: this.subs.length };
+    return { on: !!s, topics: pushTopics(s?.topics ?? DEFAULT_TOPICS), muted: s?.muted ?? [], devices: this.subs.length,
+      ...(!s && endpoint && this.removed.includes(hashOf(endpoint)) ? { removed: true as const } : {}) };
   }
 
   /** a device's choice (all: every device's), what it hears about and the spaces it mutes */
@@ -324,7 +359,7 @@ export class Push {
   /** fork #37: every device that gets alerts, for Settings › Notifications: its browser, when it was turned on and last
    *  seen, its last alert, and which is the asking one (mine). Never an endpoint: each is named by a short hash. */
   devices(mine: string) {
-    return this.subs.map((s) => ({ id: new Bun.CryptoHasher("sha256").update(s.endpoint).digest("hex").slice(0, 12), device: s.device ?? "", at: s.at,
+    return this.subs.map((s) => ({ id: idOf(s.endpoint), device: s.device ?? "", at: s.at,
       ...(s.seen ? { seen: s.seen } : {}), ...(s.last ? { last: s.last } : {}), topics: pushTopics(s.topics), ...(s.endpoint === mine ? { mine: true as const } : {}) }));
   }
 
