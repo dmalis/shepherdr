@@ -1,0 +1,13 @@
+{
+  "issue": 131,
+  "name": "a task from another folder's space names that space, on its row and over its title",
+  "files": [
+    "web/plugins/tasks/where.tsx",
+    "web/plugins/tasks/where.css",
+    "web/plugins/tasks/client.tsx",
+    "web/demo/data.ts"
+  ],
+  "tests": [
+    "web/plugins/tasks/from-space.test.tsx"
+  ]
+}

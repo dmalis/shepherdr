@@ -29,5 +29,9 @@ button.t0:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
 .rowx:has(>.row.tk>.n>.rline)>.row.tk>.v{margin-top:var(--over)}
 .rowx:has(>.row.tk>.n>.rline)>.ib{margin-top:calc(8px + var(--over) + (var(--uil) - var(--ib))/2)}
 .rline .rm{flex:0 3 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* the space it came from and the machine (dmalis/shepherdr#131), one quiet run of words: on a narrow phone its … cuts
+   from the end, the machine first, then the space; the folder's name, the line's first word, keeps its width up to 60% */
+.rline .rs,.t0s{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rline:has(>.rs)>.rn,.t0:has(>.t0s)>.t0n{flex-shrink:0;max-width:60%}
 /* on top, its taller hit area for a finger goes up into the row's padding, never down over the title */
 @media (pointer:coarse){.row.tk>.n>.rline::after{inset:-8px -4px 0}}
