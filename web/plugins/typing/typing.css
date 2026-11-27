@@ -33,4 +33,50 @@
   .kb-up .app :is(.anote, .upchip) {
     display: none;
   }
+
+  /* fork #105: the message box is one row while typing, as iMessage, WhatsApp, Telegram and ChatGPT's app keep theirs:
+     + on the left, the text, then the microphone and send. Its bar's other parts (the model and effort line, the update
+     hint) step aside until the keyboard closes. The bar's buttons join the box's own row (display: contents), the text
+     takes what is left and grows upward, the buttons at its foot. Chips above it (a reply, files, a paste) keep their
+     own rows. Not while dictating: then the bar holds the dictation's own surface (dictate.css). */
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    column-gap: 4px;
+    padding: 0 6px 6px;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > * {
+    flex: 0 0 100%;
+    min-width: 0;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .crow {
+    flex: 1 1 0;
+    order: 2;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .crow > .cin {
+    padding-inline: 4px;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar {
+    display: contents;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar > * {
+    order: 3;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar > :first-child {
+    order: 1;
+  }
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar > :is(.agent, .agent-upd, .sp) {
+    display: none;
+  }
+  /* the round button sits as far from the box's edge as from its foot */
+  .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar > .send {
+    margin-bottom: 2px;
+  }
+
+  /* fork #105: suggested replies step aside once you start typing, as Google Messages' and Gmail's smart replies do;
+     an empty box shows them again */
+  .kb-up .app .foot:has(.cin:not(:placeholder-shown)) > .sugs {
+    display: none;
+  }
 }

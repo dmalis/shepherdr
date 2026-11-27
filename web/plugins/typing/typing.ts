@@ -13,6 +13,21 @@ const QUIET = 150
 const AT_MOST = 1000
 
 type Root = { classList: { toggle(c: string, on: boolean): unknown } }
+
+/** fork #105: `root`, with `after` run each time the mark changes, in the same step. The message box is one row while
+ *  typing (typing.css), so its text gets narrower or wider as the mark goes on or off: `after` fits the box's height to
+ *  its text again (it grows only as its text changes), so it never keeps two lines' height for one line. */
+export function withAfter(root: Root, after: () => void): Root {
+  return {
+    classList: {
+      toggle: (c, on) => {
+        const r = root.classList.toggle(c, on)
+        after()
+        return r
+      },
+    },
+  }
+}
 type Viewport = { width: number; height: number; addEventListener(t: 'resize', f: () => void): void; removeEventListener(t: 'resize', f: () => void): void }
 type Timers = { set(f: () => void, ms: number): unknown; clear(t: unknown): void }
 const realTimers: Timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t as number) }

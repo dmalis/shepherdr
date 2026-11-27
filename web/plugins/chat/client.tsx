@@ -1,7 +1,7 @@
 // The chat: an agent's messages (formatted text, code, tables, pictures), one quiet line while it works saying what
 // it is doing, one small folded row per turn ("Ran 4 commands · edited 2 files"), cards where it needs you, and the
 // message box. The same parts draw a space's chat and a task's thread.
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { copyText } from '@client/copy.ts'
 import { dictatedInto, TEXT_IN_CALL, useDictating } from '@client/dictate.tsx'
 import { attr } from '@client/attr.ts'
@@ -39,6 +39,7 @@ import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
 import { imagesLine, lostLine, useLost } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
+import { BoxLabel } from './box-label.tsx'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
 import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.ts'
@@ -1087,6 +1088,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const reply = useUI((u) => u.reply[key])
   const phone = useUI((u) => u.phone)
   const ref = useRef<HTMLTextAreaElement>(null)
+  const boxId = useId()
   // #1538: what Send just sent, so the keyboard writing it back into the empty box is dropped
   const sentRef = useRef<Sent | null>(null)
   const composing = useRef(false)
@@ -1248,10 +1250,12 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
       {ment.list}
       {slash.list}
       <div className="crow">
+        <BoxLabel htmlFor={boxId} />
         <textarea
           {...ment.box}
           {...(slash.list ? slash.box : {})}
           ref={ref}
+          id={boxId}
           className={cx('cin', mode && 'mono')}
           rows={1}
           name="message"

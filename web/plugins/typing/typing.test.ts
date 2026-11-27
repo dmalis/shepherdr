@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { getState, setUI, subscribe } from '@client/kernel.ts'
-import { markTyping, TYPING } from './typing.ts'
+import { markTyping, TYPING, withAfter } from './typing.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
@@ -236,4 +236,62 @@ test('upstream seams: the keyboard state, the bar, the header lines, the bands a
   expect(read('web/src/update-chip.tsx')).toContain('className="upchip"')
   // the plugin is in the list
   expect(JSON.parse(read('web/plugins.json')).plugins).toContain('typing')
+})
+
+// fork #105: less chrome while typing on a phone. The message box is one row (+, the text, the microphone and send),
+// its model and effort line stepping aside until the keyboard closes, and the suggested replies step aside once you
+// type. Its text area is fitted to its new width each time the mark changes.
+
+const ONE_ROW = '.kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin)))'
+
+test('the message box is one row while typing: + first, then the text, then the rest; the agent line steps aside', () => {
+  expect(css).toContain(`${ONE_ROW} {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: flex-end;`)
+  // the bar's buttons join the box's row
+  expect(css).toContain(`${ONE_ROW} > .cbar {\n    display: contents;`)
+  expect(css).toContain(`${ONE_ROW} > .crow {\n    flex: 1 1 0;\n    order: 2;`)
+  expect(css).toContain(`${ONE_ROW} > .cbar > :first-child {\n    order: 1;`)
+  expect(css).toContain(`${ONE_ROW} > .cbar > * {\n    order: 3;`)
+  // the model and effort line, the update hint and the spacer go; the + and the round button stay
+  expect(css).toContain(`${ONE_ROW} > .cbar > :is(.agent, .agent-upd, .sp) {\n    display: none;`)
+  // chips over the box (a reply, files, a paste, a command's mode) keep their whole rows
+  expect(css).toContain(`${ONE_ROW} > * {\n    flex: 0 0 100%;`)
+})
+
+test('suggested replies step aside once there is text in the box, only while typing', () => {
+  expect(css).toContain('.kb-up .app .foot:has(.cin:not(:placeholder-shown)) > .sugs {\n    display: none;')
+})
+
+test('each change of the mark fits the box again, in the same step', () => {
+  const r = fakeRoot()
+  const after: boolean[] = []
+  const root = withAfter(r, () => after.push(r.on.has(TYPING)))
+  const off = markTyping(root, () => getState().ui.keyboard, subscribe)
+  setUI({ keyboard: true })
+  // fitted after the mark went on, so it reads the new width
+  expect(after).toEqual([true])
+  setUI({ keyboard: false })
+  expect(after).toEqual([true, false])
+  off()
+})
+
+test('upstream seams of the one-row box: its parts, the replies, dictation, the box fitting and its label', () => {
+  const box = read('web/plugins/chat/client.tsx')
+  // the box: its text row, then its bar with + first, the agent line, the update hint, a spacer, then the buttons
+  expect(box).toContain('<div className="crow">')
+  expect(box).toContain('<div className="cbar">\n        <AddButtons finger={finger} onFiles={(f) => attach(key, key, f)} />\n        <AgentLine')
+  expect(box).toContain('<UpdateHint chat={chat} />\n        <span className="sp" />')
+  expect(box).toContain('<button type="button" className="send" aria-label="Send"')
+  expect(box).toContain('<div className="sugs" ref={row} role="group" aria-label="Suggested replies">')
+  expect(box).toContain('placeholder={hint}')
+  expect(read('web/src/ui.tsx')).toContain('export function IB(')
+  expect(box).toContain('<IB icon="plus" label={finger ? \'Add\' : \'Add files\'} onClick={plus} />')
+  expect(read('web/src/picker.tsx')).toContain('<button ref={ref} type="button" className="agent"')
+  expect(read('web/plugins/chat/update.tsx')).toContain('className="agent-upd"')
+  // dictation takes over the bar with its own surface: the box keeps its two rows then
+  const dictate = read('web/src/dictate.css')
+  expect(dictate).toContain('.cbar:has(>.dsurf)>:not(.dsurf,.vs){display:none}')
+  expect(dictate).toContain('.cbar:has(>.vin)>:not(.vin,.vs){display:none}')
+  // the box's height follows its text only as it changes; the plugin fits it again when its width changes
+  expect(read('web/src/grow.ts')).toContain('export function fitBox(t: HTMLTextAreaElement)')
+  expect(read('web/plugins/typing/client.tsx')).toContain("querySelectorAll<HTMLTextAreaElement>('.cbox > .crow > textarea.cin').forEach(fitBox)")
 })
