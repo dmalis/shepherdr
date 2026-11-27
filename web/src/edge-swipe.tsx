@@ -143,7 +143,7 @@ function shut() {
   void settle(p, false, p.nav.offsetWidth, 0, p.nav.offsetWidth, calm())
 }
 
-/** a swipe that closed the list on the shade: the click its lift may make is not a tap */
+/** a swipe that ended on the shade: the click its lift may make is not a tap (until the next touch) */
 let eatClick = false
 
 /** The list as it floats over the screen: the shade, then the list. It slides in from the left as it opens (unless
@@ -206,9 +206,9 @@ type Track = {
   w: number
   quiet: boolean
   at: number
-  /** held back from the page (iOS): what it scrolls by hand when it goes up or down, and from where */
+  /** held back from the page (iOS): what it scrolls by hand when it goes up or down, and where the finger was last */
   scroller?: HTMLElement | null
-  top0?: number
+  lastY?: number
 }
 
 /** a finger's times are its events' own (`e.timeStamp`), when the screen felt them, not when the page got to them */
@@ -261,7 +261,7 @@ export function edgeSwipe(doc: Document = document): () => void {
     e.preventDefault()
     tapOn = { el: e.target as Element, x: t.clientX, y: t.clientY }
     k.scroller = scrollerOf(e.target as Element)
-    k.top0 = k.scroller?.scrollTop ?? 0
+    k.lastY = t.clientY
   }
 
   const move = (e: TouchEvent) => {
@@ -294,8 +294,10 @@ export function edgeSwipe(doc: Document = document): () => void {
     }
     sample(k, t, e.timeStamp)
     if (k.mode === 'off') {
-      // held back from the page, it scrolls by hand
-      if (k.scroller) k.scroller.scrollTop = k.top0! - (t.clientY - k.y0)
+      // held back from the page, it scrolls by hand, move by move, so the page's own corrections (older messages
+      // loading above) stay
+      if (k.scroller) k.scroller.scrollTop -= t.clientY - k.lastY!
+      k.lastY = t.clientY
       return
     }
     e.preventDefault()
@@ -344,6 +346,8 @@ export function edgeSwipe(doc: Document = document): () => void {
 function shutDrag(p: Parts): () => void {
   let k: Track | null = null
   const down = (e: TouchEvent) => {
+    // a new touch: whatever click the last swipe's lift might make is long past, so a tap now is a tap
+    eatClick = false
     if (k || e.touches.length > 1) return
     const t = e.changedTouches[0]
     const target = e.target as Element
