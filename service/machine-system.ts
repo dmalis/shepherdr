@@ -39,13 +39,26 @@ const AWAY = 2 * 60_000;
 
 /** Whether to read its system facts with this poll: with the plan limits, until it has them, after a failed read, and
  *  once it answers again after it was away (a restart changes its uptime and clears a waiting restart). */
-export const systemDue = (was: { at?: number; error?: string; system?: unknown }, limits: boolean, now = Date.now()) =>
-  limits || !!was.error || !was.system || now - (was.at ?? now) > AWAY;
+export const systemDue = (was: { at?: number; error?: string; system?: unknown; away?: boolean }, limits: boolean, now = Date.now()) =>
+  limits || !!was.error || !was.system || !!was.away || now - (was.at ?? now) > AWAY;
+
+/** Marks each linked machine herdr-core lost since the last poll (a restart can take less than a minute): its system
+ *  facts are read again once it's back, until a read works (the poller clears `away` then). The machines connected now,
+ *  for the next poll. */
+export function markAway(stats: Map<string | null, { away?: boolean }>, connected: string[], before: Set<string> | null): Set<string> {
+  const now = new Set(connected);
+  for (const m of before ?? []) if (!now.has(m)) { const s = stats.get(m); if (s) s.away = true; }
+  return now;
+}
 
 /** A linked machine herdr-core can't reach now: when it last answered, as the warnings line and its card say it
  *  ("last seen Tue 3:05pm"). Not known after the service restarts until it answers once. */
-export const lastSeen = (m: string | null, seenAt: number | undefined, connected: string[]) =>
-  m !== null && seenAt && !connected.includes(m) ? { unreachableSince: when(seenAt) } : {};
+export const lastSeen = (m: string | null, seenAt: number | undefined, connected: string[], now = Date.now()) =>
+  m !== null && seenAt && !connected.includes(m) ? { unreachableSince: seenWords(seenAt, now) } : {};
+
+// "Tue 9:12" within the week (core's when); "Nov 3" past it, where a weekday would name the wrong one
+const seenWords = (at: number, now: number) =>
+  now - at < 6 * 86_400_000 ? when(at) : new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /** Reads a machine's system facts (null: here); null when it can't now (the last read then stays). */
 export async function readSystem(hub: Hub, machine: string | null): Promise<MachineSystem | null> {

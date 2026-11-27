@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lastSeen, systemDue, systemOf, SYSTEM_PROBE } from "./machine-system.ts";
+import { lastSeen, markAway, systemDue, systemOf, SYSTEM_PROBE } from "./machine-system.ts";
+import { Machines } from "./machines.ts";
 import { when } from "../core/machines.js";
 import { warningsOf } from "./next.ts";
 
@@ -33,6 +35,8 @@ test("seams: machines.ts reads the facts with the limits and passes them to the 
   const m = src("machines.ts");
   expect(m).toContain('readSystem(this.hub, m)');
   expect(m).toContain("const sys = systemDue(was, limits, now) ? readSystem(this.hub, m) : null;");
+  expect(m).toContain("this.connected = markAway(this.stats, listed, this.connected);");
+  expect(m).toContain("if (system) delete out.away;");
   expect(m).toContain("out.seenAt = Date.now();");
   expect(m).toContain("const seen = lastSeen(m, s.seenAt, this.list());");
   expect(m).toContain("...(system ? { system } : {})");
@@ -60,8 +64,55 @@ test("the system facts are read again once it answers after it was away (a resta
 
 test("last seen: a linked machine herdr-core can't reach, from its last good read", () => {
   const seen = NOW - 3_600_000;
-  expect(lastSeen("vm", seen, ["studio"])).toEqual({ unreachableSince: when(seen) });
+  expect(lastSeen("vm", seen, ["studio"], NOW)).toEqual({ unreachableSince: when(seen) });
+  // a week or more ago: its date, not a weekday that would name this week's
+  expect(lastSeen("vm", Date.UTC(2027, 0, 5, 12), ["studio"], Date.UTC(2027, 0, 20, 12))).toEqual({ unreachableSince: "Jan 5" });
   expect(lastSeen("vm", seen, ["vm"])).toEqual({});
   expect(lastSeen(null, seen, [])).toEqual({});
   expect(lastSeen("vm", undefined, [])).toEqual({});
+});
+
+test("a machine lost at one poll is marked away, and only that one", () => {
+  const stats = new Map<string | null, any>([["vm", {}], ["pi", {}]]);
+  expect(markAway(stats, ["vm", "pi"], null)).toEqual(new Set(["vm", "pi"]));
+  expect(stats.get("vm").away).toBeUndefined();
+  expect(markAway(stats, ["pi"], new Set(["vm", "pi"]))).toEqual(new Set(["pi"]));
+  expect(stats.get("vm").away).toBe(true);
+  expect(stats.get("pi").away).toBeUndefined();
+});
+
+test("a machine that restarts within two minutes: its system facts are read again the poll it's back, until one works", async () => {
+  const prev = process.env.HERDR_TASK_SETTINGS;
+  process.env.HERDR_TASK_SETTINGS = join(mkdtempSync(join(tmpdir(), "shep-away-")), "settings.json");
+  try {
+    let restart = true, connected = ["vm"], sysFails = false;
+    const b64 = (s: string) => Buffer.from(s).toString("base64");
+    const hub = {
+      call: async (_method: string, p: any) => {
+        const sys = String(p.argv[2]).includes("def restart_needed");
+        const out = sys ? (sysFails ? "" : JSON.stringify({ system: { os: "Ubuntu 24.04", up: 60, restart, hc: "0.1.22", shepherdr: null } }))
+          : JSON.stringify({ health: { cores: 8, load: 1, cpu: 12, memory: 40, disk: 50 } });
+        return { code: 0, stdout: b64(out + "\n"), stderr: "" };
+      },
+    } as any;
+    const m = new Machines(hub, () => connected);
+    await m.poll();
+    expect((m.of("vm") as any).system.restart).toBe(true);
+    // it restarts: herdr-core loses it at one poll and has it back at the next, seconds apart
+    restart = false;
+    connected = [];
+    await m.poll();
+    connected = ["vm"];
+    sysFails = true; // its first read after coming back fails: it stays due
+    await m.poll();
+    expect((m.of("vm") as any).system.restart).toBe(true);
+    expect(m.stats.get("vm").away).toBe(true);
+    sysFails = false;
+    await m.poll();
+    expect((m.of("vm") as any).system.restart).toBe(false);
+    expect(m.stats.get("vm").away).toBeUndefined();
+  } finally {
+    if (prev === undefined) delete process.env.HERDR_TASK_SETTINGS;
+    else process.env.HERDR_TASK_SETTINGS = prev;
+  }
 });

@@ -8,7 +8,7 @@ import { settingsFile } from "./paths.ts";
 import { exec } from "./model.ts";
 import * as MC from "../core/machines.js";
 import { notRead } from "../core/agent-usage.js";
-import { lastSeen, readSystem, systemDue } from "./machine-system.ts";
+import { lastSeen, markAway, readSystem, systemDue } from "./machine-system.ts";
 
 const { holdOf, nextRead, healthMeters } = MC as any;
 // Run this version's probe on every machine, including machines with an older install.
@@ -17,6 +17,8 @@ export const MACHINE_PROBE = join(import.meta.dir, "..", "mods", "tasks", "bin",
 export class Machines {
   stats = new Map<string | null, any>();
   private busy = false;
+  /** dmalis/shepherdr#107: the linked machines connected at the last poll, to see one that went and came back */
+  private connected: Set<string> | null = null;
   onChange: () => void = () => {};
   /** is a page open (service/live.ts anyone) */
   watched: () => boolean = () => true;
@@ -72,16 +74,19 @@ export class Machines {
       let cfg: any = null;
       try { cfg = JSON.parse(readFileSync(settingsFile(), "utf8")); } catch {}
       const script = readFileSync(MACHINE_PROBE, "utf8"), now = Date.now();
-      await Promise.all([null, ...this.list()].map(async (m) => {
+      const listed = this.list();
+      this.connected = markAway(this.stats, listed, this.connected); // dmalis/shepherdr#107
+      await Promise.all([null, ...listed].map(async (m) => {
         const was = this.stats.get(m) ?? {};
         const limits = now - (was.limitsAt ?? 0) > 10 * 60_000;
-        if (!limits && now - (was.at ?? 0) < 45_000) return;
+        if (!limits && !was.away && now - (was.at ?? 0) < 45_000) return;
         // dmalis/shepherdr#107: its system facts with its plan limits, and again once it answers after it couldn't or was away
         const sys = systemDue(was, limits, now) ? readSystem(this.hub, m) : null;
         const r = await exec(this.hub, ["python3", "-c", script, ...(limits ? ["--limits"] : [])], m, 90).catch(() => null);
         const system = await sys;
         const line = r?.stdout.split("\n").find((l) => l.startsWith("{"));
         const out: any = { ...was, hold: holdOf(cfg, m), at: Date.now(), ...(system ? { system } : {}) };
+        if (system) delete out.away;
         if (line) {
           const d = JSON.parse(line);
           out.health = d.health;
