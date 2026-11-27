@@ -64,10 +64,10 @@ const keepShared = async (req) => {
 }
 
 /* Can't reach Shepherdr (fork #34): the installed app (or a tab) opened while the service is down, or a proxy in front
-   says so (502, 504, 520-530), shows this page of its own rather than the browser's error. It says what is going on in
+   says so (502, 504, 520-524: the service down or not answering; a certificate or DNS error stays as the proxy said it), shows this page of its own rather than the browser's error. It says what is going on in
    the theme picked, and tries again by itself (sooner when the device comes back online or the app comes forward);
    once anything answers, the app loads. Only the app's own address: an artifact, a file or the API is never touched. */
-const DOWN = [502, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530]
+const DOWN = [502, 504, 520, 521, 522, 523, 524]
 
 /** the app's own page: the scope's folder, or its index.html, with any ?query */
 const appPage = (url) => {

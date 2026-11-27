@@ -3,50 +3,91 @@
 // the app's own address; and the upstream seams this leans on are still there.
 import { expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
-import { launches, wantsNewTask, withoutNew } from './launch.ts'
+import { launchOf, launches, wantsCall, wantsNeeds, wantsNewTask, withoutAsks } from './launch.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
+const APP = 'https://box.example/shepherdr/'
 
-function page(loaded: string) {
+function page(loaded: string, reloaded = false) {
   const did: string[] = []
   let t = 1000
-  const launch = launches({ loaded, open: (href) => did.push(`open ${href}`), newTask: () => did.push('new task'), now: () => t })
+  const launch = launches({
+    loaded,
+    reloaded,
+    here: () => loaded,
+    open: (href) => did.push(`open ${href}`),
+    away: (href) => did.push(`away ${href}`),
+    newTask: () => did.push('new task'),
+    needs: () => did.push('needs you'),
+    call: () => did.push('call'),
+    now: () => t,
+  })
   return { did, launch, later: (ms: number) => void (t += ms) }
 }
 
 test("the page's own launch is let go; a later one goes where it points", () => {
-  const p = page('https://box.example/shepherdr/?place=sp2')
-  p.launch('https://box.example/shepherdr/?place=sp2')
+  const p = page(`${APP}?place=sp2`)
+  p.launch(`${APP}?place=sp2`)
   expect(p.did).toEqual([])
   p.later(60_000)
-  p.launch('https://box.example/shepherdr/?place=everything&pane=tasks')
-  expect(p.did).toEqual(['open https://box.example/shepherdr/?place=everything&pane=tasks'])
+  p.launch(`${APP}?place=everything&pane=tasks`)
+  expect(p.did).toEqual([`open ${APP}?place=everything&pane=tasks`])
 })
 
 test('a launch to another address right after loading still goes there', () => {
-  const p = page('https://box.example/shepherdr/')
-  p.launch('https://box.example/shepherdr/?task=SHOP-2')
-  expect(p.did).toEqual(['open https://box.example/shepherdr/?task=SHOP-2'])
+  const p = page(APP)
+  p.launch(`${APP}?task=SHOP-2`)
+  expect(p.did).toEqual([`open ${APP}?task=SHOP-2`])
+})
+
+test("a reloaded page lets its window's last launch go, whatever its address", () => {
+  const p = page(`${APP}?place=sp2&task=SHOP-2`, true)
+  p.launch(`${APP}?place=everything`)
+  expect(p.did).toEqual([])
 })
 
 test('the same address launched again later (the shortcut used twice) goes there again', () => {
-  const p = page('https://box.example/shepherdr/?place=everything')
-  p.launch('https://box.example/shepherdr/?place=everything')
+  const p = page(`${APP}?place=everything`)
+  p.launch(`${APP}?place=everything`)
   p.later(10_000)
-  p.launch('https://box.example/shepherdr/?place=everything')
-  expect(p.did).toEqual(['open https://box.example/shepherdr/?place=everything'])
+  p.launch(`${APP}?place=everything`)
+  expect(p.did).toEqual([`open ${APP}?place=everything`])
 })
 
-test('New task asks for one; a launch without an address does nothing', () => {
-  const p = page('https://box.example/shepherdr/')
+test("the icon (the bare start address) only brings the window forward: the task on screen stays", () => {
+  const p = page(`${APP}?task=SHOP-2`)
+  p.later(60_000)
+  p.launch(APP)
+  p.launch(`${APP}index.html`)
+  expect(p.did).toEqual([])
+  expect(launchOf(APP, `${APP}?task=SHOP-2`)).toEqual({ kind: 'focus' })
+})
+
+test('New task asks for one where you are; Needs you opens Tasks on its group; a launch without an address does nothing', () => {
+  const p = page(APP)
+  p.later(60_000)
   p.launch(null)
-  p.launch('https://box.example/shepherdr/?new=task')
-  expect(p.did).toEqual(['open https://box.example/shepherdr/?new=task', 'new task'])
+  p.launch(`${APP}?new=task`)
+  p.launch(`${APP}?place=everything&pane=tasks&show=needs-you`)
+  expect(p.did).toEqual(['new task', `open ${APP}?place=everything&pane=tasks`, 'needs you'])
   expect(wantsNewTask('./?new=task')).toBe(true)
   expect(wantsNewTask('./?new=space')).toBe(false)
-  expect(withoutNew('https://box.example/shepherdr/?new=task&place=sp2')).toBe('/shepherdr/?place=sp2')
-  expect(withoutNew('https://box.example/shepherdr/')).toBeNull()
+  expect(wantsNeeds('./?show=needs-you')).toBe(true)
+  expect(withoutAsks(`${APP}?new=task&place=sp2`)).toBe('/shepherdr/?place=sp2')
+  expect(withoutAsks(`${APP}?place=everything&pane=tasks&show=needs-you`)).toBe('/shepherdr/?place=everything&pane=tasks')
+  expect(withoutAsks(APP)).toBeNull()
+})
+
+test("a captured call link starts the call; a link that isn't the app's page opens on its own", () => {
+  const p = page(APP)
+  p.later(60_000)
+  p.launch(`${APP}?voice=1`)
+  const art = `${APP}api/artifacts/a1/v/2/k/0123456789abcdef/page/index.html`
+  p.launch(art)
+  expect(p.did).toEqual(['call', `away ${art}`])
+  expect(wantsCall('./?voice=1')).toBe(true)
+  expect(wantsCall('./?voice=0')).toBe(false)
 })
 
 const MANIFESTS = ['manifest.webmanifest', 'manifest-dark.webmanifest', 'manifest-light.webmanifest', 'manifest-night.webmanifest']
@@ -103,8 +144,8 @@ test("the app's page with the service down: its own page that tries again, not t
   }
 })
 
-test('a proxy in front saying the service is gone shows it too; any other answer passes as it is', async () => {
-  for (const [status, down] of [[502, true], [504, true], [522, true], [503, false], [404, false], [200, false]] as const) {
+test('a proxy in front saying the service is gone shows it too; any other answer (a certificate or DNS error too) passes as it is', async () => {
+  for (const [status, down] of [[502, true], [504, true], [522, true], [503, false], [526, false], [530, false], [404, false], [200, false]] as const) {
     const go = worker(() => Promise.resolve(new Response('x', { status })))
     const r = (await go('https://box.example/shepherdr/'))!
     expect(r.status).toBe(down ? 503 : status)
@@ -128,6 +169,8 @@ test("the title bar rules apply only in the window controls overlay; the frame k
   expect(wco).toContain('app-region: drag')
   expect(css.slice(0, css.indexOf('@media (display-mode: window-controls-overlay)'))).not.toContain('app-region')
   for (const side of ['top', 'left', 'right']) expect(css).toMatch(new RegExp(`\\.device \\{[^}]*padding-${side}: env\\(safe-area-inset-${side}\\)`))
+  // a form sheet keeps its own 16px sides, the safe area added on top
+  expect(css).toMatch(/\.app \.sheet\.form \{[^}]*padding-left: calc\(16px \+ env\(safe-area-inset-left\)\)/)
 })
 
 /* the upstream seams this leans on (fork #34): a sync that breaks one fails here first */
@@ -140,6 +183,13 @@ test('pinned: the kernel and the tasks plugin still offer what the launches use'
   // ?pane=tasks opens the Tasks pane (the Needs you shortcut)
   expect(kernel).toMatch(/const paneOfUrl = [^\n]*q\.get\('pane'\)/)
   expect(read('web/plugins/tasks/client.tsx')).toMatch(/id: 'tasks\.new', title: 'New task'/)
+  // the Needs you shortcut: Tasks on Now, its group by that name, opened through ui.open; a call through voiceWake
+  const tasks = read('web/plugins/tasks/client.tsx')
+  expect(tasks).toContain("const o = ui.open[g.name] ?? !['Done', 'Archived'].includes(g.name)")
+  expect(tasks).toContain("g.name === 'Needs you'")
+  expect(kernel).toContain("tab: 'Now' | 'Scheduled'")
+  expect(kernel).toMatch(/voiceWake: \(\(\) => void\) \| null/)
+  expect(read('web/src/applink.ts')).toMatch(/export function appLink\(href: string, here: string\): URL \| null/)
   // the shell's columns, which the title bar's rules name
   const app = read('web/src/App.tsx')
   expect(app).toContain(`<nav className="side"`)

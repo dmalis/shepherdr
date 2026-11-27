@@ -40,6 +40,22 @@
   .app:not(.phone) .device > .shell:not(.device > :not(.upchip) ~ .shell):not(.noside) > .side > .brand:first-child {
     padding-left: calc(4px + var(--tb-l));
   }
+  /* a narrow list beside a Mac's buttons: the name gives way, its buttons (Search among them) stay whole; once
+     even a few letters don't fit it steps aside rather than show a lone ellipsis, as Slack's and Linear's sidebars do */
+  .side > .brand {
+    container: brand / inline-size;
+  }
+  .side > .brand > b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @container brand (max-width: 104px) {
+    .side > .brand > b {
+      visibility: hidden;
+    }
+  }
   .app:not(.phone) .device > .shell.noside:not(.device > :not(.upchip) ~ .shell) > section.col:first-of-type > .hd:first-child {
     padding-left: calc(12px + var(--tb-l));
   }
@@ -86,6 +102,10 @@
 .app .sheet {
   padding-left: calc(8px + env(safe-area-inset-left));
   padding-right: calc(8px + env(safe-area-inset-right));
+}
+.app .sheet.form {
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
 }
 .app .toasts {
   top: calc(60px + env(safe-area-inset-top));
