@@ -15,6 +15,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | inbox | always on | The bell in the list's top row: every alert of the last 7 days, read on one device and so on all; and Settings › General › Notifications' check of this device and the list of the others | |
 | analytics | always on | Settings › Personal analytics, kept only on your machines ([analytics.md](analytics.md)); its own switch turns recording off | |
 | installed | always on | The installed app: the icon's shortcuts (Everything, Needs you, New task) and links opened in it reach the open window, the headers in a desktop window's title bar, a phone's safe areas on every screen (fork #34) | |
+| whatsnew | always on | What's new under Settings › About: what changed in each version, read at build time, and the toast after an update saying what it brought (fork #70) | |
 | terminal | yes | Your own terminal in a space or a task, and "View as terminal" | No Terminal menu items |
 | screens | yes | An agent's browser and desktop: watch, Take over, Hand back | No Screen menu item, live picture or card |
 | voice | yes | Voice over the whole app, dictation in the message box, and Settings › Voice (the ElevenLabs key) | No voice or mic button, no Voice page |
@@ -68,7 +69,7 @@ Settings › Plugins has the switches. They are kept as `everywhere.plugins_off`
 
 | Place | What goes there |
 |---|---|
-| `views` | The parts of a thread: `messages`, `box`, `taskHead`, `taskTop`, `scheduled`, `tile`, `search` |
+| `views` | The parts of a thread: `messages`, `box`, `taskHead`, `taskTop`, `scheduled`, `tile`, `search`; and `about`, under Settings › About's version rows |
 | `header`, `taskHeader` | Buttons in a chat's or a task's header (Artifacts, then Tasks last where its pane's Close lands; Terminal and Screen are menu rows) |
 | `panes` | What the right-hand pane can show |
 | `bar` | The phone's bottom bar |
@@ -81,6 +82,7 @@ Settings › Plugins has the switches. They are kept as `everywhere.plugins_off`
 | `settings` | Sections of the settings window, for everything, a space, or both |
 | `commands` | What the palette lists and the shortcuts run: each with its default keys ([shortcuts.md](shortcuts.md)) |
 | `keys` | Raw key handlers that run before the commands' shortcuts |
+| `afterUpdate` | The line after the page updated itself (none: the plain "Updated to …") |
 
 ## Add one
 

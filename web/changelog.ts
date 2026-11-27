@@ -1,0 +1,135 @@
+// What's new at build time (fork patch #70; web/shared/changelog.ts says what it is): CHANGELOG.md's releases, their
+// dates from git, and the changes merged on top of each release on this checkout's branch. A build without git gets
+// CHANGELOG.md alone.
+//
+// The changes on top are the first-parent commits no release tag has (one merged pull request is one change),
+// walked back from HEAD to the newest release commit. Each sits on the release package.json named at it: a commit that
+// changes that version is a release coming in (an upstream sync's merge), so the changes before it sat on the one
+// before. That needs no tag, as an install fetches without them.
+import { spawnSync } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
+import { join } from 'node:path'
+import { buildRepo } from './build-stamp.ts'
+import { parseChangelog, shown, SHORT, title, type Changelog, type OnTop } from './shared/changelog.ts'
+
+function git(root: string, args: string[]): string | null {
+  try {
+    const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 20_000, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] })
+    return r.status === 0 ? r.stdout : null
+  } catch {
+    return null
+  }
+}
+
+/** this folder is a checkout of its own (a tarball unpacked inside another repo is not that repo's build) */
+function ownCheckout(root: string): boolean {
+  const top = git(root, ['rev-parse', '--show-toplevel'])?.trim()
+  try {
+    return !!top && realpathSync(top) === realpathSync(root)
+  } catch {
+    return false
+  }
+}
+
+/** the most first-parent commits walked back: years of merges, and a stop for a checkout that has no tags at all */
+const WALK = 3000
+
+const versionAt = (root: string, rev: string): string => {
+  try {
+    return (JSON.parse(git(root, ['show', `${rev}:package.json`]) ?? '') as { version?: string }).version ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** upstream's "Release Shepherdr <version>" commit at or under `from` (a sync's side of the merge), '' when none */
+function releaseCommit(root: string, from: string | undefined, version: string): string {
+  if (!from) return ''
+  const at = new RegExp(`^Release Shepherdr v?${version.replace(/\./g, '\\.')}(?![\\w.])`)
+  for (const l of (git(root, ['log', '-500', '--format=%H %s', from]) ?? '').split('\n')) {
+    const i = l.indexOf(' ')
+    if (at.test(l.slice(i + 1))) return l.slice(0, i)
+  }
+  return ''
+}
+
+/** The changes on top of each release, newest first, from HEAD back to the newest release commit. */
+export function onTop(root: string, version: string): OnTop[] {
+  const SEP = '\x1e'
+  const F = '\x1f'
+  const log = git(root, ['log', '--first-parent', '--diff-merges=first-parent', '--name-only', `--format=${SEP}%H${F}%P${F}%s${F}%b${F}`, `-${WALK}`, 'HEAD', '--not', '--tags=v*'])
+  if (log === null) return []
+  // what isn't merged yet: a branch's own commits, on no main this checkout knows (none known: all of it)
+  const mains = (git(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/main', 'refs/heads/master', 'refs/remotes/*/main', 'refs/remotes/*/master']) ?? '').split('\n').filter(Boolean)
+  const unmerged = new Set(mains.length ? (git(root, ['rev-list', `-${WALK}`, 'HEAD', '--not', ...mains]) ?? '').split('\n').filter(Boolean).map((s) => s.slice(0, SHORT)) : [])
+  const out: OnTop[] = []
+  let top: OnTop = { v: version, changes: [], trail: [] }
+  // the commit before the oldest one walked: the release the oldest changes sat on, a build an update can come from
+  let before = ''
+  for (const rec of log.split(SEP).slice(1)) {
+    const [sha = '', parents = '', subject = '', body = '', names = ''] = rec.split(F)
+    before = parents.trim().split(' ')[0] ?? ''
+    // upstream's own release commit: what's before it is in CHANGELOG.md
+    if (/^Release Shepherdr v?\d/.test(subject)) {
+      before = sha
+      break
+    }
+    const files = names.split('\n').map((f) => f.trim()).filter(Boolean)
+    const id = sha.slice(0, SHORT)
+    top.trail.push(id)
+    const t = title(subject, body, parents.trim().includes(' '))
+    if (files.includes('package.json')) {
+      const was = versionAt(root, `${sha}^1`)
+      // a release came in here: what's older sat on the one before
+      const now = versionAt(root, sha)
+      if (was && was !== now) {
+        // the release itself, merged in (its tag's commit, else its release commit under the merge's other side, which
+        // an install fetched without tags still has), and that other side: builds to count from too
+        const other = parents.trim().split(' ')[1]
+        const rel = [git(root, ['rev-parse', '-q', '--verify', `refs/tags/v${now}^{commit}`])?.trim() || releaseCommit(root, other, now), other]
+        for (const r of rel) if (r && !top.trail.includes(r.slice(0, SHORT))) top.trail.push(r.slice(0, SHORT))
+        out.push(top)
+        top = { v: was, changes: [], trail: [] }
+        continue
+      }
+    }
+    if (shown(t, files) && !unmerged.has(id)) top.changes.push({ c: id, s: t })
+  }
+  if (before) top.trail.push(before.slice(0, SHORT))
+  out.push(top)
+  return out.filter((t) => t.changes.length || t.trail.length > 1)
+}
+
+/** each release's date (YYYY-MM-DD): its tag's, else the date of the commit that released it upstream */
+function dates(root: string): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const l of (git(root, ['log', '--format=%as %s', '--grep=^Release Shepherdr ', 'HEAD']) ?? '').split('\n')) {
+    const r = /^(\d{4}-\d\d-\d\d) Release Shepherdr v?(\d+\.\d+\.\d+)/.exec(l)
+    if (r && !m.has(r[2]!)) m.set(r[2]!, r[1]!)
+  }
+  for (const l of (git(root, ['for-each-ref', '--format=%(refname:short) %(creatordate:short)', 'refs/tags/v*']) ?? '').split('\n')) {
+    const r = /^v(\d+\.\d+\.\d+\S*) (\d{4}-\d\d-\d\d)$/.exec(l.trim())
+    if (r) m.set(r[1]!, r[2]!)
+  }
+  return m
+}
+
+export function changelog(root: string, version: string): Changelog {
+  let md = ''
+  try {
+    md = readFileSync(join(root, 'CHANGELOG.md'), 'utf8')
+  } catch {
+    /* none: only the changes on top */
+  }
+  const releases = parseChangelog(md)
+  if (!ownCheckout(root)) return { releases, onTop: [], repo: '' }
+  const when = dates(root)
+  for (const r of releases) {
+    const d = when.get(r.v)
+    if (d) r.date = d
+  }
+  return { releases, onTop: onTop(root, version), repo: buildRepo(root) }
+}
+
+/** how many changes sit on top of this build's own release (About's "n changes on top") */
+export const onTopCount = (log: Changelog, version: string) => (log.onTop[0]?.v === version ? log.onTop[0].changes.length : 0)

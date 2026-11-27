@@ -23,6 +23,17 @@ export function githubRepo(remote: string): string {
 }
 
 /**
+ * The GitHub repo this build's commit comes from: the remote that has HEAD (origin first), as an install folder
+ * cloned from upstream fetches the fork's commits from a remote of their own (fork/sync/install.py's `fork`); else
+ * origin's. '' when it isn't GitHub.
+ */
+export function buildRepo(root: string): string {
+  const has = (git(root, ['for-each-ref', '--contains', 'HEAD', '--format=%(refname:short)', 'refs/remotes']) ?? '').split('\n').map((r) => r.split('/')[0]!).filter(Boolean)
+  const remote = has.includes('origin') || !has.length ? 'origin' : has[0]!
+  return githubRepo(git(root, ['remote', 'get-url', remote]) ?? '') || githubRepo(git(root, ['remote', 'get-url', 'origin']) ?? '')
+}
+
+/**
  * The release this build starts from: its own tag when the checkout has it; else, by hand, the commit that set
  * package.json to this version (an install fetches without tags, so it may lack the newest one), never in a shallow
  * checkout; else the nearest release tag, as `git describe --tags --match 'v*'` finds it.
@@ -51,7 +62,7 @@ export function buildStamp(root: string, version = ''): Stamp | null {
   }
   const commit = git(root, ['rev-parse', 'HEAD'])
   if (!commit || !/^[0-9a-f]{40,64}$/.test(commit)) return null
-  const repo = githubRepo(git(root, ['remote', 'get-url', 'origin']) ?? '')
+  const repo = buildRepo(root)
   const from = release(root, version)
   if (!from) return { tag: '', ahead: 0, commit, repo, changes: [], more: 0 }
   // what this build has and the release hasn't, one line per merged change: fork patches merged before the release

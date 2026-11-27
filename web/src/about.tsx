@@ -1,11 +1,10 @@
 // Settings › About (fork patch #44): the version this device runs and the one the service serves (SHEP-337), and
 // which build of it each is when that isn't exactly the release, the way `git describe` and VS Code's About say it:
-// "3.2.22 · 6 changes on top · 9fedf5c", the commit opening on GitHub. Under this device's build, what's in it: the
-// changes merged on top of the release, newest first. The same number on another build is "newer build", so the two
+// "3.2.22 · 6 changes on top · 9fedf5c", the commit opening on GitHub. The same number on another build is "newer build", so the two
 // rows can be compared. The stamp is read from the build itself (web/build-stamp.ts); a build without one says only
-// its version.
+// its version. Under the rows, a plugin's views.about: What's new (fork patch #70) lists what changed in each version.
 import { aheadWords, commitUrl, exact, short, stampOf, type Stamp } from '@shared/build-stamp.ts'
-import { newerServed, updateNow, useStore } from './kernel.ts'
+import { newerServed, registry, updateNow, useStore } from './kernel.ts'
 import { SRow } from './settings.tsx'
 import { Btn } from './ui.tsx'
 import { OWN_VERSION } from './update.ts'
@@ -43,22 +42,12 @@ export function BuildWords({ version, stamp, more = true }: { version: string; s
 export function About() {
   const served = useStore((s) => s.served)
   const newer = useStore(newerServed)
-  const changes = OWN_STAMP && !exact(OWN_STAMP) ? (OWN_STAMP.changes ?? []) : []
-  const left = OWN_STAMP?.more ?? 0
+  const More = registry.views.about
   return (
     <>
       <SRow label="This device" wrap>
         <span className="val"><BuildWords version={OWN_VERSION} stamp={OWN_STAMP} /></span>
       </SRow>
-      {changes.length > 0 && (
-        <section className="about-in" aria-labelledby="about-in-h">
-          <h4 id="about-in-h">What's in it</h4>
-          <ul>
-            {changes.map((c, i) => <li key={i}>{c}</li>)}
-            {left > 0 && <li className="more">and {left} more</li>}
-          </ul>
-        </section>
-      )}
       <SRow label="Shepherdr serves" wrap>
         <span className="val">
           {/* the served row compares builds, so its commit shows even when the numbers are the same */}
@@ -71,6 +60,7 @@ export function About() {
           <Btn small onClick={updateNow}>Update this device</Btn>
         </div>
       )}
+      {More && <More />}
     </>
   )
 }
