@@ -48,12 +48,6 @@ def view(s, task, live=None):
     v["ref"], v["prefix"] = s.ref(task), s.prefix
     v["waiting_for"] = waiting_for(s, task)
     v["waiting_ext"] = waiting_ext(task)
-    if task["state"] == "ready" and not task.get("waits_why"):
-        # a Ready task from before its why was kept (dmalis/shepherdr#29): said when it still holds
-        from .waits import waits_now
-        why = waits_now(s, task)
-        if why:
-            v["waits_why"] = why
     return v
 
 

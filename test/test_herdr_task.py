@@ -3006,6 +3006,13 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         self.task["mode"] = "here"
         with mock.patch.object(settings, "merge_policy", lambda *a: "auto"):
             self.assertIn("folder itself", waits.waits_now(self.store, self.task))
+        # the scheduler's tick keeps it on the task, where Shepherdr's service reads it
+        import herdr_task.tick as tick
+        self.task["mode"] = "worktree"
+        with mock.patch.object(settings, "merge_policy", lambda *a: "ask"), mock.patch.object(tick, "back_pass", lambda *a: None), \
+                mock.patch.object(tick, "facts", lambda *a: None):
+            tick.tick_turn(self.store, {"done": []})
+        self.assertEqual(self.task["waits_why"], "Waits for you: Merge is When I mark it as done (the default).")
 
     def test_closed_alone_news_says_what_it_found(self):
         import herdr_task.news as news

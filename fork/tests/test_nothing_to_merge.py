@@ -48,11 +48,14 @@ class Seams(unittest.TestCase):
             self.assertIn(f"'{name}'", read("web", "src", "settings.tsx"))
 
     def test_it_never_closes_over_new_files_and_old_cards_say_why(self):
-        from herdr_task import output
+        from herdr_task import tick
         self.assertIn("left_files(wt)", inspect.getsource(commands.cmd_ready))
         self.assertIn('"--untracked-files=no"', inspect.getsource(github.remove_worktree))  # why: it removes new files
         self.assertIn('"waits_why"', inspect.getsource(commands.back_to_work))
-        self.assertIn("waits_now(s, task)", inspect.getsource(output.view))
+        self.assertIn("waits_now(s, t)", inspect.getsource(tick.tick_turn))
+        model = read("service", "model.ts")  # the service reads the stored task: each field reaches the app
+        for k in ("nothing_to_merge", "left_files", "closed_alone", "waits_why"):
+            self.assertIn(f"{k}: ", model)
 
     def test_the_done_news_says_what_it_found(self):
         self.assertIn('t.get("closed_alone")', inspect.getsource(news.news_line))
