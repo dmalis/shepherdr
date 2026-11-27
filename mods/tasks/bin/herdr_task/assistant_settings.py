@@ -157,6 +157,7 @@ def rows(space, d=None, folder=None):
         offering = (cfg.get("agents") or {}).get("feedback") is not False
         suggesting = (cfg.get("agents") or {}).get("suggestions") is not False
         from .feedback import feedback_repo
+        from .feedback_check import SETTINGS_WORDS as FEEDBACK_SHAPE  # record, keep on the page, shape (#94)
         repo = feedback_repo(d)
         return [
             ("review", "Review", review, "on" if rounds > 0 else "off",
@@ -178,7 +179,7 @@ def rows(space, d=None, folder=None):
              else "off (never react to the person's messages)", "on" if reacting else "off", [("agents", "reactions")]),
             ("suggestions", "Suggested replies", "on (end each reply with one to three replies the person would likely send next, or one per option, up to five, when it asks a question with options; each at most 30 characters, makes sense alone and names what it is about; shown as bubbles to tap, a tapped one sent as a reply to that message)"
              if suggesting else "off (no suggested replies)", "on" if suggesting else "off", [("agents", "suggestions")]),
-            ("feedback", "Feedback offers", f"on (offer once to file a Shepherdr problem as an issue on {repo}, only on the person's yes)"
+            ("feedback", "Feedback offers", f"on (offer once to file a Shepherdr problem as an issue on {repo}, only on the person's yes. {FEEDBACK_SHAPE})"
              if offering else "off (never offer feedback for Shepherdr; file nothing)", "on" if offering else "off",
              [("agents", "feedback"), ("agents", "feedback_repo")]),
         ]

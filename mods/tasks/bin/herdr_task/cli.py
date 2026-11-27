@@ -141,7 +141,7 @@ def person_flags(argv):
         if a == "--":
             return False
         f = a.split("=")[0]
-        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect")):
+        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect", "--follow")):
             return True
     return False
 
@@ -363,12 +363,16 @@ def main():
     g.add_argument("--no", action="store_true", help="Assistant: the person said no; never offered again")
     g.add_argument("--list", action="store_true", help="what waits to be offered in this space")
     g.add_argument("--later", choices=["tomorrow", "week", "again"], help="the person's Not now, from the Feedback page (never an agent)")
-    c.add_argument("--expect", choices=["later", "declined"], help="with --undo: only if that is still the decision (the page's Undo, never an agent)")
+    c.add_argument("--expect", choices=["later", "declined", "following"], help="with --undo: only if that is still the decision (the page's Undo, never an agent)")
+    g.add_argument("--shape", action="store_true", help="Assistant, when free: keep --fix and --search on the problem (--key), then check GitHub")
+    g.add_argument("--check", action="store_true", help="look for the problem (--key) on GitHub, read only, with its --search words")
+    g.add_argument("--follow", metavar="URL", help="the person's Follow this one, from the Feedback page (never an agent): nothing posted")
     g.add_argument("--undo", action="store_true", help="the person's Undo or Restore of a Not now or a No, from the Feedback page (never an agent)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
                      ("expected", "what should have happened"), ("fix", "a suggested fix"), ("repro", "minimal steps to reproduce")):
         c.add_argument(f"--{f}", help=(f"--file: {words}" if f != "fix" else "a suggested fix in one line, for every Shepherdr user: kept with the report; --file puts it in the issue"))
     c.add_argument("--kind", choices=FEEDBACK_KINDS, help="what kind of problem it is")
+    c.add_argument("--search", help="--shape: public words a GitHub search may use (Shepherdr's own names, never the person's project)")
     c.add_argument("--all", action="store_true", help="--list: every problem kept, in every space and state (read only)")
     c.add_argument("--space", help="the space a report comes from, for a caller outside any space (the web app)")
     c.add_argument("--person", action="store_true", help="the person's own report or No, from the Feedback page (never an agent)")

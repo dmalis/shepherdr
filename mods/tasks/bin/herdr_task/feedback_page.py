@@ -92,8 +92,16 @@ def change(ps, key, p, later, undo, no, expect=None):
             return {"changed": False}, "Nothing to undo."
         back = {k: v for k, v in (was or {}).items() if k in KEPT and v is not None}
         back.setdefault("state", "found" if p.get("state") == "declined" else p.get("state") or "found")
-        ps[key] = {**{k: v for k, v in p.items() if k not in (*KEPT, "was", "decided")}, **back}
+        rest = {k: v for k, v in p.items() if k not in (*KEPT, "was", "decided")}
+        if p.get("decision") == "following":  # Follow this one undone (feedback_check.follow): its issue link goes too
+            url = (rest.pop("outcome", None) or {}).get("url")
+            rest["related"] = [x for x in rest.get("related") or [] if not (isinstance(x, dict) and x.get("url") == url)]
+            if not rest["related"]:
+                rest.pop("related")
+        ps[key] = {**rest, **back}
         return {"changed": True, "state": back["state"]}, "Back as it was."
+    if p.get("decision") == "following":
+        return {"changed": False, "why": "following"}, "It follows an issue: Undo that first."
     was = {k: p.get(k) for k in KEPT}
     if no:
         if p.get("decision") == "declined":
