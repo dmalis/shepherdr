@@ -4226,7 +4226,8 @@ class ReadyAfterARebase(PrLooks):
         self.assertIn("Merging it waits: Waiting for GitHub's checks.", msg)
         self.assertEqual((t["state"], t["auto_merge"], self.merges()), ("ready", "auto", []))
         self.assertNotIn("merge_failed", t)
-        self.assertEqual(self.agents.task_status(t, self.live)[2], "Merging")
+        # dmalis/shepherdr#42: what it waits for, never Merging before its merge runs
+        self.assertEqual(self.agents.task_status(t, self.live)[2], "Waiting for GitHub's checks")
         # the new commit: a green optional check, the required one not listed yet (GitHub blocks the merge)
         self.github_says(self.NEW, [self.check("lint")], "BLOCKED")
         for after in (20_000, 6 * 60_000):  # past the moment for a block nothing names: build is named, not there
