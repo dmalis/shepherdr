@@ -51,8 +51,17 @@ def update_poll_s():
 
 
 def health_wait_s():
-    """How long health waits for the scheduler to run the new code (it re-execs within 15 s) and the Assistants."""
+    """How long health waits for the Assistants, and for a scheduler that isn't running to come back."""
     return float(os.environ.get("FORK_SYNC_HEALTH_WAIT_S", "30"))
+
+
+def scheduler_wait_s():
+    """The scheduler line's ceiling while the scheduler runs: it re-execs only between its rounds (after a round and
+    its 15 s nap), and a round that starts and checks tasks can outlast 30 s by minutes."""
+    return float(os.environ.get("FORK_SYNC_SCHEDULER_WAIT_S", str(5 * 60)))
+
+
+clock = time.monotonic                            # the waits' clock (the tests' fake time moves it)
 
 
 # --- where things are ---
@@ -374,17 +383,68 @@ def assistants(refresh=False):
     return sorted({r["target"] for r in rows if isinstance(r, dict) and r.get("target") and not r.get("route")})
 
 
-def scheduler_runs_new_code(s):
-    """Whether .scheduler.json's hash is the installed herdr-task's own script_hash()."""
-    v = probe(s, "scheduler")
-    if not v or not v.get("hash") or not v.get("store"):
-        return False
+def scheduler_now(path):
+    """What the scheduler's .scheduler.json says ({"hash", "pid", "mtime"}; empty when it can't be read), and
+    whether that pid is a running scheduler. herdr-task's scheduler writes the file once as it starts, so a re-exec
+    (os.execv: the same pid) rewrites it and nothing else does."""
     try:
-        with open(os.path.join(v["store"], ".scheduler.json"), encoding="utf-8") as f:
-            running = json.load(f).get("hash")
-    except (OSError, ValueError, AttributeError):
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
+        mtime = os.stat(path).st_mtime
+    except (OSError, ValueError):
+        rec, mtime = {}, None
+    rec = rec if isinstance(rec, dict) else {}
+    pid = rec.get("pid")
+    return {"hash": rec.get("hash"), "pid": pid, "mtime": mtime, "alive": scheduler_alive(pid)}
+
+
+def scheduler_alive(pid):
+    """Whether pid is a running herdr-task scheduler: its command line's words hold `scheduler` (it runs as
+    `<python> <herdr-task> scheduler`). `ps -o command= -p` reads it the same on Linux and macOS."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
-    return running == v["hash"]
+    code, out, _ = run(["ps", "-o", "command=", "-p", str(pid)], timeout=10)
+    return code == 0 and "scheduler" in out.split()
+
+
+def scheduler_line(s, since=None, sleep=time.sleep):
+    """None once the scheduler runs the installed herdr-task (.scheduler.json's hash is its script_hash()), else
+    why not, in fixed words. The scheduler re-execs only between rounds, after its round and a 15 s nap, so while it
+    is running it is waited for up to scheduler_wait_s(): a long round (it starts and checks tasks) is still on the
+    old code, not a failure. One that isn't running fails after health_wait_s() instead (time for it to come back,
+    never the whole ceiling). `since` (epoch seconds, the update's start) tells a re-exec from the old code."""
+    want, store = None, None
+    start = clock()
+    first, was_alive, dead_since = None, False, None
+    while True:
+        if want is None:
+            v = probe(s, "scheduler")
+            if v and v.get("hash") and v.get("store"):
+                want, store = v["hash"], v["store"]
+        now_ = scheduler_now(os.path.join(store, ".scheduler.json")) if store else None
+        if now_ and now_["hash"] == want:
+            return None
+        t = clock()
+        if now_ is not None:
+            first = now_ if first is None else first
+            if now_["alive"]:
+                was_alive, dead_since = True, None
+            elif dead_since is None:
+                dead_since = t
+        if want is None and t - start >= health_wait_s():
+            return "the installed herdr-task can't say its code's hash"
+        if dead_since is not None and t - dead_since >= health_wait_s():
+            if was_alive:
+                return "it ended instead of re-execing onto the installed herdr-task"
+            return "not running" + ("" if (first or {}).get("pid") else " (its .scheduler.json can't be read)")
+        if dead_since is None and want is not None and t - start >= scheduler_wait_s():
+            rewritten = (now_["hash"] != first["hash"] or
+                         (since is not None and now_["mtime"] is not None and now_["mtime"] >= since))
+            mins = f"{scheduler_wait_s() / 60:g} min"
+            if rewritten:
+                return f"it re-execed, but onto other code than the installed herdr-task (waited {mins})"
+            return f"still on the old herdr-task after {mins}, though running: one long round, or stuck"
+        sleep(min(2.0, max(0.05, max(health_wait_s(), scheduler_wait_s()) / 15)))
 
 
 WEB_INDEX = os.path.join("web", "dist", "index.html")
@@ -458,12 +518,26 @@ def tasks_answer(s, timeout=30):
     return None
 
 
+SCHEDULER_STEPS = (("not running", "not running"), ("it ended", "ended instead of re-execing"),
+                   ("it re-execed", "re-execed onto other code"), ("still on the old", "still on the old code"),
+                   ("the installed herdr-task", "code hash unread"))
+
+
+def step_words(name, why):
+    """A failed health line as the step the quarantine and the person's words name: `scheduler: <which>` says
+    which of the scheduler's cases it was (scheduler_line), every other line its name."""
+    if name == "scheduler":
+        which = next((short for start, short in SCHEDULER_STEPS if (why or "").startswith(start)), None)
+        return f"scheduler: {which}" if which else name
+    return name
+
+
 def until(check, wait, sleep=time.sleep):
     """Calls check() until it is truthy or `wait` seconds passed. Returns its last value."""
-    deadline = time.monotonic() + wait
+    deadline = clock() + wait
     while True:
         got = check()
-        if got or time.monotonic() >= deadline:
+        if got or clock() >= deadline:
             return got
         sleep(min(2.0, max(0.0, wait / 15)))
 
@@ -916,8 +990,8 @@ def health_lines(s, repo_folder, sha, ins, update, candidate=True, sleep=time.sl
         if not line("assistants", None if until(all_there, health_wait_s(), sleep) else
                     "an Assistant that ran before the update isn't listed"):
             return out
-        if not line("scheduler", None if until(lambda: scheduler_runs_new_code(s), health_wait_s(), sleep) else
-                    "the scheduler doesn't run the installed herdr-task"):
+        since = started / 1000 if isinstance(started, (int, float)) else None
+        if not line("scheduler", scheduler_line(s, since, sleep)):
             return out
     if candidate and not s.live and os.environ.get(FORCE_HEALTH_FAIL) == "1":
         line("forced", "told to fail (the rehearsal's test flag)")
@@ -998,7 +1072,7 @@ def health(p, run_key, folder, repo, sha, live=True, hostname=None, tag=None, sl
     if failed:
         with state.locked(p) as st:
             st["install"] = dict(st.get("install") or {}, health=words,
-                                 failed=st.get("install", {}).get("failed") or f"health ({failed[0]})")
+                                 failed=st.get("install", {}).get("failed") or f"health ({step_words(*failed)})")
         raise Refused(f"health failed at {failed[0]}: {failed[1]}", outcome="rollback", next="rollback", lines=words)
     with state.locked(p) as st:
         st["install"] = dict(st.get("install") or {}, health=words, passed=True)
@@ -1119,7 +1193,7 @@ def rollback(p, run_key, folder, live=True, hostname=None, env=None, now=time.ti
     failed = next(((n, w) for n, ok, w in lines if not ok), None)
     words = [{"line": n, "ok": ok, **({"why": w} if w else {})} for n, ok, w in lines]
     if failed:
-        broken(p, cand, base_sha, f"health on the baseline ({failed[0]})", health=words)
+        broken(p, cand, base_sha, f"health on the baseline ({step_words(*failed)})", health=words)
         raise Refused(f"health on the baseline failed at {failed[0]}: {failed[1]}", outcome="broken", lines=words)
     with state.locked(p) as st:
         step = (st.get("install") or {}).get("failed") or "health"

@@ -393,7 +393,7 @@ class ForcedFailure(unittest.TestCase):
                 mock.patch.object(install, "web_served", return_value=None), \
                 mock.patch.object(install, "tasks_answer", return_value=None), \
                 mock.patch.object(install, "assistants", return_value=[]), \
-                mock.patch.object(install, "scheduler_runs_new_code", return_value=True), \
+                mock.patch.object(install, "scheduler_line", return_value=None), \
                 mock.patch.object(install, "doctor", return_value=None) as doctor, \
                 mock.patch.dict(os.environ, {install.FORCE_HEALTH_FAIL: "1"}):
             out = install.health_lines(s, "/f", "a" * 40, ins, {"at": 1000}, candidate=True, sleep=lambda _: None)

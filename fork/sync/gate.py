@@ -629,10 +629,37 @@ def earlier_round(snap, rnd):
         return "rolled-back", rolled_back_words(rnd.get("quarantined") or {}, rnd.get("candidate"),
                                                 rnd.get("baseline") or {}), path
     if phase == "held" and held_by.get("new"):
-        rec = state.held_record(snap, held_by.get("blocker")) or rnd.get("held_record")
+        # only a hold still recorded: a later healthy install that carries its release cleared it (passed), so it is
+        # over and telling it would be stale
+        rec = state.held_record(snap, held_by.get("blocker"))
         if rec:
             return "held", held_words(rec), path
     return "nothing", None, path
+
+
+EARLIER_ROLLBACK = "An earlier try rolled back; the next install is healthy."
+
+
+def told_words(rounds, says):
+    """(outcome, --told words) of a run's rounds [(outcome, words, path)], oldest first. The last words follow what is
+    installed now: a rollback before the run's last healthy install is over, so it is said at most once as
+    EARLIER_ROLLBACK, after what's new, never as "Rolled back: … back on <the old version>". A rollback after that
+    install still says where the run is back on, last."""
+    kinds = [o for o, _, _ in rounds]
+    last_install = max((i for i, o in enumerate(kinds) if o == "installed"), default=-1)
+    over = [i for i, o in enumerate(kinds) if o == "rolled-back" and i < last_install]
+    before = [w for i, (_, w, _) in enumerate(rounds) if w and i not in over and i <= last_install]
+    after = [w for i, (_, w, _) in enumerate(rounds) if w and i > last_install]
+    if last_install >= 0:
+        if not says:
+            raise Refused("an install ends --told with what's new: finish --says \"<what's new>\"", outcome="stop")
+        healthy_last = "rolled-back" not in kinds[last_install:]
+        return "installed", " ".join([says] + before + after + ([EARLIER_ROLLBACK] if over and healthy_last else []))
+    if "rolled-back" in kinds:
+        return "rolled-back", " ".join(after + ([says] if says else []))
+    if "held" in kinds:
+        return "held", " ".join(after)
+    return "nothing", None
 
 
 def finish(p, run, folder, repo, says=None, cfg_hostname=None):
@@ -689,19 +716,8 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
     else:
         raise Refused(f"the run took the {path} path and hasn't ended (phase {phase or 'none'})", outcome="stop")
     rounds = [earlier_round(snap, x) for x in r.get("rounds") or []] + [(*now, path)]
-    kinds = [o for o, _, _ in rounds]
-    words = [w for _, w, _ in rounds if w]
     says = " ".join(says.split()) if says else None
-    if "installed" in kinds:
-        if not says:
-            raise Refused("an install ends --told with what's new: finish --says \"<what's new>\"", outcome="stop")
-        outcome, told = "installed", " ".join([says] + words)
-    elif "rolled-back" in kinds:
-        outcome, told = "rolled-back", " ".join(words + ([says] if says else []))
-    elif "held" in kinds:
-        outcome, told = "held", " ".join(words)
-    else:
-        outcome, told = "nothing", None
+    outcome, told = told_words(rounds, says)
     if r.get("merged") and outcome != "nothing":
         fetch_for_finish(repo)
     branch_problem(repo, r.get("start"))

@@ -272,9 +272,18 @@ Exit codes say little: `--status` always exits 0, and the installer can print `N
    answers `herdr-task list --json` in a scratch store. These two take seconds and cover what the trial covered for
    our merges, which skip it. A rehearsal run with `--no-build` doesn't ask for the built page.
 3. `herdr-task assistants --json` lists every target the before-picture had.
-4. The scheduler runs the new code: within 30 s (it re-execs within 15 s when its code changes), the `hash` in
-   herdr-task's `.scheduler.json` equals `scheduler.script_hash()` computed by the installed herdr-task itself.
-   (`herdr-task --version` is no use here: it prints the bundle's own `VERSION`, `1`.)
+4. The scheduler runs the new code: the `hash` in herdr-task's `.scheduler.json` equals `scheduler.script_hash()`
+   computed by the installed herdr-task itself. (`herdr-task --version` is no use here: it prints the bundle's own
+   `VERSION`, `1`.) The scheduler re-execs (`os.execv`, the same pid, the file rewritten) only between its rounds,
+   after a round and its 15 s nap, and a round that starts and checks tasks can take minutes. So health tells three
+   cases apart, from the file's pid (`ps -o command=` names a `scheduler`) and its hash:
+   - **running, still on the old code**: waited for up to 5 minutes. Only then it fails, as "still on the old code"
+     or, when the file was rewritten since the update began, "re-execed onto other code".
+   - **not running** (the pid is gone or isn't a scheduler, or there's no file): fails after 30 s, the time for one
+     started again to come up on the new code.
+   - **ended during the wait**: a re-exec that failed, after the same 30 s.
+
+   The quarantine's step names which: `health (scheduler: still on the old code)`.
 5. The two agent hook files have the sha256 they had before. A change is not undone by the pipeline (it never writes
    them): **unknown**, with an alert that says which file.
 6. `shepherdr doctor` exits 0. It checks the files, links, helpers, the service unit and that the service answers.
@@ -626,7 +635,10 @@ our merges' own install policy:
 6. `finish`. It reads `pending` under the same lock that lets go of the lease. When a merge is pending it keeps the
    lease and says **again**: the run goes back to step 3. This also holds after a skip, a nothing, or a release-sync
    run that owns the lease: no merge is stranded. A release sync may take the lease between two installs. A run that
-   went more than once tells every round in one `--told`.
+   went more than once tells every round in one `--told`, and its last words follow what is installed now: a
+   rollback before the run's last healthy install is over, said once as "An earlier try rolled back; the next install
+   is healthy." after what's new, never as "Rolled back: … back on <the old version>". A hold a later healthy install
+   cleared is over too, and not told.
 7. `ci`, when `finish` says `next: ci` (below). It gives the completion command.
 
 **Our merges' install policy.** `install` has two policies, chosen from the run's state:

@@ -270,7 +270,7 @@ class World(unittest.TestCase):
             "HERDR_TASK_STORE": self.store, "HERDR_BROWSER_TASK": store_key(self.RUN),
             "FORK_SYNC_SCRATCH_UPDATER": os.path.join(self.bin, "herdr-task"),
             "FORK_SYNC_POLL_S": "0", "FORK_SYNC_CALL_WAIT_S": "0", "FORK_SYNC_UPDATE_POLL_S": "0",
-            "FORK_SYNC_HEALTH_WAIT_S": "0"})
+            "FORK_SYNC_HEALTH_WAIT_S": "0", "FORK_SYNC_SCHEDULER_WAIT_S": "0"})
         self.env.start()
         self.addCleanup(self.env.stop)
         # the live service's page: no service runs here (test_merged reads the real check against a page of its own)
