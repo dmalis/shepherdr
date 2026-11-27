@@ -98,20 +98,87 @@ test("a failed read keeps what was open; the next good one closes it with how it
   expect(asks.endsOf("vm3/w8").at(-1)).toMatchObject({ how: "Allowed in the terminal" });
 });
 
-test("a read that fails mid-way (a non-zero exit) changes nothing", async () => {
+test("a read that fails, is cut off or can't see the folder closes nothing", async () => {
   const vm = machineHome("vm4");
   ask(vm, "w9.1700000000.6");
-  let broken = false;
+  let broken: ((r: any) => any) | null = null;
   const hub = core({ vm4: vm });
   const real = hub.call.bind(hub);
-  hub.call = async (m: string, p: any) => (broken && m === "machine.exec" ? { code: 1, stdout: "" } : real(m, p));
+  hub.call = async (m: string, p: any) => { const r = await real(m, p); return broken && m === "machine.exec" ? broken(r) : r; };
   const asks = new Asks();
   asks.remote(hub, () => []);
   await (asks as any).poll();
-  broken = true;
+  // the request is answered there meanwhile, but no read below can be trusted to say so
+  rmSync(join(vm, "data", "chat-asks", "req", "w9.1700000000.6.json"));
+  const empty = Buffer.from("").toString("base64");
+  for (const b of [
+    () => ({ code: 1, stdout: empty }), // a non-zero exit
+    () => ({ code: 0, stdout: empty, truncated: true }), // herdr-core cut the output
+    () => ({ code: 0, stdout: Buffer.from("req\tw1.1700000000.1\t{}\n").toString("base64") }), // no "done": cut short
+  ]) {
+    broken = b;
+    await (asks as any).poll();
+    expect(asks.of("vm4/w9").length).toBe(1);
+  }
+  // the hook's folder there can't be read: the read itself refuses (exit 4), never "nothing waits"
+  broken = null;
+  const req = join(vm, "data", "chat-asks", "req");
+  const { chmodSync } = await import("node:fs");
+  chmodSync(req, 0o000);
+  try {
+    const r = Bun.spawnSync(["sh", "-c", LIST, "sh"], { env: { ...process.env, HERDR_APP_HOME: vm } });
+    // root reads any folder: only then can't this be shown
+    if (process.getuid?.() !== 0) expect(r.exitCode).toBe(4);
+    await (asks as any).poll();
+    if (process.getuid?.() !== 0) expect(asks.of("vm4/w9").length).toBe(1);
+  } finally { chmodSync(req, 0o755); }
+  // a whole read again: it ended there
+  await (asks as any).poll();
+  expect(asks.of("vm4/w9").length).toBe(0);
+});
+
+test("a machine whose read hangs never holds up another's card or its seen", async () => {
+  const fast = machineHome("fast");
+  const hub = core({ slow: machineHome("slow"), fast });
+  const real = hub.call.bind(hub);
+  let release = () => {};
+  const hung = new Promise<void>((r) => (release = r));
+  let slowReads = 0;
+  hub.call = async (m: string, p: any) => { if (m === "machine.exec" && p.on === "slow") { slowReads++; await hung; } return real(m, p); };
+  const asks = new Asks();
+  asks.remote(hub, () => []);
+  const first = (asks as any).poll();
+  await new Promise((r) => setTimeout(r, 50));
+  // a request on fast after its first read: the next poll finds it and marks it seen while slow still hangs
+  ask(fast, "w20.1700000000.3");
+  await (asks as any).poll();
+  expect(asks.of("fast/w20").length).toBe(1);
+  expect(seen(fast, "w20.1700000000.3")).toBe(true);
+  // slow was never read twice at once
+  expect(slowReads).toBe(1);
+  release();
+  await first;
+});
+
+test("an ask with no chat yet has its machine's task lists read again, at most every 10 s", async () => {
+  const vm = machineHome("vm7");
+  ask(vm, "w30.1700000000.4");
+  const hub = core({ vm7: vm });
+  const asks = new Asks();
+  const reread: string[] = [];
+  let routed = false;
+  asks.destination = () => routed;
+  asks.unrouted = (m: string) => reread.push(m);
+  asks.remote(hub, () => []);
   await (asks as any).poll();
   await (asks as any).poll();
-  expect(asks.of("vm4/w9").length).toBe(1);
+  expect(reread).toEqual(["vm7"]);
+  expect(seen(vm, "w30.1700000000.4")).toBe(false);
+  // the lists read, its task's chat is known: marked on the next read
+  routed = true;
+  await (asks as any).poll();
+  expect(seen(vm, "w30.1700000000.4")).toBe(true);
+  expect(reread).toEqual(["vm7"]);
 });
 
 test("seen waits for a card to show it: an ask no chat maps stays unseen, there and here", async () => {

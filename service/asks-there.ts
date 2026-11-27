@@ -13,17 +13,20 @@ export const MACHINE = /^[\w.-]+$/;
 /** an ask's id as its hook makes it: <terminal>.<seconds>.<pid>, its terminal a plain name (no /, no ..) */
 export const askId = (id: string) => /^[\w-][\w.-]*\.\d+\.\d+$/.test(id) && !id.includes("..");
 
-/** The lines of a read there (asks.ts LIST): each request still waiting, and how each id asked about has ended. */
+/** The lines of a read there (asks.ts LIST): each request still waiting, and how each id asked about has ended;
+ *  complete only when it ends with its "done" line (a read cut short could make a waiting request look gone). */
 export function parseList(stdout: string) {
   const reqs = new Map<string, string>(), ends = new Map<string, string>();
-  for (const line of Buffer.from(stdout, "base64").toString("utf8").split("\n")) {
+  const lines = Buffer.from(stdout, "base64").toString("utf8").split("\n");
+  const complete = lines.filter((l) => l !== "").at(-1) === "done";
+  for (const line of lines) {
     const [kind, id, ...rest] = line.split("\t");
     if (!id || !askId(id)) continue;
     const body = rest.join("\t");
     if (kind === "req") reqs.set(id, body);
     else if (kind === "end" && body.trim()) ends.set(id, body.trim());
   }
-  return { reqs, ends };
+  return { reqs, ends, complete };
 }
 
 /** The machines herdr-core is linked to and reaches now (machine.list), by name; null when the list can't be had. */
@@ -34,10 +37,10 @@ export async function connected(hub: Hub): Promise<string[] | null> {
   } catch { return null; }
 }
 
-/** A script there, its output (base64) on success; null when it is out of reach, fails or takes too long. */
+/** A script there, its output (base64) on success; null when it is out of reach, fails, takes too long or is cut off. */
 export async function run(hub: Hub, on: string, script: string, args: string[]) {
-  const r = await hub.call<{ code: number; stdout: string }>("machine.exec", { on, argv: ["sh", "-c", script, "sh", ...args], timeout: 10 }, 15_000).catch(() => null);
-  return r?.code === 0 && typeof r.stdout === "string" ? r.stdout : null;
+  const r = await hub.call<{ code: number; stdout: string; truncated?: boolean }>("machine.exec", { on, argv: ["sh", "-c", script, "sh", ...args], timeout: 10 }, 15_000).catch(() => null);
+  return r?.code === 0 && !r.truncated && typeof r.stdout === "string" ? r.stdout : null;
 }
 
 /** Each item through fn, at most limit at once (one slow machine never holds up the rest). */
