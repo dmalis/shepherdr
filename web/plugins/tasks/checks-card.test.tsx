@@ -28,6 +28,13 @@ test('its row says what it waits for, a still dot, no time left of its own', () 
   expect(ringOf(failed)).toMatchObject({ kind: 'pending', tone: 'red' })
 })
 
+// with #48's idle marks too (its agent ended, as once it handed in): the checks still say what it waits for
+test('waiting on its checks with no agent running: the checks, never "No agent running"', () => {
+  const t = { ...task(cw()), agentIdle: true, agentGone: true } as Task
+  expect(taskLine(t)).toBe("Waiting for GitHub's checks · 1 of 2 passed · about 8 min")
+  expect(ringOf(t)).toMatchObject({ kind: 'pending', label: "Waiting for GitHub's checks · 1 of 2 passed · about 8 min" })
+})
+
 test('its card lists each check, what happens next, and GitHub', () => {
   const html = renderToStaticMarkup(<ChecksCard t={task(cw())} />)
   expect(html).toContain('role="status"')
