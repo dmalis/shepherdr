@@ -9,12 +9,11 @@ const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
 const APP = 'https://box.example/shepherdr/'
 
-function page(loaded: string, reloaded = false) {
+function page(loaded: string) {
   const did: string[] = []
   let t = 1000
   const launch = launches({
     loaded,
-    reloaded,
     here: () => loaded,
     open: (href) => did.push(`open ${href}`),
     away: (href) => did.push(`away ${href}`),
@@ -41,10 +40,10 @@ test('a launch to another address right after loading still goes there', () => {
   expect(p.did).toEqual([`open ${APP}?task=SHOP-2`])
 })
 
-test("a reloaded page lets its window's last launch go, whatever its address", () => {
-  const p = page(`${APP}?place=sp2&task=SHOP-2`, true)
-  p.launch(`${APP}?place=everything`)
-  expect(p.did).toEqual([])
+test('a launch right after a reload still goes where it points (Chrome no longer replays the last one)', () => {
+  const p = page(`${APP}?place=sp2&task=SHOP-2`)
+  p.launch(`${APP}?new=task`)
+  expect(p.did).toEqual(['new task'])
 })
 
 test('the same address launched again later (the shortcut used twice) goes there again', () => {
@@ -79,13 +78,17 @@ test('New task asks for one where you are; Needs you opens Tasks on its group; a
   expect(withoutAsks(APP)).toBeNull()
 })
 
-test("a captured call link starts the call; a link that isn't the app's page opens on its own", () => {
+test("a captured call link starts the call; an artifact's page opens in Artifacts; any other address opens on its own", () => {
   const p = page(APP)
   p.later(60_000)
   p.launch(`${APP}?voice=1`)
-  const art = `${APP}api/artifacts/a1/v/2/k/0123456789abcdef/page/index.html`
-  p.launch(art)
-  expect(p.did).toEqual(['call', `away ${art}`])
+  p.launch(`${APP}api/artifacts/a1/v/2/k/0123456789abcdef/page/index.html`)
+  p.launch(`${APP}api/artifacts/b2/page`)
+  const file = `${APP}api/files/x`
+  p.launch(file)
+  const remote = `${APP}api/artifacts/c3/v/1/on/box2/k/0123456789abcdef/page/`
+  p.launch(remote)
+  expect(p.did).toEqual(['call', `open ${APP}?artifact=a1`, `open ${APP}?artifact=b2`, `away ${file}`, `away ${remote}`])
   expect(wantsCall('./?voice=1')).toBe(true)
   expect(wantsCall('./?voice=0')).toBe(false)
 })
