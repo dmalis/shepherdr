@@ -230,6 +230,8 @@ def add_report(ps, key, report, fix=None, kind=None):
          "reports": reports, "count": count, **({"fix": fix} if fix else {}), **({"kind": kind} if kind else {})}
     p.setdefault("state", "found")
     p.setdefault("at", report["at"])
+    if p.get("decision") == "later":  # Not now ends when it happens again (feedback_page.py)
+        p = {k: v for k, v in p.items() if k not in ("decision", "until", "was", "decided")}
     ps[key] = p
     return p
 
@@ -506,6 +508,10 @@ def cmd_feedback(args):
     from .launch import caller_space, is_coordinator
     from .output import say
     from . import reactions
+    from .feedback_page import decide, snoozed
+    decided = decide(args)  # the person's Not now, Never or Undo (the Feedback page, #94): refused in an agent's terminal
+    if decided is not None:
+        return decided
     line = one_line(args.line)
     if getattr(args, "all", False) and not args.list:
         raise Fail("--all goes with --list: herdr-task feedback --list --all --json")
@@ -522,7 +528,7 @@ def cmd_feedback(args):
         space = args.space
     if args.list:
         rows = [{"key": key, **p} for key, p in problems_read().items() if p.get("state") in ("found", "telling", "told", "later")
-                and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
+                and not snoozed(p) and p.get("decision") != "declined" and "/" not in (p.get("space") or "") and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
         return say(args, rows, "\n".join(f"{r['key']}  {r['state']}  {r['line']}" for r in rows) or "Nothing waits to be offered.")
     if not line and not args.key:
         raise Fail("Say the problem in one line: herdr-task feedback \"Ready refused a reviewed commit\" --details \"…\"")
@@ -548,7 +554,7 @@ def cmd_feedback(args):
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
                 p = add_report(ps, key, {"at": now(), "space": space, "machine": d.get("here") or socket.gethostname(),
-                                         "from": from_of(k, labels, assistant), "line": line,
+                                         "from": {"person": True} if getattr(args, "person", False) else from_of(k, labels, assistant), "line": line,
                                          "details": trim(args.details) if args.details else None},
                                one_line(args.fix) if getattr(args, "fix", None) else None, getattr(args, "kind", None))
             answer, news = offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space)
@@ -602,7 +608,14 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
     offer; any other agent's report goes to its Assistant as news, once per problem. Returns the
     answer (data, words) and the news to send once saved ((to, text), or None)."""
     from .launch import coordinator_in
+    from .feedback_page import snoozed
     state = (p or {}).get("state")
+    if p and "/" in (p.get("space") or ""):
+        # from another machine's space (the Feedback page's box there): never this machine's chat to offer
+        return ({"key": key, "sent": False, "kept": True, "why": "elsewhere"}, "That one belongs to another machine's space: nothing to do. Carry on."), None
+    if p and snoozed(p):
+        # the person's Not now on the Feedback page (#94): nothing offered until it comes back or happens again
+        return ({"key": key, "sent": False, "why": "later"}, "The person said not now to this one: nothing to do. Carry on."), None
     if state == "filing" and now() - (p.get("at") or 0) < FILING_MS:
         return ({"key": key, "sent": False, "why": "filing"}, "Your Assistant is filing this one right now: nothing to do. Carry on."), None
     if state == "declined":
@@ -619,7 +632,8 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
         return ({"key": key, "offer": True}, offer_words(line, key)), None
     if state in ("told", "offered", "later") and recent(p) or state == "telling" and now() - (p.get("at") or 0) < TELLING_MS:
         return ({"key": key, "sent": False, "why": "told"}, "Your Assistant already has this one: nothing sent. Carry on."), None
-    to = coordinator_in(space)
+    # another machine's space ("vm/sp1", only from the Feedback page's box): never a chat here, whose ids are this core's
+    to = coordinator_in(space) if "/" not in (space or "") else None
     if not to:
         return ({"key": key, "sent": False, "kept": True, "why": "no-assistant"},
                 "No Assistant runs here now: it's kept for the person, nothing sent. Carry on."), None

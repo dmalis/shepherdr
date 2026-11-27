@@ -749,7 +749,8 @@ export function List({ snap }: { snap: Snapshot }) {
       })}
       <span className="vh" role="status">{said}</span>
       <div className="foot">
-        <Row icon="feedback" label="Feedback" onClick={() => { setUI({ drawer: false }); feedbackDialog() }} />
+        {/* the feedback plugin's row opens its page, with a quiet count (#94); off, upstream's box */}
+        {registry.views.feedbackRow ? <registry.views.feedbackRow /> : <Row icon="feedback" label="Feedback" onClick={() => { setUI({ drawer: false }); feedbackDialog() }} />}
         <Row icon="gear" label="Settings" onClick={() => openSettings('all')} />
       </div>
     </>

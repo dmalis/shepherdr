@@ -1,0 +1,46 @@
+/* The Feedback page (friction loop #94), in the design system's tokens: the chat column's width (ds.css .chat .scroll),
+   the message box's shape for the box, the list's type sizes for rows. A row is a group held by space (4 px inside,
+   a hairline and 16 px between rows), as Linear's Triage and GitHub's notifications set theirs. One primary button
+   per row; the folds are disclosure buttons with their counts. */
+.fbp{display:grid;gap:24px;padding-block:8px 32px}
+.fb-box{display:grid;gap:4px}
+.fb-box .cin.fb{min-height:72px}
+.fb-from{min-width:0;padding-inline-start:10px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-err:empty{display:none}
+.fb-err{padding-inline:4px;color:var(--red);font-size:var(--sec);line-height:var(--secl)}
+.fb-banner{padding:8px 12px;border-radius:8px;background:var(--raised);color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.fb-banner .lk{font:inherit}
+
+.fb-sec{display:grid;gap:4px;min-width:0}
+.fb-h{display:flex;align-items:center;gap:8px;min-height:var(--row);margin:0;padding-inline:4px;font-size:var(--ui);line-height:var(--uil);font-weight:600;color:var(--fg)}
+.fb-fold{display:inline-flex;align-items:center;gap:8px;min-height:var(--row);margin-inline-start:-4px;padding-inline:4px 8px;border-radius:8px;font-weight:600}
+.fb-fold .i{color:var(--muted)}
+@media(hover:hover){.fb-fold:hover{background:var(--control)}}
+.fb-folds{display:flex;flex-wrap:wrap;align-items:flex-start;column-gap:16px;row-gap:8px}
+.fb-folds>.fb-sec{flex:1 1 100%}
+.fb-folds>.fb-sec:has(>.fb-h>.fb-fold[aria-expanded="false"]){flex:0 0 auto}
+
+.fb-list{display:grid;margin:0;padding:0;list-style:none;border-top:1px solid var(--line)}
+/* a row that leaves (Not now, Never, Restore, Undo) folds shut in 150 ms before the list moves it */
+.fb-row{display:grid;grid-template-rows:1fr;border-bottom:1px solid var(--line);transition:grid-template-rows 150ms cubic-bezier(.2,0,0,1),opacity 150ms ease-out}
+.fb-row.leave{grid-template-rows:0fr;opacity:0;border-bottom-color:transparent}
+.fb-in{display:grid;gap:4px;min-height:0;overflow:hidden;padding:12px 4px 12px}
+.fb-row.leave .fb-in{padding-block:0}
+.fb-in{transition:padding 150ms cubic-bezier(.2,0,0,1)}
+@media(prefers-reduced-motion:reduce){.fb-row,.fb-in{transition:none}}
+:root[data-motion="reduced"] .fb-row,:root[data-motion="reduced"] .fb-in{transition:none}
+
+.fb-line{color:var(--fg);font-weight:500;overflow-wrap:anywhere;text-wrap:pretty}
+.fb-fix{color:var(--sub);overflow-wrap:anywhere;text-wrap:pretty}
+.fb-fix .fb-k{color:var(--muted)}
+.fb-fix.none{color:var(--muted)}
+.fb-meta,.fb-note{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.fb-note.off{color:var(--sub)}
+.fb-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.fb-acts:empty{display:none}
+.fb-acts .btn .i{margin-inline-end:-4px}
+a.btn.fb-gh{color:inherit;text-decoration:none}
+/* a finger: the row's buttons are a fingertip tall (--btn on .tap), and the box's Send too */
+.app.tap .fb-acts .btn,.app.tap .fb-box .btn{height:var(--btn)}
+/* a phone: the page has the whole screen with Back, so the bottom bar steps aside while it is open */
+.app.phone .device:has(.fbp)>.bar{display:none}

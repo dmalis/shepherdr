@@ -72,6 +72,8 @@ export const WRITES = [
   "rename", "space-archive", "space-remove", "move", "order", "section",
   // settings
   "config", "setting", "plugin", "limits-check",
+  // the Feedback page: the box, Not now, Never, Undo (#94)
+  "feedback",
 ];
 
 // ---- keeping secrets out ------------------------------------------------------------------

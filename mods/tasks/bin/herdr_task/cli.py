@@ -134,6 +134,18 @@ def remote_run(machine, argv, timeout=None):
     return r
 
 
+def person_flags(argv):
+    """The person's own feedback calls (#94) in an argument list, as argparse reads them: an abbreviation of --person,
+    --later or --undo counts (argparse takes "--lat" for --later); the line after "--" doesn't."""
+    for a in argv:
+        if a == "--":
+            return False
+        f = a.split("=")[0]
+        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect")):
+            return True
+    return False
+
+
 def remote(machine, argv):
     """Runs herdr-task on the machine that holds the folder (installing it there first), then
     names a new tab from here, where the window is."""
@@ -196,6 +208,10 @@ def main():
         sys.stderr.write(r.stderr or "")
         return r.returncode
     if argv[:1] == ["--on"] and len(argv) > 1:
+        if "feedback" in argv[2:] and person_flags(argv[2:]):
+            # the person's own calls (#94) are made on that machine's Feedback page, never sent there from here
+            print("herdr-task: The person decides feedback on that machine's own Feedback page: nothing sent.", file=sys.stderr)
+            return 1
         try:
             return remote(argv[1], argv[2:])
         except Fail as e:
@@ -346,12 +362,16 @@ def main():
     g.add_argument("--file", action="store_true", help="Assistant, after the person's yes: search open issues for a duplicate, then file it")
     g.add_argument("--no", action="store_true", help="Assistant: the person said no; never offered again")
     g.add_argument("--list", action="store_true", help="what waits to be offered in this space")
+    g.add_argument("--later", choices=["tomorrow", "week", "again"], help="the person's Not now, from the Feedback page (never an agent)")
+    c.add_argument("--expect", choices=["later", "declined"], help="with --undo: only if that is still the decision (the page's Undo, never an agent)")
+    g.add_argument("--undo", action="store_true", help="the person's Undo or Restore of a Not now or a No, from the Feedback page (never an agent)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
                      ("expected", "what should have happened"), ("fix", "a suggested fix"), ("repro", "minimal steps to reproduce")):
         c.add_argument(f"--{f}", help=(f"--file: {words}" if f != "fix" else "a suggested fix in one line, for every Shepherdr user: kept with the report; --file puts it in the issue"))
     c.add_argument("--kind", choices=FEEDBACK_KINDS, help="what kind of problem it is")
     c.add_argument("--all", action="store_true", help="--list: every problem kept, in every space and state (read only)")
     c.add_argument("--space", help="the space a report comes from, for a caller outside any space (the web app)")
+    c.add_argument("--person", action="store_true", help="the person's own report or No, from the Feedback page (never an agent)")
     c.add_argument("--title", help="--file: the issue's title (default: the one line)")
     c.add_argument("--surface", choices=["web", "window", "both"], help="--file: where the person used Shepherdr")
     c.add_argument("--repo", help=argparse.SUPPRESS)  # a test's throwaway repo; Settings' otherwise

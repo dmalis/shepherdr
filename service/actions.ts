@@ -29,6 +29,7 @@ import { FIND } from "../core/chat-log.js";
 import { spawn } from "./spawn.ts";
 import { askRecap } from "./recap.ts";
 import { tipCopied } from "./trust-tip.ts";
+import { feedback } from "./feedback.ts";
 
 const attachDir = () => join(appHome(), "data", "chat-attach");
 /** files in one message at most (the page says so before it sends: web/plugins/chat/client.tsx) */
@@ -901,6 +902,8 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "herdr-task refused it." };
       return { ok: true };
     }
+    // the Feedback page's own calls (friction loop #94): Not now, Never, Undo, the box's report (service/feedback.ts)
+    case "feedback": return feedback.act(b);
     case "follow-up": {
       // dmalis/shepherdr#48: a merged task's commits after its merge, carried by a new task from its base
       const { ref, folder, machine } = taskOf(b);
