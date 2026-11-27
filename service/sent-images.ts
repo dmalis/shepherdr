@@ -40,9 +40,14 @@ export function imagesIn(line: string): { type: string; data: string }[] {
 
 /** Only the nth image block of the line at a byte offset, read on the agent's machine (sh -c PICK pick <offset> <log>
  *  <n>): a line with several pictures can be bigger than one herdr-core call carries, one picture never is (the API
- *  takes at most 5 MB each). Its block is `"type":"image","source":{…}` as Claude Code writes it (the source has no
- *  braces inside). */
-const PICK = `tail -c +$(($1 + 1)) "$2" | head -n 1 | grep -o '"type":"image","source":{[^}]*}' | sed -n "$(($3 + 1))p"`;
+ *  takes at most 5 MB each). It prints how many image blocks the line has, how many of them are a plain
+ *  {"type":"image","source":{…}} (either order; the source has no braces inside), then the nth of those: it is the
+ *  nth picture only when every one is plain, else the whole line is read. */
+const BLOCK = String.raw`\{("type":"image","source":\{[^}]*\}|"source":\{[^}]*\},"type":"image")\}`;
+const PICK = `l=$(tail -c +$(($1 + 1)) "$2" | head -n 1)
+printf '%s\n' "$l" | grep -o '"type":"image"' | wc -l
+printf '%s\n' "$l" | grep -oE '${BLOCK}' | wc -l
+printf '%s\n' "$l" | grep -oE '${BLOCK}' | sed -n "$(($3 + 1))p"`;
 /** the whole line, when its blocks are written some other way */
 const LINE = 'tail -c +$(($1 + 1)) "$2" | head -n 1';
 const types = new Map<string, string>();
@@ -63,7 +68,8 @@ export async function readLogImage(readers: any[], path: string): Promise<{ type
   if (was && type) return { type, bytes: was };
   const picked = await reader.run(PICK, ["pick", off, reader.path, String(n)]).catch(() => null);
   let img: { type: string; data: string } | null | undefined = null;
-  try { img = picked?.code === 0 && String(picked.stdout).trim() ? blockOf(JSON.parse(`{${String(picked.stdout).trim()}}`)) : null; } catch {}
+  const [all, plain, block] = String(picked?.code === 0 ? picked.stdout : "").split("\n");
+  try { img = Number(all) === x.images && Number(plain) === x.images && block ? blockOf(JSON.parse(block)) : null; } catch {}
   if (!img) {
     const r = await reader.run(LINE, ["line", off, reader.path]).catch(() => null);
     img = r && r.code === 0 ? imagesIn(String(r.stdout ?? "").trim())[n] : undefined;

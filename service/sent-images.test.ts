@@ -127,6 +127,25 @@ test("only a picture of a message the chat has now, in the log it reads now", as
   done();
 });
 
+test("the picker never serves another picture, whatever order a block's keys are in", async () => {
+  const first = { source: { type: "base64", media_type: "image/jpeg", data: Buffer.alloc(9, 1).toString("base64") }, type: "image" };
+  const odd = { type: "image", source: { type: "base64", media_type: "image/png", data: PNG }, cache_control: { type: "ephemeral" } };
+  const line = (blocks: unknown[]) => { const l = { ...takenMidTurn("q1", "two", 0) } as any; l.attachment = { ...l.attachment, prompt: [{ type: "text", text: "[Image #1][Image #2]two" }, ...blocks] }; return l; };
+  for (const [blocks, want] of [[[first, image], [Buffer.alloc(9, 1).toString("base64"), PNG]], [[odd, first], [null, null]]] as const) {
+    const { chat, reader, done } = await chatOf([line([...blocks])]);
+    const pics = chat.messages.filter((m: any) => m.file).map((m: any) => m.file.path as string);
+    // (the whole line can't be read: only the picker answers)
+    const cut = { ...reader, run: (s: string, a: string[]) => a[0] === "line" ? Promise.resolve({ code: 0, stdout: "{cut" }) : reader.run(s, a) };
+    for (const [i, w] of want.entries()) {
+      const got = await readLogImage([cut], pics[i]!);
+      expect(got ? Buffer.from(got.bytes).toString("base64") : null).toBe(w);
+    }
+    // read whole, each is its own
+    expect(Buffer.from((await readLogImage([reader], pics[1]!))!.bytes).toString("base64")).toBe(blocks[1] === image ? PNG : Buffer.alloc(9, 1).toString("base64"));
+    done();
+  }
+});
+
 test("which pictures a message shows", () => {
   const x = { id: "u10", images: 2 };
   expect(sentPictures({ ...x, paths: ["/a/1.png", "/a/2.png"] }, "/log").files.map((f) => f.path)).toEqual(["/a/1.png", "/a/2.png"]);

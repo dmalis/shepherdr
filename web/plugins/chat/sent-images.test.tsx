@@ -33,7 +33,7 @@ test("a picture still in the CLI's queue says so; the line is never a link or bu
 test('a picture that fails to load turns into a plain line, never a broken picture to tap', () => {
   expect(lostLine).toBe('1 image · not available')
   const src = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
-  expect(src).toContain('onError={() => setLost(small)}')
-  expect(src).toContain("if (lost && lost === small && isImage(f.name)) return")
+  expect(src).toContain('onError={onLost}')
+  expect(src).toContain("if (lost && isImage(f.name)) return")
   expect(src).toContain("<span>{lostLine}</span>")
 })
