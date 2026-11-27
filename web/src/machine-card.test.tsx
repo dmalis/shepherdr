@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Machine } from '@shared/types.ts'
+import type { Machine, MachineHealth } from '@shared/types.ts'
 import { LimitBar, MachineCard, type MachineCardProps } from './machine-card.tsx'
 
 // Machines: more health facts, clearer cards (dmalis/shepherdr#107): the card's parts on a computer and a phone, and the
 // upstream seams it hangs on in settings.tsx.
 
 const GiB = 2 ** 30, NOW = 1_800_000_000_000, day = 86_400_000
-const meters = (disk: number) => ({ engine: 'core' as const, herdr: true, working: 0, held: 0, at: '',
+const meters = (disk: number): MachineHealth => ({ engine: 'core' as const, herdr: true, working: 0, held: 0, at: '',
   meters: [{ name: 'CPU', pct: 18, detail: '', level: 'ok' }, { name: 'Memory', pct: 44, detail: '', level: 'ok' }, { name: 'Disk', pct: disk, detail: '', level: disk > 90 ? 'over' : 'ok' }] })
 const vps: Machine = {
   id: 'm:vps', machine: 'vps', name: 'vps', status: 'idle', health: meters(4),
@@ -47,7 +47,7 @@ test('the start limit is marked on its bar; none at 100% or off', () => {
 
 test('a phone: folded to its header and one line, status first; a button that says it opens', () => {
   const html = card({ foldable: true, m: { ...vps, system: { ...vps.system!, hc: '0.1.22' } } })
-  expect(html).toContain('<button type="button" class="mc-h" aria-expanded="false" aria-controls="mc-m_vps">')
+  expect(html).toContain('<h3 class="mc-hh"><button type="button" class="mc-h" aria-expanded="false" aria-controls="mc-m_vps">')
   expect(html).toContain('<span class="mc-h2">OK · disk 4% · up 2 days</span>')
   expect(html).not.toContain('mc-body')
   expect(html).not.toContain('mc-hst')

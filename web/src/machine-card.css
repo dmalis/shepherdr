@@ -2,6 +2,7 @@
    as two small groups, then its actions. Every number has tabular figures so a meter that changes doesn't shift. The
    meters sit three across while the card has the room, one under another below it (a phone). */
 .mcard.mc{display:block;padding:0;overflow:hidden;container:mc/inline-size;font-variant-numeric:tabular-nums}
+.win .mc .mc-hh,.mc .mc-hh{margin:0;font:inherit;line-height:inherit;color:inherit}
 .mc .mc-h{display:flex;align-items:center;gap:12px;width:100%;min-height:var(--row2);padding:10px 16px;text-align:start}
 .mc button.mc-h{border-radius:12px 12px 0 0}.mc button.mc-h[aria-expanded="false"]{border-radius:12px}
 .mc button.mc-h:focus-visible{outline-offset:-2px}
@@ -40,7 +41,7 @@ html[data-motion="reduced"] .mc .mc-chev{transition:none}
 .mc .mc-bar>i{display:block;width:var(--w);height:100%;border-radius:3px;background:var(--fg)}
 .mc .mc-bar.busy>i{background:var(--amber)}.mc .mc-bar.over>i{background:var(--red)}
 /* the start limit: a short upright mark across the bar, with a hairline of the card around it to stand off the fill */
-.mc .mc-bar>b{position:absolute;top:-3px;bottom:-3px;left:var(--at);width:2px;margin-left:-1px;border-radius:1px;background:var(--sub);box-shadow:0 0 0 1px var(--canvas)}
+.mc .mc-bar>b{position:absolute;top:-3px;bottom:-3px;inset-inline-start:var(--at);width:2px;margin-inline-start:-1px;border-radius:1px;background:var(--sub);box-shadow:0 0 0 1px var(--canvas)}
 
 /* System: label and value rows, two columns of them while there's room */
 .mc .mc-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px;margin:0}

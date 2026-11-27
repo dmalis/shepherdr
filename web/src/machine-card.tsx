@@ -2,7 +2,7 @@
 // Monitor, iOS's General › About and iPhone Storage, and Tailscale's machine list: a header with its name, its role and
 // a status dot with words; Health (three meters with their amounts and the start limit marked on each bar); System
 // (OS, uptime, restart, versions, work there); then its actions. On a phone each card folds to its header and one line
-// ("Disk 4% · up 2 days"), as a list row does, and opens in place on a tap.
+// ("OK · disk 4% · up 2 days"), as a list row does, and opens in place on a tap (ARIA's accordion: a heading holding its button).
 import { useState, type ReactNode } from 'react'
 import type { Machine } from '@shared/types.ts'
 import { attention, gauges, STATUS_WORDS, statusOf, summaryOf, upOf, compareVersions, type Gauge } from '@shared/machine-facts.ts'
@@ -90,9 +90,9 @@ export function MachineCard({ m, serving, role, agents, working, limits, foldabl
   return (
     <section className={cx('mcard', 'mc', st)} aria-label={m.name}>
       {foldable ? (
-        <button type="button" className="mc-h" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>{head}</button>
+        <h3 className="mc-hh"><button type="button" className="mc-h" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>{head}</button></h3>
       ) : (
-        <div className="mc-h">{head}</div>
+        <h3 className="mc-hh"><div className="mc-h">{head}</div></h3>
       )}
       {shown && (
         <div className="mc-body" id={bodyId}>

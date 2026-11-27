@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test'
-import type { Machine } from './types.ts'
+import type { Machine, MachineHealth } from './types.ts'
 import { attention, attentionWords, compareVersions, diskSize, gauges, memSize, moreWarnings, statusOf, summaryOf, upWords } from './machine-facts.ts'
 
 // Machines: more health facts, clearer cards (dmalis/shepherdr#107): the words Settings › Machines and the warnings
 // line say of each machine.
 
 const GiB = 2 ** 30, NOW = 1_800_000_000_000, day = 86_400_000
-const meters = (cpu: number, mem: number, disk: number) => ({ engine: 'core' as const, herdr: true, working: 0, held: 0, at: '',
+const meters = (cpu: number, mem: number, disk: number): MachineHealth => ({ engine: 'core' as const, herdr: true, working: 0, held: 0, at: '',
   meters: [{ name: 'CPU', pct: cpu, detail: '', level: 'ok' }, { name: 'Memory', pct: mem, detail: '', level: mem > 90 ? 'over' : 'ok' }, { name: 'Disk', pct: disk, detail: '', level: disk > 90 ? 'over' : 'ok' }] })
 const machine = (x: Partial<Machine> = {}): Machine => ({
   id: 'm:vps', machine: 'vps', name: 'vps', status: 'idle', health: meters(18, 44, 4),
