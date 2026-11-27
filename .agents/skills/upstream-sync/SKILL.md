@@ -138,8 +138,8 @@ it found: report that, never a guess at why, and never repair `main` by force.
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 
 The `--told` words go to the person, who doesn't code: what's new for them and what of ours was adapted or dropped;
-what waits and why; or what failed. Link the sync PR and any issue. A held record the person already heard of ends
-`--nothing`.
+what waits and why; or what failed. Name the sync PR and each issue by what it is, its link after: "the install
+step's terminal check (#25)". A held record the person already heard of ends `--nothing`.
 
 ## Held
 
