@@ -35,8 +35,8 @@
 .sheet>.scancel{justify-content:center;min-height:52px;margin-top:8px;border-radius:12px;background:var(--control);color:var(--fg);font-weight:600}
 .sheet>.scancel:active{background:var(--control2)}
 /* a dialog as a sheet: its buttons share the width and are a thumb's height */
-.sheet.form>.acts{flex-wrap:nowrap}
-.sheet.form>.acts>.btn{flex:1;height:var(--hit)}
+.sheet.form>.acts,.sheet>.pk>.acts{flex-wrap:nowrap}
+.sheet.form>.acts>.btn,.sheet>.pk>.acts>.btn{flex:1;height:var(--hit)}
 
 /* ---- a popover: grows out of its button (its transform-origin, overlay.tsx) ---- */
 .pop:not(.sheet){max-height:calc(100% - 16px);overflow-y:auto}

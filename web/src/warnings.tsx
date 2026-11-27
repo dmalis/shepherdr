@@ -30,7 +30,7 @@ function Warnings({ thread }: { thread: Thread }) {
         type="button"
         className="n"
         aria-haspopup={list.length > 1 ? 'menu' : undefined}
-        onClick={(e) => (list.length === 1 ? open(list[0]!) : openMenu(e.currentTarget, list.map((w) => ({ icon: w.kind === 'usage' ? ('gauge' as const) : ('server' as const), label: w.text, run: () => open(w) }))))}
+        onClick={(e) => (list.length === 1 ? open(list[0]!) : openMenu(e.currentTarget, list.map((w) => ({ icon: w.kind === 'usage' ? ('gauge' as const) : ('server' as const), label: w.text, run: () => open(w) })), { label: 'Warnings' }))}
       >
         {list.length === 1 ? list[0]!.text : `${list.length} things need a look`}
       </button>

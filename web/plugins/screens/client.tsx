@@ -572,7 +572,7 @@ function ScreenPane() {
       // a site that refuses an automated browser: the same address in a normal browser on that agent's desktop
       ...(src === 'b' ? [{ icon: 'screen' as const, label: 'Open on the desktop instead', run: () => void act(k, 'desktop', { url: state?.url ?? sc.b?.url ?? '' }).then((ok) => ok && setScr({ src: 'd' })) }] : []),
       { icon: 'doc', label: kind === 'task' ? 'Save a screenshot to the task' : 'Save a screenshot', run: () => void shot() },
-    ])
+    ], { label: 'Screen' })
   // the keyboard: a touch screen's own comes up (the typing box takes the focus); a computer's shows the key row
   const kbOn = coarse() ? kb : rowOn
   const keyboard = () => {
