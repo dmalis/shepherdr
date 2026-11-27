@@ -45,6 +45,7 @@ import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
 import { imagesLine, lostLine, useLost } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
 import { BoxLabel } from './box-label.tsx'
+import { enterHint, sendsNow } from '@client/enter.ts'
 import { folderRows } from './folder-row.tsx'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
@@ -1275,7 +1276,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
           aria-label={hint}
           aria-describedby={after ? `ask-${key}` : undefined}
           placeholder={hint}
-          enterKeyHint="send"
+          enterKeyHint={enterHint()}
           autoComplete="off"
           value={text}
           onChange={(e) => {
@@ -1303,8 +1304,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
             if (ment.onKey(e)) return
             // the / list the same way
             if (slash.onKey(e)) return
-            // Enter sends and Shift+Enter makes a new line, the same on phone and desktop
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            // Enter sends and Shift+Enter makes a new line; fork #118: on a phone's on-screen keyboard Return makes a new
+            // line and the send button sends, as iMessage and WhatsApp do (enter.ts; a hardware keyboard still sends)
+            if (sendsNow(e, getState().ui.keyboard)) {
               e.preventDefault()
               go(e.ctrlKey || e.metaKey)
             }

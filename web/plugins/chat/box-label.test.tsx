@@ -26,3 +26,10 @@ test('the message box is the field the label is for, and keeps its aria-label', 
   // the visually hidden class it uses
   expect(read('web/src/dictate.css')).toContain('.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}')
 })
+
+test('the hidden class comes with the chat itself, so the label stays hidden with the Voice plugin off', () => {
+  // the chat imports the dictation module, which brings dictate.css (where .vh lives), whatever plugins are on: a label
+  // left visible would push the box's text aside
+  expect(read('web/plugins/chat/client.tsx')).toContain("from '@client/dictate.tsx'")
+  expect(read('web/src/dictate.tsx')).toContain("import './dictate.css'")
+})

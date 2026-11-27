@@ -46,7 +46,7 @@ For more than a line or two, your own terminal is the better place: the space's 
 
 | Keys | What they do |
 | --- | --- |
-| Enter | Send |
+| Enter | Send (on a phone's on-screen keyboard, Return makes a new line and the send button sends) |
 | Shift+Enter | A new line |
 | Ctrl+Enter (⌘+Enter) | Send, held until the agent's turn ends |
 | Ctrl+K (⌘+K) | Search spaces, tasks and artifacts |

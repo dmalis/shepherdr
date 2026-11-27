@@ -53,9 +53,16 @@
   .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .crow {
     flex: 1 1 0;
     order: 2;
+    /* as far from the box's top as the buttons are from its foot, so a one-line box is even above and below */
+    padding-top: 6px;
   }
+  /* a line of text is exactly as tall as the buttons beside it (--ib), its text centred in it: one line sits level with
+     the + and send, as in iMessage, WhatsApp and Telegram, at every chat text size. The box's own two-row look keeps
+     its taller row (--row) with the keyboard down. */
   .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .crow > .cin {
-    padding-inline: 4px;
+    padding: calc((var(--ib) - var(--chatl)) / 2) 4px;
+    height: var(--ib);
+    min-height: var(--ib);
   }
   .kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin))) > .cbar {
     display: contents;
