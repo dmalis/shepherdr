@@ -1,6 +1,6 @@
 // Shepherdr's background work that doesn't hang on what a window shows, run here once for every client:
 // - the task tick (herdr-task tick: queued tasks start, merged ones are done) every 15 s and 2 s after a task's agent
-//   changes (one that comes while a tick runs: right after it), and about once a minute the automations scheduler's check, here and on other machines with tasks: every
+//   changes, and about once a minute the automations scheduler's check, here and on other machines with tasks: every
 //   service ticks its own machine; the machine that serves the web app (Serve from, service/host.ts tickOn) ticks the
 //   others that have no service of their own (and those running an Assistant: their tick brings agents back after a
 //   crash), and another service does that only while the host can't be reached (herdr-task's own lock keeps two ticks

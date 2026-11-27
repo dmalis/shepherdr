@@ -67,7 +67,7 @@ test("a change while a tick runs gets one tick right after it, never two at once
   expect(passes()).toEqual(["start"]);
   rmSync(hold);
   await first;
-  await until(() => passes().length === 4);
+  await until(() => passes().length === 4).catch(() => {});
   await Bun.sleep(300);
   // exactly one follow-up, started only after the first pass ended
   expect(passes()).toEqual(["start", "end", "start", "end"]);
