@@ -426,7 +426,7 @@ test("FIND: the same through ps -E, as on macOS (#1120)", async () => {
 // news like every other event, never the person's words. Every event, alone or several in one message, with typed
 // words after them; Herdr's other tags (settings, overview, health, GitHub, the hc tags) never show either.
 test("every news event and Herdr tag, alone or several in one message, is news or nothing, never words", async () => {
-  const EVENTS = ["started", "working-again", "needs-you", "failed", "ready", "done", "told", "accept-failed", "stalled", "feedback"];
+  const EVENTS = ["started", "working-again", "needs-you", "waiting", "failed", "ready", "done", "told", "accept-failed", "stalled", "feedback"];
   const line = (e, i) => `<herdr-news task="SHOP-${i}" event="${e}"${e === "feedback" ? ` key="fb-${i}"` : ""}>"Fix login" ${e}: Goal: publish a proof. Tried: ran it. Fix: use the task's folder.</herdr-news>`;
   const u = (id, content) => ({ ...person, uuid: id, message: { role: "user", content } });
   const alone = EVENTS.map((e, i) => u(`a${i}`, line(e, i)));
@@ -448,6 +448,22 @@ test("every news event and Herdr tag, alone or several in one message, is news o
   expect(news.filter((x) => x.event === "feedback").every((x) => x.text.startsWith('"Fix login" feedback: Goal:'))).toBe(true);
   // the only words anyone sees: the ones typed after the tag
   expect(c.items.filter((x) => x.kind !== "news" && x.text).map((x) => x.text)).toEqual(["And the button is too small."]);
+});
+
+// dmalis/shepherdr#114: a wait's news names its kind (needs=), so the chat tells the Assistant's wait from the
+// person's; an older log's needs-you line, as herdr-task wrote it before, still reads, with no kind.
+test("a wait's news line keeps its kind; an older needs-you line reads as before", async () => {
+  const u = (id, content) => ({ ...person, uuid: id, message: { role: "user", content } });
+  const c = await read([
+    u("o1", '<herdr-news task="SHOP-3" event="needs-you">"Typing on a phone" needs you: Checks after the rebase are failing</herdr-news>'),
+    u("n1", ['<herdr-news task="SHOP-3" event="waiting" needs="attention">"Typing on a phone" is waiting: Checks failing: test</herdr-news>',
+      '<herdr-news task="SHOP-4" event="needs-you" needs="asks">"Fix login" needs the person: Asks permission</herdr-news>'].join("\n")),
+  ]);
+  expect(c.items.filter((x) => x.kind === "news").map(({ ref, event, needs, text }) => ({ ref, event, needs, text }))).toEqual([
+    { ref: "SHOP-3", event: "needs-you", needs: undefined, text: '"Typing on a phone" needs you: Checks after the rebase are failing' },
+    { ref: "SHOP-3", event: "waiting", needs: "attention", text: '"Typing on a phone" is waiting: Checks failing: test' },
+    { ref: "SHOP-4", event: "needs-you", needs: "asks", text: '"Fix login" needs the person: Asks permission' },
+  ]);
 });
 
 // SHEP-368: every message between agents is its own row: a reply or a fix to a task (herdr-task reply/fix) as well

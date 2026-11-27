@@ -324,7 +324,7 @@ export function taskBrief({ title = "", prompt = "", launch = "", from = "Assist
 // "HERD-4 is ready: Fix login · summary"), ...: without the title (and the id), split at its first ": ".
 // e: { ref, event, text, made } (made: from the task's own record, not a line Herdr sent); x: the task.
 export function newsWords(e, x) {
-  const mark = { started: "started", "working-again": "started", "needs-you": "needs", failed: "needs", ready: "ready", done: "done" }[e.event] ?? "other";
+  const mark = { started: "started", "working-again": "started", "needs-you": "needs", waiting: "needs", failed: "needs", ready: "ready", done: "done" }[e.event] ?? "other";
   const title = x?.title ?? "", one = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
   if (e.made) return { mark, what: e.event, text: e.event === "ready" ? one(x?.summary) || title : title };
   let s = one(e.text), named = title;
@@ -376,7 +376,7 @@ export function newsTimeline(items, tasks, { start = null } = {}) {
   for (const e of all) { last.set(e.ref, e); if (e.event === "ready") lastReady.set(e.ref, e); }
   return all.map((e) => {
     const x = tasks.get(e.ref);
-    return { ...e, ...newsWords(e, x), live: last.get(e.ref) === e && (e.event === "needs-you" || e.event === "failed") && x?.status === "needs",
+    return { ...e, ...newsWords(e, x), live: last.get(e.ref) === e && ["needs-you", "waiting", "failed"].includes(e.event) && x?.status === "needs",
       accept: lastReady.get(e.ref) === e && x?.status === "ready" };
   });
 }

@@ -75,7 +75,11 @@ def news_line(s, t, v, event, words=None):
     note = " ".join(str(t.get("agents_md") or "").split())
     said = " ".join(str(t.get("summary") or "").split())
     text = {"ready": f"{title} is ready" + (f" · {said}" if said else "") + (f" · For AGENTS.md: {note}" if note else ""),
-            "needs-you": f"{title} needs you: {v.get('why') or 'Needs you'}",
+            # dmalis/shepherdr#114: news is written for the Assistant, and "needs you" read as the person. A wait it
+            # handles first (a question in chat, checks, a conflict, rounds out) is "waiting"; only a prompt on the
+            # agent's own screen (a question card, a permission, trust or sign-in) is the person's, and says so.
+            "waiting": f"{title} is waiting: {v.get('why') or 'Waits for a reply'}",
+            "needs-you": f"{title} needs the person: {v.get('why') or 'Needs you'}",
             "failed": f"{title} failed: {v.get('why') or 'Agent stopped'}",
             "stalled": f"{title} {words}",
             "working-again": f"{title} is working again: {words or (t.get('back') or {}).get('why') or 'its agent is at work again'}",
@@ -88,7 +92,10 @@ def news_line(s, t, v, event, words=None):
                                           f": nothing to merge, closed by its Merge setting" + (f" · {said}" if said else "")
                                           if t.get("closed_alone") else ": nothing to merge" if t.get("nothing_to_merge")
                                           else ": accepted" if t.get("accepted_at") else "")}[event]
-    return f'<herdr-news task="{attr(ref)}" event="{event}">{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
+    # The wait's kind (attention, reply, stopped, asks) rides along, so the chat tells the Assistant's from the person's
+    # (web/shared/needs-you.ts forAssistant).
+    kind = f' needs="{attr(v["needs"])}"' if event in ("waiting", "needs-you", "failed") and v.get("needs") else ""
+    return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 
 
 def untold(t):
@@ -122,6 +129,8 @@ def news_state(s, t, live):
     if event == "needs-you" and (v["needs"] == "stopped" or str(v.get("why") or "").startswith("Couldn't start")):
         # Stopped by the person themselves (herdr-task stop) is no news to their Assistant.
         event = None if v.get("stopped_by") == "you" else "failed"
+    elif event == "needs-you" and v["needs"] != "asks":
+        event = "waiting"  # #114: the Assistant's to handle first, never "needs you" (as service/compat.ts assistantFirst)
     stall = stall_of(t, v, live) if v["status"] == "working" else None
     return v, event, stall
 

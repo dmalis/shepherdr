@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { ALERT_FRESH_MS, alertStands, alertWhat, needsYou, taskAlerts, waitingTasks } from './needs-you.ts'
+import { ALERT_FRESH_MS, alertStands, alertWhat, forAssistant, needsYou, taskAlerts, waitingTasks } from './needs-you.ts'
 import { needsCount, nowGroups, statusWord, taskLine } from './view.ts'
 import type { Snapshot, Task } from './types.ts'
 
@@ -54,4 +54,9 @@ test('queued questions show under Needs you while their task stays Working', () 
   expect(taskLine(t)).toBe('Working · 2 questions for you')
   expect(taskLine({ ...t, queuedQuestions: undefined })).toBe('Working')
   expect(taskLine({ ...t, status: 'need' })).toBe('Needs a repo decision')
+})
+
+test("only a prompt on the agent's own screen is the person's at once; every inferred wait is its Assistant's first (#114)", () => {
+  expect(forAssistant('asks')).toBe(false)
+  for (const kind of ['reply', 'attention', 'stopped', undefined, null]) expect(forAssistant(kind)).toBe(true)
 })

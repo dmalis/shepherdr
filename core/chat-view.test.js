@@ -81,6 +81,13 @@ describe("rows", () => {
     const out = newsTimeline(items, tasks, { start: 0 });
     expect(out.map((e) => [e.event, e.made ?? false, e.accept])).toEqual([["started", true, false], ["ready", false, true]]);
   });
+  test("a wait the Assistant handles is news of a wait, live while the task still waits (#114)", () => {
+    expect(newsWords({ ref: "H-1", event: "waiting", text: '"Fix login" is waiting: Checks failing: test' }, { title: "Fix login" })).toEqual({ mark: "needs", what: "waiting", text: "Checks failing: test" });
+    expect(newsWords({ ref: "H-1", event: "needs-you", text: '"Fix login" needs the person: Asks permission' }, { title: "Fix login" })).toEqual({ mark: "needs", what: "needs the person", text: "Asks permission" });
+    const tasks = new Map([["H-1", { title: "Fix login", status: "needs", started: 100 }]]);
+    const out = newsTimeline([{ kind: "agent", at: 50 }, { kind: "news", id: "n1", at: 300, ref: "H-1", event: "waiting", needs: "reply", text: '"Fix login" is waiting: Done?' }], tasks, { start: 0 });
+    expect(out.at(-1)).toMatchObject({ event: "waiting", needs: "reply", mark: "needs", text: "Done?", live: true });
+  });
   test("no ready line while its checks still run (SHEP-175)", () => {
     const tasks = new Map([["H-1", { title: "A", status: "working", started: 100, ready_at: 300 }]]);
     expect(newsTimeline([{ kind: "agent", at: 50 }], tasks, { start: 0 }).map((e) => e.event)).toEqual(["started"]);
