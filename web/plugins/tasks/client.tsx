@@ -252,7 +252,7 @@ function startDialog(t: Task) {
             <h2 style={{ flex: 1, minWidth: 0 }}>{t.name}</h2>
             <IB icon="x" label="Close" onClick={close} />
           </div>
-          <p>{t.desc ? `${t.desc.replace(/\s+$/, '')}${/[.!?]$/.test(t.desc.trim()) ? '' : '.'} ` : ''}{t.afterTitle ? `It waits for ${t.afterTitle}${t.afterMore ? ` and ${t.afterMore} more` : ''}; nothing starts before that unless you say go.` : 'Nothing starts until you say go.'}</p>
+          <p>{t.desc ? `${t.desc.replace(/\s+$/, '')}${/[.!?]$/.test(t.desc.trim()) ? '' : '.'} ` : ''}{t.afterTitle ? `It waits for ${t.afterTitle}${t.afterMore ? ` and ${t.afterMore} more` : ''}; nothing starts before that unless you say go.` : t.status === 'queued' ? 'It is queued and starts by itself when it can, or now if you say go.' : 'Nothing starts until you say go.'}</p>
           <div className="fld">
             <span>Space</span>
             <span className="fake">
@@ -263,7 +263,7 @@ function startDialog(t: Task) {
             </span>
           </div>
           <AgentField title="This task runs on" machine={machine} pick={pick} onChange={setPick} />
-          <Btn kind="pri" className={busy ? 'busy' : undefined} style={{ width: '100%' }} aria-busy={busy || undefined} onClick={() => void start()}>{busy ? <><I n="working" c="s16" />Starting…</> : 'Start task'}</Btn>
+          <Btn kind="pri" className={busy ? 'busy' : undefined} style={{ width: '100%' }} aria-busy={busy || undefined} onClick={() => void start()}>{busy ? <><I n="working" c="s16" />Starting…</> : t.status === 'queued' ? 'Start now' : 'Start task'}</Btn>
         </>
       )
     },

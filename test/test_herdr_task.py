@@ -13094,7 +13094,20 @@ class StartAfter(unittest.TestCase):
         v = self.run_cmd(self.commands.cmd_add, title="Waits in a third", after="APP-1", folder=third)
         self.assertEqual(v["state"], "queued")
         base = dict(title=None, prompt=None, prompt_file=None, after=None, at=None, in_=None, here=False, worktree=False, base=None)
-        moved = self.run_cmd(self.commands.cmd_edit, id="1", move_to=other, **base)["ref"]
+        from unittest import mock
+        real, during = self.commands.move_into, []
+
+        def move_into(*a):  # a tick in each folder while it moves: what waits for it still finds it, To do
+            out = real(*a)
+            during.append((self.tick_at_folder(other), self.tick_at_folder(third)))
+            return out
+        with mock.patch.object(self.commands, "move_into", move_into):
+            moved = self.run_cmd(self.commands.cmd_edit, id="1", move_to=other, **base)["ref"]
+        self.assertEqual(during, [([], [])])
+        # by its old key, here (a dependent not retargeted) or from another machine (show), it is where it went
+        x = {"ref": "APP-1", "machine": None, "prefix": "APP", "id": 1}
+        self.assertEqual((self.queues.ext_state(x), x["ref"]), ("todo", moved))
+        self.assertEqual(self.run_cmd(self.commands.cmd_show, id="APP-1", folder=None)["ref"], moved)
         for folder in (other, third):
             self.assertEqual(self.tick_at_folder(folder), [])
         with self.store_mod.Store(self.store_mod.locate(other)) as s:
@@ -13202,6 +13215,9 @@ class StartAfter(unittest.TestCase):
         self.assertIn("queue_at_add(s, t, space or default_space())", add)
         self.assertIn("queue_reason(s, t, hold=first_start(t))", inspect.getsource(self.commands.cmd_start))
         self.assertIn("follow_move(", inspect.getsource(self.commands.move_task))
+        self.assertIn("new_ref, new_id = move_into(t, loc, old_ref, old_prefix)\n        s.data[\"tasks\"].remove(t)", inspect.getsource(self.commands.move_task))
+        self.assertIn("show_moved(args)", inspect.getsource(self.commands.cmd_show))
+        self.assertIn("follow(x, d)", inspect.getsource(self.queues.ext_state))
         self.assertIn("t.get(\"archived\")", inspect.getsource(self.tick.tick_turn))
         self.assertIn("hold", inspect.signature(self.queues.queue_reason).parameters)
         turn = inspect.getsource(self.tick.tick_turn)

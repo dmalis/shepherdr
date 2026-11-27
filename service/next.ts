@@ -371,7 +371,11 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
     }
     const blocked = t.status !== "need" ? undefined : handsOpen ? "auth" : card ?? (rep?.kind === "auth" ? "auth" : rep?.kind === "permission" || rep?.kind === "question" ? rep.kind : rep?.state === "blocked" ? "prompt" : undefined);
     const stopped = x.stopped_by && t.status !== "done" && t.status !== "work" ? { by: x.stopped_by as "you" | "error" | "limit", ...(x.stopped_why ? { why: String(x.stopped_why).slice(0, 200) } : {}) } : undefined;
-    const waits = waitsFor(r, x.after);
+    // and another folder's or machine's (dmalis/shepherdr#54), so its row and Start dialog name what it waits for
+    const ext = Array.isArray(x.after_ext) ? x.after_ext.filter((e: any) => e?.title) : [];
+    const here = waitsFor(r, x.after);
+    const open = here.filter((w: any) => w.section !== "done");
+    const waits = ext.length ? [...open, ...ext] : here;
     const after = waits[0]?.title as string | undefined;
     const defaults = defaultsForTask(f.config, r.folder, r.machine ?? null);
     return {

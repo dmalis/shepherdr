@@ -67,6 +67,52 @@ def follow_move(old, new, here, there):
                 s.dirty = True
 
 
+def moved_to(s, old_id, new_ref, folder):
+    """The list a task moved out of keeps where it went (data "moved": its old id to its new ref and folder), so a
+    lookup by its old key, here or from another machine, finds it there instead of taking it as removed."""
+    s.data.setdefault("moved", {})[str(old_id)] = {"ref": new_ref, "folder": folder}
+
+
+def moved_here(data, task_id):
+    """Where a task that was in this list (data) moved to, or None."""
+    mv = ((data or {}).get("moved") or {}).get(str(task_id))
+    return mv if isinstance(mv, dict) and mv.get("ref") and mv.get("folder") else None
+
+
+def follow(x, data):
+    """An after_ext entry `x` of this machine whose task left `data`'s list by a move: x now names it where it went.
+    Whether it did."""
+    mv = moved_here(data, x.get("id"))
+    if not mv:
+        return False
+    pre, n = mv["ref"].rsplit("-", 1)
+    x.update(ref=mv["ref"], prefix=pre, id=int(n))
+    return True
+
+
+def show_moved(args):
+    """show <an old key>: the task where it moved to (a dependent on another machine asks by the key it knew)."""
+    from .base import Fail
+    from .store import open_store, parse_ref
+    for _ in range(5):
+        try:
+            with open_store(args, write=False) as s:
+                try:
+                    s.find(args.id)
+                    return
+                except Fail:
+                    try:
+                        n = parse_ref(args.id)[1]
+                    except Fail:
+                        return
+                    mv = moved_here(s.data, n)
+        except Fail:
+            return
+        if not mv:
+            return
+        args.folder, args.id = mv["folder"], mv["ref"]
+
+
 def points_at(x, old):
     return not x.get("machine") and x.get("prefix") == old["prefix"] and x.get("id") == old["id"]
 

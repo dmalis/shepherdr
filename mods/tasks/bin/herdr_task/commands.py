@@ -31,7 +31,7 @@ from .launch import (
 )
 from .store import bare_by_mistake, Busy, is_task_list, locate, open_store, queue_progress, quoted, read_list, Store, store_files
 from .queues import after_refs, parse_after, queue_reason, set_after
-from .start_after import first_start, follow_move, queue_at_add, wake
+from .start_after import first_start, follow_move, moved_to, queue_at_add, show_moved, wake
 from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
@@ -404,6 +404,7 @@ def set_notes(t, args):
 
 
 def cmd_show(args):
+    show_moved(args)  # dmalis/shepherdr#54: by an old key, the task where it moved to
     with open_store(args, write="try") as s:
         t = s.find(args.id)
         live = [detail(k) for k in live_agents(s.key(t))]
@@ -1497,8 +1498,28 @@ def move_task(args):
         if os.path.realpath(loc["folder"]) == os.path.realpath(s.loc["folder"]):
             raise Fail(f"{s.name(t)} is already in {s.loc['folder']}.")
         old_ref, old_prefix, old_id = s.ref(t), s.prefix, t["id"]
+        # dmalis/shepherdr#54: this list stays held while it moves, and it leaves only once its copy is saved there, so
+        # what waits for it never finds it gone (a queued task would take that as removed and start), and nothing
+        # here starts it meanwhile.
+        new_ref, new_id = move_into(t, loc, old_ref, old_prefix)
         s.data["tasks"].remove(t)
+        moved_to(s, old_id, new_ref, loc["folder"])
         s.dirty = True
+        # what waited for it here waits for it there
+        for o in s.data["tasks"]:
+            if old_id in (o.get("after") or []):
+                o["after"] = [i for i in o["after"] if i != old_id]
+                o.setdefault("after_ext", []).append({"ref": new_ref, "machine": None, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id,
+                                                      "state": "todo", "checked": 0})
+    # dmalis/shepherdr#54: and what waits for it in other folders (a queued one there would take it as removed)
+    follow_move({"prefix": old_prefix, "id": old_id}, {"ref": new_ref, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id},
+                s.loc["folder"], loc["folder"])
+    args.folder, args.id, args.move_to = loc["folder"], str(new_id), None
+    return old_ref
+
+
+def move_into(t, loc, old_ref, old_prefix):
+    """move_task's copy of `t` in `loc`'s list: its new ref and id there."""
     with Store(loc) as d:
         n = d.new(t["title"], t.get("prompt") or "", "worktree" if d.loc["kind"] == "repo" and t.get("mode") == "worktree" and worktrees_on(d) else "here")
         for k, v in t.items():
@@ -1515,20 +1536,7 @@ def move_task(args):
         if n.get("queue") and not n["queue"].get("custom"):
             n["queue"].pop("argv", None)  # its agent as that folder's settings say
         d.dirty = True
-        new_ref, new_id = d.ref(n), n["id"]
-    with open_store(args) as s:
-        # what waited for it here waits for it there
-        for o in s.data["tasks"]:
-            if old_id in (o.get("after") or []):
-                o["after"] = [i for i in o["after"] if i != old_id]
-                o.setdefault("after_ext", []).append({"ref": new_ref, "machine": None, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id,
-                                                      "state": "todo", "checked": 0})
-                s.dirty = True
-    # dmalis/shepherdr#54: and what waits for it in other folders (a queued one there would take it as removed)
-    follow_move({"prefix": old_prefix, "id": old_id}, {"ref": new_ref, "prefix": new_ref.rsplit("-", 1)[0], "id": new_id},
-                s.loc["folder"], loc["folder"])
-    args.folder, args.id, args.move_to = loc["folder"], str(new_id), None
-    return old_ref
+        return d.ref(n), n["id"]
 
 
 def cmd_edit(args):

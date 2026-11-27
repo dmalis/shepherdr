@@ -54,6 +54,9 @@ def ext_state(x):
         if d is None:
             raise Fail(f"Couldn't read {ref}'s list.")
         t = next((t for t in d.get("tasks") or [] if t.get("id") == x["id"]), None)
+        from .start_after import follow  # dmalis/shepherdr#54: moved to another folder, it is still there
+        if not t and follow(x, d):
+            return ext_state(x)
         if t and t.get("title"):
             x["title"] = t["title"]  # SHEP-322: what a reason says instead of its key
         return t.get("state") if t else None

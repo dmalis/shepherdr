@@ -10,9 +10,12 @@
     "mods/tasks/bin/herdr_task/tick.py",
     "web/plugins/tasks/client.tsx",
     "service/actions.ts",
-    "service/voice-tools.ts"
+    "service/voice-tools.ts",
+    "service/model.ts",
+    "service/next.ts"
   ],
   "tests": [
+    "service/next.test.ts",
     "test/test_herdr_task.py::StartAfter",
     "test/test_herdr_task.py::StartAfterReady"
   ]
