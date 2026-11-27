@@ -59,7 +59,7 @@ describe("a task's status (as herdr-task's task_status)", () => {
   });
   test("a pull request whose checks still run is Working, then Ready (SHEP-175)", () => {
     const idle = [{ address: "t1", status: "idle", since: NOW - 600_000 }];
-    expect(at({ id: 1, state: "ready", pr: { number: 3, wait: "Checks running" } }, idle)).toMatchObject({ section: "working", needs: null, why: "Checks running" });
+    expect(at({ id: 1, state: "ready", pr: { number: 3, wait: "Checks running" } }, idle)).toMatchObject({ section: "working", needs: null, why: "Waiting for GitHub's checks" }); // dmalis/shepherdr#42
     expect(at({ id: 1, state: "ready", pr: { number: 3 } }, idle).section).toBe("ready");
     // A failing check found a moment ago: back to its agent, Working, never Ready first.
     const failing = { id: 1, state: "ready", attention: "Checks failing: check.", attention_at: NOW - 5000, pr: { number: 3, wait: "Back to its agent to fix" } };

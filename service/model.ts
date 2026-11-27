@@ -12,6 +12,9 @@ import { READ_CHANGES, changesArgs, changedLists } from "../core/tasklists.js";
 import { carryOver, IMPORTED } from "./carry-over.ts";
 import { HOME } from "./paths.ts";
 import * as T from "../core/tasks.js";
+import { checksWait } from "../core/checks-wait.js";
+// dmalis/shepherdr#42: checks' words without the time left (" · about 8 min", " · almost done")
+const sansLeft = (w: unknown) => (typeof w === "string" ? w.replace(/ · (about \d+ min|almost done)$/, "") : w);
 import { FIND } from "../core/chat-log.js";
 import { isHelper, subagentsOf } from "../core/chat-view.js";
 // The core is plain JavaScript; its defaults read as narrow types to TypeScript.
@@ -375,6 +378,9 @@ export class Model {
           idle: p.section === "working" && !(live.length ? Date.now() - (task.handed_at ?? 0) < STARTING_MS || (starting(task) && live.some((a) => !a.status)) : starting(task))
             && !live.some((a) => a.status === "working" || a.status === "blocked") && !helpers.some((a) => a.status === "working" || a.status === "blocked")
             ? (live.length ? "idle" : "none") : null,
+          // what a Ready task waits on while its checks run, as its row says (dmalis/shepherdr#42)
+          // its row's words are its checks' (read a moment apart: a minute's turn may change the time left, never the rest)
+          checks_wait: ((cw) => (cw && p.section === "working" && sansLeft(p.why) === sansLeft(cw.line) ? cw : null))(checksWait(task)),
           pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,

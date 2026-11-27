@@ -6,6 +6,7 @@ import { taskAlerts } from './needs-you.ts'
 import { afterMergeNote } from './after-merge.ts'
 import { inSlots, type Slotted } from './group-slots.ts'
 import { answeredWords } from './answered.ts'
+import { checksLine } from './checks-wait.ts'
 
 export type Space = Place
 
@@ -178,6 +179,7 @@ export function statusWord(t: Task): { word: string; tone: Tone } {
   const s = tstate(t)
   if (s === 'done' || s === 'archived') return { word: doneWords(t).split(' · ').slice(0, t.merged ? 1 : 2).join(' · '), tone: 'mute' }
   if (t.status === 'merging' || t.accepting) return { word: 'Merging', tone: 'working' }
+  if (t.checksWait) return { word: t.checksWait.state === 'failed' ? 'A check failed' : 'Waiting for checks', tone: t.checksWait.state === 'failed' ? 'red' : 'mute' }
   if (s === 'ready') return { word: 'Ready for review', tone: 'ready' }
   if (t.stopped) return t.stopped.by === 'you' ? { word: 'Stopped by you', tone: 'ask' } : { word: 'Stopped', tone: 'red' }
   if (s === 'ask') return { word: 'Needs you', tone: 'ask' }
@@ -215,6 +217,7 @@ function rowLine(t: Task): string {
   if (s === 'ready') return 'Ready for review'
   if (t.stopped) return t.stopped.by === 'you' ? 'Stopped by you' : `Stopped${t.stopped.why ? ` · ${t.stopped.why}` : ''}`
   if (s === 'ask') return t.report?.msg || (t.blocked === 'prompt' ? 'Waiting at a prompt' : t.blocked === 'permission' ? 'Wants to run a command' : 'Waits for your reply')
+  if (t.checksWait) return checksLine(t.checksWait)
   if (s === 'working') {
     if (t.waitsDesktop) return 'Waiting for the desktop'
     if (t.queuedQuestions) return `Working · ${t.queuedQuestions} ${t.queuedQuestions === 1 ? 'question' : 'questions'} for you`
@@ -265,7 +268,7 @@ export function dayTime(ms: number): string {
  *  only while it works (frozen and not shown while it waits on you); none when it gave none. 0: under a minute. */
 export function etaOf(t: Task): number | null {
   const eta = t.report?.eta
-  if (tstate(t) !== 'working' || t.status === 'merging' || t.accepting || t.waitsDesktop || t.report?.paused) return null
+  if (tstate(t) !== 'working' || t.status === 'merging' || t.accepting || t.checksWait || t.waitsDesktop || t.report?.paused) return null
   return typeof eta === 'number' && eta >= 0 ? eta : null
 }
 
@@ -289,7 +292,8 @@ export function leftShort(min: number | null | undefined): string {
  *  sign that tells states apart without colour (needs you: the ring's inside softly tinted; stopped: a square; not started, waiting for the person's Start: a dotted ring, as
  *  Linear's Backlog; Up next and Scheduled are a plain empty ring, as its Todo). */
 export interface Ring {
-  /** pending: a still dot, never a turning ring: its agent idle on a Working task (dmalis/shepherdr#48) */
+  /** pending: a still dot, never a turning ring: a ready task waiting on its pull request's checks (dmalis/shepherdr#42),
+   *  or its agent idle on a Working task (#48), as GitHub's and Vercel's pending mark */
   kind: 'check' | 'ring' | 'pending'
   tone: 'working' | 'ask' | 'red' | 'ready' | 'mute'
   pct: number | null
@@ -301,6 +305,7 @@ export interface Ring {
 export function ringOf(t: Task): Ring {
   const s = tstate(t)
   if (s === 'done' || s === 'archived') return { kind: 'check', tone: 'mute', pct: 100, label: 'Done' }
+  if (t.checksWait) return { kind: 'pending', tone: t.checksWait.state === 'failed' ? 'red' : 'working', pct: null, label: checksLine(t.checksWait) }
   if (s === 'ready' || t.status === 'merging' || t.accepting) return { kind: 'check', tone: 'ready', pct: 100, label: s === 'ready' ? 'Ready for review' : 'Merging' }
   const p = t.report?.progress
   const pct = typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : null

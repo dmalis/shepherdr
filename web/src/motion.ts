@@ -17,6 +17,12 @@ export const SHEET_MS = 460
 
 export const still = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
+/** the device asks for less motion, or Settings › General › Motion is Reduced: things fade, nothing slides */
+export const calm = () => still() || (typeof document !== 'undefined' && document.documentElement.dataset.motion === 'reduced')
+
+/** a strong ease-out: what opens answers at once and lands softly (a menu, a dialog) */
+export const OUT = 'cubic-bezier(.23, 1, .32, 1)'
+
 let hushed = 0
 /** what changes this moment lands without moving: a swipe (the app's or the system's) already moved it */
 export function hush(ms = 150) {
@@ -28,7 +34,7 @@ export const hushedNow = () => performance.now() < hushed
 export const project = (at: number, v: number) => at + v * 200
 
 /** a finger this fast (px per ms) as it lets go flings: it goes its way however short the swipe */
-const FLING = 0.3
+export const FLING = 0.3
 
 /** Does a swipe let go at `at` with speed `v` land past `mark`? A fling goes the way it was going, as iOS's drawers and
  *  swipe back do; a slow let-go lands where it is carried. */
@@ -65,31 +71,40 @@ export type Motion = 'menu' | 'sheet' | 'dialog' | 'page' | 'fade'
 
 /** the part of a sheet or dialog that moves; the rest of it is the shade behind */
 const panelOf = (el: HTMLElement) => el.querySelector<HTMLElement>(':scope > [data-panel]') ?? el
+/** the shade behind a panel, its own element (overlay.tsx's scrim): it fades, so nothing is painted again */
+const shadeOf = (el: HTMLElement) => el.querySelector<HTMLElement>(':scope > .scrim:not(.clear)')
 
+/** How a sheet, menu or dialog comes in (fork #109): a sheet slides up on iOS's curve, a menu grows out of its button
+ *  (its transform-origin), a dialog grows a little in the middle; with less motion, a short fade. */
 function enter(el: HTMLElement, m: Motion) {
   if (hushedNow()) return
-  if (still()) return void el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' })
+  if (calm()) return void el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' })
   const p = panelOf(el)
-  if (m === 'menu') p.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: SPRING })
+  const shade = shadeOf(el)
+  if (m === 'menu') p.animate([{ opacity: 0, scale: '.96' }, { opacity: 1, scale: '1' }], { duration: 180, easing: OUT })
   else if (m === 'page') p.animate([{ transform: 'translateX(100%)' }, { transform: 'none' }], { duration: PUSH_MS, easing: IOS })
   else if (m === 'fade') p.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' })
   else {
-    if (p !== el) el.animate([{ backgroundColor: 'transparent' }, {}], { duration: m === 'sheet' ? SHEET_MS : 250, easing: 'ease-out' })
+    if (shade) shade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: m === 'sheet' ? SHEET_MS : 200, easing: 'ease-out' })
+    else if (p !== el) el.animate([{ backgroundColor: 'transparent' }, {}], { duration: m === 'sheet' ? SHEET_MS : 250, easing: 'ease-out' })
     if (m === 'sheet') p.animate([{ transform: 'translateY(100%)' }, { transform: 'none' }], { duration: SHEET_MS, easing: IOS })
-    else p.animate([{ opacity: 0, transform: 'translateY(8px) scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SPRING })
+    else p.animate([{ opacity: 0, scale: '.96' }, { opacity: 1, scale: '1' }], { duration: 200, easing: OUT })
   }
 }
 
+/** and goes out: quicker than it came, the same way back */
 function leave(el: HTMLElement, m: Motion): Promise<unknown> {
-  if (still()) return el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: 'ease-in', fill: 'forwards' }).finished
+  if (calm()) return el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: 'ease-out', fill: 'forwards' }).finished
   const p = panelOf(el)
+  const shade = shadeOf(el)
   const opt = { fill: 'forwards' as const }
-  if (m === 'menu') return p.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.96)' }], { ...opt, duration: 150, easing: AWAY }).finished
+  if (m === 'menu') return p.animate([{ opacity: 1, scale: '1' }, { opacity: 0, scale: '.98' }], { ...opt, duration: 120, easing: OUT }).finished
   if (m === 'page') return p.animate([{ transform: 'none' }, { transform: 'translateX(100%)' }], { ...opt, duration: 380, easing: IOS }).finished
-  if (m === 'fade') return p.animate([{ opacity: 1 }, { opacity: 0 }], { ...opt, duration: 160, easing: 'ease-in' }).finished
-  if (p !== el) el.animate([{}, { backgroundColor: 'transparent' }], { ...opt, duration: 260, easing: 'ease-in' })
-  if (m === 'sheet') return p.animate([{ transform: 'none' }, { transform: 'translateY(100%)' }], { ...opt, duration: 340, easing: IOS }).finished
-  return p.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.97)' }], { ...opt, duration: 160, easing: AWAY }).finished
+  if (m === 'fade') return p.animate([{ opacity: 1 }, { opacity: 0 }], { ...opt, duration: 160, easing: 'ease-out' }).finished
+  if (shade) shade.animate([{ opacity: 1 }, { opacity: 0 }], { ...opt, duration: m === 'sheet' ? 300 : 150, easing: 'ease-out' })
+  else if (p !== el) el.animate([{}, { backgroundColor: 'transparent' }], { ...opt, duration: 260, easing: 'ease-in' })
+  if (m === 'sheet') return p.animate([{}, { transform: 'translateY(100%)' }], { ...opt, duration: 300, easing: IOS }).finished
+  return p.animate([{ opacity: 1, scale: '1' }, { opacity: 0, scale: '.98' }], { ...opt, duration: 150, easing: OUT }).finished
 }
 
 /** A still copy of what is on screen: where it is, scrolled as it is, without ids, frames or anything to load again. */
@@ -115,7 +130,7 @@ function ghostOf(el: HTMLElement) {
 
 /** the layer ghosts play on: over the app, drawn the way the app is (its device, type and colours) */
 function ghostLayer() {
-  const app = document.querySelector<HTMLElement>('[data-device]')
+  const app = document.querySelector<HTMLElement>('[data-device]') ?? document.querySelector<HTMLElement>('.app')
   const g = document.createElement('div')
   g.className = app?.className ?? ''
   if (app?.dataset.device) g.dataset.device = app.dataset.device

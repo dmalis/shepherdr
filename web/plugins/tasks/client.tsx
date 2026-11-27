@@ -26,6 +26,7 @@ import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
 import { showsAgent, TaskWhere } from './where.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
+import { ChecksCard } from './checks-card.tsx'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
 import { needsWords } from '@shared/needs-open.ts'
@@ -446,7 +447,7 @@ function taskCards(snap: Snapshot, thread: Thread): { key: string; at?: number; 
     const alert = taskAlerts(snap).get(t.id)
     // each where it came up among the messages, never held at the end (SHEP-419)
     // a Ready card still waiting goes below what was said after it (#1475)
-    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(offersAfterMerge(t) ? [{ key: `after-merge:${t.id}`, at: t.doneAt, after: () => true, node: <AfterMergeCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : [])]
+    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(t.checksWait ? [{ key: `checks:${t.id}`, at: t.at, after: () => true, node: <ChecksCard t={t} /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(offersAfterMerge(t) ? [{ key: `after-merge:${t.id}`, at: t.doneAt, after: () => true, node: <AfterMergeCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : [])]
   }
   // cards stay in the chat that asked (SHEP-325): a space's Tasks also holds what works in its folder, its chat does not
   const mine = tasksIn(snap, thread.place).filter((t) => isEverything(snap, thread.place) || t.place === thread.place)
@@ -489,7 +490,8 @@ function TaskHead({ task: t, where, scrolled }: { task: Task; where: 'chat' | 'p
         <span className="hline">
           <StatusIcon t={live} time="none" />
           <span>{big && snap ? `${line} · in ${spaceLabel(snap, t.place)}` : line}</span>
-          <TaskAgentSummary t={live} className="head-agent" />
+          {/* waiting on its checks, its agent is done: the words what it waits for get the room (dmalis/shepherdr#42) */}
+          {!live.checksWait && <TaskAgentSummary t={live} className="head-agent" />}
         </span>
       }
       scrolled={scrolled}
@@ -717,7 +719,7 @@ function FilterMenu() {
   const inSpace = !!at && !isEverything(snap, at)
   const machines = new Set(snap.machines.map((m) => m.machine)).size > 1
   const check = (key: string, label: ReactNode, on: boolean, run: () => void, n?: number) => (
-    <Row key={key} lead={<Tick on={on} />} label={label} value={n ? String(n) : undefined} role="menuitemcheckbox" aria-checked={on} onClick={run} />
+    <Row key={key} lead={<Tick on={on} />} label={label} value={n ? String(n) : undefined} role="checkbox" aria-checked={on} onClick={run} />
   )
   const group = (key: GroupKey, name: string) => {
     const all = choices(snap, key, f)
@@ -768,7 +770,7 @@ function FilterButton() {
   const at = useUI((u) => u.at)
   const on = !!snap && filterOn(snap, f, at)
   return (
-    <IB icon="filter" label={on ? 'Filter tasks (on)' : 'Filter tasks'} aria-haspopup="menu" data-marks="" onClick={(e) => openMenu(e.currentTarget, () => <FilterMenu />, { label: 'Filter tasks', within: e.currentTarget.closest('.hd')?.parentElement })}>
+    <IB icon="filter" label={on ? 'Filter tasks (on)' : 'Filter tasks'} aria-haspopup="dialog" data-marks="" onClick={(e) => openMenu(e.currentTarget, () => <FilterMenu />, { label: 'Filter tasks', within: e.currentTarget.closest('.hd')?.parentElement })}>
       {on && <span className="fdot" />}
     </IB>
   )

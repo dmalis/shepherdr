@@ -25,6 +25,7 @@ from .store import locate, read_list, Store, store_files
 from .queues import machine_hold, refresh_ext, set_hold, waiting_ext, waiting_for
 from .archive import archive_pass
 from . import after_merge
+from . import checkwait
 from .browsers import browser_pass
 from .output import progress_clock, say
 from .commands import back_to_work, begin, merge_failed, merge_now, merge_waits, MERGE_FAILED, restack, workers
@@ -212,6 +213,7 @@ def facts(s, t, report):
         missing = checks_missing(v, since, expect)
         # SHEP-348: the mark on its row (running, failed, passed)
         word = checks_state(v, missing)
+        checkwait.keep(s, t, v, missing, held=word == "failed" and held_by_base(s, t, v))  # dmalis/shepherdr#42: each check
         if word != pr.get("checks"):
             if word:
                 pr["checks"] = word

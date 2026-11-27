@@ -223,7 +223,8 @@ test('pinned: the page never scrolls, the header is a plain row on the canvas, a
   // the chat's header is its column's first child, the viewer's bar its first
   expect(app).toMatch(/<section className="col chat"[^>]*>\s*<ChatHeader /)
   expect(read('web/plugins/chat/thumbs.tsx')).toMatch(/openDialog\(\s*\(close\) => \(\s*<>\s*<div className="lbar">/)
-  expect(read('web/src/overlay.tsx')).toContain("className={layer.view ? 'lbox in'")
+  // a picture shown on its own is a .lbox (fork #109: drawn by LayerView, its fade from motion.ts)
+  expect(read('web/src/overlay.tsx')).toMatch(/shape === 'view'\s*\?\s*'lbox'/)
   expect(app).toContain('<section className="col pane"')
   expect(app).toMatch(/<div className="device">\s*\{registry\.topBars\.map/)
 })

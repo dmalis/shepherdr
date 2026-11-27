@@ -69,6 +69,14 @@ export function wentIn(cid: string): number | null {
   return typeof r.at === "number" ? r.at : was.at;
 }
 
+/** a held message went in after its first answer said waiting (dmalis/shepherdr#59): asked again with its id, the
+ *  answer is now that it went in (kept on disk, so a restart never sends it twice) */
+export function noteWent(cid: string, at: number) {
+  const d = load();
+  d.set(cid, { at: Date.now(), result: { ok: true, at } });
+  save();
+}
+
 /** held messages that couldn't go once the agent was free, by agent address: the page shows them failed with Retry */
 const heldFailed = new Map<string, { cid: string; error: string; at: number }[]>();
 export function noteFailed(addr: string, cid: string, error: string, stayed = false) {
@@ -78,6 +86,12 @@ export function noteFailed(addr: string, cid: string, error: string, stayed = fa
   if (load().delete(cid)) save();
   const list = (heldFailed.get(addr) ?? []).filter((f) => f.cid !== cid && Date.now() - f.at < KEEP);
   heldFailed.set(addr, [...list, { cid, error, at: Date.now() }]);
+}
+/** why a held one failed, by its id (dmalis/shepherdr#59): its failure, or that it stayed in Claude Code's box (its
+ *  Retry is the person's, never a page's own ask), or null */
+export function failedFor(cid: string): string | null {
+  for (const list of heldFailed.values()) for (const f of list) if (f.cid === cid && Date.now() - f.at < KEEP) return f.error;
+  return stuck.has(cid) ? "It stayed in the agent's message box." : null;
 }
 export function failedOf(addr: string | null | undefined): { cid: string; error: string }[] {
   return (heldFailed.get(addr ?? "") ?? []).filter((f) => Date.now() - f.at < KEEP).map(({ cid, error }) => ({ cid, error }));

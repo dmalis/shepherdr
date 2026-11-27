@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { ALERT_FRESH_MS, alertStands, alertWhat, needsYou, taskAlerts, waitingTasks } from './needs-you.ts'
+import { ALERT_FRESH_MS, alertStands, alertWhat, forAssistant, needsYou, waitsOnPerson, taskAlerts, waitingTasks } from './needs-you.ts'
 import { needsCount, nowGroups, statusWord, taskLine } from './view.ts'
 import type { Snapshot, Task } from './types.ts'
 
@@ -54,4 +54,19 @@ test('queued questions show under Needs you while their task stays Working', () 
   expect(taskLine(t)).toBe('Working · 2 questions for you')
   expect(taskLine({ ...t, queuedQuestions: undefined })).toBe('Working')
   expect(taskLine({ ...t, status: 'need' })).toBe('Needs a repo decision')
+})
+
+test("only a prompt on the agent's own screen is the person's at once; every inferred wait is its Assistant's first (#114)", () => {
+  expect(forAssistant('asks')).toBe(false)
+  for (const kind of ['reply', 'attention', 'stopped', undefined, null]) expect(forAssistant(kind)).toBe(true)
+})
+
+test('a task waits on the person when a card of theirs or a hand-up stands, never for an inferred wait alone (#114)', () => {
+  const inferred = { id: 'attention', chat: 'SHOP-1/worker', place: 'shop', task: 'SHOP-1', at: T0, assistantFirst: true as const }
+  const snap = (needs: unknown[], alerts: ReturnType<typeof alert>[] = []) => ({ ...snapOf([task('SHOP-1', { status: 'need' })], alerts), needs }) as unknown as Snapshot
+  expect(waitsOnPerson(snap([inferred]), 'SHOP-1', T0)).toBe(false)
+  expect(waitsOnPerson(snap([{ ...inferred, assistantFirst: undefined }]), 'SHOP-1', T0)).toBe(true)
+  // the Assistant handed it up: herdr-task alert --task, while it stands
+  expect(waitsOnPerson(snap([inferred], [alert('h')]), 'SHOP-1', T0 + 10)).toBe(true)
+  expect(waitsOnPerson(snap([inferred], [alert('h', { ended: true })]), 'SHOP-1', T0 + 10)).toBe(false)
 })

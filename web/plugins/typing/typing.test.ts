@@ -257,6 +257,20 @@ test('the message box is one row while typing: + first, then the text, then the 
   expect(css).toContain(`${ONE_ROW} > * {\n    flex: 0 0 100%;`)
 })
 
+test('one line of text sits level with the + and send: as tall as the buttons, centred, even above and below', () => {
+  // the text row is exactly a button's height (--ib) at every chat text size: its padding is what the line leaves
+  expect(css).toContain(`${ONE_ROW} > .crow > .cin {\n    padding: calc((var(--ib) - var(--chatl)) / 2) 4px;\n    height: var(--ib);\n    min-height: var(--ib);`)
+  // as far from the box's top as the buttons are from its foot (the box's own bottom padding)
+  expect(css).toContain(`${ONE_ROW} {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: flex-end;\n    column-gap: 4px;\n    padding: 0 6px 6px;`)
+  expect(css).toMatch(new RegExp(`> \\.crow \\{\\n    flex: 1 1 0;\\n    order: 2;\\n    /\\*[^*]*\\*/\\n    padding-top: 6px;`))
+  // the upstream values this leans on: the buttons' height, the text's line height, and the box's one-line fit
+  const ds = read('web/src/ds.css')
+  expect(ds).toContain('--ib:44px')
+  expect(ds).toMatch(/\.app\.tap\{[^}]*--ib:44px/)
+  expect(read('web/src/size.css')).toContain('.cin{font-size:var(--chat);line-height:var(--chatl)}')
+  expect(read('web/src/grow.ts')).toContain("t.style.height = '44px'")
+})
+
 test('suggested replies step aside once there is text in the box, only while typing', () => {
   expect(css).toContain('.kb-up .app .foot:has(.cin:not(:placeholder-shown)) > .sugs {\n    display: none;')
 })
@@ -284,7 +298,8 @@ test('upstream seams of the one-row box: its parts, the replies, dictation, the 
   expect(box).toContain('<div className="sugs" ref={row} role="group" aria-label="Suggested replies">')
   expect(box).toContain('placeholder={hint}')
   expect(read('web/src/ui.tsx')).toContain('export function IB(')
-  expect(box).toContain('<IB icon="plus" label={finger ? \'Add\' : \'Add files\'} onClick={plus} />')
+  // + and its hidden inputs (Phone + sheet: one tap to camera, photos, files): the button first, so it leads the bar
+  expect(read('web/plugins/chat/attach.tsx')).toMatch(/return \(\n    <>\n      <IB icon="plus" /)
   expect(read('web/src/picker.tsx')).toContain('<button ref={ref} type="button" className="agent"')
   expect(read('web/plugins/chat/update.tsx')).toContain('className="agent-upd"')
   // dictation takes over the bar with its own surface: the box keeps its two rows then

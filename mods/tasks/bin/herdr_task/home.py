@@ -48,7 +48,7 @@ LEAD_KEEP_MS = 10 * 60000      # a lead that misses a round still leads this lon
 # GitHub #1126: news of a space whose own live Assistant got it (every line the news log keeps) reaches the overview
 # only when it needs the person; the rest (ready, done, working again, stalled) that Assistant acts on alone, and the
 # home Assistant no longer pays a turn for each. Overview lines wait for it to be idle and go as one message.
-OVERVIEW_OWN_EVENTS = ("needs-you", "failed", "accept-failed")
+OVERVIEW_OWN_EVENTS = ("needs-you", "waiting", "failed", "accept-failed")  # waiting: #114, a wait its Assistant handles
 
 
 def main_here():

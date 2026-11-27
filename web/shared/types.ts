@@ -348,6 +348,8 @@ export interface Task {
   agentIdle?: boolean
   /** with agentIdle: no agent of its own runs at all (it ended; waiting on checks, say) */
   agentGone?: boolean
+  /** said ready, and its merge waits on its pull request's checks: their state (core/checks-wait.js, dmalis/shepherdr#42) */
+  checksWait?: ChecksWait
   /** done: a schedule's run that had nothing to do, or that only had something to say (posted in its space's chat) */
   quiet?: 'nothing' | 'told'
   /** done: a few words after "Done and merged" ("1 link fixed") */
@@ -711,8 +713,9 @@ export interface Message {
    *  it at once, so an ordinary message never has this) */
   waiting?: boolean
   /** why it waits: a menu is up (typed text could pick an option), the agent is starting, a CLI command waits for the
-   *  turn to end, it is in the CLI's own queue until its next step, or nothing here: its machine is out of reach */
-  waitsFor?: 'menu' | 'start' | 'turn' | 'queue'
+   *  turn to end, it is in the CLI's own queue until its next step, its agent's question (a card) waits for your answer
+   *  and it goes by itself after it (dmalis/shepherdr#59), or nothing here: its machine is out of reach */
+  waitsFor?: 'menu' | 'start' | 'turn' | 'queue' | 'answer'
   /** an attached file: each one is a message of its own, right after the text it came with; an agent's picture or
    *  video named in its words (core/chat-view.js mediaIn) comes the same way, with its Markdown words as alt */
   file?: { name: string; path: string; alt?: string }
@@ -743,8 +746,10 @@ export interface Message {
   /** a task's brief, the first message of its chat (SHEP-330): what its agent was given, from the moment the task exists */
   taskBrief?: TaskBrief
   /** 3.0's task news line in an Assistant's chat (core/chat-view.js newsWords): its mark, what happened, the rest;
-   *  live: still needs you (red); accept: the newest ready line of a task still Ready */
-  news?: { task: string; ref: string; event?: string; mark: 'started' | 'needs' | 'ready' | 'done' | 'other'; what: string; text: string; live?: boolean; accept?: boolean }
+   *  live: the task's newest wait line while it still waits; accept: the newest ready line of a task still Ready */
+  news?: { task: string; ref: string; event?: string; mark: 'started' | 'needs' | 'ready' | 'done' | 'other'; what: string; text: string; live?: boolean; accept?: boolean;
+    /** the wait's kind on a waiting, needs-you or failed line (herdr-task's needs: reply, attention, stopped, asks; #114) */
+    needs?: string }
   /** the agent's own question as the log has it (3.0's "Asked you" box): open, answered, or closed without one */
   asked?: 'open' | 'answered' | 'dismissed'
   /** a short recap of what happened while you were away (the CLI's own, or its answer to the Recap ask), or a
@@ -874,6 +879,40 @@ export interface TurnActivity {
 }
 
 /** Work an agent started in the background that still runs */
+/** one of a pull request's checks while a Ready task waits on them (core/checks-wait.js) */
+export interface CheckRun {
+  name: string
+  state: 'passed' | 'failed' | 'running' | 'queued' | 'skipped'
+  /** started and ended (ms; 0 when not yet) */
+  at: number
+  end: number
+  /** how long the same check took on this repo's earlier pull requests (ms; 0 when not known) */
+  typical: number
+  url?: string
+}
+
+/** what a Ready task waits on while its pull request's checks run: running (the time left where known), failed (one
+ *  went back to its agent) or slow (one runs far past its usual time); its line, and what happens once they're done */
+export interface ChecksWait {
+  state: 'running' | 'failed' | 'slow'
+  line: string
+  next: string
+  passed: number
+  total: number
+  /** more checks will come (a workflow not started yet) */
+  more: boolean
+  /** it merges by itself once they pass */
+  auto: boolean
+  runs: CheckRun[]
+  /** the facts the words come from, carried so the page tells them again the same (core/checks-wait.js waitWords) */
+  back?: boolean
+  failed?: boolean
+  cut?: { p?: number; o?: number; f?: number }
+  approval?: boolean
+  held?: boolean
+  base?: string
+}
+
 export interface Job {
   id: string
   /** child: its own helper agent in herdr (SHEP-54: a reviewer it started), a chat of its own */

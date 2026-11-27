@@ -33,24 +33,29 @@ import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
 import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPastes, sizeOf, usePastes, type Paste } from './fold.ts'
 import { fineOnly, touch } from './clip.ts'
+import { AddButtons } from './attach.tsx'
 import { landLaunchShare, putAway, useLanded, watchLastChat } from './share.ts'
 import { openSendTo } from './sendto.tsx'
 import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './suggest.ts'
 import { bubbleQuote, ReplyingTo } from './reply-bubbles.tsx'
+import { taskReplies } from './task-replies.ts'
 import { UpdateHint, updateRows } from './update.tsx'
 import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
 import { imagesLine, lostLine, useLost } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
 import { BoxLabel } from './box-label.tsx'
+import { enterHint, sendsNow } from '@client/enter.ts'
 import { folderRows } from './folder-row.tsx'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
+import { waitsOnPerson } from '@shared/needs-you.ts'
 import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.ts'
 import { onPageReturn } from '@client/viewport.ts'
 import { keepAtEnd, rowEdges } from './stick.ts'
 import { OFF_PX, asksBelow, isOffEnd, newSince, onAsk, onEnd, questionsBelow, setOffEnd, toAsk, toEnd, useOffEnd } from './newest.ts'
-import { editedDraft, heldOf, isHeld, ownAsk } from './queued.ts'
+import { editedDraft, heldOf, isHeld } from './queued.ts'
+import { AskLine, afterOf, boxLine } from './asking-box.tsx'
 import { commandMode, commandOf, commandWord, type CommandState } from './command.ts'
 import { toggleSpaceTerm, toggleTaskTerm } from '@plugins/terminal/menu.ts'
 
@@ -807,7 +812,7 @@ function Messages({ thread }: { thread: Thread }) {
       // Herdr's news of a task, never a message (SHEP-365): one quiet row under the task's line, or nothing for what
       // the app shows by itself from the task's status (its review card, its Done line)
       const t = taskOf(snap, m.news.task)
-      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')
+      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '', !!t && !!m.news.live && waitsOnPerson(snap, t.id))
       if (!row) continue
       if (t && !thread.task && t.id !== lastRef) out.push(<TaskRef key={`r:${k}`} id={t.id} title={t.name} t={t} />)
       if (t) lastRef = t.id
@@ -890,9 +895,10 @@ function Held({ thread }: { thread: Thread }) {
           <I n="clock" c="s16 c-mute" />
           <span className="hw">
             <span className="ht">{o.text || o.files.map((f) => f.name).join(', ')}</span>
-            <span className="hs">Queued</span>
+            {/* waiting for its agent's answer (dmalis/shepherdr#59): it can't go before, so no Send now */}
+            <span className="hs">{o.waitsFor === 'answer' ? afterOf(chat) : 'Queued'}</span>
           </span>
-          <button type="button" className="fold" onClick={() => void tryAct({ type: 'held-now', cid: o.cid } as never)}>Send now</button>
+          {o.waitsFor !== 'answer' && <button type="button" className="fold" onClick={() => void tryAct({ type: 'held-now', cid: o.cid } as never)}>Send now</button>}
           <button type="button" className="fold" onClick={() => take(o, () => { setDraft(key, editedDraft(o.text, getDraft(key) ?? '')); focusBox(key) })}>Edit</button>
           <IB icon="x" label="Remove" onClick={() => take(o)} />
         </div>
@@ -1095,7 +1101,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   // #1538: what Send just sent, so the keyboard writing it back into the empty box is dropped
   const sentRef = useRef<Sent | null>(null)
   const composing = useRef(false)
-  // a finger (a phone, a tablet): + opens a menu with Photos and Files
+  // a finger (a phone, a tablet): + opens the camera, photos and files (attach.tsx)
   const finger = useMemo(touch, [])
   const shared = useLanded() === key
   useGrow(ref, text)
@@ -1112,7 +1118,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   }, [key])
   const ment = useMentions(key, thread.task?.place ?? thread.place, text, setText, ref)
   const slash = useSlash(key, text, setText, ref)
-  const sg = suggestionOf(chat, suggestionsOn(snap.settings))
+  // a task's chat: only while the task waits on the person (dmalis/shepherdr#42)
+  const sg = taskReplies(suggestionOf(chat, suggestionsOn(snap.settings)), thread.task && (snap.tasks.find((x) => x.id === thread.task!.id) ?? thread.task))
   const busy = !!chat?.working && !chat.finished
   const call = useUI((u) => u.call)
   const dictating = useDictating()
@@ -1120,10 +1127,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const sug = sg && !repliesHidden({ dictating, call, working: busy, sending, spent: spent.has(sg.id) }) ? sg : null
   const machine = snap.places.find((p) => p.id === thread.place)?.machine ?? snap.host
   const pick = pickOf(snap, chat, thread)
-  // a question of its agent's is open: answer it on its card first (nothing closes its dialog for you, so a message
-  // sent now is refused: core/send.js ASKING)
-  const asked = !!ownAsk(chat)
-  const hint = asked ? 'Answer its question above first' : placeholder
+  // its agent asks something (a question, a permission, a plan): you can still write and send; it waits over the box
+  // and goes by itself once the card is answered (dmalis/shepherdr#59), and the line says so
+  const hint = placeholder
   // a message sent while the agent works goes in at once (it steers); only Ctrl/Cmd+Enter asks it to wait its turn.
   // The round button and Enter send only what is in the box, never a suggested reply (those are their own bubbles).
   // In a voice call the box takes no text (TEXT_IN_CALL).
@@ -1186,6 +1192,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     requestAnimationFrame(() => box.setSelectionRange(t.length, t.length))
   }
   const filled = !!text.trim() || !!files?.length || !!pastes.length
+  const after = boxLine(chat, filled)
   const BoxEnd = has('voice') ? registry.views.boxEnd : undefined
   const stop = busy && !filled
   /** a paste's chip opened to edit: its text goes into the box, at the end of what is there */
@@ -1254,6 +1261,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
       )}
       {ment.list}
       {slash.list}
+      {after && <AskLine id={`ask-${key}`} words={after} />}
       <div className="crow">
         <BoxLabel htmlFor={boxId} />
         <textarea
@@ -1266,8 +1274,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
           name="message"
           data-box={key}
           aria-label={hint}
+          aria-describedby={after ? `ask-${key}` : undefined}
           placeholder={hint}
-          enterKeyHint="send"
+          enterKeyHint={enterHint()}
           autoComplete="off"
           value={text}
           onChange={(e) => {
@@ -1295,8 +1304,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
             if (ment.onKey(e)) return
             // the / list the same way
             if (slash.onKey(e)) return
-            // Enter sends and Shift+Enter makes a new line, the same on phone and desktop
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            // Enter sends and Shift+Enter makes a new line; fork #118: on a phone's on-screen keyboard Return makes a new
+            // line and the send button sends, as iMessage and WhatsApp do (enter.ts; a hardware keyboard still sends)
+            if (sendsNow(e, getState().ui.keyboard)) {
               e.preventDefault()
               go(e.ctrlKey || e.metaKey)
             }
@@ -1330,35 +1340,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   )
 }
 
-/** +: on a desktop it opens files; on a phone or tablet a menu first: Photos, Files. Photos opens Android's
- *  photo picker straight away, newest first, and one tap on a picture attaches it (one at a time: picking several needs an
- *  Add tap more, measured on Android 15); Files takes several pictures at once */
-export function AddButtons({ finger, onFiles }: { finger: boolean; onFiles: (f: File[]) => void }) {
-  const pickFile = useRef<HTMLInputElement>(null)
-  const pickPhoto = useRef<HTMLInputElement>(null)
-  const take = (e: { target: HTMLInputElement }) => {
-    onFiles([...(e.target.files ?? [])])
-    e.target.value = ''
-  }
-  const plus = (e: { currentTarget: Element }) =>
-    finger
-      ? openMenu(
-          e.currentTarget,
-          [
-            { icon: 'image', label: 'Photos', run: () => pickPhoto.current?.click() },
-            { icon: 'doc', label: 'Files', run: () => pickFile.current?.click() },
-          ],
-          { label: 'Add' },
-        )
-      : pickFile.current?.click()
-  return (
-    <>
-      <IB icon="plus" label={finger ? 'Add' : 'Add files'} onClick={plus} />
-      <input ref={pickFile} type="file" multiple hidden onChange={take} />
-      {finger && <input ref={pickPhoto} type="file" accept="image/*" hidden data-photo="" onChange={take} />}
-    </>
-  )
-}
+// + (attach.tsx): files at once on a desktop, Apple's menu at once on iOS, a Camera / Photos / Files sheet on Android
+export { AddButtons }
 
 /** what Android's Share sheet put in this box: where it goes, and Change to send it to another space or task */
 function SharedChip({ chat, thread }: { chat: string; thread: Thread }) {

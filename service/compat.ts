@@ -10,6 +10,7 @@ import { SEEN_KEY as TIP_SEEN, trustTip, type TrustTip } from "./trust-tip.ts";
 import type { Snapshot, Place, Task, Need, Section, Machine, Chat, Message, Status, TaskStatus, StepKind, ActivityAnswer, Question, Artifact, SettingSection, Job } from "../web/shared/types.ts";
 import * as T from "../core/tasks.js";
 import { STALE_LINK, staleLink } from "../web/shared/view.ts";
+import { forAssistant } from "../web/shared/needs-you.ts";
 import * as SPc from "../core/spaces.js";
 import { kindOf as kindOfTerm } from "../core/chat-reader.js";
 import * as CL from "../core/chat-log.js";
@@ -538,7 +539,7 @@ export class Compat {
     const needs: Need[] = [
       ...rows.filter((r) => r.section === "needs" && !r.archived).map((r) => ({
         id: "attention", chat: `${taskId(r)}/worker`, place: placeOf(r), task: taskId(r), at: r.started ?? Date.now(), text: r.sub ?? "",
-        ...(r.needs !== "asks" ? { assistantFirst: true as const } : {}),
+        ...(forAssistant(r.needs) ? { assistantFirst: true as const } : {}),
       })),
       ...spaces.filter((s) => ["blocked", "stopped"].includes(s.assistantStatus)).map((s) => ({ id: "attention", chat: placeKey(s.id), place: s.id, at: Date.now(), text: s.assistantStatus === "stopped" ? "Stopped" : "Waits for you" })),
     ];
@@ -736,7 +737,7 @@ export class Compat {
     const news = space ? newsTimeline(items, new Map(spaceRows.map((r) => [r.ref, { ...r, status: r.section }])), { start: reader.start }) : [];
     const newsLine = (e: any): Message => {
       const task = machine ? `${machine}:${e.ref}` : e.ref;
-      return { id: e.id, who: "agent", at: e.at, news: { task, ref: e.ref, event: e.event, mark: e.mark, what: e.what, text: e.text, ...(e.live ? { live: true } : {}), ...(e.accept ? { accept: true } : {}) } };
+      return { id: e.id, who: "agent", at: e.at, news: { task, ref: e.ref, event: e.event, mark: e.mark, what: e.what, text: e.text, ...(e.needs ? { needs: e.needs } : {}), ...(e.live ? { live: true } : {}), ...(e.accept ? { accept: true } : {}) } };
     };
     const inline = new Map(news.filter((e: any) => !e.made).map((e: any) => [e.id, e]));
     const made = news.filter((e: any) => e.made);

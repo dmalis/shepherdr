@@ -3,6 +3,8 @@
 // looked at, and compared with the design, without a single agent running.
 import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem } from '../shared/types.ts'
 import { demoFacts } from './machine-facts.ts'
+import * as CW from '../../core/checks-wait.js'
+import { plainSuggests } from '../../core/plain-suggests.js'
 
 const NOW = Date.now()
 const facts = demoFacts(NOW)
@@ -36,6 +38,14 @@ export const inbox: InboxItem[] = [
   alertIn('need:vm:GARDEN-3/worker:q4', 27 * hour, 'Task · Watering schedule · Needs you', 'Keep the old reminders, or start fresh?', 'needs', P.garden, { task: 'vm:GARDEN-3', waits: true, closed: NOW - 26 * hour, read: true }),
   alertIn('msg:p:mac-mini:blog:9', 3 * 24 * hour, '#blog Assistant · New message', 'The draft for Thursday is in the drafts folder.', 'assistant', P.blog, { read: true }),
 ]
+// SHOP-21's checks (dmalis/shepherdr#42): lint passed in 2 min, the full check runs 6 min of its usual 14
+const SHOP21_RUNS = [
+  { name: 'lint', state: 'passed', at: NOW - 9 * min, end: NOW - 7 * min, typical: 2 * min },
+  { name: 'check', state: 'running', at: NOW - 6 * min, end: 0, typical: 14 * min },
+] as const
+// its hand-in as its agent wrote it, after a compacted conversation lost the <hc suggest> form: the service reads the
+// plain list into suggestions (core/plain-suggests.js), and the task's pane shows none, as nothing waits on the person
+export const SHOP21_HANDIN = 'Thumbnails are in. The product list loads its pictures as small thumbnails first and swaps in the full image once it scrolls into view.\n\nThe page shows in 0.9 s on a phone, down from 1.8 s. Tests and the visual check pass here; the pull request merges by itself once GitHub\'s checks pass.\n\nLater, if you want: the same for the search results page.\n\nSuggested replies:\n- "Good, let it merge when green"\n- "Do the search page next"'
 
 export const tasks: Task[] = [
   // SHEP-348's six states on the repo line: own branch, no PR (SHOP-19); PR checks passed (SHOP-12), failed (SHOP-15),
@@ -50,6 +60,9 @@ export const tasks: Task[] = [
   task('SHOP-14', 'Switch payment provider', P.shop, 'need', { needsAt: NOW - 2 * hour, blocked: 'question', repo: 'branch', report: { msg: 'Which provider, Stripe or Adyen?', progress: 35, paused: true } }),
   task('vm:GARDEN-4', 'Photo upload', P.garden, 'need', { agent: { chat: 'vm:GARDEN-4/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, needsAt: NOW - 5 * min, blocked: 'permission', repo: 'branch', report: { msg: 'Wants to run a command', progress: 80, paused: true } }),
   task('SHOP-17', "Download last month's invoices", P.shop, 'need', { needsAt: NOW - 4 * min, blocked: 'auth', report: { msg: 'Needs your hands: enter the sign-in code', progress: 20, paused: true } }),
+  // dmalis/shepherdr#42: said ready, merges on its own, its pull request's checks still run: what it waits for, a still
+  // dot, a checks card in its pane (never "Merging")
+  task('SHOP-21', 'Thumbnails on the product list', P.shop, 'work', { started: NOW - 50 * min, repo: 'branch', worktree: true, branch: 'task/thumbnails-on-the-product-list', base: 'main', pr: { number: 216, url: 'https://github.com/example/shop/pull/216', checks: 'running' }, summary: 'Product list pictures load as small thumbnails first, so the page shows in half the time.', report: { msg: 'Waiting for GitHub’s checks', progress: 100 }, checksWait: CW.waitWords({ runs: SHOP21_RUNS, more: false, auto: true }) as Task['checksWait'] }),
   task('SHOP-15', 'Bigger checkout button on phones', P.shop, 'work', { started: NOW - 10 * min, repo: 'branch', worktree: true, branch: 'task/bigger-checkout-button', base: 'main', pr: { number: 214, url: 'https://github.com/example/shop/pull/214', checks: 'failed' }, report: { msg: 'Changing the button', progress: 50, eta: 13 }, blocked: 'prompt' }),
   // asked in Everything, works in shop: #shop's Tasks holds it too (SHEP-325)
   task('EV-14', 'Fix the cart badge count', EV, 'work', { started: NOW - 6 * min, repo: 'branch', work: work(...FOLDER[P.shop]), also: [P.shop], report: { msg: 'Reading the cart code', progress: 20 } }),
@@ -340,9 +353,11 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       relay('from', '#shop', LONG_NOTE, today(9, 20), { files: ['supplier-quotes-november.pdf'] }),
       relay('to', '#garden-app on vm', 'The photo task waits on a library. Pillow is fine to install.', today(9, 22), { how: 'assistant', state: 'waiting', why: 'the person is writing to it' }),
       relay('to', 'Assistant on studio', 'Is the site build green again?', today(9, 23), { how: 'assistant', state: 'failed', why: "studio can't be reached" }),
-      { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-14', ref: 'SHOP-14', mark: 'needs', what: '', text: "Which provider should I switch to, Stripe or Adyen? I'd go with Stripe." } },
+      // dmalis/shepherdr#114: a wait the Assistant handles is the quiet grey tier; only a question card or a permission says Needs you
+      { id: `m${++n}`, who: 'agent', news: { task: 'EV-13', ref: 'EV-13', event: 'waiting', needs: 'reply', mark: 'needs', what: 'waiting', text: 'Should locked levels show?' } },
+      { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-14', ref: 'SHOP-14', event: 'needs-you', needs: 'asks', mark: 'needs', what: 'needs the person', text: "Which provider should I switch to, Stripe or Adyen? I'd go with Stripe." } },
       ask('q-pay', '', byPay, ['Stripe', 'Adyen'], { other: true }),
-      { id: `m${++n}`, who: 'agent', news: { task: 'vm:GARDEN-4', ref: 'GARDEN-4', mark: 'needs', what: '', text: 'I need an image library to resize the photos.' } },
+      { id: `m${++n}`, who: 'agent', news: { task: 'vm:GARDEN-4', ref: 'GARDEN-4', event: 'needs-you', needs: 'asks', mark: 'needs', what: 'needs the person', text: 'I need an image library to resize the photos.' } },
       ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' }),
       // a working task's row with its time left, then how its asks closed: the same line twice shows once
       { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-15', ref: 'SHOP-15', mark: 'other', what: 'blocked', text: 'Waiting at a prompt' } },
@@ -369,7 +384,7 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       relay('to', 'Bigger checkout button on phones', 'Keep the total above the fold on a 360 px screen too.', today(9, 25), { how: 'reply', state: 'delivered' }),
       relay('from', 'Bigger checkout button on phones', 'Done: the total stays above the fold at 360 px. Screenshot in my chat.', today(9, 40)),
       relay('to', 'Faster product search', 'Fix what keeps its pull request from merging.', today(9, 41), { how: 'fix', state: 'waiting', why: 'its agent stopped; it goes to its next one' }),
-      a('I made a mock-up of the new checkout. Have a look.'), { id: `m${++n}`, who: 'agent', artifact: { id: 'a-mock', v: 2 } }, a('Started SHOP-15, added from Everything.'), { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-14', ref: 'SHOP-14', mark: 'needs', what: '', text: "Which provider should I switch to, Stripe or Adyen? I'd go with Stripe." } }, ask('q-pay', '', byPay, ['Stripe', 'Adyen']), a('SHOP-16 started on its schedule in #shop. It found 3 packages behind and is updating them.', { suggest: 'How is the checkout button going?' })], sonnet),
+      a('I made a mock-up of the new checkout. Have a look.'), { id: `m${++n}`, who: 'agent', artifact: { id: 'a-mock', v: 2 } }, a('Started SHOP-15, added from Everything.'), { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-14', ref: 'SHOP-14', event: 'needs-you', needs: 'asks', mark: 'needs', what: 'needs the person', text: "Which provider should I switch to, Stripe or Adyen? I'd go with Stripe." } }, ask('q-pay', '', byPay, ['Stripe', 'Adyen']), a('SHOP-16 started on its schedule in #shop. It found 3 packages behind and is updating them.', { suggest: 'How is the checkout button going?' })], sonnet),
     // working, nothing written yet: the working sign alone (SHEP-313)
     chat(P.blog, [a('To see it yourself, run this in the blog folder:\n\n```\nbun run dev\n```'), me('!git status --short', { command: { state: 'done', out: ' M web/src/archive.ts\n?? drafts/november.md' } }), me('!bun test archive', { command: { state: 'failed', out: 'archive.test.ts:\n✗ links to every month [4.21ms]\n  Expected: "/archive/2026/11"\n  Received: "/archive/undefined"\n\n 0 pass\n 1 fail' } }), me('The link to the archive is broken too. Can you fix it?', { reactions: [{ emoji: '👍', by: 'both' }] })], sonnet, { working: true, doing: "Running python3 - <<'EOF' p='web/src/archive.ts'" }),
     chat(P.notes, [], sonnet),
@@ -380,9 +395,15 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       me('What would the Everything hint say?', { at: today(10, 4) }),
       a('One line under the sidebar\'s Everything row: "Your chats with every space, in one place." Should I start on them?', { at: today(10, 5), suggests: ['Yes, do those three', 'Do all four', 'status?'] }),
     ], sonnet),
-    chat(P.garden, [a('GARDEN-3 is in progress, about 20 minutes left.'), { id: `m${++n}`, who: 'agent', news: { task: 'vm:GARDEN-4', ref: 'GARDEN-4', mark: 'needs', what: '', text: 'I need an image library to resize the photos.' } }, ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' })], gpt),
+    chat(P.garden, [a('GARDEN-3 is in progress, about 20 minutes left.'), { id: `m${++n}`, who: 'agent', news: { task: 'vm:GARDEN-4', ref: 'GARDEN-4', event: 'needs-you', needs: 'asks', mark: 'needs', what: 'needs the person', text: 'I need an image library to resize the photos.' } }, ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' })], gpt),
     chat('SHOP-14/worker', [a('I compared both for the shop. Stripe is already used for your invoices. Adyen gets cheaper above 50k a month but needs two weeks of paperwork.'), ...payQ().map((x, i) => (i ? x : { ...x, suggests: ['Go with Stripe', 'Compare the fees again'] }))], opus),
     // said after it handed in (#1475): its Ready card still comes last
+    // dmalis/shepherdr#42: its hand-in, read as the service reads it, and its two reviewers that finished
+    chat('SHOP-21/worker', [a('Starting on the thumbnails.', { at: NOW - 50 * min }), ((h) => a(h?.text ?? SHOP21_HANDIN, { at: NOW - 10 * min, ...(h ? { suggests: h.suggests } : {}) }))(plainSuggests(SHOP21_HANDIN))], opus, {
+      jobs: [
+        { id: 'c:shop-21-review', kind: 'child', title: 'Reviewer · Codex', at: NOW - 30 * min, ended: NOW - 22 * min, status: 'done', role: 'reviewer', cli: 'codex' },
+        { id: 'c:shop-21-review-2', kind: 'child', title: 'Reviewer · Codex', at: NOW - 18 * min, ended: NOW - 12 * min, status: 'done', role: 'reviewer', cli: 'codex' },
+      ] }),
     chat('SHOP-12/worker', [a('Search is done. I added an index and cached the top queries.', { at: NOW - 8 * hour - min }), me('Does it still find misspelled names?', { at: NOW - hour }), a('Yes: the fuzzy match runs before the cache. I added a test for it.', { at: NOW - hour + 2 * min, suggests: ['Looks good, merge it', 'Show me the diff', 'status?'] })], opus),
     chat('BLOG-12/worker', [ask('scr-t42-1', 'Trust this folder?', undefined, ['Trust this folder and start', 'No, stop the task'], { press: true, noNote: true,
       // its task folder is a worktree of the blog repo: the card's tip trusts the repo once (service/trust-tip.ts)

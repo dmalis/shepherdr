@@ -1,13 +1,16 @@
 // Sending the person's words to an agent, the same way from the window's chat and from the web app:
 // the tag lines Herdr puts before them (the message it replies to, the tasks it mentions), then hc send. When
-// the agent waits on its own dialog in its terminal (a question, a permission), nothing is typed: the person answers
-// it there first (ASKING). Claude Code queues a message typed mid-turn itself; no key of ours pushes it in (AGENTS.md
+// the agent waits on its own dialog in its terminal (a question, a permission), nothing is typed: the refusal is
+// marked asking, and the service holds the message until it is answered (dmalis/shepherdr#59). Claude Code queues a message typed mid-turn itself; no key of ours pushes it in (AGENTS.md
 // "Nothing that risks a ban").
-// io = { hc(args) -> Promise<{ code, stdout, stderr }>, sleep(ms), status() -> the agent's status now }.
+// io = { hc(args) -> Promise<{ code, stdout, stderr }>, sleep(ms), status() -> the agent's status now,
+//        card?() -> a card in its chat shows the question it asks, asking?() -> it asks something now: nothing is typed
+//        (dmalis/shepherdr#59) }.
 // Shared core: the source is core/send.js; bin/sync-shared copies it into the mods in lib/COPIES.
 
 import { excerpt } from "./chat-log.js";
 import { pickedHere, picks, sharedTitles, unpicked } from "./mention-picks.js";
+import { askingWords } from "./asking.js";
 
 // SHEP-324: what is in front of an agent's terminal, checked right before anything is typed into it. herdr-core keeps a
 // terminal whose program it lost (a core restart, a crash) as a plain shell, and one whose agent exited stays live too:
@@ -116,8 +119,8 @@ export function messageBody({ text, quote = null, tags = "", task = null }) {
 }
 
 // The agent waits on its own dialog (a question, a permission): nothing is typed and no key closes it (AGENTS.md
-// "Nothing that risks a ban"); the person answers it in its terminal first.
-export const ASKING = "It's asking you something. Answer that in its terminal first.";
+// "Nothing that risks a ban"); the person answers it first, on its card in the chat or in its terminal (core/asking.js).
+export { ASKING, ASKING_TERMINAL } from "./asking.js";
 
 // A picture's path on a line of its own, as a sent file goes after the words.
 
@@ -192,8 +195,11 @@ export async function settleBox(io, addr, body, opts = SETTLE) {
 // words"). After hc send the box is watched until it is clear (settleBox). again: the person's
 // Retry on a send that stayed in the box; if the box holds exactly it still, it gets Enter, never
 // typed twice. -> hc's result; stuck: still in the box.
+const ASKED = { code: 1, stdout: "", stderr: "", asking: true };
+
 export async function sendTyped(io, addr, kind, body, opts = SETTLE, again = false) {
-  if (kind !== "claude") return io.hc(["send", addr, body]);
+  // dmalis/shepherdr#59: its agent began to ask meanwhile (a card, a prompt): nothing is typed into it
+  if (kind !== "claude") return io.asking?.() ? ASKED : io.hc(["send", addr, body]);
   if (again) {
     const box = await boxOf(io, addr);
     if (holds(box, body, true)) {
@@ -208,6 +214,8 @@ export async function sendTyped(io, addr, kind, body, opts = SETTLE, again = fal
   // pastes after it, so the two would go as one, glued ("…thenWhat's…"). A blank line keeps them apart.
   const before = await boxOf(io, addr);
   if (before && heldBefore(addr, before, body)) body = "\n\n" + body;
+  // (checked again after reading the box, right before anything is typed)
+  if (io.asking?.()) return ASKED;
   const r = await io.hc(["send", addr, body]);
   if (r.code !== 0) return r;
   let started = false;
@@ -254,8 +262,11 @@ function inTurn(addr, run) {
 // again: its last send stayed in Claude Code's box (sendTyped).
 export function sendBody(io, addr, kind, body, again = false) {
   return inTurn(addr, async () => {
+    // its agent began to ask while this waited its turn: nothing is typed, it waits for the answer (dmalis/shepherdr#59)
+    if (io.asking?.()) return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     let r = await sendTyped(io, addr, kind, body, SETTLE, again);
-    if (r.code !== 0 && refusal(r).kind === "blocked") return { code: 1, stdout: "", stderr: ASKING };
+    // asking: the service holds it until the question is answered, then sends it (dmalis/shepherdr#59)
+    if (r.code !== 0 && (r.asking || refusal(r).kind === "blocked")) return { code: 1, stdout: "", stderr: askingWords(!!io.card?.()), asking: true };
     if (r.code === 0) noteLately(addr, body);
     return r;
   });

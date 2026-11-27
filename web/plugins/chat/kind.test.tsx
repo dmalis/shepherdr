@@ -31,7 +31,7 @@ test('every place a chat names a task uses it (pins the call sites in upstream f
   const read = (p: string) => readFileSync(join(import.meta.dir, p), 'utf8')
   expect(read('client.tsx')).toContain('<KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />')
   expect(read('client.tsx')).toContain('<KindName t={t} name={t?.name ?? title} state={word} />')
-  expect(read('client.tsx')).toContain("newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')")
+  expect(read('client.tsx')).toContain("newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '', ")
   expect(read('../artifacts/client.tsx')).toContain('<Tile id={msg.artifact.id} v={msg.artifact.v} kind />')
   expect(read('../inbox/client.tsx')).toContain('<KindTitle title={x.title} />')
   expect(read('client.tsx')).toContain('<span><KindLine text={line} />')

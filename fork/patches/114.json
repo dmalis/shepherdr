@@ -1,0 +1,26 @@
+{
+  "issue": 114,
+  "name": "News: the Assistant's waits never say Needs you",
+  "files": [
+    "mods/tasks/bin/herdr_task/news.py",
+    "mods/tasks/bin/herdr_task/home.py",
+    "core/chat-log.js",
+    "core/chat-view.js",
+    "web/shared/needs-you.ts",
+    "web/shared/needs-words.ts",
+    "web/shared/types.ts",
+    "service/compat.ts",
+    "web/plugins/chat/news.ts",
+    "web/plugins/chat/client.tsx",
+    "templates/assistant.md",
+    "web/demo/data.ts"
+  ],
+  "tests": [
+    "web/plugins/chat/news.test.ts",
+    "web/shared/needs-you.test.ts",
+    "core/chat-view.test.js",
+    "core/chat-log.test.js",
+    "test/test_herdr_task.py",
+    "test/test_repo.py"
+  ]
+}

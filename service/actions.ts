@@ -3,10 +3,11 @@
 // Anything else is refused. Inputs are checked here; commands run with argument lists, never a shell line.
 import type { Hub } from "./hub.ts";
 import { join } from "node:path";
-import { HOME, appHome, writable } from "./paths.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { DATA, HOME, appHome, writable } from "./paths.ts";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { sendBody, messageBody, refusal, reactionLine, mentionedIn, taskTag, inFront, NOT_TYPED } from "../core/send.js";
+import { askingWords, WAITS_ANSWER } from "../core/asking.js";
 import { kindOf } from "../core/chat-reader.js";
 import { WORDS } from "../core/chat-view.js";
 import { settle } from "../core/pending.js";
@@ -20,7 +21,7 @@ import { iconValue } from "../core/space-icon.js";
 import { withGroupSlots } from "../core/group-slots.js";
 const { READ, assistantOf, withMove, withSection, withoutSection, withSectionName, withIcon, withMachineLook, withOrder, withMachineOrder, DELETED, deletedSection, withRestoredSection } = SP as any;
 import { type Compat } from "./compat.ts";
-import { noteFailed, once, wentIn } from "./send-once.ts";
+import { failedFor, noteFailed, noteWent, once, wentIn } from "./send-once.ts";
 import { execTemplate, ownId, withoutSpace } from "./spaces.ts";
 import * as MA from "../core/machine-add.js";
 import { exec } from "./model.ts";
@@ -49,15 +50,26 @@ async function sendFromChat(...args: Parameters<typeof sendBody>) {
   }
 }
 
+/** dmalis/shepherdr#59: an agent's open question shows as a card in its chat (a hook ask: service/asks.ts), so the
+ *  person answers it there, not in its terminal. */
+export const carded = (compat: Compat, addr: string) => (compat.asks?.of(addr).length ?? 0) > 0;
+/** its agent waits on its own question: a card in its chat, or blocked on one only its terminal shows (a permission,
+ *  a menu). A message sent now waits for the answer (dmalis/shepherdr#59). */
+export const asking = (hub: Hub, compat: Compat, addr: string) => carded(compat, addr) || (hub.terminals.get(addr) as any)?.status?.state === "blocked";
+
 /** One page's message to its agent, its files' paths after its words. -> { ok, at } once it is in the agent's terminal
- *  (Claude Code's box clear: core/send.js settleBox), or { waiting } held for the agent's turn; else it throws. */
+ *  (Claude Code's box clear: core/send.js settleBox), or { waiting } held for the agent's turn or for the answer to
+ *  its question; else it throws. */
 async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   const a = addr(b.addr);
   const text = str(b.text ?? "").trim();
   if (!text && !(Array.isArray(b.attachments) && b.attachments.length)) throw new Error("nothing to send");
   const t = hub.terminals.get(a);
   if (!t || t.state !== "live") throw new Error("That agent isn't running.");
-  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null };
+  // dmalis/shepherdr#59: asking, checked again right before it goes (it may have waited behind another send): its agent
+  // asks something, so nothing is typed; card: a card in its chat shows the question
+  const asks = () => asking(hub, compat, a);
+  const io = { hc: asPerson(hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (hub.terminals.get(a) as any)?.status?.state ?? null, card: () => carded(compat, a), asking: asks };
   // files sent with it: their paths after the words (copied first to another machine)
   const sent: string[] = Array.isArray(b.attachments) ? b.attachments : [];
   // never some of them quietly
@@ -75,19 +87,31 @@ async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
   const body = [messageBody({ text, quote: typeof b.quote === "string" ? b.quote.slice(0, 2000) : null, tags: typeof b.tags === "string" ? b.tags : "", task: typeof b.quoteTask === "string" ? b.quoteTask : null }), ...files].filter(Boolean).join("\n\n");
   // held on purpose (Ctrl+Enter, a long press): it goes once the agent stops working
   const st = (hub.terminals.get(a) as any)?.status?.state;
+  const cid = typeof b.cid === "string" ? b.cid.slice(0, 80) : undefined;
+  // once it goes: the chat knows it again by its words (its id and files), so the page sees it went in
+  const note = () => { if (cid) compat.noteSend?.(a, { cid, text, files: sent, at: Date.now() }); };
   if (b.hold && (st === "working" || st === "blocked")) {
-    const cid = typeof b.cid === "string" ? b.cid.slice(0, 80) : undefined;
-    // once it goes: the chat knows it again by its words (its id and files), so the page sees it went in
-    const note = () => { if (cid) compat.noteSend?.(a, { cid, text, files: sent, at: Date.now() }); };
-    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note });
+    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, asks, card: () => carded(compat, a) });
     drain();
     return { ok: true, waiting: true, waitsFor: "turn" };
   }
+  // dmalis/shepherdr#59: its agent asks something (a card in its chat, or its own menu): nothing is typed and no key
+  // closes it, so the message waits until it is answered and then goes by itself, never refused. One sent after
+  // another that waits so goes after it, never before
+  const afterAnswer = () => {
+    held.push({ addr: a, kind: kindOf(t) ?? "", body, hub, cid, note, asks, card: () => carded(compat, a), answer: true, text, files: sent, at: Date.now() });
+    saveHeld();
+    drain();
+    return { ok: true, waiting: true, waitsFor: WAITS_ANSWER };
+  };
+  if (asks() || held.some((h) => h.addr === a && h.answer) || inFlight.has(a)) return afterAnswer();
   // when it began to go in, by this clock: the page knows it again in the chat by it (web/src/outbox.ts sameAs)
   const at = Date.now();
   // what it was, so the chat knows it again while it waits in the CLI's queue
-  if (typeof b.cid === "string") compat.noteSend?.(a, { cid: b.cid.slice(0, 80), text, files: sent, at });
+  if (cid) compat.noteSend?.(a, { cid, text, files: sent, at });
   const r: any = await sendFromChat(io, a, kindOf(t) ?? "", body, again);
+  // it began to ask meanwhile (hc saw its question before its status said so): it waits for the answer too
+  if (r.code !== 0 && r.asking) return afterAnswer();
   // (stuck: it stayed in Claude Code's box; sent again with this id it gets only its Enter: send-once.ts)
   if (r.code !== 0) throw Object.assign(new Error(refusal(r).message), { stuck: !!r.stuck });
   return { ok: true, at };
@@ -112,30 +136,97 @@ export function arrived(b: any, compat: Compat): { ok: true; at: number; already
 const said = (v: string) => v.replace(/\s+/g, " ").trim();
 
 // Messages held until their agent is free, sent in order, each once.
-const held: { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void }[] = [];
+// asks: its agent asks something now (dmalis/shepherdr#59): none goes then, Send now or not, as it would be typed into
+// its question. answer: one sent while it asked: it waits only while that is so, then goes at once (a working agent
+// takes it mid-turn, as any message; an answer that ended its turn gets it as the next message)
+type Held = { addr: string; kind: string; body: string; hub: Hub; cid?: string; now?: boolean; note?: () => void; asks: () => boolean; card: () => boolean; answer?: boolean; text?: string; files?: string[]; at?: number };
+const held: Held[] = [];
+/** agents whose question went at the last look: what waited for its answer may go now (dmalis/shepherdr#59) */
+const cleared = new Set<string>();
+
+// dmalis/shepherdr#59: ones waiting for an answer are kept on disk (a day at most), so a service restart sends them
+// still once the card is answered, page open or not: the first action after the restart (an answer, any page) takes
+// them up again
+const HELD_FILE = () => join(process.env.SHEPHERDR_DATA || DATA, "held.json");
+const KEEP_HELD = 24 * 60 * 60_000;
+function saveHeld() {
+  try {
+    const list = held.filter((h) => h.answer && h.cid).map(({ addr, kind, body, cid, text, files, at }) => ({ addr, kind, body, cid, text, files, at }));
+    const tmp = `${HELD_FILE()}.tmp`;
+    writeFileSync(tmp, JSON.stringify(list), { mode: 0o600 });
+    renameSync(tmp, HELD_FILE());
+  } catch {}
+}
+let restored = false;
+function restoreHeld(hub: Hub, compat: Compat) {
+  if (restored) return;
+  restored = true;
+  try {
+    if (!existsSync(HELD_FILE())) return;
+    for (const h of JSON.parse(readFileSync(HELD_FILE(), "utf8")) as Held[]) {
+      if (!h.cid || held.some((x) => x.cid === h.cid) || Date.now() - (h.at ?? 0) > KEEP_HELD) continue;
+      const { addr: a, cid, text = "", files = [] } = h;
+      held.push({ ...h, hub, answer: true, asks: () => asking(hub, compat, a), card: () => carded(compat, a), note: () => compat.noteSend?.(a, { cid, text, files, at: Date.now() }) });
+    }
+  } catch {}
+  if (held.length) drain();
+}
+/** tests: a service restart (what waits is read from disk again); wipe: and nothing on disk either */
+export function forgetHeld(wipe = false) {
+  held.length = 0;
+  cleared.clear();
+  restored = false;
+  if (wipe) saveHeld();
+}
+/** a page asking about its send by its id (dmalis/shepherdr#59): waiting here, went in, failed, or unknown (a restart
+ *  that lost it: the page sends it again). Never sends anything itself, so no Enter goes for a stuck one. */
+function sendState(cid: string) {
+  const h = held.find((x) => x.cid === cid);
+  if (h) return { ok: true, state: "waiting", waitsFor: h.answer ? WAITS_ANSWER : "turn" };
+  const went = wentIn(cid);
+  if (went !== null) return { ok: true, state: "went", at: went };
+  const failed = failedFor(cid);
+  if (failed) return { ok: true, state: "failed", error: failed };
+  return { ok: true, state: "unknown" };
+}
+/** agents a held message is going to right now: a new send waits behind it (dmalis/shepherdr#59) */
+const inFlight = new Set<string>();
 let draining: ReturnType<typeof setInterval> | null = null, busy = false;
 function drain() {
   draining ??= setInterval(async () => {
     // one pass at a time: a slow send never overlaps the next tick
     if (busy) return;
     busy = true;
+    // agents whose first waiting message can't go yet this pass: the rest of theirs wait behind it, in order
+    const behind = new Set<string>();
     try {
       for (const m of [...held]) {
         const st = (m.hub.terminals.get(m.addr) as any)?.status?.state;
         const alive = m.hub.terminals.get(m.addr)?.state === "live";
-        if (alive && !m.now && (st === "working" || st === "blocked")) continue;
+        if (alive && m.asks()) { cleared.delete(m.addr); behind.add(m.addr); continue; }
+        if (alive && behind.has(m.addr)) continue;
+        // its question just went: one more look first, so the hook has read its answer before anything is typed
+        if (alive && m.answer && !cleared.has(m.addr)) { cleared.add(m.addr); behind.add(m.addr); continue; }
+        if (alive && !m.answer && !m.now && (st === "working" || st === "blocked")) continue;
         const i = held.indexOf(m);
         if (i < 0) continue;
         held.splice(i, 1);
         // one that can't go now is told to its page (Chat.failed: Not sent, with Retry), never dropped quietly
         if (alive) m.note?.();
+        if (alive && m.answer) inFlight.add(m.addr);
+        const at = Date.now();
         const r: any = alive
-          ? await sendFromChat({ hc: asPerson(m.hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (m.hub.terminals.get(m.addr) as any)?.status?.state ?? null }, m.addr, m.kind, m.body).catch((e: Error) => ({ code: 1, stderr: e.message }))
+          ? await sendFromChat({ hc: asPerson(m.hub), sleep: (ms: number) => Bun.sleep(ms), status: () => (m.hub.terminals.get(m.addr) as any)?.status?.state ?? null, card: m.card, asking: m.asks }, m.addr, m.kind, m.body).catch((e: Error) => ({ code: 1, stderr: e.message })).finally(() => { if (m.answer) inFlight.delete(m.addr); })
           : { code: 1, stderr: "That agent isn't running." };
+        // it asks again (a next question right after the answer): back in its place, waiting for that answer too
+        if (r.code !== 0 && r.asking) { held.splice(Math.min(i, held.length), 0, { ...m, now: false }); cleared.delete(m.addr); behind.add(m.addr); continue; }
         if (r.code !== 0 && m.cid) noteFailed(m.addr, m.cid, refusal(r).message, !!r.stuck);
+        // it went: asked again with its id (a page that lost its answer, or checking on it), it says so, across a restart
+        if (r.code === 0 && m.cid) noteWent(m.cid, at);
       }
     } finally {
       busy = false;
+      saveHeld();
     }
     if (!held.length && draining) { clearInterval(draining); draining = null; }
   }, 1000);
@@ -356,6 +447,9 @@ async function sendToEnded(hub: Hub, b: any, compat: Compat, old: string): Promi
 }
 
 export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
+  // what waited for an answer before a restart goes on waiting (dmalis/shepherdr#59)
+  restoreHeld(hub, compat);
+  if (b?.type === "send-state" && typeof b.cid === "string") return sendState(b.cid.slice(0, 80));
   // 2.1's screen names a chat by its key (compat.ts): its terminal here.
   const chat = (key: unknown) => {
     const a = typeof key === "string" ? compat.addrOf(key) : null;
@@ -384,7 +478,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     const item = r?.conv?.items?.find((x: any) => x.id === b.message);
     if (!item?.text) throw new Error("That message isn't in the chat any more.");
     const mine = (r.conv.reactions.get(b.message) ?? []).some((x: any) => x.by === "you" && x.emoji === b.emoji);
-    if ((hub.terminals.get(a) as any)?.status?.state === "blocked") throw new Error("It's asking you something: answer that first.");
+    if ((hub.terminals.get(a) as any)?.status?.state === "blocked") throw new Error(askingWords(carded(compat, a)));
     const res = await hub.send(a, reactionLine(b.emoji, item.text, !mine));
     if (res.code !== 0) throw new Error(refusal(res).message);
     return { ok: true };
@@ -577,7 +671,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     // a queued message (Send now and ×): sent at once, or taken back unsent
     const m = held.find((x) => x.cid === b.cid);
     if (!m) throw new Error("That message has gone in already.");
-    if (b.type === "held-drop") held.splice(held.indexOf(m), 1);
+    if (b.type === "held-drop") { held.splice(held.indexOf(m), 1); saveHeld(); }
     else { m.now = true; drain(); }
     return { ok: true };
   }
@@ -713,6 +807,9 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       // one page's send asked again (its answer lost on the way, a reload, Retry): the same one, never twice
       const cid = typeof b.cid === "string" && b.cid ? b.cid.slice(0, 80) : null;
       if (!cid) return sendNow(hub, b, compat);
+      // still waiting here (its first answer long gone): the same one, never a second
+      const w = held.find((x) => x.cid === cid);
+      if (w) return { ok: true, waiting: true, waitsFor: w.answer ? WAITS_ANSWER : "turn" };
       return once(cid, async (again) => (typeof b.was === "string" && arrived(b, compat)) || sendNow(hub, b, compat, again));
     }
     case "stop": {

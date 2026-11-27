@@ -4,8 +4,8 @@
 import type { Chat, Question } from '@shared/types.ts'
 import type { Outgoing } from '@client/outbox.ts'
 
-/** one held for its turn, not one that failed */
-export const isHeld = (o: Outgoing) => o.state !== 'failed' && (!!o.hold || o.waitsFor === 'turn')
+/** one held for its turn, or for the answer to its agent's question (dmalis/shepherdr#59), not one that failed */
+export const isHeld = (o: Outgoing) => o.state !== 'failed' && (!!o.hold || o.waitsFor === 'turn' || o.waitsFor === 'answer')
 
 /** this chat's held ones, oldest first, until the chat has them (they went in) */
 export function heldOf(outbox: Outgoing[], key: string, chat?: Chat): Outgoing[] {

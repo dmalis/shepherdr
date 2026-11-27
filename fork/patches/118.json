@@ -1,0 +1,12 @@
+{
+  "issue": 118,
+  "name": "phone: Return makes a new line",
+  "files": [
+    "web/plugins/chat/client.tsx",
+    "docs/chat.md"
+  ],
+  "tests": [
+    "web/src/enter.test.ts",
+    "web/plugins/chat/enter-box.test.ts"
+  ]
+}
