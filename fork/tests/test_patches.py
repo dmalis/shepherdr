@@ -30,7 +30,8 @@ class TheList(unittest.TestCase):
     def test_it_carries_the_hold_patch_and_the_fixes(self):
         # #19 the hold patch (install refuses a candidate without it); #7, #11, #12, #29, #33 the fixes to upstream's files; #31 a space above groups
         # #36 Zoom and chat text size; #34 the installed app; #37 the alerts list and device check; #55 agent messages fold; #44 About names the build; #45 waiting prompts
-        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 55])
+        # #49 Everything's one plain line
+        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29, 31, 33, 34, 36, 37, 44, 45, 49, 55])
         self.assertTrue(any(os.path.basename(patches.split(t)[0]) == install.HOLD_PATCH_TEST
                             for x in self.lines for t in x["tests"]))
 
