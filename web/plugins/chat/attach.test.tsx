@@ -3,7 +3,7 @@
 // a second menu); an Android phone gets Camera, Photos and Files tiles, each straight to its picker.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { AddButtons, AddSheet, appleTouch, PICKS, plusWay } from './attach.tsx'
+import { AddButtons, AddSheet, appleTouch, pickFiles, PICKS, plusWay } from './attach.tsx'
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
@@ -60,13 +60,38 @@ test('the sheet: three named tiles, Camera, Photos, Files, each a menu item with
 
 test('tiles are big touch targets, and the press follows the Motion setting and the system\'s reduced motion', async () => {
   const css = await Bun.file(new URL('./attach.css', import.meta.url)).text()
-  expect(css).toMatch(/\.atile\{[^}]*min-height:88px/)
+  expect(css).toMatch(/\.addt\{[^}]*min-height:88px/)
   expect(css).toContain('@media(prefers-reduced-motion:reduce)')
-  expect(css).toContain(':root[data-motion="reduced"] .atile:active{transform:none}')
-  expect(css).toContain('@media(hover:hover){.atile:hover')
+  expect(css).toContain(':root[data-motion="reduced"] .addt:active{transform:none}')
+  expect(css).toContain('@media(hover:hover){.addt:hover')
   // the drag back is instant with less motion
   const src = await Bun.file(new URL('./attach.tsx', import.meta.url)).text()
   expect(src).toContain("still() || document.documentElement.dataset.motion === 'reduced'")
+})
+
+test('On Android, Files opens the document picker itself where Chrome has one, else the input does', async () => {
+  const got: File[][] = []
+  let fell = 0
+  // none (an older Chrome, or not https): the input opens
+  expect(pickFiles((f) => got.push(f), () => fell++, {})).toBe(false)
+  expect(pickFiles((f) => got.push(f), () => fell++, { showOpenFilePicker: async () => [], isSecureContext: false })).toBe(false)
+  // picked two: both attach
+  const f = (n: string) => new File(['x'], n)
+  expect(pickFiles((x) => got.push(x), () => fell++, { showOpenFilePicker: async (o) => (o.multiple ? [f('a.pdf'), f('b.txt')].map((x) => ({ getFile: async () => x })) : []) })).toBe(true)
+  // cancelled: nothing more; failed: the input opens instead
+  pickFiles((x) => got.push(x), () => fell++, { showOpenFilePicker: () => Promise.reject(Object.assign(new Error('no'), { name: 'AbortError' })) })
+  pickFiles((x) => got.push(x), () => fell++, { showOpenFilePicker: () => Promise.reject(Object.assign(new Error('no'), { name: 'SecurityError' })) })
+  await Bun.sleep(0)
+  expect(got.map((x) => x.map((y) => y.name))).toEqual([['a.pdf', 'b.txt']])
+  expect(fell).toBe(1)
+})
+
+test('at a big zoom the tiles wrap instead of cutting their labels', async () => {
+  const css = await Bun.file(new URL('./attach.css', import.meta.url)).text()
+  expect(css).toContain('grid-template-columns:repeat(auto-fit,minmax(min(100%,max(96px,5.5em)),1fr))')
+  expect(css).not.toContain('ellipsis')
+  // its classes are its own: .atile is the artifact cards'
+  expect(css).not.toContain('.atile')
 })
 
 // the seams this patch stands on: upstream may change them

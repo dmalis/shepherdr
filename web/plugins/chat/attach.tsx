@@ -35,7 +35,7 @@ export function AddButtons({ finger, onFiles, apple }: { finger: boolean; onFile
     onFiles([...(e.target.files ?? [])])
     e.target.value = ''
   }
-  const open = (id: string) => inputs.current[id]?.click()
+  const open = (id: string) => (way === 'sheet' && id === 'files' && pickFiles(onFiles, () => inputs.current.files?.click())) || inputs.current[id]?.click()
   const plus = (e: { currentTarget: Element }) =>
     way === 'sheet' ? openMenu(e.currentTarget, (close) => <AddSheet close={close} pick={open} />, { label: 'Add' }) : open('files')
   return (
@@ -51,6 +51,22 @@ export function AddButtons({ finger, onFiles, apple }: { finger: boolean; onFile
   )
 }
 
+type OpenPicker = (o: { multiple: boolean }) => Promise<{ getFile(): Promise<File> }[]>
+
+/** Files on Android: a file input with no accept can ask first whether to use the camera or the files, so the sheet's
+ *  Files opens Android's document picker itself (File System Access, Chrome 132 on). False where there is none: the
+ *  input does it. A picker that fails (not a cancel) falls back to the input. */
+export function pickFiles(onFiles: (f: File[]) => void, fallback: () => void, w = globalThis as { showOpenFilePicker?: OpenPicker; isSecureContext?: boolean }): boolean {
+  if (typeof w.showOpenFilePicker !== 'function' || w.isSecureContext === false) return false
+  w.showOpenFilePicker({ multiple: true })
+    .then((hs) => Promise.all(hs.map((h) => h.getFile())))
+    .then(
+      (fs) => fs.length && onFiles(fs),
+      (err: { name?: string }) => err?.name !== 'AbortError' && fallback(),
+    )
+  return true
+}
+
 /** a downward drag this far (or a flick) closes the sheet */
 const CLOSE_AT = 64
 const FLICK = 0.5 // px per ms
@@ -58,14 +74,22 @@ const FLICK = 0.5 // px per ms
 /** the three tiles; the sheet drags down to close, as iOS's and Android's sheets do (Escape and the scrim close it too) */
 export function AddSheet({ close, pick }: { close: () => void; pick: (id: string) => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  // the overlay may draw the sheet again mid-drag with a new close: the gesture keeps going
+  const shut = useRef(close)
+  shut.current = close
   useEffect(() => {
     const sheet = ref.current?.closest<HTMLElement>('.sheet')
     if (!sheet) return
+    // a sheet taller than the screen (a big zoom) scrolls instead
+    const fits = () => sheet.scrollHeight <= sheet.clientHeight + 1
+    sheet.style.touchAction = fits() ? 'none' : ''
+    // the Motion setting's Reduced, or the system's: the sheet doesn't move with the finger; the drag still closes it
+    const calm = () => still() || document.documentElement.dataset.motion === 'reduced'
     let from: { id: number; y: number; t: number } | null = null
     let dy = 0
     let dragging = false
     const down = (e: PointerEvent) => {
-      if (from || !e.isPrimary) return
+      if (from || !e.isPrimary || !fits()) return
       from = { id: e.pointerId, y: e.clientY, t: e.timeStamp }
       dy = 0
       dragging = false
@@ -81,7 +105,7 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
       }
       // down follows the finger; up gives a little, with friction
       dy = d > 0 ? d : -Math.sqrt(-d) * 2
-      sheet.style.transform = `translateY(${dy}px)`
+      if (!calm()) sheet.style.transform = `translateY(${dy}px)`
     }
     const up = (e: PointerEvent) => {
       if (!from || e.pointerId !== from.id) return
@@ -91,9 +115,8 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
       // the lifted finger's click would land on a tile: it doesn't count
       addEventListener('click', swallow, { capture: true, once: true })
       setTimeout(() => removeEventListener('click', swallow, { capture: true }), 0)
-      if (e.type === 'pointerup' && (dy > CLOSE_AT || speed > FLICK)) return void close()
-      const calm = still() || document.documentElement.dataset.motion === 'reduced'
-      sheet.style.transition = calm ? 'none' : 'transform .2s cubic-bezier(.32,.72,0,1)'
+      if (e.type === 'pointerup' && (dy > CLOSE_AT || speed > FLICK)) return void shut.current()
+      sheet.style.transition = calm() ? 'none' : 'transform .2s cubic-bezier(.32,.72,0,1)'
       sheet.style.transform = ''
     }
     const swallow = (e: Event) => {
@@ -109,16 +132,17 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
       sheet.removeEventListener('pointermove', move)
       sheet.removeEventListener('pointerup', up)
       sheet.removeEventListener('pointercancel', up)
+      sheet.style.transform = sheet.style.transition = sheet.style.touchAction = ''
     }
-  }, [close])
+  }, [])
   return (
-    <div ref={ref} className="att">
+    <div ref={ref} className="addsh">
       {PICKS.map((p) => (
         <button
           key={p.id}
           type="button"
           role="menuitem"
-          className="atile"
+          className="addt"
           onClick={() => {
             // the picker opens from this tap (it needs the tap's user activation), then the sheet goes
             pick(p.id)
