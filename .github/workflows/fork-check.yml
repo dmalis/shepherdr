@@ -1,0 +1,51 @@
+# The fork's own check (fork/specs/sync-pipeline.md): the tests and scripts under fork/, on every pull request to main
+# and every push to main. Its job's name, fork-check, is the check run the sync's merge and install gates read for an
+# exact SHA, so it has no paths-ignore: every push to main gets its run. Upstream's check.yml stays upstream's.
+name: Fork check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # a pull request's older run gives way to its newer push; a push to main keeps its own run for its own SHA, never
+  # cancelled by the next merge (a cancelled run would hold the install)
+  group: fork-check-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fork-check:
+    name: fork-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: the fork's Python compiles (fork/bin, fork/sync)
+        # a script in fork/bin is Python unless its first line names a shell; those are parsed in the next step
+        run: |
+          fail=0
+          for f in fork/bin/* fork/sync/*.py; do
+            [ -f "$f" ] || continue
+            head -1 "$f" | grep -qE '^#!.*\b(ba|da)?sh\b' && continue
+            python3 -m py_compile "$f" || { echo "::error file=$f::doesn't compile"; fail=1; }
+          done
+          exit $fail
+      - name: the fork's shell scripts parse (plain bash, as macOS's bash 3.2 runs them)
+        run: |
+          fail=0
+          for f in $(find fork -type f ! -path '*/__pycache__/*'); do
+            case "$f" in
+              *.sh) ;;
+              *) head -1 "$f" | grep -qE '^#!.*\b(ba|da)?sh\b' || continue ;;
+            esac
+            bash -n "$f" || { echo "::error file=$f::doesn't parse under bash"; fail=1; }
+          done
+          exit $fail
+      - name: the fork's tests
+        run: python3 -m unittest discover -s fork/tests -v
