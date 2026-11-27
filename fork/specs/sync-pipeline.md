@@ -47,14 +47,15 @@ exactly how far, and what stays forbidden.
 | `public-check <file>` | Refuses text with paths, hosts, emails or raw output before it goes to GitHub. |
 | `finish` | Prints the exact completion command for the run's outcome ([Completion commands](#completion-commands)). |
 | `clear-broken` | The person's only: clears a `broken` phase. Refused in a task's terminal. |
-| `settle` | For "Install merged": waits until main stops moving and the install gap has passed ([Installing our own merges](#installing-our-own-merges)). |
+| `settle` | For "Install merged": origin/main's tip pinned now, and the run's path: nothing, skip or install-merged ([Installing our own merges](#installing-our-own-merges)). |
+| `ci` | After `finish` says `next: ci`: CI's verdict on the run's installs of our merges, read with the lease let go, then the completion command. |
 
 ## Where things live
 
 | What | Where | Public? |
 |---|---|---|
 | Pipeline config: the expected machine (hostname), the install folder, the expected time zone | `~/.config/shepherdr-fork/sync.json`, written once by the person's Assistant | No |
-| State: phase, lease, baseline, candidate, quarantine, held record, issue cursor, rehearsals passed, pending merges, install times | `~/.local/state/shepherdr-fork/sync/state.json` (written atomically: temp file, then rename) | No |
+| State: phase, lease, baseline, candidate, quarantine, held record, issue cursor, rehearsals passed, pending merges, installs (each with its run and path), CI's verdict after each install of ours, the recovery point (the newest install CI passed) | `~/.local/state/shepherdr-fork/sync/state.json` (written atomically: temp file, then rename) | No |
 | Lock | `~/.local/state/shepherdr-fork/sync/lock` (`flock`) | No |
 | Held and failed runs, for people | A `sync-blocked` or `pipeline` issue on dmalis/shepherdr, in sanitized words | Yes |
 | What was installed when | `ours-<version>-<n>` tags, pushed only after a healthy install | Yes |
@@ -121,7 +122,8 @@ The 24-hour question is the one outcome that waits: the run asks with its questi
 The state's `phase` is written before each step acts, so a run that dies is resumed, never repeated blindly:
 
 `selected → branch-pushed → tried → merged → installing → installed → healthy`, with side exits `held`,
-`rolling-back → rolled-back`, and `broken`.
+`rolling-back → rolled-back`, and `broken`. Installing our own merges has its own way in: `settled → installing`
+(no trial, no wait for main's checks; [Our merges' install policy](#installing-our-own-merges)).
 
 On resume:
 - `installing`: read the update's outcome from the task that asked for it (`herdr-task update-shepherdr <that task>
@@ -265,6 +267,10 @@ Exit codes say little: `--status` always exits 0, and the installer can print `N
 2. The installed files are the candidate's: each file `installed.json` lists under `.local/share/shepherdr/` that comes
    from a tracked file has that file's content at the SHA (`git show <sha>:<path>`). Built files (`web/dist`) are
    skipped.
+3. The web app: the built page is installed (`web/dist/index.html`) and, live, the running service serves it at `/`
+   (its health's id matches its `service.json`, and the page isn't the "isn't built" one). The installed herdr-task
+   answers `herdr-task list --json` in a scratch store. These two take seconds and cover what the trial covered for
+   our merges, which skip it. A rehearsal run with `--no-build` doesn't ask for the built page.
 3. `herdr-task assistants --json` lists every target the before-picture had.
 4. The scheduler runs the new code: within 30 s (it re-execs within 15 s when its code changes), the `hash` in
    herdr-task's `.scheduler.json` equals `scheduler.script_hash()` computed by the installed herdr-task itself.
@@ -402,8 +408,9 @@ Nothing repairs main by force.
 
 ### Main's checks
 
-Any candidate on main (a sync's merge commit, or main's tip for [Installing our own merges](#installing-our-own-merges))
-installs only after its checks on that exact SHA, read from `gh api repos/dmalis/shepherdr/commits/<sha>/check-runs`:
+A release sync's candidate on main (its merge commit, or main's tip on the install-main path) installs only after its
+checks on that exact SHA, read from `gh api repos/dmalis/shepherdr/commits/<sha>/check-runs`. Our own merges don't
+wait for them: CI reports after the install ([Installing our own merges](#installing-our-own-merges)).
 
 - `fork-check` always. Our workflow has no `paths-ignore`, so a push run always comes.
 - `check` when a run is expected. Upstream's push trigger skips a push whose every changed file matches its
@@ -581,33 +588,84 @@ never set it off, and sync runs end with `--told`, which isn't a merge event, so
 schedule rather than an event added to "Upstream sync" so that its update permission is the person's own switch, and
 its runs never take a release.
 
-**What its run does.** The same commands and the same state as the release sync, minus release selection:
+**What its run does.** The same commands and the same state as the release sync, minus release selection, and with
+our merges' own install policy:
 
-1. `preflight`: the same lease. A run that finds the lease taken records `pending` in state (the time and the merged
-   task's title) and ends `--nothing`. The owner picks it up (step 5).
-2. `settle`: waits until origin/main hasn't moved for 10 minutes, in calls of at most 9 minutes each (a shell call's
-   limit), so several merges in a row become one install. Then the candidate is origin/main's tip, pinned by SHA.
-3. Skips what installs nothing: when every path changed since the baseline is under `fork/`, `docs/`, `.agents/`,
-   `.claude/`, `.github/`, `test/`, or is a Markdown file at the root, there is nothing to install. The run ends
-   `--nothing` and the baseline stays. A test pins this list against the installer's `share_items` and
-   `source_items`, so a new shipped folder breaks it.
-4. Then exactly the release sync's steps from the trial on: [main's checks](#mains-checks) on that SHA, `fork/bin/trial
-   <sha>`, `install`, `health`, `rollback`, quarantine, tag, report. The same outcomes and completion commands.
-5. After a healthy install, if `pending` is set and origin/main moved past what was just installed, the same run goes
-   again from step 2, within the limits below. Otherwise it clears `pending` and ends.
+1. `preflight --pending "<the merged task's title>"`: the same lease. A run that finds the lease taken (or the
+   pipeline `broken`) records the merge in `pending` (its time and title), in the same lock, and ends `--nothing`. The
+   lease's owner installs it (step 6).
+2. `baseline`, as in [One run](#one-run).
+3. `settle`: origin/main's tip, fetched now and pinned by SHA. No waiting: each install takes whatever main holds when
+   it starts, so merges that land during an install go in together with the next one, which starts right after it.
+   The pin also clears the `pending` merges recorded before it (main held them by then). Its path:
+   - **nothing**: main's tip is installed (an ancestor of the baseline), quarantined (below), or already held on a
+     gate.
+   - **skip**: every path changed since the baseline is under `fork/`, `docs/`, `.agents/`, `.claude/`, `.github/`,
+     `test/`, or is a Markdown file at the root. Nothing is installed and the baseline stays. A test
+     (`fork/tests/test_merged.py`) pins this list against the installer's `share_items` and `source_items`, so a new
+     shipped folder breaks it.
+   - **install-merged**: phase `settled`, the candidate is the tip, and the release is the newest upstream release
+     main holds.
+4. The rehearsal, when `settle` says `rehearse` (below).
+5. `install <tip>`, `health <tip>`, and `rollback` when health fails, with quarantine and tag as for a sync.
+6. `finish`. It reads `pending` under the same lock that lets go of the lease. When a merge is pending it keeps the
+   lease and says **again**: the run goes back to step 3. This also holds after a skip, a nothing, or a release-sync
+   run that owns the lease: no merge is stranded. A release sync may take the lease between two installs. A run that
+   went more than once tells every round in one `--told`.
+7. `ci`, when `finish` says `next: ci` (below). It gives the completion command.
 
-**How often.**
-- At most one install every 30 minutes: each install restarts the service, which the person feels. A run that would
-  install sooner waits out the gap with `settle`.
-- At most 3 installs per run and 8 per day from this schedule. Past that, `pending` waits for the next 06:00 or 18:00
-  sync, which also installs main when it is beyond the baseline (the table in [One run](#one-run), step 3).
-- `broken`, a quarantined SHA at main's tip, or a held phase stops it the same way as the release sync. A merge on top
-  of a quarantined SHA is a new SHA and is tried.
+**Our merges' install policy.** `install` has two policies, chosen from the run's state:
+- **release** (a release sync's paths): phase `tried` or `merged`. The trial passed on the candidate's tree, and
+  main's checks passed on that exact SHA (waited for, as in [Main's checks](#mains-checks)). Unchanged.
+- **ours** (`install-merged`): phase `settled`, its own way into `installing`. No trial, and no wait for main's
+  checks: in this space, our merges merge and install right away, and CI reports afterwards. Everything else stays:
+  the folder at the baseline, the quarantine, the release's ancestry, the rehearsal gate, the hooks check, the hold
+  patch and the update permission.
 
-**The rehearsal stays the only gate.** `install` refuses unless the state records a passing rehearsal for the
-pipeline's own code at the candidate (a hash of `fork/bin/` and `fork/sync/` there). The first install of all waits for
-the rehearsal in [The rehearsal](#the-rehearsal). After that, a candidate that changed the pipeline's code has the run
-rehearse it first (`fork/bin/rehearse <sha>`, scratch root only), then install. Rehearsal failing: **held**.
+`install` refuses a policy that doesn't fit the state. An `install-merged` run that isn't `settled`, or a release
+sync's state that is `settled`, installs nothing.
+
+**What health reads instead of the trial.** Two health lines, for every install and rollback, that take seconds:
+- **web**: the built web app is in Shepherdr's folder (`web/dist/index.html`). Live, the running service also serves
+  it: its health says the id in its `service.json`, and `/` (asked on 127.0.0.1 with the service's own token, as the
+  CLI asks) is the built page, not its "isn't built" page.
+- **tasks**: the installed herdr-task answers `herdr-task list --json` in a scratch store and folder of its own. It
+  never touches the person's task lists or hc.
+
+**Quarantine without a trial.** A tip whose shipped files are the same as a quarantined commit's stays out: every
+path between them is one that installs nothing (the skip list). So a docs-only merge on top of a failed install
+doesn't clear it, but a change to a shipped file does. `settle` ends such a run as nothing, and `install` refuses it
+(gate `quarantine`).
+
+**CI after the install.** CI on main reports after our merges install:
+- What counts for an installed SHA is, for `check` and `fork-check` each, the newest finished run on that SHA or on a
+  later commit of main's first-parent line. A `cancelled`, `skipped` or `stale` run doesn't count: CI cancels older
+  main runs when main moves, and a later run covers the SHA. When `check`'s push trigger skips the SHA's push
+  (`paths-ignore`), an older commit with the same code counts.
+- `finish` lets go of the lease first, so the next install never waits for CI. Then `ci` reads the verdict, in calls
+  of at most 9 minutes, for up to 30 minutes after the install. It then gives the completion command.
+- A red result is told once per SHA, in the run's `--told` words: which check failed and on which commit, that
+  nothing was rolled back, and the recovery point. The person's Assistant can then open a fix task. A result that
+  comes later, or no finished run within 2 hours (missed), is told by the next run's `finish`.
+- Nothing rolls back on red CI. The newest install whose CI passed is kept as `recovery`: its tag and SHA. A release
+  sync's install counts, since its checks passed before it installed. The person can ask to go back to it. Going back
+  is an ordinary update of the install folder to that tag, run by the person or under their yes.
+
+**How often.** As soon as possible, with no quiet wait, no gap between installs, and no daily or per-run cap. Only
+one install runs at a time (the lease). Each install restarts the service for a few seconds, which the person accepts
+for having every fix at once. `broken`, a quarantined tip, or a held gate stops it the same way as the release sync.
+
+**The rehearsal stays the gate for the pipeline's own code.** `install` refuses unless the state records a passing
+rehearsal for the pipeline's own code at the candidate (a hash of `fork/bin/` and `fork/sync/` there). This holds for
+every install, ours too. The first install of all waits for the rehearsal in [The rehearsal](#the-rehearsal). After
+that, `settle` says `rehearse: true` when the tip's pipeline code has no passing rehearsal. The run then rehearses
+the tip with its own code: `fork/bin/rehearse <tip> --own-code`, from the run's worktree checked out at the tip, on a
+scratch root only. `--own-code` refuses at once when the code running isn't the tip's. Then it installs. A failed
+rehearsal: **held** (gate `main-rehearsal`).
+
+**Held records of this path** name their gate with a `main-` prefix (`main-rehearsal`, `main-hooks`,
+`main-permission`, ...) and the held tip as `--head`. A release sync's `select` doesn't count them, and no 24-hour
+question is asked about them: a new merge is the fix. A healthy install clears them as it does a release's.
 
 **Turning it on.** Created with update permission off, like "Upstream sync", and only after that schedule's
 conditions all hold and one release-sync run has installed for real. Its permission goes on with the person's own
@@ -668,10 +726,11 @@ import `test/home_guard.py` first (`sys.path` gets `test/`). No upstream file ch
    "draft" status. The fork-patch skill's step to add a line to `fork/patches.json`.
 8. **Turn on.** No code: the person's Assistant writes the config, creates the schedule (permission off), and the
    conditions in [The schedule](#the-schedule-codex-point-13) are checked one by one. Then the person's yes.
-9. **Install merged.** The `settle` subcommand, `pending`, the skip list with its pin test, the per-run and per-day
-   limits, and the rehearsal-hash gate in `install` (that gate is in task 4 from the start; this task adds the run's
-   own rehearsal). The skill's install-merged steps. Then the person's Assistant creates the "Install merged" schedule,
-   permission off, and later on with the person's yes.
+9. **Install merged.** The `settle` and `ci` subcommands, `pending` and `finish`'s `again`, the skip list with its
+   pin test, our merges' install policy (phase `settled`), the web and tasks health lines, the quarantine by shipped
+   files, CI's verdict after the install and the recovery point, and the run's own rehearsal (`fork/bin/rehearse
+   --own-code`; the rehearsal-hash gate in `install` is task 4's). The skill's install-merged steps. Then the person's
+   Assistant creates the "Install merged" schedule, permission off, and later on with the person's yes.
 
 ## The rehearsal
 
@@ -727,9 +786,10 @@ The rehearsal skips the live terminal check (`may_ask`: its updater is its own),
    dmalis/shepherdr, so Shepherdr feedback lands in our issues first and reaches upstream only through the
    upstream-issue skill.
 4. **How soon, and how often, merged work installs.** Each install restarts the service for a few seconds.
-   **Recommendation:** 10 quiet minutes after the last merge, at least 30 minutes between installs, at most 8 a day
-   from "Install merged"; the rest waits for the next 06:00 or 18:00. Shorter makes the app blink more often; longer
-   makes a fix wait.
+   **Answered:** as soon as possible. No quiet wait, no gap, and no daily or per-run cap. One install at a time, each
+   taking main's tip when it starts. Our merges skip the trial and don't wait for main's checks. Health covers what
+   the trial did (the web app served, herdr-task answering). CI reports afterwards: a red result is told once per
+   SHA, nothing rolls back on it, and the newest install CI passed is kept as the recovery point.
 5. **A hooks change in a release.** When a release adds a hook, the scheduled run holds it. **Recommendation:** the
    held message tells the person to run `shepherdr update` once themselves after reading what the hook does; a yes in
    the chat is not enough, because the run must not write an agent's config.

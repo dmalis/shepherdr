@@ -1,6 +1,6 @@
 ---
 name: upstream-sync
-description: Take upstream Shepherdr's newest release into this fork, adapt our patches, try it and install it. Use for the "Upstream sync" schedule's run, when asked to sync or update from upstream, or when a sync is held.
+description: Take upstream Shepherdr's newest release into this fork, adapt our patches, try it and install it; and install our own merged work right away. Use for the "Upstream sync" and "Install merged" schedules' runs, when asked to sync or update from upstream, or when a sync is held.
 ---
 
 # Upstream sync
@@ -25,6 +25,7 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 | `rollback` (health) | Run `rollback`. |
 | `unknown`, `broken` | Stop moving anything: go to step 7. The lease stays, so the next run resumes or the person looks. |
 | `nothing` | Another run owns the lease and is open: go to step 7. |
+| `again` (finish) | Merges came in while this run owned the lease: [Install merged](#install-merged)'s step 3 (`settle`), whatever this run's path was. |
 | `refused` (public-check) | Rewrite the text in fixed words, without the problems it names, and check again. |
 | `stop` | A step came out of order or a fact is missing. Do what `why` names first. If this run can't, go to step 7. |
 
@@ -46,6 +47,7 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 | `selected`, `branch-pushed` | Step 2 (select again). If `sync/<tag>` is already on origin, reset this worktree to it in step 3 instead of merging again; its review starts over in this run. |
 | `tried` | Path `take`: step 5 with the sync's `pr`. When it is null, find it with `gh pr list -R dmalis/shepherdr --head <sync branch> --state all --json number,state` (a merge that died before it was recorded leaves it merged: `merge` verifies that). Path `install-main`: step 6. |
 | `merged` | Step 5: `merge <sync's pr>` again reads main's checks. Then step 6. |
+| `settled` | [Install merged](#install-merged)'s step 3: `settle` pins main's tip again. |
 | `installing` | Step 6's `install <candidate>`: it reads the outcome of the update already asked for, and never asks twice. |
 | `installed` | Step 6's `health <candidate>`. |
 | `rolling-back` | Step 6's `rollback`. |
@@ -155,12 +157,49 @@ it found: report that, never a guess at why, and never repair `main` by force.
 2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
-3. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
+3. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
+   `fork/bin/sync ci`, again while it says `wait`; its line has the `command`.
+4. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 
 The `--told` words go to the person, who doesn't code: what's new for them and what of ours was adapted or dropped;
 what waits and why; or what failed. Name the sync PR and each issue by what it is, its link after: "the install
 step's terminal check (#25)". A held record the person already heard of ends `--nothing`.
+
+## Install merged
+
+The "Install merged" schedule's run: a task merged in this space, and our main installs right away. No release is
+taken, no trial runs, and nothing waits for CI; the rest is the steps above.
+
+1. `fork/bin/sync preflight --pending "<the merged task's title, from Set off by>"`. `nothing` (or `broken`) with
+   `pending: true`: the merge waits for the lease's owner, who installs it. Go to step 7 (it ends `--nothing`).
+   `resume` set: carry on as in step 1's table (`settled`: this section's step 3).
+2. `fork/bin/sync baseline`, as in step 2.
+3. `fork/bin/sync settle`. It pins origin/main's tip now, with no waiting:
+
+| `path` | Do |
+|---|---|
+| `nothing` | main is installed, or its tip is quarantined or already held (`why`). Step 7. |
+| `skip` | Only files that install nothing changed. Step 7. |
+| `install-merged` | Step 4. |
+
+4. `rehearse: true` in its line: the tip changed the pipeline's own code. In this worktree, `git checkout --detach
+   <candidate>`, then `fork/bin/rehearse <candidate> --own-code` (background; read its last line; it takes minutes).
+   `PASS` records itself. `FAIL`: **held** (`--blocker main-rehearsal`, below). Then go back with
+   `git checkout -`.
+5. Step 6 with the `candidate`: `install`, `health`, `rollback`. No trial and no main's checks: `install` takes
+   them as this path's.
+6. Step 7. `finish` says `again` when merges came in meanwhile: back to this section's step 3. A healthy install
+   with `--says`: what's new for the person, from the merged tasks.
+
+A hold of this path: `--blocker main-<the gate it names>` (`main-rehearsal`, `main-hooks`, `main-permission`, ...),
+`--tag`/`--sha` the `release` in settle's line, `--kind` as the line says, and `--head <candidate>`. No `sync-blocked`
+issue and no 24-hour question: the next merge is the fix. A gate that is the pipeline's own (`main-rehearsal`) goes on
+the open `pipeline` issue.
+
+**CI after the install.** `ci`'s words tell a red result once (which check, that nothing rolled back, and the last
+install CI passed). The person's Assistant opens a fix task from them. Never roll back on red CI. Go back to the
+recovery point only when the person asks.
 
 ## Held
 
