@@ -426,7 +426,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       const all: any[] = compat.allSpaces?.() ?? [];
       const now = all.filter((s) => (s.machine ?? null) === machine).map((s) => s.id);
       const next = withOrder(bar(), machine, ids.filter((id) => !sec(id)), now);
-      await sh.set("spaces-chat", ids.some((id) => sec(id)) ? withGroupSlots(next, machine, ids.map((id) => (sec(id) ? { group: sec(id) } : id))) : next);
+      await sh.set("spaces-chat", ids.some((id) => sec(id)) ? withGroupSlots(next, machine, ids.map((id) => (sec(id) ? { group: sec(id) } : id)), next.order?.[machine ?? ""] ?? now) : next);
       return { ok: true };
     } else if (b.under === "all") {
       // the machines (m:<key>, this computer by its name): their order in the sidebar's data, "" for this computer, so

@@ -133,11 +133,12 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
   }
   /** a loose space among its machine's groups (level item): over a group's rows or the lower half of its heading,
    *  where they were when the drag began, it goes into that group (before that row); over the upper half, just above
-   *  it. Where the rows were, not where they show: making room moves them, and must not change what is under it */
+   *  it. Where the rows were, not where they show: making room moves them, and must not change what is under it. Only
+   *  over the list: let go beside it (over the chat), it goes into no group */
   const isGroup = (b: Block) => b.els[0]?.dataset.heading === b.id
   const split = (b: Block) => (isGroup(b) ? (b.rs[0].top + b.rs[0].bottom) / 2 : (b.top + b.bottom) / 2)
-  const slotTarget = (y: number) => {
-    const b = blocks.find((b, i) => i !== from && isGroup(b) && y >= split(b) && y < b.bottom)
+  const slotTarget = (x: number, y: number) => {
+    const b = blocks.find((b, i) => i !== from && isGroup(b) && y >= split(b) && y < b.bottom && x >= b.rs[0].left && x < b.rs[0].right)
     if (!b || !o.into?.may(b.id)) return null
     const row = b.els.find((x, i) => i > 0 && y >= b.rs[i].top && y < b.rs[i].bottom)
     const before = row?.dataset.project
@@ -153,7 +154,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     const me = blocks[from]
     // where the pointer is in the list as it was measured, before any scroll
     const y = sy + scrolled()
-    light(o.level === 'item' ? (o.into ? slotTarget(y) : null) : target(x, sy))
+    light(o.level === 'item' ? (o.into ? slotTarget(x, y) : null) : target(x, sy))
     if (over) {
       // out over another group: it follows the pointer, and the rest stay as they were
       dy = y - y0

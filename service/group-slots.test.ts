@@ -34,7 +34,7 @@ function world() {
 }
 /** the machine's list as the web draws it from the saved data (sections as the snapshot names them, s:<id>) */
 const drawn = (bar: any, loose: string[]) =>
-  inSlots(bar.sections.filter((s: any) => s.machine === null).map((s: any) => ({ id: `s:${s.id}`, ...(s.after ? { after: s.after } : {}) })), loose.map((id) => ({ id }) as any)).map((x) => (x.group ? x.group.id : x.space.id));
+  inSlots<{ id: string; after?: string[] }>(bar.sections.filter((s: any) => s.machine === null).map((s: any) => ({ id: `s:${s.id}`, ...(s.after ? { after: s.after } : {}) })), loose.map((id) => ({ id }) as any)).map((x) => (x.group ? x.group.id : x.space.id));
 
 test("a loose space dragged above the groups stays there; the spaces' own order and the groups' order are kept", async () => {
   const w = world();
@@ -61,6 +61,37 @@ test("another machine's group, or one gone, named in a machine's order changes n
   const x = withGroupSlots(bar, null, ["a", { group: "v1" }, { group: "nope" }, { group: "g2" }]);
   expect(x.sections.map((s: any) => [s.id, s.after])).toEqual([["g1", undefined], ["v1", undefined], ["g2", ["a"]]]);
   expect(bar.sections[2].after).toBeUndefined();   // the data it was given is left as it was
+});
+
+test("a space you can't see (archived, under Active) keeps its place above a group when you reorder what you see", async () => {
+  // All: A (archived), Work, B, C; Active shows Work, B, C and B and C are swapped
+  const w = world();
+  w.shared.spaces = [{ id: "A", machine: null }, { id: "B", machine: null }, { id: "C", machine: null }];
+  w.shared["spaces-chat"] = { sections: [{ id: "work", name: "Work", machine: null, spaces: [], after: ["A"] }], order: { "": ["A", "B", "C"] } };
+  await act(w.hub, { type: "order", under: "m:mini", ids: ["s:work", "C", "B"] }, w.compat);
+  const bar = w.shared["spaces-chat"];
+  expect(bar.order[""]).toEqual(["A", "C", "B"]);
+  expect(drawn(bar, ["A", "C", "B"])).toEqual(["A", "s:work", "C", "B"]);
+  expect(drawn(bar, ["C", "B"])).toEqual(["s:work", "C", "B"]);
+  // the group dragged below C: the hidden A stays above it as well
+  await act(w.hub, { type: "order", under: "m:mini", ids: ["C", "s:work", "B"] }, w.compat);
+  expect(drawn(w.shared["spaces-chat"], ["A", "C", "B"])).toEqual(["A", "C", "s:work", "B"]);
+});
+
+test("a group dragged above the shown space a hidden one follows: the hidden one goes below the group too", () => {
+  // All: B, H (hidden), Work, C; Active shows B, Work, C and Work goes to the top
+  const bar = { sections: [{ id: "work", name: "Work", machine: null, spaces: [], after: ["B", "H"] }] };
+  const x = withGroupSlots(bar, null, [{ group: "work" }, "B", "C"], ["B", "H", "C"]);
+  expect(x.sections[0].after).toEqual([]);
+  expect(drawn(x, ["B", "H", "C"])).toEqual(["s:work", "B", "H", "C"]);
+});
+
+test("a group's place survives the serving machine changing (core/host.js relocate names its spaces anew)", async () => {
+  const { relocate } = await import("../core/host.js");
+  const toLaptop = (m: string | null) => (m === null ? "mini" : m === "laptop" ? null : m);
+  const bar = { sections: [{ id: "g1", name: "One", machine: null, spaces: ["b"], after: ["a"] }] };
+  const there = relocate("spaces-chat", bar, toLaptop);
+  expect(there.sections[0]).toEqual({ id: "g1", name: "One", machine: "mini", spaces: ["mini/b"], after: ["mini/a"] });
 });
 
 // pins: what the patch relies on from upstream
