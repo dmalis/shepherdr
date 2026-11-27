@@ -71,7 +71,10 @@ export function Choice<T extends string>({ values, value, onChange, label }: { v
     const check = () => {
       const cs = getComputedStyle(row)
       const room = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-      setWide(fits(p.scrollWidth, wordsWidth(row.querySelector(':scope>.n')), room, parseFloat(cs.columnGap) || 0))
+      // the label keeps its words, and at least the 6em settings-look.css gives it before a row stacks
+      const n = row.querySelector(':scope>.n')
+      const least = n ? parseFloat(getComputedStyle(n).fontSize) * 6 : 0
+      setWide(fits(p.scrollWidth, Math.max(wordsWidth(n), least), room, parseFloat(cs.columnGap) || 0))
     }
     check()
     // the row's width, and the control's own (its font coming in changes it)
