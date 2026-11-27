@@ -15,7 +15,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
    - **What it does.**
    - **Acceptance criteria:** things a person can see or do.
    - **Where it lives:** files and seams.
-   - **Tests:** the test files the sync must run.
+   - **Tests:** the test files the sync must run (the same ones as its `fork/patches.json` line).
    - **Upstream:** the matching upstream issue, if any, from `gh search issues -R eliasstravik/shepherdr <words>`.
 2. Before building, check whether upstream already has it, or nearly:
    - `git log upstream/main --oneline -i --grep <words>`;
@@ -44,6 +44,9 @@ so the cost of a patch is how often a release breaks it. Build for that.
   function's name and arguments or a line a template must still contain. The test names the patch's issue.
 - **Settings.** A new setting is a new key in upstream's existing hierarchy (Everywhere, repo, task `--set`), never
   a second config file. The person's private values stay in their settings file, never in this repo.
+- **Its line in `fork/patches.json`**, in the patch's pull request: `{"issue": <n>, "name": "<short name>",
+  "files": [...], "tests": [...]}`, its files and test files as paths in the repo. The sync reads this file at the
+  commit it installs: a patch without a line is neither tested nor counted as carried.
 - **Tests before ready.** Run only the patch's own tests, plus `bunx tsc` or a build when it could break one
   (AGENTS.md: Tests). The pull request's CI runs the rest.
 
@@ -51,11 +54,13 @@ so the cost of a patch is how often a release breaks it. Build for that.
 
 1. Read what upstream changed: `git log -p <old>..<new> -- <the patch's files>`.
 2. Keep the patch's behaviour, as its issue states it, in upstream's new shape. Don't keep its old code.
-3. If upstream now does the same thing, delete the patch instead. Close its issue as `fixed-upstream`.
-4. Update the issue's "Where it lives" and its pinning test.
+3. If upstream now does the same thing, delete the patch and its `fork/patches.json` line instead. Label its issue
+   `fixed-upstream`; it closes only after the install without it is healthy.
+4. Update the issue's "Where it lives", its pinning test and its `fork/patches.json` line.
 
 ## 5. Done means
 
-- The pull request links the issue, CI's `check` passed, and the reviewer had no must-fix finding left.
+- The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
+  `check` passed, and the reviewer had no must-fix finding left.
 - The issue's status says "carried since `ours-…`" once it is installed.
 - Offer it upstream when the upstream-issue skill says to.
