@@ -19,6 +19,7 @@ import { SpaceIcon } from './space-icon.tsx'
 import { EverythingLine } from './everything-line.tsx'
 import { needsWords } from '@shared/needs-open.ts'
 import { MarkRead } from './read-marks.ts'
+import { edgeSwipe, SideDrawer } from './edge-swipe.tsx'
 import { pickFor, PickSummary, reportedPick, useCatalog } from './picker.tsx'
 
 /** the thread the middle column shows: the open task when it has the middle, else the space's chat */
@@ -249,6 +250,8 @@ export function App() {
     addEventListener('keydown', key)
     return () => removeEventListener('keydown', key)
   }, [])
+  // fork #117: a swipe in from the left edge opens the spaces list
+  useEffect(() => edgeSwipe(), [])
   if (!snap) return <div className={cx('app', (ui.phone || coarse) && 'tap')}><div className="device" /></div>
   const hidden = sideHidden(ui)
   const swap = !ui.phone && !!ui.pane && side === 'right'
@@ -276,13 +279,11 @@ export function App() {
         </div>
         {ui.phone && <Bar snap={snap} />}
         <div className="layer">
-          {ui.drawer && ui.phone && (
-            <>
-              <div className="scrim" onClick={() => setUI({ drawer: false })} />
-              <nav className="drawer in" aria-label="Spaces">
-                <List snap={snap} />
-              </nav>
-            </>
+          {/* fork #117: on a tablet too, while the list is hidden: a swipe from the left floats it over */}
+          {ui.drawer && hidden && (
+            <SideDrawer>
+              <List snap={snap} />
+            </SideDrawer>
           )}
           {ui.settings && (
             <>
