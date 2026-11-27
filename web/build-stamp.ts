@@ -24,16 +24,17 @@ export function githubRepo(remote: string): string {
 
 /**
  * The release this build starts from: its own tag when the checkout has it; else, by hand, the commit that set
- * package.json to this version (an install fetches without tags, so it may lack the newest one); else the nearest
- * release tag, as `git describe --tags --match 'v*'` finds it.
+ * package.json to this version (an install fetches without tags, so it may lack the newest one), never in a shallow
+ * checkout; else the nearest release tag, as `git describe --tags --match 'v*'` finds it.
  */
 function release(root: string, version: string): { tag: string; at: string } | null {
   if (version) {
     const tag = `v${version}`
     const at = git(root, ['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`])
     if (at) return { tag, at }
-    const set = git(root, ['log', '--no-merges', '--full-history', '--reverse', '--format=%H', `-S"version": "${version}"`, '--', 'package.json'])
-    const first = set?.split('\n')[0]
+    // a shallow checkout (CI's) cuts history short, and its edge would pass for the commit that set the version
+    const set = git(root, ['rev-parse', '--is-shallow-repository']) === 'false' && git(root, ['log', '--no-merges', '--full-history', '--reverse', '--format=%H', `-S"version": "${version}"`, '--', 'package.json'])
+    const first = set ? set.split('\n')[0] : ''
     if (first) return { tag, at: first }
   }
   const tag = git(root, ['describe', '--tags', '--abbrev=0', '--match', 'v*'])

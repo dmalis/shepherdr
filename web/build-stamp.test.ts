@@ -107,6 +107,16 @@ describe('buildStamp', () => {
     expect(buildStamp(d)).toMatchObject({ tag: 'v1.0.0' })
   })
 
+  test('a shallow checkout (CI’s) without the tag: the commit alone, never an exact release', () => {
+    const d = fork(false)
+    const shallow = mkdtempSync(join(tmpdir(), 'stamp-'))
+    dirs.push(shallow)
+    spawnSync('git', ['clone', '-q', '--depth', '1', '--no-tags', `file://${d}`, shallow])
+    const s = buildStamp(shallow, '1.1.0')!
+    expect(s).toMatchObject({ tag: '', ahead: 0 })
+    expect(s.commit).toBe(git(d, 'rev-parse', 'HEAD'))
+  })
+
   test('no release tag: the commit alone', () => {
     const d = repo()
     commit(d, 'one')
