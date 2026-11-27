@@ -287,6 +287,9 @@ export const chats: Record<string, Chat> = Object.fromEntries(
     chat(EV, [
       a('Morning, Sam. Watering reminders is still in progress. Three things are ready for you:', { at: today(7, 30), suggests: ['Show me what needs me'] }),
       me('', { at: today(9, 11), file: { name: 'supplier-quotes-november.pdf', path: '/demo/supplier-quotes-november.pdf' } }),
+      // #56: a picture you sent while it worked (one only in the agent's log), as itself; a tap opens it full size
+      me('The checkout on my phone, the button is tiny', { at: today(9, 11) }),
+      me('', { at: today(9, 11), file: { name: 'Image.png', path: '/demo/sent-checkout.jpg', alt: 'Image' } }),
       me('Nice. Add a task to make the checkout button bigger on phones.', { at: today(9, 12), reactions: [{ emoji: '👀', by: 'them' }] }),
       a('Added Bigger checkout button on phones to #shop and started it.', { at: today(9, 12), reactions: [{ emoji: '🎉', by: 'me' }] }),
       did(today(9, 12), [['run', 'herdr-task add', '"Bigger checkout button on phones"'], ['run', 'herdr-task start', '"Bigger checkout button on phones"']]),
@@ -310,6 +313,9 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       me('And the sale plan, APP/?artifact=a-plan, still good?'),
       // #1560: pictures the chat can't show here, and an artifact on its way
       a('', { images: 3 }),
+      // #56: a picture still in its CLI's queue: no picture there yet, and the line says when it shows
+      me('And this one', { waiting: true, waitsFor: 'queue' }),
+      me('', { images: 1, waiting: true, waitsFor: 'queue' }),
       a('', { publishing: true }),
       // a reply that quotes a long message, with a short answer: the quote truncates inside the bubble (SHEP-353)
       me('Use /ui to fix', { reply: { id: 'm-dep', text: 'Dependency check started on its schedule in #shop. It found 3 packages behind and is updating them. Supercalifragilisticexpialidociouslylongwordwithoutanybreaks', who: 'agent' }, reactions: [{ emoji: '👍', by: 'them' }] }),

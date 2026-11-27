@@ -37,6 +37,7 @@ import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './sugges
 import { UpdateHint, updateRows } from './update.tsx'
 import { endRows, restartRows } from './restart.tsx'
 import { BoxThumb, openPreview, SentThumb, sourcesOf } from './thumbs.tsx'
+import { imagesLine } from './sent-images.ts'
 import { heldStep, signOf } from './typing.ts'
 import { Jobs } from './jobs.tsx'
 import { newsRow, type NewsRow } from './news.ts'
@@ -532,7 +533,7 @@ export function BriefMessage({ msg, b, space }: { msg: Message; b: TaskBrief; sp
   )
 }
 
-function FileRow({ msg, chat, gap }: { msg: Message; chat: Chat; gap: boolean }) {
+export function FileRow({ msg, chat, gap }: { msg: Message; chat: Chat; gap: boolean }) {
   const f = msg.file! as NonNullable<Message['file']> & { id?: string }
   const mine = msg.who === 'you'
   const { small, full, box } = sourcesOf(chat.key, f)
@@ -828,8 +829,8 @@ function Messages({ thread }: { thread: Thread }) {
     else if (m.recap) out.push(<RecapNote key={k} text={m.text ?? ''} at={m.at} place={thread.place} />)
     else if (m.error) out.push(<div key={k} className="ref c-red"><I n="warn" c="s16" /><span>{m.text}</span></div>)
     else if (m.file) out.push(<FileRow key={k} msg={m} chat={stub} gap={gap} />)
-    // pictures the chat can't show (another machine's, or still in its CLI's queue), and an artifact on its way
-    else if (m.images) out.push(<div key={k} className={cx('ref', m.who === 'you' && 'mine')} data-msg={m.id}><I n="image" c="s16" /><span>{m.images === 1 ? '1 image' : `${m.images} images`}</span></div>)
+    // pictures the chat can't show yet (still in its CLI's queue: they show once it takes them), and an artifact on its way
+    else if (m.images) out.push(<div key={k} className={cx('ref', m.who === 'you' && 'mine')} data-msg={m.id}><I n="image" c="s16" /><span>{imagesLine(m.images, m.waiting)}</span></div>)
     else if (m.publishing) out.push(<div key={k} className="ref" role="status" data-msg={m.id}><I n="doc" c="s16" /><span>Publishing an artifact…</span></div>)
     else if (cmd) {
       lastRef = ''

@@ -38,6 +38,7 @@ import { analyticsAction, howOf, noteVersion, record as note } from "./analytics
 import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
 import { keep, served as fileResponse, smaller } from "./media.ts";
+import { LOG_IMAGE, readLogImage } from "./sent-images.ts";
 import { Asks } from "./asks.ts";
 import { whenWhyFound } from "./prompts.ts";
 import { Jobs } from "./jobs.ts";
@@ -1024,6 +1025,12 @@ const server = Bun.serve<{ who: string }>({
     // here (/api/upload: in the message box, or on its way to an agent on another machine)
     if (path === "/api/file") {
       const key = url.searchParams.get("chat") ?? "", want = url.searchParams.get("path") ?? "";
+      // a picture that is only inside the agent's log (service/sent-images.ts)
+      if (LOG_IMAGE.test(want)) {
+        const a = compat.fileOf(key, want) ? compat.addrOf(key) : null;
+        const img = a ? await readLogImage(live.chats?.reader(a), want).catch(() => null) : null;
+        return img ? fileResponse(new Blob([img.bytes as Uint8Array<ArrayBuffer>]), img.type, req.headers.get("range")) : json({ error: "not found" }, 404);
+      }
       const upload = want.startsWith(ATTACH + "/") && !want.slice(ATTACH.length + 1).includes("/") && !!statSync(want, { throwIfNoEntry: false })?.isFile();
       const at = upload ? want : compat.fileOf(key, want);
       const addr = compat.addrOf(key) ?? "", on = !upload && addr.includes("/") ? addr.split("/")[0] : null;

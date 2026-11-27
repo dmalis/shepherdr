@@ -350,6 +350,8 @@ Bun.serve<Sock['data'], never>({
       return Response.json({ path: `/tmp/demo/${n}-${name}`, name })
     }
     // a file you sent, at its own address (only what was sent to this demo)
+    // a picture you sent in the fictional chat (#56)
+    if (path === '/api/file' && url.searchParams.get('path') === '/demo/sent-checkout.jpg') return new Response(Bun.file(shotFile('')), { headers: { 'content-type': 'image/jpeg' } })
     if (path === '/api/file' && uploaded.has(url.searchParams.get('path') ?? '')) return new Response(uploaded.get(url.searchParams.get('path')!)!)
     const m = /^\/api\/artifacts\/([^/]+)\/(page|thumb)/.exec(path)
     // a picture beside a page's index.html
