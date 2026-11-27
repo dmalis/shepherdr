@@ -388,6 +388,10 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
       ...(t.status === "need" || t.status === "ready" || stopped ? { needsAt: x.attention_at ?? r.ready_at ?? r.started ?? undefined } : {}),
       ...(t.status === "done" && r.ready_at ? { needsAtWas: r.ready_at } : {}),
       ...(x.merge_failed ? { mergeFailed: String(x.merge_failed).slice(0, 200) } : {}),
+      // nothing to merge, closed by its Merge setting at ready, or why a Ready one waits for the person (herdr_task/waits.py)
+      ...(x.nothing_to_merge ? { nothingToMerge: true } : {}),
+      ...(x.closed_alone && t.status === "done" ? { closedAlone: true } : {}),
+      ...(x.waits_why && t.status === "ready" ? { waitsWhy: String(x.waits_why).slice(0, 200) } : {}),
       ...(after ? { afterTitle: after, ...(waits.length > 1 ? { afterMore: waits.length - 1 } : {}) } : {}),
       ...(f.waiting?.includes(`task:${t.id}`) ? { waitsDesktop: true } : {}),
     };

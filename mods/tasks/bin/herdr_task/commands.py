@@ -35,6 +35,7 @@ from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
 from .proof import evidence, find_proof
+from .waits import closed_words, closes_alone, waits_why
 from .when import when_from
 
 
@@ -839,6 +840,17 @@ def cmd_ready(args):
             raise Fail(f"{s.name(t)}'s worktree {wt} is gone, and its work isn't in {base}. "
                        + (f"Bring it back (git -C {q(main)} worktree add {q(wt)} {br}), then run ready again." if has else
                           f"Its branch {br} is gone too: nothing is left here to merge. Tell the person."))
+        policy = merge_policy(s, t)
+        if closes_alone(t, policy):
+            # Nothing to merge, and Merge says no one needs to look (waits.py): done now, no card and no alert; its
+            # Assistant hears what it found (news.py's done line).
+            t["ready_at"], t["closed_alone"] = now(), policy
+            for k in ("review", "auto_merge", "waits_why"):
+                t.pop(k, None)
+            finish(s, t, even_if_busy=True, quiet=True)
+            v = view(s, t)
+            say(args, v, closed_words(s, t, policy))
+            return
         msg = finalize(s, t)
         # Its own background work still running (SHEP-148): the task shows Working until it ends.
         # #1093: named, and Codex's only while something of its own really runs (ended ones never listed)
@@ -1279,7 +1291,7 @@ def finalize(s, t):
         # merge it here while a pull request, its agent's, stays open there).
         failed = f"Couldn't reach GitHub to open its pull request: {github_unreachable(s)}"
     t["state"], t["ready_at"] = "ready", now()
-    for k in ("attention", "merge_requested", "review"):
+    for k in ("attention", "merge_requested", "review", "waits_why", "closed_alone"):
         t.pop(k, None)
     (t.get("pr") or {}).pop("wait", None)
     s.dirty = True
@@ -1288,6 +1300,7 @@ def finalize(s, t):
         # Nothing to merge (in the folder itself, or no commits beyond its base): it waits in Ready
         # for the person's Accept, whatever the merge setting; no pull request.
         t.pop("auto_merge", None)
+        t["waits_why"] = waits_why(s, t, merge_policy(s, t))
         return msg + (" Nothing to merge (no commits beyond its base)." if t.get("nothing_to_merge") else "") + \
             " The person marks it as done on its card."
     if failed:
@@ -1332,6 +1345,7 @@ def finalize(s, t):
             t["attention"] = f"Couldn't ask for the merge: {e}"
     else:
         t.pop("auto_merge", None)
+        t["waits_why"] = waits_why(s, t, policy)
     return msg + " The person marks it as done on its card, which merges it."
 
 
@@ -1385,7 +1399,7 @@ def cmd_state(args, state):
                 t["kept_open"] = True
                 t["was_merged"] = True  # SHEP-423: its merge stays a fact (done again: merged, not "not merged")
             for k in ("reviews", "review", "auto_merge", "merged", "nothing_to_merge", "accepted_at", "merge_asked", "merge_queued", "closed_unmerged",
-                      "quiet", "told", "told_sent"):
+                      "quiet", "told", "told_sent", "waits_why", "closed_alone"):
                 t.pop(k, None)
         if state == "done" and (t.get("was_merged") or (t.get("worktree") and (merged_here(s, t) or landed(s, t)))):
             # SHEP-423: reopened after it merged (to tag a release, say), then done again: still merged. Squash-merged on
@@ -1831,7 +1845,7 @@ def cmd_reply(args):
                 t["kept_open"] = True
                 t["was_merged"] = True  # SHEP-423, as reopen
             for k in ("reviews", "review", "auto_merge", "merged", "nothing_to_merge", "accepted_at", "merge_asked", "merge_queued", "closed_unmerged",
-                      "quiet", "told", "told_sent", "attention"):
+                      "quiet", "told", "told_sent", "waits_why", "closed_alone", "attention"):
                 t.pop(k, None)
             t["state"], t["reopened_at"] = "running", now()
             s.dirty = True

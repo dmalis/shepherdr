@@ -82,7 +82,10 @@ def news_line(s, t, v, event, words=None):
             "told": f"{title}, a schedule's run, says: {words}",
             # Its space's "When a task is accepted" command failed (after_accept.py): the task stays done.
             "accept-failed": f"{title} is done, but its \"When a task is accepted\" command failed: {words}",
-            "done": f"{title} is done" + (": merged" if t.get("merged") else ": nothing to merge" if t.get("nothing_to_merge")
+            "done": f"{title} is done" + (": merged" if t.get("merged") else
+                                          # closed by its Merge setting at ready (waits.py): what it found, for the Assistant
+                                          f": nothing to merge, closed by its Merge setting" + (f" · {said}" if said else "")
+                                          if t.get("closed_alone") else ": nothing to merge" if t.get("nothing_to_merge")
                                           else ": accepted" if t.get("accepted_at") else "")}[event]
     return f'<herdr-news task="{attr(ref)}" event="{event}">{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 

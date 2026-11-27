@@ -22,6 +22,7 @@ import { Markdown } from '@plugins/chat/markdown.tsx'
 import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
 import { StatusIcon } from './icon.tsx'
+import { readyWords } from './ready-words.ts'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
 
 export { StatusIcon }
@@ -293,7 +294,7 @@ function useEvidence(t: Task): Evidence | undefined {
 }
 
 /** One review card wherever it comes up (Everything's chat, the space's chat and the task), answerable from any of
- *  them. On a branch or worktree: "Mark as done and merge". Changed in the folder, or not a repo: "Mark as done".
+ *  them. It starts with the decision and why it waits for you; its buttons say what they do (ready-words.ts).
  *  "Not now" leaves it under Needs you; what you type next in that task goes to its agent. */
 export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   const snap = useSnap()
@@ -306,11 +307,13 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   const acts = useCardActs(`review:${t.id}`, `${tstate(t)}|${t.status ?? ''}|${t.mergeFailed ?? ''}`)
   if (!snap) return null
   const s = tstate(t)
-  if (s === 'done' || s === 'archived') return <DoneRow>{statusWord(t).word} · {t.name}</DoneRow>
+  // closed by its Merge setting with nothing to merge: what it found stays in the line (dmalis/shepherdr#29)
+  if (s === 'done' || s === 'archived') return <DoneRow>{statusWord(t).word} · {t.name}{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}</DoneRow>
   const down = placeDown(snap, t.place)
   const branch = onBranch(t)
   const merging = t.status === 'merging' || !!t.accepting
   const where = branch ? 'On its own branch' : t.repo === 'folder' ? 'Changed in the folder, no branch' : 'Not a repo'
+  const rw = readyWords(t)
   const files = ev?.diff?.list ?? []
   // what its checks say, in their own words where they have some ("site builds")
   const checks = ev?.checks && ev.checks.state !== 'none' && ev.checks.state !== 'unknown' ? (ev.checks.state === 'passed' ? ev.checks.text || 'checks passed' : ev.checks.state === 'failed' ? 'checks failed' : 'checks running') : ''
@@ -322,6 +325,9 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   return (
     <div className="card" data-card={`review:${t.id}`}>
       {ctx === 'chat' && <span className="t tw"><StatusIcon t={t} time="none" />{t.name}</span>}
+      {/* the decision first, then why it waits for you (dmalis/shepherdr#29); what its agent said follows as evidence */}
+      <span className={ctx === 'chat' ? undefined : 't'}>{rw.ask}</span>
+      {t.waitsWhy && <span className="s">{t.waitsWhy}</span>}
       <span className="s">{ctx === 'chat' && t.work && <><WorkTag snap={snap} t={t} /> · </>}{where}</span>
       {ctx === 'chat' && <TaskAgentSummary t={t} className="s" />}
       <span>{said.summary || 'Ready for you to look at.'}</span>
@@ -356,12 +362,12 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
       ) : (
         <>
           <div className="acts">
-            <Btn disabled={waiting(acts.now) || merging} onClick={() => { later.add(t.id); bump((n) => n + 1) }}>Not now</Btn>
+            <Btn disabled={waiting(acts.now) || merging} onClick={() => { later.add(t.id); bump((n) => n + 1) }}>{rw.later}</Btn>
             {merging ? (
               <Btn kind={ctx === 'chat' ? 'str' : 'pri'} className="busy" aria-disabled aria-busy><I n="working" c="s16" />Merging…</Btn>
             ) : (
-              <ActBtn acts={acts} id="accept" kind={ctx === 'chat' ? 'str' : 'pri'} busy={branch ? 'Merging…' : 'Marking as done…'} run={() => attempt({ type: 'accept', task: t.id })}>
-                {branch ? 'Mark as done and merge' : 'Mark as done'}
+              <ActBtn acts={acts} id="accept" kind={ctx === 'chat' ? 'str' : 'pri'} busy={rw.busy} run={() => attempt({ type: 'accept', task: t.id })}>
+                {rw.go}
               </ActBtn>
             )}
           </div>

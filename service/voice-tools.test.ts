@@ -156,7 +156,7 @@ test("look task: by words of its title or 'this'; a Ready one with what Mark as 
   const x = io({ action: async (b) => (b.type === "evidence" ? { evidence: { commit: "abc", diff: { files: 3, added: 9, removed: 1, list: [] }, checks: { state: "passed", text: "" }, proof: { id: "a1", title: "Fast switch · Proof" } } } : { ok: true }) });
   const a = await look({ what: "task", id: "the fast switch task" }, web, x);
   expect(a).toContain('"Fast switch in the picker" in #shop on box: Ready for review.');
-  expect(a).toContain("It is on its own branch: Mark as done and merge.");
+  expect(a).toMatch(/It is on its own branch: Merge into (main|its base branch)\./);
   expect(a).toContain('3 files changed. Checks passed. It has a proof, "Fast switch · Proof".');
   expect(await look({ what: "task", id: "this" })).toContain("Voice reads the new app");
   expect(await look({ what: "task", id: "this" })).toContain("Its agent is using its Screen now.");

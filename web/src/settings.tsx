@@ -218,6 +218,9 @@ function Agents({ snap, place, only }: { snap: Snapshot; place: string; only?: R
 }
 
 const MERGE: [LevelConfig['merge'], string][] = [['done', 'When I mark it as done'], ['checks', 'When all checks pass'], ['now', 'Right away']]
+/** under Merge: what happens to a task that changed nothing (dmalis/shepherdr#29, herdr_task/waits.py) */
+export const nothingWords = (merge: LevelConfig['merge']) =>
+  merge === 'done' ? 'A task that changed nothing waits for you to close it.' : 'A task that changed nothing closes by itself: what it found stays in the chat.'
 
 function Tasks({ snap, place }: { snap: Snapshot; place: string }) {
   // a space's page: the repos its tasks work in (SHEP-335); Everywhere's: Everywhere or one repo
@@ -239,7 +242,7 @@ function TaskRows({ snap, place }: { snap: Snapshot; place: string }) {
     <>
       <SRow label={<>Review by a second agent<Own place={place} own={own('review')} k="review" /></>}><Tgl label="Review by a second agent" on={lv.review} onChange={(v) => void set(place, 'review', v)} /></SRow>
       <ReviewRows place={place} lv={lv} own={own} />
-      <SRow label={<>Merge<Own place={place} own={own('merge')} k="merge" /></>} wrap>
+      <SRow label={<>Merge<Own place={place} own={own('merge')} k="merge" /><small>{nothingWords(lv.merge)}</small></>} wrap>
         <Seg label="Merge" values={MERGE.map((m) => m[1])} value={MERGE.find((m) => m[0] === lv.merge)?.[1] ?? MERGE[0]![1]} onChange={(v) => void set(place, 'merge', MERGE.find((m) => m[1] === v)![0])} />
       </SRow>
       <SRow label={<>Proof<Own place={place} own={own('proof')} k="proof" /></>}><Tgl label="Proof" on={lv.proof} onChange={(v) => void set(place, 'proof', v)} /></SRow>

@@ -181,6 +181,7 @@ export function doneWords(t: Task): string {
   if (t.quiet === 'nothing') return 'Done · nothing to do'
   if (t.merged) return `Done and merged${t.doneNote ? ` · ${t.doneNote}` : ''}`
   if (t.quiet === 'told') return `Done · ${t.doneNote ?? 'told you in its chat'}`
+  if (t.nothingToMerge) return 'Done · nothing to merge'
   if (onBranch(t)) return 'Done · not merged'
   return `Done${t.doneNote ? ` · ${t.doneNote}` : ''}`
 }
