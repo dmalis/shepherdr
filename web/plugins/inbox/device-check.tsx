@@ -39,7 +39,11 @@ function Line({ label, value, tone }: { label: string; value: string; tone?: 'ok
 async function renew(now: DeviceNow): Promise<string | null> {
   const reg = await registerWorker()
   await (await reg.pushManager.getSubscription())?.unsubscribe()
-  const failed = await turnOn(now.tell === 'Everything' ? 'Everything' : 'Needs me')
+  // the choice made on this device (the alerts plugin keeps it as shepherdr.tell), else what the server had: a renewal
+  // never turns Everything into Needs me
+  let saved: string | null = null
+  try { saved = localStorage.getItem('shepherdr.tell') } catch { /* a private window */ }
+  const failed = await turnOn(saved === 'Everything' || (saved !== 'Needs me' && now.tell === 'Everything') ? 'Everything' : 'Needs me')
   if (failed) return null
   return (await reg.pushManager.getSubscription())?.endpoint ?? null
 }

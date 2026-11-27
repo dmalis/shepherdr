@@ -34,6 +34,7 @@ export async function markRead(ids: string[] | 'all', items: InboxItem[] = []) {
     .then((r) => r.ok)
     .catch(() => false)
   if (ok) return true
+  if (ids !== 'all') for (const id of ids) failed.set(id, Date.now())
   if (ids === 'all') all = was
   else added.forEach((id) => sent.delete(id))
   ver++
@@ -53,9 +54,23 @@ export function settle(items: InboxItem[]) {
   if (changed) { ver++; tell() }
 }
 
-/** the app covers what it shows: nothing is seen while the page is hidden, Settings or Search is open, or, on a phone,
- *  while the list of spaces or a pane covers the chat (the rule web/src/read-marks.ts seenChats keeps for chats) */
-export const covered = (ui: Pick<UI, 'phone' | 'drawer' | 'pane' | 'settings' | 'search'>) => !!(ui.settings || ui.search || (ui.phone && (ui.drawer || ui.pane)))
+/** reads the service refused, by when: not asked again on their own for 30 s (a page left open never loops) */
+const failed = new Map<string, number>()
+const RETRY_MS = 30_000
+
+/** The unread alerts the screen shows now. Nothing while Settings or Search is open, or on a phone while the list of
+ *  spaces is out. A task's alerts once that task shows (beside the chat, maximized, or a phone's Tasks pane on it); a
+ *  space's own once its chat shows, which on a phone a pane covers (web/src/read-marks.ts seenChats' rule). */
+export function seenIds(ui: Pick<UI, 'phone' | 'drawer' | 'pane' | 'settings' | 'search' | 'task' | 'max' | 'at'>, items: InboxItem[], now = Date.now()): string[] {
+  if (ui.settings || ui.search || (ui.phone && ui.drawer)) return []
+  const task = ui.phone ? (ui.pane === 'tasks' ? ui.task : null) : ui.task
+  const shown = new Set([task, ui.max].filter(Boolean) as string[])
+  const chat = !ui.task && !ui.max && !(ui.phone && ui.pane)
+  return items
+    .filter((x) => !isRead(x) && now - (failed.get(x.id) ?? 0) >= RETRY_MS)
+    .filter((x) => (x.task ? shown.has(x.task) : chat && !!x.place && x.place === ui.at))
+    .map((x) => x.id)
+}
 
 export const unreadOf = (items: InboxItem[] | undefined) => (items ?? []).filter((x) => !isRead(x)).length
 
@@ -181,8 +196,7 @@ function SeenOnScreen() {
     }
   }, [])
   useEffect(() => settle(snap?.inbox ?? []), [snap?.inbox])
-  const open = new Set([ui.task, ui.max].filter(Boolean) as string[])
-  const ids = looking && snap && !covered(ui) ? (snap.inbox ?? []).filter((x) => !isRead(x) && (x.task ? open.has(x.task) : !!x.place && x.place === ui.at && !ui.task && !ui.max)).map((x) => x.id) : []
+  const ids = looking && snap ? seenIds(ui, snap.inbox ?? []) : []
   const key = ids.join('\n')
   useEffect(() => {
     if (key) void markRead(key.split('\n'))

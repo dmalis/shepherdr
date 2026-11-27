@@ -33,14 +33,16 @@ type Recipient = Pick<Out, "topic" | "place">;
 export const needKey = (n: any) => `need:${n.chat}:${n.id}`;
 
 /** what a need's alert says (whether it is sent or not: its space's Notify decides), in words that fit a watch */
-export function needAlert(snap: any, n: any): Out {
+/** whole (fork #37): its words uncut, as alertsOf cuts them at the end and keeps them for the alerts list */
+export function needAlert(snap: any, n: any, whole = false): Out {
   const who = n.task ? taskWho(snap, n.task) : T.assistantWho(snap.places?.find((p: any) => p.id === n.place)?.name);
   const go = alertUrl({ place: n.place, ...(n.task ? { task: n.task } : {}), ...(n.question?.id ? { focus: n.question.id } : {}) });
   // its card's choices as buttons; a question with none a button may send opens the app; no card: a reply
   const buttons = n.question ? choiceButtons(n.question) : [];
   const acts = n.question ? (buttons.length ? { actions: buttons, answer: { chat: n.chat, question: n.question.id } } : {})
     : n.secret || n.hands ? {} : { actions: [REPLY], reply: { chat: n.chat, ...(n.reply ? { to: n.reply } : {}) } };
-  return { title: watchTitle(T.toastTitle(who, n.question?.queued ? "Asked a question" : T.NEEDS_YOU)), body: excerpt(T.needReason(n), WATCH_BODY), tag: n.task ?? n.chat, topic: "needs", place: n.place, waits: true, url: go, ...acts };
+  const title = T.toastTitle(who, n.question?.queued ? "Asked a question" : T.NEEDS_YOU), body = T.needReason(n);
+  return { title: whole ? title : watchTitle(title), body: whole ? body : excerpt(body, WATCH_BODY), tag: n.task ?? n.chat, topic: "needs", place: n.place, waits: true, url: go, ...acts };
 }
 
 export function alertsOf(snap: any, said: (chat: string) => string | undefined = () => undefined): Map<string, Out> {
@@ -48,7 +50,7 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   for (const n of snap.needs ?? []) {
     if (n.assistantFirst) continue;
     if (snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined })) continue;
-    now.set(needKey(n), needAlert(snap, n));
+    now.set(needKey(n), needAlert(snap, n, true));
   }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
   // core/tasks.js readyWait), the same Accept as the Tasks panel's

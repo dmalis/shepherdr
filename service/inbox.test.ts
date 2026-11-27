@@ -35,6 +35,13 @@ test("the list keeps an alert's whole words; the push keeps the watch's cut and 
   const box = new Inbox(join(dir(), "inbox.json"));
   box.record(before, now);
   expect(box.list()[0]).toMatchObject({ key: "alert:a1", title, body });
+  // a question that needs you: the same (needAlert's words are cut only at the end)
+  const long = "Which payment provider should the checkout use from Friday on, Stripe or Adyen, given the fees we compared?";
+  const asks = alertsOf({ ...snap(), needs: [{ id: "q9", chat: "sp1", place: "sp1", question: { id: "q9", kind: "Question", title: long, choices: [] } }] });
+  const box2 = new Inbox(join(dir(), "inbox.json"));
+  box2.record(new Map(), asks);
+  expect(box2.list()[0].body.length).toBeGreaterThan(80);
+  expect([...asks.values()][0].body.length).toBeLessThanOrEqual(80);
   // what a device gets: the cut words, no `full`
   const sent: string[] = [];
   const push = new Push(() => "https://example.test", join(dir(), "push.json")) as any;
@@ -89,8 +96,11 @@ test("an open alert from a machine that can't be reached stays open until it can
   // its machine went quiet: the model has no task to show, so no alert either
   box.record(ready, new Map(), (x) => x.task === "HERD-4");
   expect(box.list()[0].closed).toBeUndefined();
+  // back, still Ready: the same open row, not a second one
+  box.record(new Map(), ready, () => false);
+  expect(box.list()).toHaveLength(1);
   // back, and the task is no longer Ready
-  box.record(new Map(), new Map(), () => false);
+  box.record(ready, new Map(), () => false);
   expect(box.list()[0].closed).toEqual(expect.any(Number));
 });
 

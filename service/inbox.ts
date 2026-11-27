@@ -52,6 +52,8 @@ export class Inbox {
     const at = this.clock();
     if (before) for (const [id, a] of now) {
       if (before.has(id)) continue;
+      // still open from before (its machine was away a moment): the same alert, not a new one
+      if (this.items.some((x) => (x.key ?? x.id) === id && x.waits && !x.closed)) continue;
       const task = taskOf(a.url);
       if (a.topic === "assistant") this.items = this.items.filter((x) => !(x.topic === "assistant" && x.tag === a.tag));
       let row = `${id}@${at}`;

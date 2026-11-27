@@ -87,14 +87,40 @@ test("a read the service refused is undone, so the bell never says read here and
   }
 })
 
-test('nothing on a covered screen counts as seen: Settings, Search, or on a phone the list of spaces or a pane', async () => {
-  const { covered } = await import('./client.tsx')
-  const ui = { phone: true, drawer: false, pane: null, settings: null, search: false } as any
-  expect(covered(ui)).toBe(false)
-  expect(covered({ ...ui, drawer: true })).toBe(true)
-  expect(covered({ ...ui, pane: 'files' })).toBe(true)
-  expect(covered({ ...ui, phone: false, drawer: true })).toBe(false)
-  expect(covered({ ...ui, phone: false, search: true })).toBe(true)
+test('what the screen shows is seen: a task once it shows, a space once its chat does; nothing that covers it', async () => {
+  const { seenIds } = await import('./client.tsx')
+  const it = (id: string, o: object) => ({ id, at: 1, title: id, body: '', topic: 'needs', tag: id, ...o })
+  const items = [it('t', { task: 'HERD-4', place: 'sp1' }), it('s', { place: 'sp1' })]
+  const desk = { phone: false, drawer: false, pane: null, settings: null, search: false, task: null, max: null, at: 'sp1' } as any
+  expect(seenIds(desk, items)).toEqual(['s'])
+  expect(seenIds({ ...desk, task: 'HERD-4' }, items)).toEqual(['t'])
+  expect(seenIds({ ...desk, settings: { sec: null } }, items)).toEqual([])
+  expect(seenIds({ ...desk, search: true }, items)).toEqual([])
+  const phone = { ...desk, phone: true }
+  expect(seenIds(phone, items)).toEqual(['s'])
+  // the list of spaces out, or a pane over the chat: not seen
+  expect(seenIds({ ...phone, drawer: true }, items)).toEqual([])
+  expect(seenIds({ ...phone, pane: 'files' }, items)).toEqual([])
+  // the Tasks pane showing that task: its alerts are seen, the space's are not
+  expect(seenIds({ ...phone, pane: 'tasks', task: 'HERD-4' }, items)).toEqual(['t'])
+  expect(seenIds({ ...phone, pane: 'tasks' }, items)).toEqual([])
+})
+
+test('a refused auto-read is not asked again for 30 s, so a page left open never loops', async () => {
+  const { markRead, seenIds } = await import('./client.tsx')
+  const items = [{ id: 'alert:z@1', at: 1, title: 'z', body: '', topic: 'needs', tag: 'z', place: 'sp9' }]
+  const ui = { phone: false, drawer: false, pane: null, settings: null, search: false, task: null, max: null, at: 'sp9' } as any
+  const real = globalThis.fetch
+  try {
+    globalThis.fetch = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch
+    const now = Date.now()
+    expect(seenIds(ui, items, now)).toEqual(['alert:z@1'])
+    expect(await markRead(['alert:z@1'])).toBe(false)
+    expect(seenIds(ui, items, Date.now())).toEqual([])
+    expect(seenIds(ui, items, Date.now() + 31_000)).toEqual(['alert:z@1'])
+  } finally {
+    globalThis.fetch = real
+  }
 })
 
 test('pin: the device states the check reads are still the alerts plugin’s', () => {
