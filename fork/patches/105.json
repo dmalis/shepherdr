@@ -1,0 +1,23 @@
+{
+  "issue": 105,
+  "name": "typing on a phone: less chrome, no contact autofill",
+  "files": [
+    "web/plugins/chat/box-label.tsx",
+    "web/plugins/chat/folder-row.tsx",
+    "web/shared/folder-cut.ts",
+    "web/src/where.tsx",
+    "web/src/where.test.tsx",
+    "web/src/hpath.css",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/typing/client.tsx",
+    "web/plugins/typing/typing.ts",
+    "web/plugins/typing/typing.css",
+    "docs/plugins.md"
+  ],
+  "tests": [
+    "web/plugins/chat/box-label.test.tsx",
+    "web/plugins/typing/typing.test.ts",
+    "web/src/folder-cut.test.tsx",
+    "web/src/where.test.tsx"
+  ]
+}
