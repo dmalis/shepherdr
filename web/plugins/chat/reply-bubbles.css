@@ -1,12 +1,12 @@
 /* dmalis/shepherdr#51: "Replying to “…”" over the suggested replies, the same mark as a sent reply's quote (a 2 px bar,
    muted words, one line): what the bubbles answer, and what a tapped one will quote. A tap goes to that message. */
 .sugfor{position:relative;display:flex;align-items:center;gap:6px;max-width:100%;margin:0 0 2px;padding:0 0 0 10px;border:0;background:none;font:inherit;font-size:var(--sec);line-height:var(--secl);text-align:start;color:var(--muted);cursor:pointer}
-/* the bar is the words' height, so a finger's taller line below keeps the quote's look */
-.sugfor::before{content:"";position:absolute;left:0;top:50%;width:2px;height:var(--secl);transform:translateY(-50%);background:var(--line2)}
+/* the bar is the words' height, so a finger's taller line keeps the quote's look (::after: ::before is a touch button's pad, ds.css) */
+.sugfor::after{content:"";position:absolute;left:0;top:50%;width:2px;height:var(--secl);transform:translateY(-50%);background:var(--line2)}
 .sugfor>.sfl{flex:none}
 .sugfor>.sfq{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
 /* a finger gets a target of its own in the layout, never one laid over what is above or under it */
-.app.tap .sugfor{min-height:var(--btns);margin:0}
+.app.tap .sugfor{min-height:var(--hit);margin:0}
 .sugfor:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:2px}
 @media (hover:hover) and (pointer:fine){.sugfor:hover>.sfq{color:var(--fg)}}
 .sugfor:active{opacity:.6}
