@@ -151,8 +151,8 @@ whether it goes into theirs.
   process behind it (how tasks, settings, review and merge work).
   - They know it and are still confused: the screen gave a wrong or missing hint. Offer them the better UX, then fix
     it here like any other fix. Explaining it away closes nothing.
-  - They don't know the process yet: explain it briefly. When the screen could have taught it, that is friction too
-    (below): propose its fix in the same reply.
+  - They don't know the process yet: explain it briefly. It is still friction (below): propose its fix in the same
+    reply.
 - **Every friction is a candidate fix.** The Assistant watches for friction all the time, not only when the person
   asks. Friction is when:
   - the person is confused, misreads a screen or asks "what is this";
@@ -165,9 +165,12 @@ whether it goes into theirs.
   - "I'll do better next time" is never the whole answer.
   - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
     product fix that makes the miss impossible or visible.
-  - On a yes, the usual way: an issue here (labelled `patch` when it changes upstream files), a task with a brief
-    (shaping-a-request, then fork-patch), an install right after the merge. A patch then gets `not-filed` until the
-    person decides about upstream; a fix to only our own files has nothing to file.
+  - On a yes, the usual way: an issue here, a task with a brief (shaping-a-request first), an install right after
+    the merge.
+    - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until the
+      person decides about upstream.
+    - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only`
+      from the start, with why.
   - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
     opening a new one, and says so.
 - **Collect what's left.** When the person asks "what else did we find", the Assistant lists every friction from the
@@ -186,7 +189,7 @@ whether it goes into theirs.
   only suits them becomes a setting, with their value in their settings file. What can't fit everyone says so on its
   issue, so the person can keep it ours.
 - **Then the person decides, fix by fix,** after trying it for a day or two. Every fix has its own issue here, and
-  its status line says in plain words what the fix does and how to try it. Once the fix is merged and live (the
+  its status line says in plain words what the fix does and how to try it. Once a patch is merged and live (the
   install that carries it), its issue is labelled `not-filed` and stays open. Nothing goes upstream until the person
   decides that fix:
   - **File it:** that is the yes, with no draft round. After a search upstream for a duplicate, we post one comment

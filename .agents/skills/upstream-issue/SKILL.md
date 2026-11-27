@@ -29,8 +29,8 @@ here yet, gets one (fork-patch skill, step 1), and goes through steps 1–5.
 When Shepherdr's behaviour confuses the person:
 1. **Check the process first.** Do they know the process behind it: how tasks, settings, review and merge work?
    Judge from what they said; if it's unclear, ask one question.
-   - They don't know it yet: explain it briefly. When the screen could have taught it, that is friction too:
-     propose its fix in the same reply (FORK.md: "Every friction is a candidate fix").
+   - They don't know it yet: explain it briefly. It is still friction: propose its fix in the same reply (FORK.md:
+     "Every friction is a candidate fix").
    - They know it and are still confused: the screen gave a wrong or missing hint, and that hint is the problem to
      fix, not something to explain away. Answer so they can carry on, then go on below.
 2. **Name the gap:** what the screen showed, what the person expected from it, and the hint that was wrong or
