@@ -93,7 +93,7 @@ export function DeviceCheck({ now, reread }: { now: DeviceNow | null; reread: ()
     const name = deviceName(x.device)
     confirm({
       title: `Stop alerts to ${x.mine ? 'this device' : name}?`,
-      body: x.mine ? 'Alerts turn off here, as Off does. Turn them on again any time above.' : "It won't get alerts until it turns them on again.",
+      body: x.mine ? 'Alerts turn off here, as Off does. Turn them on again any time above.' : 'It won’t get alerts until it turns them on again.',
       ok: 'Remove',
       danger: true,
       run: async () => {
