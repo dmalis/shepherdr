@@ -1,0 +1,37 @@
+{
+  "issue": 42,
+  "name": "a task pane says what it waits for, reply buttons only when it asks",
+  "files": [
+    "core/checks-wait.js",
+    "core/tasks.js",
+    "core/plain-suggests.js",
+    "core/chat-log.js",
+    "mods/tasks/bin/herdr_task/checkwait.py",
+    "mods/tasks/bin/herdr_task/agents.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "mods/tasks/bin/herdr_task/reply_note.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/reactions.py",
+    "service/model.ts",
+    "service/next.ts",
+    "web/shared/checks-wait.ts",
+    "web/shared/types.ts",
+    "web/shared/view.ts",
+    "web/plugins/tasks/checks-card.tsx",
+    "web/plugins/tasks/checks-card.css",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/tasks/icon.tsx",
+    "web/plugins/chat/task-replies.ts",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/jobs.tsx",
+    "web/demo/data.ts"
+  ],
+  "tests": [
+    "core/checks-wait.test.js",
+    "test/test_herdr_task.py::ChecksWait",
+    "test/test_herdr_task.py::HandInAsksNothing",
+    "web/plugins/tasks/checks-card.test.tsx",
+    "web/plugins/chat/task-replies.test.ts",
+    "web/plugins/chat/jobs.test.tsx"
+  ]
+}

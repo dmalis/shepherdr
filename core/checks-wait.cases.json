@@ -1,0 +1,57 @@
+{
+  "_": "dmalis/shepherdr#42: what a Ready task waits for while its pull request's checks run, in words. core/checks-wait.test.js and test/test_herdr_task.py (ChecksWait) run every case: core/checks-wait.js and herdr_task/checkwait.py say the same. now and every time are minutes; line null means it waits on nothing of this kind.",
+  "cases": [
+    { "name": "one passed, one running with its usual time: the count and the time left",
+      "now": 100, "task": { "state": "ready", "auto_merge": "auto", "pr": { "checks": "running", "runs": [
+        { "n": "lint", "s": "passed", "at": 91, "end": 93, "typ": 2 },
+        { "n": "check", "s": "running", "at": 94, "typ": 14 } ] } },
+      "line": "Waiting for GitHub's checks · 1 of 2 passed · about 8 min" },
+    { "name": "a minute or less left: almost done",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs": [
+        { "n": "check", "s": "running", "at": 87, "typ": 14 } ] } },
+      "line": "Waiting for GitHub's checks · 0 of 1 passed · almost done" },
+    { "name": "a running check with no usual time: no time at all",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs": [
+        { "n": "lint", "s": "passed", "at": 91, "end": 93 },
+        { "n": "check", "s": "running", "at": 94 } ] } },
+      "line": "Waiting for GitHub's checks · 1 of 2 passed" },
+    { "name": "more checks still to show up: no total",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs_more": true, "runs": [
+        { "n": "lint", "s": "passed", "at": 91, "end": 93 } ] } },
+      "line": "Waiting for GitHub's checks · 1 passed, more to come" },
+    { "name": "skipped checks don't count",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs": [
+        { "n": "deploy", "s": "skipped" },
+        { "n": "check", "s": "queued", "typ": 5 } ] } },
+      "line": "Waiting for GitHub's checks · 0 of 1 passed · about 5 min" },
+    { "name": "no checks read yet",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running" } },
+      "line": "Waiting for GitHub's checks" },
+    { "name": "a failed check is named, and what happens next",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "failed", "runs": [
+        { "n": "lint", "s": "passed", "at": 91, "end": 93 },
+        { "n": "check", "s": "failed", "at": 91, "end": 99 },
+        { "n": "e2e", "s": "failed", "at": 91, "end": 98 } ] } },
+      "line": "“check” failed and 1 more · back to its agent to fix" },
+    { "name": "far past its usual time: slow, named",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs": [
+        { "n": "check", "s": "running", "at": 60, "typ": 14 } ] } },
+      "line": "“check” is taking longer than usual · 40 min so far, usually 14" },
+    { "name": "over half an hour with no usual time: slow",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "running", "runs": [
+        { "n": "check", "s": "running", "at": 65 } ] } },
+      "line": "“check” is taking longer than usual · 35 min so far" },
+    { "name": "its checks passed: nothing of this kind",
+      "now": 100, "task": { "state": "ready", "pr": { "checks": "passed" } }, "line": null },
+    { "name": "only the older wait word: nothing of this kind (SHEP-175 keeps Checks running)",
+      "now": 100, "task": { "state": "ready", "pr": { "wait": "Checks running" } }, "line": null },
+    { "name": "its merge asked for: Merging, not this",
+      "now": 100, "task": { "state": "ready", "merge_requested": true, "pr": { "checks": "running" } }, "line": null },
+    { "name": "in GitHub's merge queue: not this",
+      "now": 100, "task": { "state": "ready", "merge_queued": true, "pr": { "checks": "running" } }, "line": null },
+    { "name": "merged: not this",
+      "now": 100, "task": { "state": "ready", "merged": true, "pr": { "checks": "running" } }, "line": null },
+    { "name": "still working: not this",
+      "now": 100, "task": { "state": "working", "pr": { "checks": "running" } }, "line": null }
+  ]
+}

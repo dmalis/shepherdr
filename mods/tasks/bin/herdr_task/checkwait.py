@@ -4,10 +4,17 @@ what it waits for in a few words, never "Merging" while nothing merges. The same
 (core/checks-wait.cases.json), which the web app reads."""
 
 import datetime
+import math
 
 from .base import now
 
 MIN = 60000
+
+
+def _round(x):
+    """JS Math.round (half up), not Python's half to even: the same words as checks-wait.js"""
+    return int(math.floor(x + 0.5))
+
 SLOW_OVER = 10 * MIN   # a check this far past its usual time is slow, and named
 SLOW_NONE = 30 * MIN   # or this long with no usual time known
 MOST = 30              # checks kept on a task
@@ -102,7 +109,7 @@ def line(task, now_=None):
     pr = task.get("pr")
     if not pr or task.get("merged") or task.get("merge_requested") or task.get("merge_queued") or task.get("state") != "ready":
         return None
-    if not (pr.get("checks") in ("running", "failed") or pr.get("wait") == "Checks running"):
+    if pr.get("checks") not in ("running", "failed"):
         return None
     t = now() if now_ is None else now_
     runs = [{"name": r["n"], "state": r.get("s") if r.get("s") in ("passed", "failed", "running", "queued", "skipped") else "running",
@@ -116,9 +123,9 @@ def line(task, now_=None):
         return f"“{failed[0]['name']}” failed" + (f" and {len(failed) - 1} more" if len(failed) > 1 else "") + " · back to its agent to fix"
     for r in open_:
         if r["state"] == "running" and r["at"] and t - r["at"] > (max(2 * r["typical"], r["typical"] + SLOW_OVER) if r["typical"] else SLOW_NONE):
-            ran = round((t - r["at"]) / MIN)
+            ran = _round((t - r["at"]) / MIN)
             return f"“{r['name']}” is taking longer than usual · {ran} min so far" + \
-                (f", usually {max(1, round(r['typical'] / MIN))}" if r["typical"] else "")
+                (f", usually {max(1, _round(r['typical'] / MIN))}" if r["typical"] else "")
     if not counted:
         return "Waiting for GitHub's checks"
     count = f"{passed} passed, more to come" if pr.get("runs_more") or not open_ else f"{passed} of {len(counted)} passed"

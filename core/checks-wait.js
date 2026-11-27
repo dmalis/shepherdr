@@ -18,7 +18,7 @@ const STATES = ["passed", "failed", "running", "queued", "skipped"];
 export function checksWait(task, now = Date.now()) {
   const pr = task?.pr;
   if (!pr || task.merged || task.merge_requested || task.merge_queued || task.state !== "ready") return null;
-  if (!(pr.checks === "running" || pr.checks === "failed" || pr.wait === "Checks running")) return null;
+  if (!(pr.checks === "running" || pr.checks === "failed")) return null;
   const runs = (Array.isArray(pr.runs) ? pr.runs : []).filter((r) => r && typeof r.n === "string").map((r) => ({
     name: r.n, state: STATES.includes(r.s) ? r.s : "running", at: Number(r.at) || 0, end: Number(r.end) || 0,
     typical: Number(r.typ) || 0, ...(typeof r.u === "string" && r.u ? { url: r.u } : {}),

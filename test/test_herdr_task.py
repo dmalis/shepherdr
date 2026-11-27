@@ -3768,7 +3768,8 @@ class ChecksBeforeReady(PrLooks):
         t = self.said_ready()
         self.assertEqual(self.agents.task_status(t, self.live), ("working", None, "Checks running"))
         self.github_says(checks=[self.RUNNING])
-        self.assertEqual(self.look(t), ("working", "Checks running", None))
+        # dmalis/shepherdr#42: what it waits for, from the checks' real state
+        self.assertEqual(self.look(t), ("working", "Waiting for GitHub's checks · 0 of 1 passed", None))
         self.github_says(checks=[self.PASSED])
         self.assertEqual(self.look(t), ("ready", None, "ready"))
         with open(self.gh_log) as f:
@@ -3807,7 +3808,7 @@ class ChecksBeforeReady(PrLooks):
     def test_a_failing_check_goes_back_to_its_agent_never_ready_first(self):
         t = self.said_ready()
         self.github_says(checks=[self.FAILED])
-        self.assertEqual(self.look(t, after=1000), ("working", "Back to its agent to fix", None))
+        self.assertEqual(self.look(t, after=1000), ("working", "“check” failed · back to its agent to fix", None))  # dmalis/shepherdr#42
         self.assertEqual(t["attention"], "Checks failing: check.")
         # handed to its resting agent at once (pr_news, pr_deliver): it is on it, still Working past the grace
         self.tick.pr_deliver(self.store, t, {})
@@ -3830,7 +3831,7 @@ class ChecksBeforeReady(PrLooks):
     def test_no_checks_is_ready_once_github_had_time_to_start_them(self):
         t = self.said_ready()
         self.github_says(checks=[])
-        self.assertEqual(self.look(t, after=5000), ("working", "Checks running", None))
+        self.assertEqual(self.look(t, after=5000), ("working", "Waiting for GitHub's checks", None))  # dmalis/shepherdr#42
         self.assertEqual(self.look(t, after=30_000), ("ready", None, "ready"))
 
     def test_merging_by_itself_is_working_then_done(self):
@@ -4020,7 +4021,7 @@ class RequiredChecksOnly(PrLooks):
         t = self.said_ready()
         self.requires("build")
         self.github_says(checks=[self.BUILD, self.LINT_RED])
-        self.assertEqual(self.look(t, after=1000)[:2], ("working", "Back to its agent to fix"))
+        self.assertEqual(self.look(t, after=1000)[:2], ("working", "“lint” failed · back to its agent to fix"))  # dmalis/shepherdr#42
 
 
 class ChecksUnreadable(PrLooks):
@@ -4071,7 +4072,7 @@ class ChecksUnreadable(PrLooks):
     def test_ready_with_a_note_when_github_says_clean(self):
         t = self.said_ready()
         self.github_says("CLEAN")
-        self.assertEqual(self.look(t, after=5000)[:2], ("working", "Checks running"))  # GitHub may not have started them
+        self.assertEqual(self.look(t, after=5000)[:2], ("working", "Waiting for GitHub's checks"))  # GitHub may not have started them
         self.assertEqual(self.look(t, after=30_000), ("ready", None, "ready"))
         self.assertTrue(t["pr"]["checks_unknown"])
         self.assertEqual(self.store.data["github_checks"]["repo"], "o/r")
@@ -4088,13 +4089,13 @@ class ChecksUnreadable(PrLooks):
     def test_rest_check_runs_still_count_when_graphql_refuses(self):
         t = self.said_ready()
         self.github_says("BLOCKED", runs=[{"name": "test", "status": "in_progress", "conclusion": None}])
-        self.assertEqual(self.look(t)[:2], ("working", "Checks running"))
+        self.assertEqual(self.look(t)[:2], ("working", "Waiting for GitHub's checks · 0 of 1 passed"))  # dmalis/shepherdr#42
         self.github_says("CLEAN", runs=[{"name": "test", "status": "completed", "conclusion": "success"}])
         self.assertEqual(self.look(t), ("ready", None, "ready"))
         self.assertNotIn("checks_unknown", t["pr"])  # REST read them all: known
         self.assertNotIn("github_checks", self.store.data)
         self.github_says("BLOCKED", runs=[{"name": "test", "status": "completed", "conclusion": "failure"}])
-        self.assertEqual(self.look(t, after=1000)[:2], ("working", "Back to its agent to fix"))
+        self.assertEqual(self.look(t, after=1000)[:2], ("working", "“test” failed · back to its agent to fix"))  # dmalis/shepherdr#42
         self.assertEqual(t["attention"], "Checks failing: test.")
 
     def test_accept_merges_without_check_access(self):
@@ -5917,7 +5918,9 @@ class AgentReactions(unittest.TestCase):
         notes = {a: self.aset.session_note(a) for a in ("t9", "t10", "t11", "t12")}
         from herdr_task.feedback import AGENT_NOTE
         fb = "\n" + AGENT_NOTE  # Feedback offers (SHEP-78), on by default
-        self.assertEqual(notes, {"t9": self.reactions.OFF + fb, "t10": self.reactions.GUIDE + fb, "t11": self.reactions.OFF + fb, "t12": self.reactions.GUIDE + fb})
+        from herdr_task.reply_note import FORM, HANDIN
+        own = "\n" + HANDIN + " " + FORM  # dmalis/shepherdr#42: a task's own agents only, suggested replies on by default
+        self.assertEqual(notes, {"t9": self.reactions.OFF + fb + own, "t10": self.reactions.GUIDE + fb + own, "t11": self.reactions.OFF + fb, "t12": self.reactions.GUIDE + fb})
         self.assertEqual([self.terminals[a]["labels"]["herdr.reactions"] for a in ("t9", "t10", "t11", "t12")], ["off", "on", "off", "on"])
         self.write({"everywhere": {"agents": {"reactions": False}}})
         for a in ("t9", "t10", "t11", "t12"):
@@ -6102,7 +6105,9 @@ class AssistantSettings(unittest.TestCase):
         note = self.aset.session_note("t9")
         self.assertNotIn("Your settings", note)
         from herdr_task.feedback import AGENT_NOTE
-        self.assertEqual(note, self.aset.reactions.GUIDE + "\n" + AGENT_NOTE)  # and Feedback (SHEP-78), on by default
+        from herdr_task.reply_note import FORM, HANDIN
+        # and Feedback (SHEP-78), on by default; a task's agent: its hand-in and replies (dmalis/shepherdr#42)
+        self.assertEqual(note, self.aset.reactions.GUIDE + "\n" + AGENT_NOTE + "\n" + HANDIN + " " + FORM)
         self.assertEqual(self.terminals["t9"]["labels"], {"herdr.task": "SHEP-1", "herdr.reactions": "on"})
         self.assertEqual(self.aset.session_note("nope"), "")  # not a terminal here
 
@@ -11979,6 +11984,105 @@ class ParallelCollisions(unittest.TestCase):
         self.assertIn("that fix round is the accepted price", words)
         self.assertNotIn("as parallel edits there conflict at merge", words)
         self.assertIn("tasks touching different files run in parallel", words)
+
+
+class ChecksWait(unittest.TestCase):
+    """dmalis/shepherdr#42: a Ready task whose checks still run says what it waits for ("Waiting for GitHub's checks · 1
+    of 2 passed · about 8 min"), never "Merging" while nothing merges; the same words as core/checks-wait.js
+    (core/checks-wait.cases.json). The tick keeps each check and its usual time from earlier pull requests."""
+
+    MIN = 60000
+
+    def setUp(self):
+        sys.path.insert(0, BIN)
+        from herdr_task import agents, checkwait
+        self.cw, self.agents = checkwait, agents
+
+    def ms(self, task):
+        pr = dict(task["pr"])
+        if "runs" in pr:
+            pr["runs"] = [{**r, **{k: r[k] * self.MIN for k in ("at", "end", "typ") if r.get(k)}} for r in pr["runs"]]
+        return {**task, "pr": pr}
+
+    def test_the_shared_cases(self):
+        with open(os.path.join(ROOT, "core", "checks-wait.cases.json")) as f:
+            cases = json.load(f)["cases"]
+        for c in cases:
+            with self.subTest(c["name"]):
+                self.assertEqual(self.cw.line(self.ms(c["task"]), c["now"] * self.MIN), c["line"])
+
+    def test_ready_wait_says_it_before_merging(self):
+        """The seam in agents.ready_wait: merging on its own while checks run is never "Merging" yet."""
+        t = {"state": "ready", "auto_merge": "auto", "pr": {"number": 3, "checks": "running", "runs": [{"n": "check", "s": "running"}]}}
+        self.assertEqual(self.agents.ready_wait(t, []), "Waiting for GitHub's checks · 0 of 1 passed")
+        self.assertEqual(self.agents.ready_wait({**t, "merge_requested": True}, [{"address": "t1"}]), self.agents.MERGING)
+
+    def test_the_tick_keeps_each_check_and_its_usual_time(self):
+        """keep() from gh pr view's rows: names, states and times; a check's usual time is the middle of what it took on
+        this repo's earlier pull requests, never another repo's."""
+        earlier = lambda i, mins, repo="o/r": {"id": i, "ready_at": i, "pr": {"repo": repo, "runs": [
+            {"n": "check", "s": "passed", "at": self.MIN, "end": (mins + 1) * self.MIN}, {"n": "lint", "s": "failed", "at": self.MIN, "end": 2 * self.MIN}]}}
+        task = {"id": 9, "state": "ready", "pr": {"repo": "o/r", "checks": "running"}}
+        s = types.SimpleNamespace(data={"tasks": [earlier(1, 10), earlier(2, 12), earlier(3, 30), earlier(4, 99, "x/y"), task]}, dirty=False)
+        v = {"statusCheckRollup": [
+            {"name": "check", "status": "IN_PROGRESS", "startedAt": "2026-11-27T10:00:00Z", "completedAt": "0001-01-01T00:00:00Z", "detailsUrl": "https://example.com/1"},
+            {"name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-27T10:00:00Z", "completedAt": "2026-11-27T10:02:00Z"},
+            {"context": "deploy", "state": "PENDING"},
+            {"name": "docs", "status": "COMPLETED", "conclusion": "SKIPPED"}]}
+        self.cw.keep(s, task, v)
+        runs = task["pr"]["runs"]
+        self.assertEqual([(r["n"], r["s"]) for r in runs], [("check", "running"), ("lint", "passed"), ("deploy", "queued"), ("docs", "skipped")])
+        self.assertEqual(runs[0]["typ"], 12 * self.MIN)  # 10, 12, 30: the middle; the other repo's 99 left out
+        self.assertNotIn("typ", runs[1])  # lint never passed before: no usual time
+        self.assertNotIn("end", runs[0])
+        self.assertEqual(runs[0]["u"], "https://example.com/1")
+        self.assertEqual(runs[1]["end"] - runs[1]["at"], 2 * self.MIN)
+        self.assertTrue(s.dirty)
+        s.dirty = False
+        self.cw.keep(s, task, v)  # the same again: nothing to write
+        self.assertFalse(s.dirty)
+        self.cw.keep(s, task, v, missing=True)
+        self.assertTrue(task["pr"]["runs_more"])
+
+    def test_the_tick_calls_keep(self):
+        """The seam in tick.facts: the checks are kept where it reads its pull request's checks."""
+        with open(os.path.join(BIN, "herdr_task", "tick.py")) as f:
+            src = f.read()
+        self.assertRegex(src, r"word = checks_state\(v, missing\)\n\s+checkwait\.keep\(s, t, v, missing\)")
+
+
+class HandInAsksNothing(unittest.TestCase):
+    """dmalis/shepherdr#42: a task's hand-in either asks the person something (the question tool, Needs you) or asks
+    nothing: no "Decisions for you", no suggested replies. The brief says it, and the session note says it again with the
+    <hc suggest> form to every new or compacted session of a task's agent (a compacted one once wrote them as a list)."""
+
+    def setUp(self):
+        sys.path.insert(0, BIN)
+        from herdr_task import reply_note
+        self.rn = reply_note
+
+    def test_only_a_tasks_own_agent_hears_it(self):
+        worker = {"labels": {"herdr.task": "SHOP-1", "herdr.role": "worker"}}
+        self.assertIn("Later, if you want", self.rn.session_words(worker, True))
+        self.assertIn('<hc suggest="…"/>', self.rn.session_words(worker, True))
+        self.assertNotIn("<hc suggest", self.rn.session_words(worker, False))
+        self.assertEqual(self.rn.session_words({"labels": {"herdr.task": "SHOP-1", "herdr.role": "reviewer"}}, True), "")
+        self.assertEqual(self.rn.session_words({"labels": {}}, True), "")
+
+    def test_suggested_replies_follow_settings(self):
+        d = {"everywhere": {"agents": {"suggestions": False}}, "spaces": {"shop": {"agents": {"suggestions": True}}}}
+        self.assertTrue(self.rn.suggestions_on("shop", d))
+        self.assertFalse(self.rn.suggestions_on("blog", d))
+        self.assertTrue(self.rn.suggestions_on("blog", {}))
+
+    def test_the_seams_say_it(self):
+        """launch.closing_line (the brief and a takeover) and reactions.agent_note (the session note) carry the words."""
+        with open(os.path.join(BIN, "herdr_task", "launch.py")) as f:
+            launch = f.read()
+        self.assertRegex(launch, r"from \.reply_note import HANDIN\n\s+text \+= \" \" \+ HANDIN\n(\s+#.*\n)?\s+return text")
+        with open(os.path.join(BIN, "herdr_task", "reactions.py")) as f:
+            reactions = f.read()
+        self.assertIn("own = session_words(k, suggestions_on(space))", reactions)
 
 
 class NeverTypedIntoAShell(unittest.TestCase):
