@@ -42,10 +42,3 @@ export async function run(hub: Hub, on: string, script: string, args: string[]) 
   const r = await hub.call<{ code: number; stdout: string; truncated?: boolean }>("machine.exec", { on, argv: ["sh", "-c", script, "sh", ...args], timeout: 10 }, 15_000).catch(() => null);
   return r?.code === 0 && !r.truncated && typeof r.stdout === "string" ? r.stdout : null;
 }
-
-/** Each item through fn, at most limit at once (one slow machine never holds up the rest). */
-export async function each<T>(items: T[], limit: number, fn: (x: T) => Promise<void>) {
-  let i = 0;
-  const lane = async () => { while (i < items.length) { const x = items[i++]; await fn(x).catch(() => {}); } };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
-}

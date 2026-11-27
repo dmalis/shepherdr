@@ -10,7 +10,7 @@ process.env.HERDR_APP_HOME = home;
 const here = join(home, "data", "chat-asks");
 for (const d of ["req", "ans", "end"]) mkdirSync(join(here, d), { recursive: true });
 const { Asks, LIST } = await import("./asks.ts");
-const { SEEN, askId, parseList, each } = await import("./asks-there.ts");
+const { SEEN, askId, parseList } = await import("./asks-there.ts");
 const { Compat } = await import("./compat.ts");
 const { needsCount } = await import("../web/shared/view.ts");
 
@@ -113,7 +113,7 @@ test("a read that fails, is cut off or can't see the folder closes nothing", asy
   const empty = Buffer.from("").toString("base64");
   for (const b of [
     () => ({ code: 1, stdout: empty }), // a non-zero exit
-    () => ({ code: 0, stdout: empty, truncated: true }), // herdr-core cut the output
+    () => ({ code: 0, stdout: Buffer.from("done\n").toString("base64"), truncated: true }), // herdr-core cut the output
     () => ({ code: 0, stdout: Buffer.from("req\tw1.1700000000.1\t{}\n").toString("base64") }), // no "done": cut short
   ]) {
     broken = b;
@@ -132,6 +132,15 @@ test("a read that fails, is cut off or can't see the folder closes nothing", asy
     await (asks as any).poll();
     if (process.getuid?.() !== 0) expect(asks.of("vm4/w9").length).toBe(1);
   } finally { chmodSync(req, 0o755); }
+  // the folder above it can't be looked into: req seems not to exist, which must not read as "nothing waits"
+  const top = join(vm, "data", "chat-asks");
+  chmodSync(top, 0o600);
+  try {
+    const r = Bun.spawnSync(["sh", "-c", LIST, "sh"], { env: { ...process.env, HERDR_APP_HOME: vm } });
+    if (process.getuid?.() !== 0) expect(r.exitCode).toBe(4);
+    await (asks as any).poll();
+    if (process.getuid?.() !== 0) expect(asks.of("vm4/w9").length).toBe(1);
+  } finally { chmodSync(top, 0o755); }
   // a whole read again: it ended there
   await (asks as any).poll();
   expect(asks.of("vm4/w9").length).toBe(0);
@@ -160,7 +169,7 @@ test("a machine whose read hangs never holds up another's card or its seen", asy
   await first;
 });
 
-test("an ask with no chat yet has its machine's task lists read again, at most every 10 s", async () => {
+test("each ask with no chat yet has its machine's task lists read again, once", async () => {
   const vm = machineHome("vm7");
   ask(vm, "w30.1700000000.4");
   const hub = core({ vm7: vm });
@@ -179,6 +188,12 @@ test("an ask with no chat yet has its machine's task lists read again, at most e
   await (asks as any).poll();
   expect(seen(vm, "w30.1700000000.4")).toBe(true);
   expect(reread).toEqual(["vm7"]);
+  // a second task there asks before its lists are read: once more
+  routed = false;
+  ask(vm, "w31.1700000000.5");
+  await (asks as any).poll();
+  await (asks as any).poll();
+  expect(reread).toEqual(["vm7", "vm7"]);
 });
 
 test("seen waits for a card to show it: an ask no chat maps stays unseen, there and here", async () => {
@@ -232,20 +247,29 @@ test("ids from another machine are checked before they name a file", () => {
   expect([...ends]).toEqual([["w2.1700000000.1", "Answered in the terminal"]]);
 });
 
-test("machines are read a few at a time, and a slow one never holds up the rest", async () => {
-  let now = 0, most = 0;
-  const done: string[] = [];
-  const names = ["slow", "a", "b", "c", "d", "e", "f"];
-  await each(names, 4, async (m) => {
-    now++;
-    most = Math.max(most, now);
-    await new Promise((r) => setTimeout(r, m === "slow" ? 60 : 5));
-    now--;
-    done.push(m);
-  });
+test("at most four reads at once across polls, and never two of one machine", async () => {
+  const names = ["m1", "m2", "m3", "m4", "m5", "m6"];
+  const hub = core(Object.fromEntries(names.map((n) => [n, machineHome(n)])));
+  const real = hub.call.bind(hub);
+  let now = 0, most = 0, release = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const reads: Record<string, number> = {};
+  hub.call = async (m: string, p: any) => {
+    if (m !== "machine.exec") return real(m, p);
+    reads[p.on] = (reads[p.on] ?? 0) + 1;
+    now++; most = Math.max(most, now);
+    try { await gate; return await real(m, p); } finally { now--; }
+  };
+  const asks = new Asks();
+  asks.remote(hub, () => []);
+  // three polls while every read hangs
+  const polls = [(asks as any).poll(), (asks as any).poll(), (asks as any).poll()];
+  await new Promise((r) => setTimeout(r, 30));
   expect(most).toBe(4);
-  expect(done.at(-1)).toBe("slow");
-  expect(done.sort()).toEqual([...names].sort());
+  release();
+  await Promise.all(polls);
+  expect(most).toBe(4);
+  for (const n of names) expect(reads[n]).toBe(1);
 });
 
 // Pins what this relies on in the hook (hooks/ask-hook.sh): its id's form, and a Codex ask going back to its terminal
