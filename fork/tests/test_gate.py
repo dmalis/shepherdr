@@ -92,6 +92,31 @@ class Merge(World):
         out = self.held_at("up-to-date")
         self.assertEqual(out["why"], f"{moved} is not an ancestor of {self.head}")
 
+    def test_main_moving_while_the_checks_ran_is_caught_before_the_merge(self):
+        self.set_gh(advance_on_checks=self.head)
+        out = self.held_at("up-to-date")
+        moved = git(self.origin, "rev-parse", "main")
+        self.assertNotEqual(moved, self.main0)
+        self.assertEqual(out["why"], f"{moved} is not an ancestor of {self.head}")
+
+    def test_a_run_that_takes_the_lease_over_resumes_the_merge(self):
+        """The run that tried the head ended (done) before merging; the next run takes the lease over and merges,
+        the review rounds read from the run that recorded the head."""
+        self.set_ht({self.RUN: {"state": "done", "review_rounds": {"used": 1, "of": 2, "last": {"head": self.head}}},
+                     "SYNC-2": {"state": "running"}})
+        with state.locked(self.p) as st:          # preflight's takeover (its CLI wiring: test_state's SyncCommand)
+            self.assertEqual(state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done"),
+                             {"run": self.RUN, "was": "done"})
+            self.assertEqual(state.adopt_run(st, "SYNC-2", self.space, start=self.head), self.RUN)
+        r = self.st()["run"]
+        self.assertEqual((r["key"], r["took_from"], r["path"]), ("SYNC-2", self.RUN, "take"))
+        code, out = self.sync("merge", "7")
+        self.assertEqual(out["outcome"], "stop", "the earlier run no longer owns it")
+        code, out = self.sync("merge", "7", run="SYNC-2")
+        self.assertEqual((code, self.st()["phase"]), (0, "merged"), out)
+        code, out = self.sync("finish", run="SYNC-2", paths_ok=True)
+        self.assertIn("hasn't ended (phase merged)", out["why"], "the install steps come next, in this run")
+
     def test_the_release_must_be_an_ancestor_of_the_head(self):
         other = self.upstream_commit("after the release")
         self.edit(release={"tag": "v3.2.22", "sha": other})

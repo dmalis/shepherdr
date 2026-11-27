@@ -262,6 +262,18 @@ def take_lease(st, run, folder, owner=task_state, now=None):
     return took
 
 
+def adopt_run(st, run, folder, start=None):
+    """A run that took the lease over resumes the selection it found there (Serialised runs): from now on the run
+    record is this run's, with this run's own worktree start. What the earlier run recorded stays (its path, merge,
+    sync branch and the run whose review rounds cover the head). A finished phase has nothing to resume."""
+    r = st.get("run")
+    if not r or r.get("key") == run or not resume_point(st):
+        return None
+    st["run"] = {**{k: v for k, v in r.items() if k != "finished"}, "key": run, "folder": folder, "start": start,
+                 "took_from": r.get("key")}
+    return r.get("key")
+
+
 def owns_lease(st, run, folder):
     cur = st.get("lease") or {}
     if (cur.get("run"), cur.get("folder")) != (run, folder):

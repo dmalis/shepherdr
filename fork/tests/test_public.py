@@ -53,6 +53,7 @@ class Problems(unittest.TestCase):
             ("ask me at someone@example.com", "an email address"),
             ("served on box.tail1234.ts.net", "a network host name"),
             ("reachable as box.local", "a network host name"),
+            ("Service: http://other-machine.local/api", "a network host name"),
             ("from 100.101.102.103", "an IP address"),
             ("this ran on box-under-test", "this machine's name"),
             ("and on studio-mini too", "this machine's name"),

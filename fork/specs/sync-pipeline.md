@@ -140,7 +140,8 @@ calls `fire`). The serial point is ours:
 - Every `fork/bin/sync` call holds the `flock` while it reads and writes state.
 - The state's `lease` names the run's task key and when it took it. A run takes the lease in `preflight`. Another
   run's lease holds while `herdr-task show <its key> --json` says that task isn't done. A done or missing owner with an
-  unfinished phase: this run takes over and resumes.
+  unfinished phase: this run takes over and resumes. The run record (its path, merge and sync branch) becomes this
+  run's, and the merge's review gate reads the rounds of the run that recorded the sync branch's head.
 - The lease is let go at the end of a run whose phase is final (`healthy`, `rolled-back`, `held`), never on
   `installing`, `rolling-back` or `broken`.
 - A manual run (the person asks the Assistant to sync now) is a task like any other and takes the same lease.

@@ -339,7 +339,9 @@ def review_inputs(p, run, folder, repo):
         if st.get("phase") not in ("selected", "branch-pushed"):
             raise Refused(f"the phase moved to {st.get('phase')} meanwhile", outcome="stop")
         # a fix round's new head replaces the old one: the trial and the checks are read for this head
-        st["sync"] = {"branch": branch, "head": head, "merge": merge, "at": state.stamp()}
+        # and the run whose review rounds cover this head: a run that takes the lease over later reads them there
+        st["sync"] = {"branch": branch, "head": head, "merge": merge, "run": run, "folder": folder,
+                      "at": state.stamp()}
         state.set_phase(st, "branch-pushed")
     return {"branch": branch, "head": head, "merge": merge, "release": rel, "old_release": old, "old_main": main,
             "files": written}
@@ -397,10 +399,14 @@ def merge(p, run, folder, repo, pr, now=time.time, sleep=time.sleep):
         if v.get("state") == "MERGED" and sync.get("main_before") and v.get("headRefOid") == head:
             pass        # merged by this route in a call that died before it was recorded: verified below
         else:
-            waiting = gates(p, run, folder, repo, pr, v, branch, head, rel, now=now, sleep=sleep)
+            reviewer = (sync.get("run") or run, sync.get("folder") or folder)
+            waiting = gates(p, reviewer, repo, pr, v, branch, head, rel, now=now, sleep=sleep)
             if waiting:
                 return {"merged": False, "wait": waiting}
-            before = rev(repo, "refs/remotes/origin/main")
+            # gate 3 again, just before the merge: another merge may have moved main while the checks ran
+            before = release.fetch_main(repo)
+            if not is_ancestor(repo, before, head):
+                raise held(f"{before} is not an ancestor of {head}", "up-to-date")
             with state.locked(p) as st:
                 st["sync"] = dict(st.get("sync") or {}, pr=pr, main_before=before)
             sync.update(pr=pr, main_before=before)
@@ -427,11 +433,11 @@ def merge(p, run, folder, repo, pr, now=time.time, sleep=time.sleep):
     return out
 
 
-def gates(p, run, folder, repo, pr, v, branch, head, rel, now=time.time, sleep=time.sleep):
+def gates(p, reviewer, repo, pr, v, branch, head, rel, now=time.time, sleep=time.sleep):
     """Gates 1 to 6 of the merge route: None when they all pass, a line when the head's checks still run (call
-    again), else a Refused hold naming the gate."""
+    again), else a Refused hold naming the gate. `reviewer` is the (run, folder) whose rounds cover the head."""
     pr_gate(v, branch, head)                                                    # 1
-    last = review_round(run, folder)                                            # 2
+    last = review_round(*reviewer)                                              # 2
     if last != head:
         raise held(f"the last review round is on {str(last)[:12] if last else 'no commit'}, not the head {head[:12]}",
                    "review")
@@ -526,6 +532,13 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
         what = "Rollback failed" if phase == "broken" else "Update outcome unknown"
         rel = ((snap.get("release") or {}).get("tag")) or "the candidate"
         told = f"{what}: {rel} ({(snap.get('candidate') or '')[:12]}). Nothing installs until it is looked at."
+        # the same checks as every --told: a merged branch fetched, the worktree in a state the command accepts
+        if (r or {}).get("merged"):
+            fetch_for_finish(repo)
+        branch_problem(repo, (r or {}).get("start"))
+        found = public.problems(told, cfg_hostname)
+        if found:
+            raise Refused(f"the --told words carry {public.words(found)}", outcome="stop")
         return {"outcome": "unknown", "told": told, "keeps_lease": True,
                 "before": [shlex.join(["herdr-task", "alert", what, "--body", told])],
                 "command": ready_cmd(run, folder, told)}

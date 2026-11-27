@@ -531,6 +531,26 @@ class SyncCommand(Base):
         code, out = self.sync("preflight", run="RUN-C")
         self.assertEqual((code, out["took_over"]), (0, {"run": "RUN-B", "was": "missing"}))
 
+    def test_a_run_that_takes_over_adopts_the_selection_it_resumes(self):
+        """Build task 3: the run record (path, merge, sync branch) becomes the new run's, with its own worktree's
+        start, so select's successors (merge, finish) take it as theirs; a finished phase adopts nothing."""
+        run = {"key": "RUN-A", "folder": self.space, "path": "take", "start": "a" * 40, "merged": True,
+               "finished": "nothing"}
+        self.write(dict(state.fresh(), phase="tried", run=run,
+                        lease={"run": "RUN-A", "folder": self.space, "at": state.stamp()}))
+        self.set_tasks({"RUN-A": "done"})
+        code, out = self.sync("preflight", "--repo", self.space)
+        self.assertEqual((code, out["took_over"]), (0, {"run": "RUN-A", "was": "done", "selection": "RUN-A"}), out)
+        got = state.load(self.p)["run"]
+        self.assertEqual(got, {"key": "RUN-B", "folder": self.space, "path": "take", "merged": True,
+                               "start": subprocess.run(["git", "-C", self.space, "rev-parse", "HEAD"], capture_output=True,
+                                                       text=True).stdout.strip(), "took_from": "RUN-A"})
+        with state.locked(self.p) as st:
+            st["phase"] = "healthy"
+        code, out = self.sync("preflight", "--repo", self.space, run="RUN-C")
+        self.assertEqual(out["took_over"], {"run": "RUN-B", "was": "missing"})
+        self.assertEqual(state.load(self.p)["run"]["key"], "RUN-B", "nothing to resume: select writes the next")
+
     def test_preflight_stops_with_nothing_written(self):
         cases = [
             ("gh's default", lambda: self.sync("preflight", env={"FAKE_GH_DEFAULT": "someone/shepherdr"}), "held"),

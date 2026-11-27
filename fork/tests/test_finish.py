@@ -165,6 +165,22 @@ class FinishCommand(World):
         code, out = self.finish()
         self.assertIn("Rollback failed", out["told"])
 
+    def test_unknown_after_a_merge_fetches_and_checks_the_branch(self):
+        """The unknown --told goes through herdr-task like any other: the merged branch fetched first, and a worktree
+        the command would refuse is refused here (the lease kept either way)."""
+        self.merged_run()
+        self.edit(phase="installing")
+        self.write(self.wt, "a.txt", "dirty\n")
+        code, out = self.finish()
+        self.assertEqual((code, out["outcome"]), (1, "stop"))
+        self.assertIn("uncommitted", out["why"])
+        git(self.wt, "reset", "-q", "--hard", "HEAD")
+        code, out = self.finish()
+        self.assertEqual((code, out["outcome"]), (0, "unknown"), out)
+        self.assertEqual(git(self.wt, "rev-parse", "refs/remotes/origin/main"), git(self.origin, "rev-parse", "main"),
+                         "fetched: the merged head is in origin/main")
+        self.assertEqual(self.st()["lease"]["run"], self.RUN)
+
     def test_rolled_back(self):
         self.sync("select")
         self.edit(phase="rolled-back", quarantine=[{"sha": self.main0, "step": "health", "at": state.stamp()}],
@@ -363,6 +379,24 @@ class CompletionPin(unittest.TestCase):
                     self.assertIsNone(self.told_route_ok(merged=True))
                     self.assertIsNone(self.ready(told="Installed 3.2.22."))
                     self.assertEqual((self.task["state"], self.task["quiet"]), ("done", "told"))
+
+    def test_every_told_ending_after_a_merge(self):
+        """installed, rolled back and unknown all end --told after a merge: each is accepted after the fetch, with
+        the local main stale and own work recorded (the history most likely to refuse)."""
+        for told in ("Shepherdr 3.2.22 is in.",
+                     "Rolled back: the install of 1a2b3c4d5e6f failed at health; back on 3.2.21.",
+                     "Update outcome unknown: v3.2.22 (1a2b3c4d5e6f). Nothing installs until it is looked at."):
+            with self.subTest(told):
+                self.setUp()
+                head = self.sync_work()
+                self.task["own"] = head
+                self.merge_on_github(head)
+                self.assertIn("has commits of its own", self.ready(told=told), "before the fetch")
+                self.reset()
+                self.task.update(own=head, reviews=[{"round": 1, "result": "report", "at": 1, "head": head}])
+                self.assertIsNone(self.told_route_ok(merged=True))
+                self.assertIsNone(self.ready(told=told))
+                self.assertEqual((self.task["state"], self.task["quiet"]), ("done", "told"))
 
     def test_summary_after_the_merge_is_never_the_route(self):
         """ready --summary after a merge-commit merge: left Ready with nothing to merge (not done), or, with own work

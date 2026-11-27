@@ -10,7 +10,7 @@ HOME_PATH = re.compile(r"(?:^|[\s\"'`(=:\[<])(?:/home/|/Users/|/root/|/var/home/
 TILDE_PATH = re.compile(r"(?:^|[^\w/])~[\w.-]*/")
 EMAIL = re.compile(r"[\w.%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 TAILNET = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.(?:ts\.net|tailscale\.net|beta\.tailscale\.net)\b", re.I)
-MDNS = re.compile(r"\b[A-Za-z0-9][\w-]*\.local\b(?!/)")
+MDNS = re.compile(r"\b[A-Za-z0-9][\w-]*\.local\b")
 IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 # what an installer, a log or a crash prints: never pasted where people read it
 RAW = [

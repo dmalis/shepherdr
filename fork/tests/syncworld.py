@@ -72,6 +72,16 @@ if a[:1] == ["api"]:
     sha = path[len(prefix):].split("/")[0]
     if cfg.get("checks_unread"):
         sys.exit("HTTP 502")
+    if cfg.get("advance_on_checks") == sha:
+        # another task's merge lands on main while these checks are read (once)
+        w = tempfile.mkdtemp()
+        git("clone", "-q", cfg["origin"], w)
+        open(os.path.join(w, "moved.txt"), "w").write("moved\n")
+        git("add", "moved.txt", cwd=w)
+        git("commit", "-q", "-m", "another merge", cwd=w)
+        git("push", "-q", "origin", "main", cwd=w)
+        cfg["advance_on_checks"] = None
+        save()
     runs = cfg.get("checks", {}).get(sha, cfg.get("checks", {}).get("*", []))
     print(json.dumps({"total_count": len(runs), "check_runs": runs})); sys.exit(0)
 sys.exit("fake gh: no " + " ".join(a))
@@ -248,7 +258,7 @@ class World(unittest.TestCase):
         paths_ok: the line may name files in the scratch world (review-inputs' files, which a real run's home
         shows as ~/…)."""
         argv = [sys.executable, SYNC, *args, "--root", self.root]
-        if args and args[0] in ("select", "review-inputs", "merge", "finish"):
+        if args and args[0] in ("preflight", "select", "review-inputs", "merge", "finish"):
             argv += ["--run", run or self.RUN, "--folder", self.space]
         r = subprocess.run(argv, capture_output=True, text=True, env=self.env(env), cwd=self.wt, timeout=120,
                            input=stdin)

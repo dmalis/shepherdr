@@ -68,6 +68,11 @@ def preflight(a, p):
             raise Refused("the last rollback failed (phase broken): only the person clears it "
                           "(fork/bin/sync clear-broken)", outcome="broken")
         took = state.take_lease(st, a.run, a.folder)
+        if took:
+            ok, head, _ = release.git(os.path.abspath(a.repo), "rev-parse", "--verify", "HEAD^{commit}")
+            adopted = state.adopt_run(st, a.run, a.folder, start=head if ok else None)
+            if adopted:
+                took["selection"] = adopted     # the selection this run resumes was that run's
         return {"run": a.run, "phase": st.get("phase"), "resume": state.resume_point(st), "took_over": took,
                 "held": len(st.get("held") or [])}
 
@@ -212,7 +217,7 @@ def finish_args(c):
 
 
 COMMANDS = [
-    ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", preflight_args, preflight),
+    ("preflight", "checks the repo, takes the run's lease, reads state, says where to resume", run_args, preflight),
     ("select", "the newest stable release and the run's path", run_args, select),
     ("review-inputs", "the reviewer's three diffs for the sync branch, as files", run_args, review_inputs),
     ("merge", "the one merge route for a sync PR", merge_args, merge),
