@@ -26,6 +26,11 @@ test('search finds what was typed anywhere in a name, any case, a space the same
   expect(names(matching(all, ' Hook '))).toEqual(['ACME_PAYMENTS_WEBHOOK_SECRET@all', 'WEBHOOKS@all'])
   expect(matching(all, '  ')).toEqual(all)
   expect(matching(all, 'stripe')).toEqual([])
+  // an underscore typed is one (round 1's review): not every name, nor one without it
+  const deploy = [k('DEPLOY'), k('DEPLOY_KEY'), k('DEPLOY__KEY'), k('_PRIVATE')]
+  expect(names(matching(deploy, '_'))).toEqual(['DEPLOY_KEY@all', 'DEPLOY__KEY@all', '_PRIVATE@all'])
+  expect(names(matching(deploy, 'deploy_'))).toEqual(['DEPLOY_KEY@all', 'DEPLOY__KEY@all'])
+  expect(names(matching(deploy, 'deploy__key'))).toEqual(['DEPLOY__KEY@all'])
 })
 
 test('the search box comes once there are more than a few', () => {
@@ -50,7 +55,7 @@ test('a computer keeps Replace and Remove on the row; a phone has one ⋯ for th
   setUI({ phone: true })
   const phone = list([k('NPM_TOKEN')])
   expect(phone).not.toContain('Replace')
-  expect(phone).toMatch(/<button type="button" class="ib" aria-label="More for NPM_TOKEN" aria-haspopup="menu">/)
+  expect(phone).toMatch(/<button type="button" class="ib" aria-label="More for NPM_TOKEN, all" aria-haspopup="menu">/)
   setUI({ phone: false })
 })
 

@@ -3,7 +3,7 @@
 // its buttons. A long name breaks after its underscores (anywhere, as a last resort). On a phone each row is its name
 // and who may use it, the whole width, with one ⋯ button: Replace and Remove in its sheet, as iOS and 1Password keep
 // a row's actions. On a computer the two buttons stay on the row, where the name has the room beside them.
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import { openMenu } from './overlay.tsx'
 import { useUI } from './kernel.ts'
 import { Btn, I, IB } from './ui.tsx'
@@ -24,12 +24,11 @@ const rank = (level: string) => (level === 'all' ? 0 : level.startsWith('m:') ? 
 export const sorted = (list: Kept[]): Kept[] =>
   [...list].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }) || rank(a.level) - rank(b.level) || a.level.localeCompare(b.level))
 
-/** words to match by: lower case, an underscore the same as a space, so "webhook secret" finds WEBHOOK_SECRET */
-const words = (s: string) => s.toLowerCase().replace(/[\s_]+/g, ' ').trim()
-/** the names that hold what was typed, anywhere in them */
+/** the names that hold what was typed, anywhere in them, any case; a space typed stands for an underscore, so
+ *  "webhook secret" finds WEBHOOK_SECRET, and an underscore typed is one */
 export const matching = (list: Kept[], q: string): Kept[] => {
-  const w = words(q)
-  return w ? list.filter((s) => words(s.name).includes(w)) : list
+  const w = q.trim().toLowerCase().replace(/\s+/g, '_')
+  return w ? list.filter((s) => s.name.toLowerCase().includes(w)) : list
 }
 
 /** a name that may break after each underscore, before it runs out of room */
@@ -47,13 +46,30 @@ const Name = ({ name }: { name: string }) => (
 export function SecretList({ list, scope, replace, remove }: { list: Kept[]; scope: (s: Kept) => string; replace: (s: Kept) => void; remove: (s: Kept) => void }) {
   const phone = useUI((u) => u.phone)
   const [q, setQ] = useState('')
+  const box = useRef<HTMLInputElement>(null)
   const shown = matching(sorted(list), q)
+  const clear = () => {
+    setQ('')
+    box.current?.focus()
+  }
   return (
     <>
       {(list.length > SEARCH_FROM || q) && (
-        <div className="sq" role="search">
+        <div
+          className="sq"
+          role="search"
+          // Escape empties the box first, in it or on Clear, as a browser's and macOS's search fields do; once empty it
+          // closes Settings as before
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape' || !q) return
+            e.preventDefault()
+            e.stopPropagation()
+            clear()
+          }}
+        >
           <I n="search" />
           <input
+            ref={box}
             className="inp"
             type="search"
             name="secret-q"
@@ -66,24 +82,8 @@ export function SecretList({ list, scope, replace, remove }: { list: Kept[]; sco
             spellCheck={false}
             enterKeyHint="search"
             onChange={(e) => setQ(e.target.value)}
-            // Escape empties the box first, as a browser's and macOS's search fields do; once empty it closes Settings
-            onKeyDown={(e) => {
-              if (e.key !== 'Escape' || !q) return
-              e.preventDefault()
-              e.stopPropagation()
-              setQ('')
-            }}
           />
-          {q && (
-            <IB
-              icon="x"
-              label="Clear search"
-              onClick={(e) => {
-                setQ('')
-                ;(e.currentTarget.previousElementSibling as HTMLInputElement | null)?.focus()
-              }}
-            />
-          )}
+          {q && <IB icon="x" label="Clear search" onClick={clear} />}
         </div>
       )}
       {q && !shown.length && (
@@ -102,7 +102,8 @@ export function SecretList({ list, scope, replace, remove }: { list: Kept[]; sco
           {phone ? (
             <IB
               icon="dots"
-              label={`More for ${s.name}`}
+              // with who may use it: the same name kept in two places is two rows, and each says which it is
+              label={`More for ${s.name}, ${scope(s)}`}
               aria-haspopup="menu"
               onClick={(e) =>
                 openMenu(
@@ -111,7 +112,7 @@ export function SecretList({ list, scope, replace, remove }: { list: Kept[]; sco
                     { icon: 'pen', label: 'Replace', run: () => replace(s) },
                     { icon: 'bin', label: 'Remove', danger: true, run: () => remove(s) },
                   ],
-                  { cap: s.name, label: s.name },
+                  { cap: `${s.name} · ${scope(s)}`, label: `${s.name}, ${scope(s)}` },
                 )
               }
             />
