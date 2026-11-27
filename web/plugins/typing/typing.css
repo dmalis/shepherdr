@@ -1,10 +1,10 @@
-/* fork #86: the on-screen keyboard up (html.kb-up, typing.ts) where a finger is the pointer: the chat gets the room.
-   Nothing moves on its own: what steps aside goes with the keyboard's own slide, and the chat stays at its newest
-   message (it follows its own size). A mouse or trackpad window never matches, however narrow. */
+/* fork #86: the on-screen keyboard up (html.kb-up, typing.ts) where a finger is the pointer: the chat gets the room,
+   in every layout (a phone, a phone turned, a tablet). Nothing moves on its own: what steps aside goes with the
+   keyboard's own slide, and the chat stays at its newest message (it follows its own size). A mouse or trackpad window
+   never matches, however narrow. */
 @media (pointer: coarse) {
   /* the bottom tabs stay behind the keyboard, as in iOS Messages, WhatsApp, Telegram and Slack; with them goes their
-     band for the home indicator (env(safe-area-inset-bottom)), which the keyboard covers anyway: the message box sits
-     right on the keyboard */
+     band for the home indicator (env(safe-area-inset-bottom)), which the keyboard covers anyway */
   .kb-up .app.phone .bar {
     display: none;
   }
@@ -12,19 +12,24 @@
   .kb-up .app:not(.phone) .device {
     padding-bottom: 0;
   }
-  /* the header keeps one line, a compact bar's height: the name and its buttons. The folder and the model line step
-     aside (the model stays in the message box's row), and so does a task's status line */
-  .kb-up .app.phone .col > .hd {
-    height: 44px;
+  /* the message box sits right on the keyboard, with the small margin iOS Messages keeps */
+  .kb-up .app :is(.chat, .pane) > .foot {
+    padding-bottom: 8px;
   }
-  .kb-up .app.phone .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2) {
+  /* the header keeps one line, a compact bar's height: the name and its buttons. The folder and the model line step
+     aside (the model stays in the message box's row), and so does a task's status line. Every header's height at
+     once, so a tablet's list and columns stay level (html: above .app.phone's own) */
+  html.kb-up .app {
+    --hd: 44px;
+  }
+  .kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2) {
     display: none;
   }
-  .kb-up .app.phone .col > .hd .ttl > .tbtn {
+  .kb-up .app .col > .hd .ttl > .tbtn {
     max-width: 100%;
   }
   /* a one-off note on top and the update chip wait until the keyboard closes; the offline line stays */
-  .kb-up .app.phone :is(.anote, .upchip) {
+  .kb-up .app :is(.anote, .upchip) {
     display: none;
   }
 }

@@ -1,6 +1,7 @@
 // fork #86: while a phone's keyboard is up the chat gets the room. <html> carries kb-up in the same step the UI's
-// `keyboard` changes, and typing.css steps the bottom tabs, the header's second line and the notes on top aside, only
-// where a finger is the pointer. The upstream seams this leans on are pinned below, so a sync sees a break at once.
+// `keyboard` turns on, keeps it until the keyboard has finished going down, and typing.css steps the bottom tabs, the
+// header's second line and the notes on top aside, only where a finger is the pointer. The upstream seams this leans
+// on are pinned below, so a sync sees a break at once.
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { getState, setUI, subscribe } from '@client/kernel.ts'
@@ -16,13 +17,44 @@ function fakeRoot() {
   return { on, calls, classList: { toggle: (c: string, v: boolean) => (calls.push(v), v ? on.add(c) : on.delete(c)) } }
 }
 
-test('the mark follows the keyboard, in the same step as the change (before the frame is drawn)', () => {
+/** a visual viewport and a clock the test moves by hand */
+function fakePhone(height: number) {
+  const fs = new Set<() => void>()
+  let now = 0
+  let n = 0
+  const due = new Map<number, { at: number; f: () => void }>()
+  const vv = {
+    height,
+    addEventListener: (_: 'resize', f: () => void) => void fs.add(f),
+    removeEventListener: (_: 'resize', f: () => void) => void fs.delete(f),
+  }
+  const timers = {
+    set: (f: () => void, ms: number) => (due.set(++n, { at: now + ms, f }), n),
+    clear: (t: unknown) => void due.delete(t as number),
+  }
+  const resize = (h: number) => ((vv.height = h), [...fs].forEach((f) => f()))
+  const pass = (ms: number) => {
+    const until = now + ms
+    for (;;) {
+      const next = [...due.entries()].filter(([, d]) => d.at <= until).sort((a, b) => a[1].at - b[1].at)[0]
+      if (!next) break
+      due.delete(next[0])
+      now = next[1].at
+      next[1].f()
+    }
+    now = until
+  }
+  return { vv, timers, resize, pass }
+}
+
+test('the mark goes on in the same step as the keyboard (before the frame is drawn)', () => {
   const r = fakeRoot()
   setUI({ keyboard: false })
   const stop = markTyping(r, () => getState().ui.keyboard, subscribe)
   expect(r.on.has(TYPING)).toBe(false)
   setUI({ keyboard: true })
   expect(r.on.has(TYPING)).toBe(true)
+  // no viewport to watch: it goes as the keyboard does
   setUI({ keyboard: false })
   expect(r.on.has(TYPING)).toBe(false)
   stop()
@@ -44,6 +76,56 @@ test('other changes to the state touch nothing', () => {
   expect(r.calls).toEqual([true, false])
 })
 
+test('the box loses focus while the keyboard is still sliding away: the tabs wait until it is down', () => {
+  const r = fakeRoot()
+  const p = fakePhone(844)
+  let up = false
+  let tell = () => {}
+  markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  p.resize(508)
+  up = true
+  tell()
+  expect(r.on.has(TYPING)).toBe(true)
+  // a tap outside: the box blurs first, the visible part is still short
+  up = false
+  tell()
+  p.pass(400)
+  expect(r.on.has(TYPING)).toBe(true)
+  // the keyboard reports its way down in steps (695 is within a keyboard of the full height already)
+  p.resize(695)
+  p.pass(100)
+  expect(r.on.has(TYPING)).toBe(true)
+  p.resize(844)
+  p.pass(100)
+  expect(r.on.has(TYPING)).toBe(true)
+  p.pass(60)
+  expect(r.on.has(TYPING)).toBe(false)
+})
+
+test('typing again before the keyboard is down keeps the mark; one that never reports its way down lets go', () => {
+  const r = fakeRoot()
+  const p = fakePhone(844)
+  let up = true
+  let tell = () => {}
+  p.resize(508)
+  markTyping(r, () => up, (f) => ((tell = f), () => {}), p.vv, p.timers)
+  up = false
+  tell()
+  p.pass(200)
+  up = true
+  tell()
+  p.pass(2000)
+  expect(r.on.has(TYPING)).toBe(true)
+  expect(r.calls).toEqual([true])
+  // the focus leaves and no resize ever comes
+  up = false
+  tell()
+  p.pass(999)
+  expect(r.on.has(TYPING)).toBe(true)
+  p.pass(1)
+  expect(r.on.has(TYPING)).toBe(false)
+})
+
 test('only where a finger is the pointer, and only with the mark: a desktop window never loses its tabs', () => {
   const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
   const open = rules.indexOf('@media (pointer: coarse) {')
@@ -51,15 +133,19 @@ test('only where a finger is the pointer, and only with the mark: a desktop wind
   // every rule sits inside the one coarse-pointer block, and every selector needs the mark
   expect(rules.slice(0, open).trim()).toBe('')
   const selectors = [...rules.slice(open + 26).matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => m[1].trim())
-  expect(selectors.length).toBeGreaterThan(3)
-  for (const s of selectors) expect(s.startsWith(`.${TYPING} .app`)).toBe(true)
+  expect(selectors.length).toBeGreaterThan(5)
+  for (const s of selectors) expect(s.startsWith(`.${TYPING} .app`) || s.startsWith(`html.${TYPING} .app`)).toBe(true)
 })
 
-test('what steps aside: the tabs, the frame band, the folder and the model line, a task line, the notes on top', () => {
+test('what steps aside: the tabs, the bands, the folder and the model line, a task line, the notes on top', () => {
   expect(css).toContain('.kb-up .app.phone .bar {\n    display: none;')
   expect(css).toContain('.kb-up .app:not(.phone) .device {\n    padding-bottom: 0;')
-  expect(css).toContain('.kb-up .app.phone .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2)')
-  expect(css).toContain('.kb-up .app.phone :is(.anote, .upchip)')
+  // the box right on the keyboard, in a chat and in a pane
+  expect(css).toContain('.kb-up .app :is(.chat, .pane) > .foot {\n    padding-bottom: 8px;')
+  // every layout's headers (a phone turned and a tablet too), above .app.phone's own height
+  expect(css).toContain('html.kb-up .app {\n    --hd: 44px;')
+  expect(css).toContain('.kb-up .app .col > .hd :is(.chat-heading > .t2, .ttl > .hpath, .ttl > .t2)')
+  expect(css).toContain('.kb-up .app :is(.anote, .upchip)')
   // the offline line (.tline) stays: it says why a message waits
   expect(css).not.toContain('.tline')
 })
@@ -78,6 +164,11 @@ test('upstream seams: the keyboard state, the bar, the header lines, the bands a
   expect(app).toContain('<span className="t2">')
   expect(read('web/src/where.tsx')).toContain('className="hpath"')
   expect(read('web/src/ui.tsx')).toContain('{sub != null && sub !== \'\' && <span className="t2">{sub}</span>}')
+  // the headers' height, set again for a phone; the box's margin under it
+  expect(read('web/src/ds.css')).toContain('.app.phone{--hd:52px;')
+  expect(read('web/src/ds.css')).toContain('.chat>.foot,.pane>.foot{padding-bottom:12px}')
+  // viewport.ts's line between a keyboard and a browser bar, which typing.ts uses as well
+  expect(read('web/src/viewport.ts')).toContain('const KEYBOARD = 150')
   // the bands for the home indicator that the keyboard covers
   expect(read('web/src/ds.css')).toContain('.bar{padding-bottom:calc(12px + env(safe-area-inset-bottom))}')
   expect(read('web/src/styles.css')).toContain('.app:not(.phone) .device{padding-bottom:env(safe-area-inset-bottom)}')
