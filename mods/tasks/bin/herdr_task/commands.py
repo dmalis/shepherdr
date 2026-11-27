@@ -466,7 +466,8 @@ def begin(s, t, argv, space, parent=None):
     t["review_gate"] = True
     for k in ("queue", "queued_at", "attention", "held", "scheduled_for"):
         t.pop(k, None)
-    if t.get("mode") == "worktree" and not t.get("worktree") and not worktrees_on(s, space):
+    # dmalis/shepherdr#48: a follow-up never does: its prepared branch is its work
+    if t.get("mode") == "worktree" and not t.get("worktree") and not t.get("follows") and not worktrees_on(s, space):
         t["mode"] = "here"
     had = bool(t.get("mode") == "worktree" and t.get("worktree") and os.path.isdir(t["worktree"]))
     folder_for(s, t)
@@ -727,7 +728,11 @@ def cmd_ready(args):
             refresh_sessions(s, t, [k for k in live_agents(s.key(t)) if k["address"] == me])
         if t["state"] == "done":
             # dmalis/shepherdr#48: merged, its agent committed more after a message: offered as a follow-up
-            raise Fail(after_merge.ready_words(s, t, after_merge.record(s, t, ask=True)) if t.get("merged") else f"{s.name(t)} is already done.")
+            if not t.get("merged"):
+                raise Fail(f"{s.name(t)} is already done.")
+            got = after_merge.record(s, t, ask=True)
+            s.save()
+            raise Fail(after_merge.ready_words(s, t, got))
         wt = t.get("worktree") if t.get("mode") == "worktree" else None
         pr = t.get("pr") or {}
         if pr.get("from_base") or (pr.get("branch") and (not pr.get("taken") or pr["branch"] == t.get("base"))):
@@ -2007,6 +2012,9 @@ def merge_now(s, t, accept=False):
     # Its branch on GitHub goes now that it merged (the repo may have deleted it already: fine).
     drop_branch(s, t)
     t["merged"] = True
+    if v.get("headRefOid"):
+        # dmalis/shepherdr#48: the commit GitHub merged (--match-head-commit), so a later local commit is kept
+        t["merged_head"], t["merged_head_by"] = v["headRefOid"], "github"
     finish(s, t, even_if_busy=True)
     return None
 

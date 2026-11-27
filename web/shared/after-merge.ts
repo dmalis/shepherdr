@@ -15,8 +15,10 @@ export function afterMergeNote(a: AfterMerge | undefined): string {
 
 /** the pane card's headline and the line under it */
 export function afterMergeCard(a: AfterMerge): { head: string; line: string } {
-  if (a.followUp) return { head: 'Follow-up started', line: `"${a.followUp.title}" carries ${a.count === 1 ? 'the change' : `the ${changes(a.count)}`} made after the merge.` }
+  // main having them comes first: a follow-up started earlier has nothing left to carry
   if (a.onMain) return { head: 'Already on main', line: `Main has the same ${a.count === 1 ? 'change' : 'changes'} made after the merge, so there's nothing to carry over.` }
+  if (a.followUp?.byHand) return { head: 'Follow-up started', line: `${a.count === 1 ? 'The change' : `The ${changes(a.count)}`} didn't apply cleanly on main, so "${a.followUp.title}" carries ${a.count === 1 ? 'it' : 'them'} over by hand.` }
+  if (a.followUp) return { head: 'Follow-up started', line: `"${a.followUp.title}" carries ${a.count === 1 ? 'the change' : `the ${changes(a.count)}`} made after the merge.` }
   return {
     head: `${changes(a.count)} after the merge`,
     line: `${a.count === 1 ? "This commit isn't" : "These commits aren't"} on main. A follow-up task starts from main with ${a.count === 1 ? 'it' : 'them'} on top.`,

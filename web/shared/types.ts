@@ -295,7 +295,8 @@ export interface AfterMerge {
   count: number
   commits: string[]
   onMain: boolean
-  followUp?: { id: string; title: string }
+  /** byHand: its commits didn't cherry-pick cleanly onto main: its agent carries them over */
+  followUp?: { id: string; title: string; byHand?: boolean }
 }
 
 export interface Task {

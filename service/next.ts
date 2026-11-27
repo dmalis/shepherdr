@@ -420,7 +420,7 @@ export function afterMergeOf(v: any, id: string): import("../web/shared/types.ts
     count: Number(v.n),
     commits: (Array.isArray(v.commits) ? v.commits : []).slice(0, 20).map((c: any) => String(c?.s ?? "").slice(0, 200)).filter(Boolean),
     onMain: !!v.on_main,
-    ...(f ? { followUp: { id: machine + String(f.ref), title: String(f.title ?? "").slice(0, 120) } } : {}),
+    ...(f ? { followUp: { id: machine + String(f.ref), title: String(f.title ?? "").slice(0, 120), ...(f.picked === false ? { byHand: true } : {}) } } : {}),
   };
 }
 

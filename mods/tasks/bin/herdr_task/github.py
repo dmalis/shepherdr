@@ -1046,8 +1046,9 @@ def finish(s, task, even_if_busy=False, quiet=False):
     later = False
     if task.get("merged"):
         base_moved(s, task)
-        from .after_merge import note_merged, unsaved
+        from .after_merge import note_merged, record, unsaved
         note_merged(s, task)  # dmalis/shepherdr#48: what comes after it on its branch is work after the merge
+        record(s, task, force=True)  # ... said (offered, or Already on main) before its branch can go
         later = unsaved(s, task)  # ... kept: its branch is all that holds it (tidy_done looks again)
     # The space's "When a task is accepted" command, in the background (after_accept.py): never waited on.
     # quiet: a schedule's run that ended with nothing to review (ready --nothing / --told): nothing was accepted.

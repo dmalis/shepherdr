@@ -68,6 +68,12 @@ describe('the turning ring only for real work', () => {
     expect(headLine(t)).toBe(IDLE)
   })
 
+  test("a follow-up whose pick didn't apply says it carries them by hand; main having them comes first", () => {
+    const f = { id: 'm1:SHOP-121', title: 'One line', byHand: true }
+    expect(afterMergeCard({ count: 1, commits: [], onMain: false, followUp: f }).line).toContain('by hand')
+    expect(afterMergeCard({ count: 1, commits: [], onMain: true, followUp: f }).head).toBe('Already on main')
+  })
+
   test('no agent running at all: still, and says so', () => {
     const t = task({ status: 'work', agentIdle: true, agentGone: true })
     expect(ringOf(t)).toMatchObject({ kind: 'pending', label: 'No agent running' })

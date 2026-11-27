@@ -149,9 +149,8 @@ def unsaved(s, t):
     """Commits after its merge that only its branch holds (none on its base, no follow-up has them): its worktree and
     branch are kept (github.tidy_done)."""
     got = left_after(s, t)
-    if got:
-        return not got["on_main"]
-    return _merge_edits(s, t)
+    # a merge commit's own edits keep it too, even when its ordinary commits are on main
+    return bool(got and not got["on_main"]) or _merge_edits(s, t)
 
 
 def _merge_edits(s, t):
@@ -209,7 +208,6 @@ def merged_before(s, t):
         if not found:
             return None
         v = {"state": "MERGED", "headRefOid": found.get("headRefOid")}
-        t["pr"] = {**pr, "number": found["number"], "url": found.get("url"), "repo": repo}
     head = (v or {}).get("headRefOid")
     if not v or v.get("state") != "MERGED" or not head:
         return None
@@ -217,6 +215,11 @@ def merged_before(s, t):
     tip = _rev(main, f"refs/heads/{br}") if br else None
     if not tip or tip == head or _in(main, tip, head):
         return None  # nothing since: merged at its tip (ready finishes it as any merged task)
+    if not (pr.get("number") and pr.get("repo")):
+        # found by its branch name: only this task's own work (a reused name's old pull request is someone else's)
+        if not t.get("start") or not _in(main, t["start"], head) or not _in(main, head, tip):
+            return None
+        t["pr"] = {**pr, "number": found["number"], "url": found.get("url"), "repo": repo}
     t["merged_head"], t["merged_head_by"] = head, "github"
     return close(s, t) or {}
 
@@ -349,12 +352,12 @@ def cmd_follow_up(args):
         every = left_after(s, t, most=None) or got
         picked, conflict = carry(main, n["start"], [c["sha"] for c in every["commits"]], branch)
         n["prompt"] = follow_prompt(s, t, every, base, picked, conflict)
-        t["after_merge"]["follow_up"] = {"id": n["id"], "ref": s.ref(n), "title": title, "tip": got["tip"], "at": now(),
+        t["after_merge"]["follow_up"] = {"id": n["id"], "ref": s.ref(n), "title": title, "tip": every["tip"], "at": now(),
                                           **({} if picked else {"picked": False})}
         if picked:
             # carried: newer commits on its branch are offered again; not picked cleanly, its branch stays its own
             # until main has them (unsaved())
-            t["after_merge_carried"] = got["tip"]
+            t["after_merge_carried"] = every["tip"]  # the very tip whose commits were picked
         s.dirty = True
         argv = worker_argv(s, n, space)
         check_automatic_agent(argv)

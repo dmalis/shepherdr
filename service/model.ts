@@ -367,8 +367,10 @@ export class Model {
           // dmalis/shepherdr#48: commits on its branch after its merge (herdr_task/after_merge.py), and Working with no
           // agent of its own busy (its live state): a still mark, never the turning ring
           after_merge: task.after_merge ?? null,
-          idle: p.section === "working" && !starting(task) && Date.now() - (task.handed_at ?? 0) >= STARTING_MS
-            && !live.some((a) => a.status !== "idle" && a.status !== "done") && !helpers.some((a) => a.status === "working" || a.status === "blocked")
+          // still unless an agent or helper of its own says it's working: an unknown state is still, and only an agent
+          // being launched (or one just handed a problem) turns it before it reports
+          idle: p.section === "working" && !(live.length ? Date.now() - (task.handed_at ?? 0) < STARTING_MS || (starting(task) && live.some((a) => !a.status)) : starting(task))
+            && !live.some((a) => a.status === "working" || a.status === "blocked") && !helpers.some((a) => a.status === "working" || a.status === "blocked")
             ? (live.length ? "idle" : "none") : null,
           pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,

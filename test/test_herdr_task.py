@@ -3340,6 +3340,26 @@ class WorkAfterTheMerge(unittest.TestCase):
         self.assertIn("Worktrees are off", str(e.exception))
         self.assertEqual(len(self.store.data["tasks"]), 1)
 
+    def test_an_old_pull_request_on_a_reused_branch_name_is_not_this_tasks(self):
+        """Review 2: found by its branch name only when it holds this task's own work."""
+        self.merged()
+        self.task.pop("pr")
+        later = self.change(self.task["worktree"], "a new task's first commit")
+        self.task["start"] = later  # this task began after that pull request merged
+        self.change(self.task["worktree"], "and its second")
+        self.task["state"] = "running"
+        self.assertIsNone(self.after_merge.merged_before(self.store, self.task))
+        self.assertNotIn("pr", self.task)
+
+    def test_a_follow_up_pins_the_tip_it_carried(self):
+        tip = self.merged()
+        self.task.update(state="done", merged=True, merged_head=tip, merged_head_by="github", space="sp1")
+        self.change(self.task["worktree"], "one more rule")
+        self.follow_up()
+        carried = self.task["after_merge"]["follow_up"]["tip"]
+        self.assertEqual(self.task["after_merge_carried"], carried)
+        self.assertEqual(carried, self.git(self.main, "rev-parse", f"refs/heads/{self.task['branch']}"))
+
 
 class TimeLeft(unittest.TestCase):
     """Every status gives the time left, a rough guess beats none (SHEP-13): the minutes show from

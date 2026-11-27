@@ -896,7 +896,9 @@ def cmd_tick(args):
         d = read_list(p)
         tasks = (d or {}).get("tasks") or []
         if not d or not os.path.isdir(d.get("folder") or "") or not (d.get("main_watch") or d.get("systemic") or any(
-                t.get("state") in ("queued", "scheduled", "ready") or (t.get("worktree") and t.get("state") == "running") for t in tasks)):
+                t.get("state") in ("queued", "scheduled", "ready") or (t.get("worktree") and t.get("state") == "running")
+                # dmalis/shepherdr#48: a merged task whose branch is kept: its commits after the merge are watched
+                or (t.get("worktree") and t.get("state") == "done" and t.get("merged")) for t in tasks)):
             continue
         with Store(locate(d["folder"])) as s:
             tick_store(s, report)
