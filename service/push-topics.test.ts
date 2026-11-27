@@ -141,7 +141,7 @@ test("each alert carries its topic and space", () => {
   expect(a).toEqual([
     ["need:HERD-5/worker:q1", "needs", "sp1", "HERD-5 · Needs you"],
     ["ready:HERD-4", "ready", "sp1", "Fix login · Ready for review"],
-    ["done:HERD-3", "done", "sp1", "Old one · Done"],
+    ["done:HERD-3", "done", "sp1", "Task · Old one · Done"],
     ["msg:p:sp1:7", "assistant", "sp1", "#tt-repo · New message"],
     // 3.2 has no Autopilot: a space's chat message is a New message, whatever an old snapshot says of a pilot
     ["msg:p:sp2:3", "assistant", "sp2", "#shop · New message"],

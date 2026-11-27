@@ -8,6 +8,7 @@ import { DATA, where } from "./paths.ts";
 import * as T from "../core/toasts.js";
 import { alertUrl, ACCEPT, RESTART_ALL, choiceButtons, DEFAULT_TOPICS, notifies, notifyOf, pushTopics, REPLY, taskWho, WATCH_BODY, WATCH_TITLE, watchTitle, type PushAction, type PushTopic } from "../web/shared/alerts.ts";
 import { readyWords } from "../web/shared/ready-words.ts";
+import { fitWho } from "../web/shared/kinds.ts";
 import { excerpt } from "../web/shared/excerpt.ts";
 import { unread } from "../web/shared/needs-you.ts";
 
@@ -98,7 +99,7 @@ export function pushChanges(before: Map<string, Out>, now: Map<string, Out>, bad
     waiting.add(waitOf(a));
     const replacedBy = added.filter((b) => b.tag === a.tag).map(({ topic, place }) => ({ topic, place }));
     const { tag, topic, place, url } = a;
-    resolved.push({ title: "No longer waiting", body: a.title.split(" · ")[0], tag, topic, place, url,
+    resolved.push({ title: "No longer waiting", body: a.title.slice(0, Math.max(0, a.title.lastIndexOf(" · "))) || a.title, tag, topic, place, url,
       waits: true, resolved: true, badge, open, replacedBy });
   }
   return [...resolved, ...added];
@@ -138,7 +139,7 @@ export function agentAlerts(terminals: Iterable<any>, snap: any, chatOf: (addres
     const ended = k.state !== undefined && k.state !== "live";
     const machine = String(k.address ?? "").includes("/") ? String(k.address).slice(0, String(k.address).indexOf("/")) : null;
     const memory = a.about && /^Memory at \d+%/.test(String(a.title ?? ""));
-    out.push({ id: String(a.id), at: Number(a.at) || 0, title: T.clip(T.toastTitle(who, String(a.title ?? "")), 60), what: T.clip(String(a.title ?? ""), 120), body: T.clip(String(a.body ?? ""), 300), ...(chat ? { chat } : {}), ...(of ? { task: of.id } : {}), ...(place ? { place } : {}), notify,
+    out.push({ id: String(a.id), at: Number(a.at) || 0, title: T.clip(fitWho(who, String(a.title ?? ""), 60), 60), what: T.clip(String(a.title ?? ""), 120), body: T.clip(String(a.body ?? ""), 300), ...(chat ? { chat } : {}), ...(of ? { task: of.id } : {}), ...(place ? { place } : {}), notify,
       ...(ended ? { ended: true as const } : {}), ...(machine ? { machine } : {}), ...(memory ? { memory: true as const } : {}), ...(restart ? { restart: true as const } : {}) });
   }
   // Assistants here that their model's provider kept cutting off (herdr-task tick's .retries.json), once per cut, as

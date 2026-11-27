@@ -5,6 +5,7 @@ import { excerpt } from './excerpt.ts'
 import { machineName, splitFacts, taskChatId, type Alert, type Chat, type Message, type Question, type Snapshot } from './types.ts'
 import * as T from '../../core/toasts.js'
 import { needsYou, waitingTasks, type NeedsSnap } from './needs-you.ts'
+import { cutKindTitle, kindWho, taskKind } from './kinds.ts'
 
 /** about what an iPhone's lock screen shows of a title (one line) and of a body (a few lines) */
 export const TITLE_MAX = 40
@@ -22,9 +23,9 @@ export const clip = (text: string, n: number) => excerpt(text, n)
  *  computer ("SHEP-17"), with its machine's name on another ("SHEP-17 on Mac mini"); never the raw "m3:SHEP-17" */
 /** A task as an alert names it: by its title, never its id ("Faster product search"); one the snapshot no longer has,
  *  by its short id. */
-export function taskWho(snap: Pick<Snapshot, 'machines'> & { tasks?: { id: string; name: string }[] }, id: string): string {
+export function taskWho(snap: Pick<Snapshot, 'machines'> & { tasks?: { id: string; name: string; schedule?: string }[] }, id: string): string {
   const t = snap.tasks?.find((x) => x.id === id)
-  if (t?.name) return t.name
+  if (t?.name) return kindWho(taskKind(t), t.name)
   const at = id.lastIndexOf(':')
   return at < 0 ? id : T.taskWho(id.slice(at + 1), machineName(snap.machines, id.slice(0, at)))
 }
@@ -150,6 +151,8 @@ export const WATCH_BODY = 80
  *  space's name alone) */
 export function watchTitle(title: string): string {
   if (title.length <= WATCH_TITLE) return title
+  const kinded = cutKindTitle(title, WATCH_TITLE)
+  if (kinded) return kinded
   const at = title.lastIndexOf(' · ')
   const what = at < 0 ? '' : title.slice(at + 3)
   if (!what || what.length > 18) return clip(title, WATCH_TITLE)

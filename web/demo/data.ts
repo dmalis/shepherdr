@@ -23,14 +23,15 @@ const task = (id: string, name: string, pl: string, status: Task['status'], x: P
 /** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
 const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
 export const inbox: InboxItem[] = [
-  alertIn('need:vm:GARDEN-4/worker:p1', 5 * min, 'Photo upload · Needs you', 'Wants to run a command: npm install sharp', 'needs', P.garden, { task: 'vm:GARDEN-4', waits: true }),
-  alertIn('alert:a7', 40 * min, 'Bigger checkout button · Approval code', 'The payment sandbox sent a code to your phone: enter it in the browser', 'needs', P.shop, { task: 'SHOP-17' }),
-  alertIn('ready:BLOG-10', hour, 'Fix typo on the About page · Ready for review', 'Fixed the typo and two more I found on the same page.', 'ready', P.blog, { task: 'BLOG-10', waits: true }),
-  alertIn('need:SHOP-14/worker:q2', 2 * hour, 'Switch payment provider · Needs you', 'Which provider, Stripe or Adyen?', 'needs', P.shop, { task: 'SHOP-14', waits: true, read: true }),
+  alertIn('need:vm:GARDEN-4/worker:p1', 5 * min, 'Task · Photo upload · Needs you', 'Wants to run a command: npm install sharp', 'needs', P.garden, { task: 'vm:GARDEN-4', waits: true }),
+  alertIn('alert:a7', 40 * min, 'Task · Bigger checkout button · Approval code', 'The payment sandbox sent a code to your phone: enter it in the browser', 'needs', P.shop, { task: 'SHOP-17' }),
+  alertIn('alert:a9', 50 * min, 'Schedule run · Double-check the warehouse in… · Needs review', 'Three counts differ from last week: a person should look.', 'needs', P.notes),
+  alertIn('ready:BLOG-10', hour, 'Task · Fix typo on the About page · Ready for review', 'Fixed the typo and two more I found on the same page.', 'ready', P.blog, { task: 'BLOG-10', waits: true }),
+  alertIn('need:SHOP-14/worker:q2', 2 * hour, 'Task · Switch payment provider · Needs you', 'Which provider, Stripe or Adyen?', 'needs', P.shop, { task: 'SHOP-14', waits: true, read: true }),
   alertIn('need:p:mac-mini:shop:q9', 3 * hour, '#shop Assistant · Needs you', 'Start the three tasks for the spring sale?', 'needs', P.shop, { waits: true, closed: NOW - 2.5 * hour, read: true }),
-  alertIn('ready:NOTES-4', 3 * hour + 10 * min, 'Compare supplier quotes · Ready for review', 'Brightpack is cheapest at your volume. Norbox ships fastest.', 'ready', P.notes, { task: 'NOTES-4', waits: true, read: true }),
-  alertIn('done:SHOP-11', 26 * hour, 'Sale banner · Done and merged', 'The banner shows on every page until Sunday.', 'done', P.shop, { task: 'SHOP-11', read: true }),
-  alertIn('need:vm:GARDEN-3/worker:q4', 27 * hour, 'Watering schedule · Needs you', 'Keep the old reminders, or start fresh?', 'needs', P.garden, { task: 'vm:GARDEN-3', waits: true, closed: NOW - 26 * hour, read: true }),
+  alertIn('ready:NOTES-4', 3 * hour + 10 * min, 'Task · Compare supplier quotes · Ready for review', 'Brightpack is cheapest at your volume. Norbox ships fastest.', 'ready', P.notes, { task: 'NOTES-4', waits: true, read: true }),
+  alertIn('done:SHOP-11', 26 * hour, 'Task · Sale banner · Done and merged', 'The banner shows on every page until Sunday.', 'done', P.shop, { task: 'SHOP-11', read: true }),
+  alertIn('need:vm:GARDEN-3/worker:q4', 27 * hour, 'Task · Watering schedule · Needs you', 'Keep the old reminders, or start fresh?', 'needs', P.garden, { task: 'vm:GARDEN-3', waits: true, closed: NOW - 26 * hour, read: true }),
   alertIn('msg:p:mac-mini:blog:9', 3 * 24 * hour, '#blog Assistant · New message', 'The draft for Thursday is in the drafts folder.', 'assistant', P.blog, { read: true }),
 ]
 
@@ -75,6 +76,8 @@ export const tasks: Task[] = [
   task('NOTES-5', "Sort last year's notes", P.notes, 'todo', { desc: "Sorts last year's notes into folders by topic", agent: undefined }),
   task('SHOP-10', 'Look for stuck work', P.shop, 'done', { doneAt: NOW - 18 * min, quiet: 'nothing', schedule: 'Look for stuck work' }),
   task('SHOP-9', 'Look for stuck work', P.shop, 'done', { doneAt: NOW - 48 * min, quiet: 'nothing', schedule: 'Look for stuck work' }),
+  task('EV-21', 'Install merged', EV, 'done', { doneAt: NOW - 30 * min, quiet: 'told', doneNote: 'told you in Everything', schedule: 'Install merged' }),
+  task('EV-20', 'Install merged', EV, 'done', { doneAt: NOW - 3 * hour, quiet: 'told', doneNote: 'told you in Everything', schedule: 'Install merged' }),
   task('EV-12', 'Morning brief', EV, 'done', { doneAt: NOW - 4 * hour, quiet: 'told', doneNote: 'told you in Everything', schedule: 'Morning brief' }),
   task('BLOG-6', 'Broken link check', P.blog, 'done', { doneAt: NOW - 9 * hour, merged: true, doneNote: '1 link fixed', schedule: 'Broken link check' }),
   task('BLOG-13', 'Check the broken RSS link', P.blog, 'done', { doneAt: NOW - 40 * min, needsAtWas: NOW - 40 * min, repo: 'branch', worktree: true, branch: 'task/check-the-broken-rss-link', base: 'main', nothingToMerge: true, closedAlone: true, summary: 'The link works again: the host fixed it. Nothing to change.' }),
@@ -326,6 +329,11 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       { id: `m${++n}`, who: 'agent', at: today(9, 13), recap: 'heads', text: 'Compacted while idle, before the prompt cache expired' },
       { id: `m${++n}`, who: 'agent', at: today(9, 13), recap: 'recap', text: 'The bigger checkout button is being built in #shop and the watering reminders are still in progress. Two tasks wait on you: pick Stripe or Adyen, and allow the photo library.' },
       relay('to', '#root on vm', 'Can you check the disk on the vm? A task there said it is nearly full.', today(9, 14), { how: 'assistant', state: 'delivered' }),
+      // "Chat: say what each thing is": a schedule's run whose title reads like news, its news row, a picked mention and the agent's link to it
+      { id: `m${++n}`, who: 'agent', at: today(9, 15), news: { task: 'EV-21', ref: 'EV-21', mark: 'other', what: 'installed', text: 'the newest main is live; its health check passed.' } },
+      me('What did [@Install merged](task:EV-21) put on?', { at: today(9, 16) }),
+      a('[@Install merged](task:EV-21) installed the newest main: the merged Trust card tip is live.', { at: today(9, 16) }),
+      me('Did it check the payment one too?', { at: today(9, 17), reply: { text: 'Install merged', task: 'EV-21' } }),
       relay('from', '#shop', LONG_NOTE, today(9, 20), { files: ['supplier-quotes-november.pdf'] }),
       relay('to', '#garden-app on vm', 'The photo task waits on a library. Pillow is fine to install.', today(9, 22), { how: 'assistant', state: 'waiting', why: 'the person is writing to it' }),
       relay('to', 'Assistant on studio', 'Is the site build green again?', today(9, 23), { how: 'assistant', state: 'failed', why: "studio can't be reached" }),
@@ -335,8 +343,8 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' }),
       // a working task's row with its time left, then how its asks closed: the same line twice shows once
       { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-15', ref: 'SHOP-15', mark: 'other', what: 'blocked', text: 'Waiting at a prompt' } },
-      { id: `m${++n}`, who: 'agent', ended: 'Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
-      { id: `m${++n}`, who: 'agent', ended: 'Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
+      { id: `m${++n}`, who: 'agent', ended: 'Task · Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
+      { id: `m${++n}`, who: 'agent', ended: 'Task · Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
       a('Dependency check started on its schedule in #shop. It found 3 packages behind and is updating them.', { id: 'm-dep' }),
       me('And the sale plan, APP/?artifact=a-plan, still good?'),
       // #1560: pictures the chat can't show here, and an artifact on its way

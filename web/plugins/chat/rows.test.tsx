@@ -22,9 +22,10 @@ test("a chat's task row gives the ring and its time their own room, and the titl
   // the ring is held to 16px only without a time beside it: with one ("8m") it would spill over the title
   expect(css).not.toContain('.msgs>.ref>.tring{width:16px}')
   expect(css).toContain('.msgs>.ref>.tring:not(.tside){width:16px}')
-  expect(css).toMatch(/\.msgs>\.ref>\.rt\{[^}]*text-overflow:ellipsis/)
+  // its kind and state keep their words; only the title is cut short (kind.css)
+  expect(readFileSync(join(import.meta.dir, 'kind.css'), 'utf8')).toMatch(/\.knd>\.kn\{[^}]*text-overflow:ellipsis/)
   const src = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
-  expect(src).toContain('<span className="rt">{title}</span>')
+  expect(src).toContain('<KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />')
 })
 
 test("an agent's logo that can't load leaves no empty square after the +", () => {

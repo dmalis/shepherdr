@@ -1,0 +1,20 @@
+/* Say what each thing is: a task's kind, its name and its state on one line (kind.tsx). The kind and the state keep
+   their words; only the name is cut short, so a phone's row still says what it is and how it stands. */
+.knd{display:inline-flex;align-items:baseline;min-width:0;max-width:100%;white-space:nowrap}
+.knd>.kd,.knd>.ks{flex:none;color:var(--muted)}
+.knd>.kn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+/* a state's tail ("told you in Everything") takes only the room left after the name (a basis of 0) */
+.knd>.kx{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.knd>.kx::before{content:"·" / "";margin-inline:4px}
+.knd>.kd::after,.knd>.ks::before{content:"·" / "";margin-inline:4px;color:var(--muted)}
+/* inside a link in words: the link's own colour (its contrast kept), set apart by having no underline: an inline-block
+   takes no text-decoration from the link around it */
+.kdi{display:inline-block;margin-inline-end:.3em;font-size:.92em}
+/* a reply to a task, quoted above its words (ds.css .quote.qtask): the same one line, the name cut first */
+.quote.qtask>.knd{flex:0 1 auto}
+.card .t .knd>.kn{color:inherit}
+/* an alert in the alerts list (inbox.css .inbx-t) whose title names a task: one line, its name cut, never what happened */
+.inbx-t:has(>.knd){display:flex;min-width:0}.inbx-t>.knd{flex:0 1 auto}
+.inbx-t>.knd>.kn{color:inherit}
+/* a quiet line that starts with a task (KindLine): what happened after its name, set apart the same way */
+.knd+.kw::before{content:"·" / "";margin-inline:4px;color:var(--muted)}

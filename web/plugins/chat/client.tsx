@@ -27,6 +27,8 @@ import { replyToTask, SlideHint, useSlide } from './slide.tsx'
 import { dayLabel } from './days.ts'
 import { Markdown, withLinks } from './markdown.tsx'
 import { expandPicked, useMentions } from './mentions.tsx'
+import { KindLine, KindName } from './kind.tsx'
+import { taskKind } from '@shared/kinds.ts'
 import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
 import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPastes, sizeOf, usePastes, type Paste } from './fold.ts'
@@ -178,7 +180,7 @@ function TaskRef({ id, title, t }: { id: string; title: string; t?: Task }) {
       <SlideHint slide={slide} armed={armed} />
       <span className={cx('tmv', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd}>
         {t ? <StatusIcon t={t} time="side" /> : <I n="chat" c="s16" />}
-        <span className="rt">{title}</span>
+        <KindName t={t} name={title} state={t ? statusWord(t).word : undefined} />
       </span>
     </button>
   )
@@ -193,15 +195,14 @@ function TaskQuote({ id, title }: { id: string; title: string }) {
     <button
       type="button"
       className="quote qtask"
-      aria-label={`Replying to the task ${t?.name ?? title}${word ? `, ${word}` : ''}`}
+      aria-label={`Replying to the ${taskKind(t).toLowerCase()} ${t?.name ?? title}${word ? `, ${word}` : ''}`}
       onClick={(e) => {
         e.stopPropagation()
         openTask(id)
       }}
     >
       {t ? <StatusIcon t={t} time="none" /> : <I n="tasks" c="s16" />}
-      <span className="qt1">{t?.name ?? title}</span>
-      {word && <span className="qt2">{word}</span>}
+      <KindName t={t} name={t?.name ?? title} state={word} />
     </button>
   )
 }
@@ -804,7 +805,7 @@ function Messages({ thread }: { thread: Thread }) {
       // Herdr's news of a task, never a message (SHEP-365): one quiet row under the task's line, or nothing for what
       // the app shows by itself from the task's status (its review card, its Done line)
       const t = taskOf(snap, m.news.task)
-      const row = newsRow(m.news, t?.name ?? '')
+      const row = newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')
       if (!row) continue
       if (t && !thread.task && t.id !== lastRef) out.push(<TaskRef key={`r:${k}`} id={t.id} title={t.name} t={t} />)
       if (t) lastRef = t.id
@@ -826,7 +827,7 @@ function Messages({ thread }: { thread: Thread }) {
       const line = endedLine(m.ended, lastEnded)
       if (!line) continue
       // dmalis/shepherdr#45: an answered permission says when, in the reader's clock; one nobody answered here, a warning
-      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span>{line}{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
+      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span><KindLine text={line} />{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
     }
     // a recap of what happened (the agent's own, or its answer to Recap), and a heads-up its CLI wrote: never bubbles
     else if (m.recap === 'heads') out.push(<QuietRow key={k} kind="heads" icon="info" label={m.text ?? ''} meta={m.at ? [{ word: clock(m.at) }] : []} />)

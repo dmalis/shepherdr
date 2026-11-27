@@ -1,0 +1,31 @@
+{
+  "issue": 85,
+  "name": "chat says what each thing is, a mention names only the picked task",
+  "files": [
+    "web/shared/kinds.ts",
+    "web/plugins/chat/kind.tsx",
+    "web/plugins/chat/kind.css",
+    "core/mention-picks.js",
+    "core/send.js",
+    "web/shared/alerts.ts",
+    "service/push.ts",
+    "service/glance.ts",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/mentions.tsx",
+    "web/plugins/chat/markdown.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/screens/client.tsx",
+    "web/demo/data.ts",
+    "service/compat.ts",
+    "service/actions.ts",
+    "web/plugins/artifacts/client.tsx",
+    "web/plugins/inbox/client.tsx"
+  ],
+  "tests": [
+    "service/mention-picks.test.ts",
+    "web/shared/kinds.test.ts",
+    "web/plugins/chat/kind.test.tsx",
+    "service/push.test.ts",
+    "service/glance.test.ts"
+  ]
+}

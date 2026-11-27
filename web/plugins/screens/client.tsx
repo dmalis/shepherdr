@@ -13,9 +13,10 @@ import { openMenu } from '@client/overlay.tsx'
 import { Btn, cx, Hd, IB } from '@client/ui.tsx'
 import { DoneRow } from '@plugins/chat/cards.tsx'
 import { StatusIcon } from '@plugins/tasks/icon.tsx'
+import { KindName } from '@plugins/chat/kind.tsx'
 import { shortUrl, toUrl, type BrowserDown, type BrowserUp } from '@shared/browser.ts'
 import type { Chat, ScreenInfo, Snapshot, Task } from '@shared/types.ts'
-import { isEverything, machineLabel, placeOf, spaceName, taskOf, tasksIn, tstate } from '@shared/view.ts'
+import { isEverything, machineLabel, placeOf, spaceName, taskOf, statusWord, tasksIn, tstate } from '@shared/view.ts'
 import { screenKey, screenRow } from './menu.ts'
 import { fit, keyEvent, modifiers, toPage, type Size } from '@plugins/browser/input.ts'
 import { browserPress, deskPress, enterDevice, keysymOf, leaveDevice, refit, spotIn, stillTap, tapDone, wheelSteps, WHOLE, type Mods, type Pt, type Tap, type View } from './full.ts'
@@ -699,7 +700,7 @@ function HandsCard({ k, sc, t, ref_ }: { k: string; sc: ScreenInfo; t: Task; ref
   if (sc.hands!.settled) return ref_ ? null : <DoneRow>{sc.hands!.settled === 'skip' ? 'You skipped this' : 'You did this step'}</DoneRow>
   return (
     <>
-      {ref_ && <button type="button" className="ref" onClick={() => openTask(t.id)}><StatusIcon t={t} time="side" /><span>{t.name}</span></button>}
+      {ref_ && <button type="button" className="ref" onClick={() => openTask(t.id)}><StatusIcon t={t} time="side" /><KindName t={t} name={t.name} state={statusWord(t).word} /></button>}
       <div className="card" data-card={`hands:${t.id}`}>
         <span className="t">Needs your hands</span>
         <span className="s">{sc.hands!.what}{sc.b?.url ? ` · ${shortUrl(sc.b.url)}` : ''}</span>
