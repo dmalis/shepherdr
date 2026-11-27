@@ -621,6 +621,16 @@ def web_stale(src):
             for f in files:
                 if os.path.getmtime(os.path.join(d, f)) > built:
                     return f"is older than {os.path.relpath(os.path.join(d, f), src)}"
+    # fork #44: a build names the commit it was built from (web/build-stamp.ts), so one from another commit is out of
+    # date too: an install that changes only the service still says in Settings › About which build runs
+    try:
+        with open(os.path.join(src, "web", "dist", "index.html"), encoding="utf-8") as f:
+            stamped = re.search(r'id="shepherdr-build">[^<]*?"commit":"([0-9a-f]{7,64})"', f.read())
+        head = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10) if stamped else None
+    except (OSError, subprocess.SubprocessError):
+        stamped = head = None
+    if stamped and head and head.returncode == 0 and head.stdout.strip() != stamped.group(1):
+        return "was built from another commit"
     return None
 
 

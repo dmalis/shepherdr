@@ -1067,6 +1067,38 @@ class Install(unittest.TestCase):
         finally:
             shutil.rmtree(src, ignore_errors=True)
 
+    def test_web_stale_from_another_commit(self):
+        """fork #44: a build stamped with the commit it was built from is out of date once the checkout is on another
+        one, even when only the service changed; an unstamped build (a release tarball) is judged by time alone."""
+        sh = installer()
+        src = tempfile.mkdtemp(prefix="shepherdr-stale-")
+        try:
+            g = lambda *a: subprocess.run(["git", "-C", src, "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                           "-c", "commit.gpgsign=false", *a], check=True, capture_output=True, text=True).stdout.strip()
+            g("init", "-q")
+            os.makedirs(os.path.join(src, "web", "src"))
+            os.makedirs(os.path.join(src, "service"))
+            open(os.path.join(src, "web", "src", "App.tsx"), "w").close()
+            open(os.path.join(src, "service", "main.ts"), "w").close()
+            g("add", "-A")
+            g("commit", "-q", "-m", "one")
+            one = g("rev-parse", "HEAD")
+            os.makedirs(os.path.join(src, "web", "dist"))
+            page = os.path.join(src, "web", "dist", "index.html")
+            stamp = lambda c: open(page, "w").write(f'<head><script type="application/json" id="shepherdr-build">{{"tag":"v1.0.0","ahead":1,"commit":"{c}","repo":""}}</script></head>')
+            stamp(one)
+            self.assertIsNone(sh.web_stale(src))
+            with open(os.path.join(src, "service", "main.ts"), "w") as f:
+                f.write("// only the service changed\n")
+            g("commit", "-q", "-am", "two")
+            self.assertEqual(sh.web_stale(src), "was built from another commit")
+            stamp(g("rev-parse", "HEAD"))
+            self.assertIsNone(sh.web_stale(src))
+            open(page, "w").write("<head></head>")
+            self.assertIsNone(sh.web_stale(src))
+        finally:
+            shutil.rmtree(src, ignore_errors=True)
+
     @unittest.skipUnless(CI or os.environ.get("SHEPHERDR_FRESH_CLONE") == "1",
                          "on CI (or SHEPHERDR_FRESH_CLONE=1): it downloads the web app's packages and builds it")
     def test_fresh_clone_builds_the_web_app(self):

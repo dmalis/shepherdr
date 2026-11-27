@@ -76,6 +76,37 @@ describe('buildStamp', () => {
     expect(buildStamp(d)).toMatchObject({ tag: 'v1.0.0', ahead: 1, changes: ['two'] })
   })
 
+  // the fork's shape: patches on main, upstream's release merged in on the second parent, more patches after
+  function fork(withTag: boolean): string {
+    const d = repo()
+    const pkg = (v: string) => { writeFileSync(join(d, 'package.json'), `{\n  "name": "x",\n  "version": "${v}"\n}\n`); git(d, 'add', 'package.json') }
+    pkg('1.0.0')
+    git(d, 'commit', '-q', '-m', 'Release 1.0.0')
+    git(d, 'tag', 'v1.0.0')
+    git(d, 'checkout', '-q', '-b', 'upstream')
+    writeFileSync(join(d, 'u'), 'fix'); git(d, 'add', 'u'); git(d, 'commit', '-q', '-m', 'Upstream fix')
+    pkg('1.1.0')
+    git(d, 'commit', '-q', '-m', 'Release 1.1.0')
+    if (withTag) git(d, 'tag', 'v1.1.0')
+    git(d, 'checkout', '-q', 'main')
+    commit(d, 'Fork patch A (#1)')
+    commit(d, 'Fork patch B (#2)')
+    git(d, 'merge', '-q', '--no-ff', '-m', 'Take upstream 1.1.0', 'upstream')
+    commit(d, 'Fork patch C (#3)')
+    return d
+  }
+
+  test('a release merged in on the second parent: the fork patches before and after it are on top', () => {
+    expect(buildStamp(fork(true), '1.1.0')).toMatchObject({ tag: 'v1.1.0', ahead: 4, changes: ['Fork patch C (#3)', 'Take upstream 1.1.0', 'Fork patch B (#2)', 'Fork patch A (#1)'] })
+  })
+
+  test('an install fetches without tags: the release is found by the version in package.json', () => {
+    const d = fork(false)
+    expect(buildStamp(d, '1.1.0')).toMatchObject({ tag: 'v1.1.0', ahead: 4, changes: ['Fork patch C (#3)', 'Take upstream 1.1.0', 'Fork patch B (#2)', 'Fork patch A (#1)'] })
+    // no version to go by: the nearest tag, as git describe finds it
+    expect(buildStamp(d)).toMatchObject({ tag: 'v1.0.0' })
+  })
+
   test('no release tag: the commit alone', () => {
     const d = repo()
     commit(d, 'one')

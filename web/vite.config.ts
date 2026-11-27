@@ -15,7 +15,7 @@ writeRegistry(at('./'))
 // service tells pages the version of the web app it serves from the same line (SHEP-337)
 const VERSION = (JSON.parse(readFileSync(at('../package.json'), 'utf8')) as { version: string }).version
 // and which build of it, beside the version (fork patch #44): none for a build without git
-const STAMP = buildStamp(at('../'))
+const STAMP = buildStamp(at('../'), VERSION)
 
 // Relative base: the app works under any path (tailscale serve --set-path /shepherdr).
 export default defineConfig({
