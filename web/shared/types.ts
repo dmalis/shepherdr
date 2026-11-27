@@ -297,6 +297,14 @@ export interface Task {
   queuedQuestions?: number
   /** done: its work was merged into the base branch */
   merged?: boolean
+  /** its branch had no commits beyond its base: closing it merges nothing */
+  nothingToMerge?: boolean
+  /** nothing to merge, but new files left uncommitted in its worktree: closing it deletes them */
+  leftFiles?: string[]
+  /** done: nothing to merge, and its Merge setting closed it at ready, no card */
+  closedAlone?: boolean
+  /** Ready and waiting for the person: why, in one line, naming where that setting comes from */
+  waitsWhy?: string
   /** done: a schedule's run that had nothing to do, or that only had something to say (posted in its space's chat) */
   quiet?: 'nothing' | 'told'
   /** done: a few words after "Done and merged" ("1 link fixed") */

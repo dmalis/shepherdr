@@ -27,9 +27,9 @@ class TheList(unittest.TestCase):
     def test_every_line_matches_this_tree(self):
         self.assertEqual(patches.problems(ROOT, self.lines), [])
 
-    def test_it_carries_the_hold_patch_and_the_three_fixes(self):
-        # #19 the hold patch (install refuses a candidate without it); #7, #11, #12 the fixes to upstream's files
-        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19])
+    def test_it_carries_the_hold_patch_and_the_fixes(self):
+        # #19 the hold patch (install refuses a candidate without it); #7, #11, #12, #29 the fixes to upstream's files
+        self.assertEqual(sorted(x["issue"] for x in self.lines), [7, 11, 12, 19, 29])
         self.assertTrue(any(os.path.basename(patches.split(t)[0]) == install.HOLD_PATCH_TEST
                             for x in self.lines for t in x["tests"]))
 

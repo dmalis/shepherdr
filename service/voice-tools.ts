@@ -460,7 +460,9 @@ async function lookTask(io: VoiceIO, snap: Snapshot, where: Where, id: unknown) 
   if (t.summary) out.push(`Its summary: ${cut(t.summary, 300)}`);
   if (t.details) out.push(`Details: ${cut(t.details, 600)}`);
   if (s === "ready") {
-    out.push(onBranch(t) ? "It is on its own branch: Mark as done and merge." : t.repo === "folder" ? "It changed the folder itself, no branch: Mark as done, nothing to merge." : "Mark as done when you are happy with it; Not now leaves it here.");
+    // dmalis/shepherdr#29: the card's words, and why it waits for you
+    if (t.waitsWhy) out.push(t.waitsWhy);
+    out.push(t.nothingToMerge ? "It changed nothing, so there is nothing to merge: Close, nothing changes." : onBranch(t) ? `It is on its own branch: Merge into ${t.base || "its base branch"}.` : t.repo === "folder" ? "It changed the folder itself, no branch: Mark as done, nothing to merge." : "Mark as done when you are happy with it; Not now leaves it here.");
     if (t.mergeFailed) out.push(`The last merge failed: ${cut(t.mergeFailed, 160)}.`);
     // what its review card shows: files changed, checks and proof, from Git and GitHub (never the agent's own words)
     const ev = await Promise.race([io.action({ type: "evidence", task: t.id }).catch(() => null), new Promise((r) => setTimeout(() => r(null), 8000))]) as any;

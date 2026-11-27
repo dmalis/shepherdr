@@ -361,6 +361,8 @@ export class Model {
         // 3.2: the facts the app works a status out from (service/next.ts enrich), as herdr-task keeps them
         x: { mode: task.mode ?? null, merged: !!task.merged, quiet: task.quiet ?? null, told: task.told ?? null, automation: task.automation ?? null, stopped_by: task.stopped_by ?? null, stopped_why: task.stopped_why ?? null,
           merge_failed: task.merge_failed ?? null, attention_at: task.attention_at ?? null, after: task.after ?? null, closed_unmerged: !!task.closed_unmerged,
+          // nothing to merge: what its card says and why it waits (dmalis/shepherdr#29)
+          nothing_to_merge: !!task.nothing_to_merge, left_files: task.left_files ?? null, closed_alone: task.closed_alone ?? null, waits_why: task.waits_why ?? null,
           pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,

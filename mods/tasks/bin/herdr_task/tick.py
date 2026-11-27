@@ -31,6 +31,7 @@ from . import stack
 from .news import news_pass
 from .ghnews import held_by_base, main_pass, pr_deliver, pr_news, PR_NEWS_EVERY, resting
 from .systemic import dropped, systemic_pass
+from .waits import waits_now
 from .scheduler import SCHEDULER
 from .revive import record_pass
 
@@ -493,6 +494,11 @@ def tick_turn(s, report):
     for t in s.data["tasks"]:
         if t["state"] == "ready":
             back_pass(s, t, report)
+        if t["state"] == "ready" and not t.get("waits_why"):
+            # a Ready card from before it said why it waits (dmalis/shepherdr#29): kept once, while that still holds
+            why = waits_now(s, t)
+            if why:
+                t["waits_why"], s.dirty = why, True
         elif t["state"] == "running" and (t.get("back") or {}).get("auto"):
             settle_back(s, t, report)
         if stack.stacked(t):
