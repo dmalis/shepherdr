@@ -138,7 +138,7 @@ export function SideDrawer({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="scrim" ref={shade} onClick={tap} style={{ touchAction: 'none' }} />
-      <nav className="drawer" ref={nav} aria-label="Spaces" style={{ touchAction: 'pan-y' }}>
+      <nav className="drawer" ref={nav} aria-label="Spaces" style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
         {children}
       </nav>
     </>
