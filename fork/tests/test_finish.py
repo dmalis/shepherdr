@@ -255,6 +255,13 @@ class ToldWords(unittest.TestCase):
         self.assertEqual(self.words(("held", self.HELD), ("rolled-back", self.RB1), ("installed", None)),
                          ("installed", self.HELD + " What's new. " + gate.EARLIER_ROLLBACK))
 
+    def test_a_hold_in_a_later_round_goes_before_whats_new(self):
+        """A installed; a pending merge B settled again and held at a gate: A still serves, so its words end."""
+        self.assertEqual(self.words(("installed", None), ("held", self.HELD)),
+                         ("installed", self.HELD + " What's new."))
+        self.assertEqual(self.words(("installed", None), ("held", self.HELD), ("rolled-back", self.RB2)),
+                         ("installed", self.HELD + " What's new. " + self.RB2))
+
     def test_only_rollbacks(self):
         self.assertEqual(self.words(("rolled-back", self.RB1), ("rolled-back", self.RB2), says=None),
                          ("rolled-back", self.RB1 + " " + self.RB2))

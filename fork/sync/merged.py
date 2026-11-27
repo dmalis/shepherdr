@@ -327,8 +327,8 @@ def failures(v):
 
 
 def red_words(fails, installs, rec):
-    """One sentence for one failure, however many of our installs it covers: the check and the commit it failed on.
-    CI never rolls anything back, whatever an install's health did earlier."""
+    """One sentence for one failure, however many of our installs it covers (oldest install first): the check and the
+    commit it failed on. CI never rolls anything back, whatever an install's health did earlier."""
     back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
     if len(installs) == 1:
         sha, v = installs[0]
@@ -344,26 +344,26 @@ def red_words(fails, installs, rec):
 
 def ci_untold(st, mark=True, only=None):
     """[(sha, words or None)]: the red or missing CI results nobody was told of yet (of `only`'s shas, when given).
-    A failure is told once: the installs one failed run covers share one sentence, on the first of them (the rest
-    carry None), and a failure another install's words told already is said no more (its installs carry None, and
-    are marked told with the rest). `mark`: each is marked told now; finish marks them in the same lock that lets go
-    of the lease."""
+    A failure (one check, the commit its run failed on) is told once: every install it covers shares its sentence,
+    on the first of them (the rest carry None; an install with two failures is in both), and a failure another
+    install's words told already is said no more (its installs carry None, and are marked told with the rest).
+    `mark`: each is marked told now; finish marks them in the same lock that lets go of the lease."""
     ci = st.get("ci") or {}
     told = {f for v in ci.values() if v.get("told") and v.get("verdict") == "red" for f in failures(v)}
     out, groups = [], {}
-    for sha, v in ci.items():
+    for sha, v in sorted(ci.items(), key=lambda kv: str(kv[1].get("installed") or "")):     # oldest install first
         if v.get("verdict") not in ("red", "missed") or v.get("told") or (only is not None and sha not in only):
             continue
         if v.get("verdict") == "missed":
             out.append((sha, ci_words(v, sha, st.get("recovery"))))
             continue
-        fails = tuple(f for f in failures(v) if f not in told) if failures(v) else ()
-        if failures(v) and not fails:
+        fails = [f for f in failures(v) if f not in told] if failures(v) else [None]   # None: red, no check named
+        if not fails:
             out.append((sha, None))                      # told already, on another install's words
-            continue
-        groups.setdefault(fails, []).append((sha, v))
-    for fails, installs in groups.items():
-        out.append((installs[0][0], red_words(fails, installs, st.get("recovery"))))
+        for f in fails:
+            groups.setdefault(f, []).append((sha, v))
+    for f, installs in groups.items():
+        out.append((installs[0][0], red_words((f,) if f else (), installs, st.get("recovery"))))
         out.extend((sha, None) for sha, _ in installs[1:])
     if mark:
         mark_told(st, [sha for sha, _ in out])

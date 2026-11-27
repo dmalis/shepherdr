@@ -447,7 +447,8 @@ def scheduler_line(s, since=None, sleep=time.sleep):
             if rewritten:
                 return f"it re-execed, but onto other code than the installed herdr-task (waited {mins})"
             return f"still on the old herdr-task after {mins}, though running: one long round, or stuck"
-        sleep(min(2.0, max(0.05, max(health_wait_s(), scheduler_wait_s()) / 15)))
+        step = min(2.0, max(0.05, max(health_wait_s(), scheduler_wait_s()) / 15))
+        sleep(min(step, max(0.05, start + scheduler_wait_s() - t)))      # never far past the ceiling
 
 
 WEB_INDEX = os.path.join("web", "dist", "index.html")

@@ -473,6 +473,31 @@ class CiAfterInstall(syncworld.World):
         with state.locked(self.p) as st:
             self.assertIn("fork-check failed on " + "d" * 12, " ".join(w for _, w in merged.ci_untold(st) if w))
 
+    def test_a_failure_shared_by_installs_with_other_failures_is_still_one_sentence(self):
+        """A: check red on A and fork-check red on C; B: only fork-check red on C. fork-check on C is said once."""
+        a, b, c = "a" * 40, "b" * 40, "c" * 40
+        with state.locked(self.p) as st:
+            st["ci"] = {
+                a: {"verdict": "red", "version": "3.2.22", "installed": "2026-11-27T10:00:00Z", "told": False,
+                    "names": {"check": {"state": "red", "by": a}, "fork-check": {"state": "red", "by": c}}},
+                b: {"verdict": "red", "version": "3.2.22", "installed": "2026-11-27T10:05:00Z", "told": False,
+                    "names": {"check": {"state": "green", "by": b}, "fork-check": {"state": "red", "by": c}}}}
+            said = merged.ci_untold(st, mark=True)
+            self.assertTrue(all(st["ci"][s]["told"] for s in (a, b)))
+        text = " ".join(w for _, w in said if w)
+        self.assertEqual(text.count("fork-check failed on " + c[:12]), 1, text)
+        self.assertEqual(text.count("check failed on " + a[:12]), 1, text)
+        self.assertIn(f"2 installs of 3.2.22 (the newest {b[:12]})", text)
+
+    def test_the_newest_is_by_install_time_not_by_sha(self):
+        e, c = "e" * 40, "c" * 40
+        with state.locked(self.p) as st:
+            st["ci"] = {sha: {"verdict": "red", "version": "3.2.22", "installed": at, "told": False,
+                              "names": {"fork-check": {"state": "red", "by": "f" * 40}}}
+                        for sha, at in ((e, "2026-11-27T10:00:00Z"), (c, "2026-11-27T10:02:00Z"))}
+            said = merged.ci_untold(st, mark=False)
+        self.assertIn(f"(the newest {c[:12]})", " ".join(w for _, w in said if w))
+
     def test_a_failure_told_meanwhile_by_another_install_drops_out_under_the_lock(self):
         by = "c" * 40
         self.red_on(["1" * 40, "2" * 40], by)
