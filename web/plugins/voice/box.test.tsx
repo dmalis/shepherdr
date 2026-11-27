@@ -114,7 +114,8 @@ test('the round button and Enter send only what is in the box; a suggested reply
   // a tap sends exactly its text at once as its own message, alone (the box's draft and files stay; no focus taken:
   // no keyboard), a hold fills the box and focuses it
   const tap = chat.slice(chat.indexOf('const sendSug = '), chat.indexOf('const editSug = '))
-  expect(tap).toContain('send(key, key, t, false, true)')
+  // dmalis/shepherdr#51: as a reply to the message the bubble came with
+  expect(tap).toContain('send(key, key, t, false, true, undefined, bubbleQuote(chat, sug.id))')
   expect(tap).toContain('spent.add(sug.id)')
   expect(tap).not.toMatch(/setText|text\b(?!\))/)
   expect(chat).toMatch(/className=\{going \? 'sug go' : 'sug'\}\s*onMouseDown=\{keepFocus\}/)
