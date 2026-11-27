@@ -12,17 +12,19 @@ so the cost of a patch is how often a release breaks it. Build for that.
 
 1. **Check upstream first** (FORK.md: "Check upstream first"), before you open the issue, and again when its task
    starts building:
-   - **Up to date?** `git fetch -q upstream --tags`. Upstream's newest release is
+   - **Up to date?** `git fetch -q origin && git fetch -q upstream --tags`. Upstream's newest release is
      `gh release list -R eliasstravik/shepherdr --limit 1`; ours is
      `git describe --tags --match 'v*' --abbrev=0 origin/main`. Then upstream's main since our base, on the files
      involved: `git log --oneline $(git merge-base origin/main upstream/main)..upstream/main -- <files>`, and
-     `git log upstream/main --oneline -i --grep <word>`.
+     `git log upstream/main --oneline -i --grep <word>`. A matching commit is released when
+     `git tag --contains <sha> --list 'v*'` lists a tag, and only on upstream's main when it lists none.
    - **Reported?** `gh search issues -R eliasstravik/shepherdr <word> <word>`, a few times, two or three words each:
      a long query often finds nothing. No `--state`, so closed ones come too. For each match, read the close reason
-     and the maintainer's words: `gh issue view <n> -R eliasstravik/shepherdr --comments`.
-   - **Fixed in a release or on upstream's main:** there is nothing to build. Say so and let the sync bring it. If
-     it hurts now, carry upstream's own commit (upstream-issue skill: "A fix upstream already has"). We write no fix
-     of our own.
+     and the maintainer's words: `gh issue view <n> -R eliasstravik/shepherdr --json state,stateReason,comments`
+     (`--comments` alone drops the state when its output is read by a tool).
+   - **Fixed in a release or on upstream's main:** stop here. There is nothing to build and no `patch` issue to
+     open: say so, and the sync brings it. Only if it hurts now, carry upstream's own commit (upstream-issue skill:
+     "A fix upstream already has"). We write no fix of our own.
    - **Declined upstream:** we build our own, shaped by the maintainer's reasons (upstream-issue skill).
 2. Open or update an issue on dmalis/shepherdr, labelled `patch`. It holds:
    - **Why:** the person's words and their pain.
@@ -83,6 +85,11 @@ so the cost of a patch is how often a release breaks it. Build for that.
 - The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches.json` line, CI's
   `check` passed, and the reviewer had no must-fix finding left.
 - UI work: its proof has the 390px and desktop screenshots, light and dark, and its summary names the UI skills used.
+- **Only a real device can confirm it** (iOS home-screen behaviour, a real keyboard, push on a device, haptics:
+  anything our headless checks can't show): the summary says so, and the issue gets a line "Device check: <the exact
+  thing to look at>", e.g. "open the app from the iPhone home screen: the header's first row is sharp, with no gap
+  above it". The proof lists it under "Not proven". The install then asks the person to check it (FORK.md:
+  `device-check`).
 - Every fix has its own issue, and merging never closes it. A new fix for a problem an earlier fix covers gets a
   new issue that links the earlier one.
 - Before ready, its status line says in plain words what the fix does and how to try it: "building. What it does:

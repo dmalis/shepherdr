@@ -1,6 +1,6 @@
 ---
 name: upstream-sync
-description: Take upstream Shepherdr's newest release into this fork, adapt our patches, try it and install it; and install our own merged work right away. Use for the "Upstream sync" and "Install merged" schedules' runs, when asked to sync or update from upstream, or when a sync is held.
+description: Take upstream Shepherdr's newest release into this fork, adapt our patches, try it and install it; and install our own merged work right away. Use for the "Upstream sync" and "Install each merge" schedules' runs, when asked to sync or update from upstream, or when a sync is held.
 ---
 
 # Upstream sync
@@ -148,6 +148,10 @@ it found: report that, never a guess at why, and never repair `main` by force.
    - **A fix** is one that says `Part of #n` for a `patch` issue: it lands now (upstream-issue skill: "After a fix
      lands"). Its part of the status line goes from "building" to "not filed yet", and the issue's labels are set
      from its parts (that skill: "Several fixes on one issue"), which puts `not-filed` on.
+   - **A fix only a device can confirm** (its issue has a "Device check:" line for it, fork-patch skill: "Done
+     means"): label the issue `device-check` too (`gh label create device-check -R dmalis/shepherdr` first, if
+     `gh label list` lacks it). `--says` never calls it fixed: "not seen on a device yet: please check <that
+     line>".
    - **A revert** (its issue's status line says "reverting in #m" for it): that part becomes "reverted in #m", and
      the labels are set from the parts again. The issue closes only when every fix on it was undone.
    - **A pull request that changes Shepherdr** (any file outside `FORK.md`, `fork/` and `.agents/`) and names no
@@ -168,7 +172,7 @@ step's terminal check (#25)". A held record the person already heard of ends `--
 
 ## Install merged
 
-The "Install merged" schedule's run: a task merged in this space, and our main installs right away. No release is
+The "Install each merge" schedule's run: a task merged in this space, and our main installs right away. No release is
 taken, no trial runs, and nothing waits for CI; the rest is the steps above.
 
 1. `fork/bin/sync preflight --pending "<the merged task's title, from Set off by>"`. `nothing` (or `broken`) with

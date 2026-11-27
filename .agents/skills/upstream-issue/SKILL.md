@@ -9,8 +9,9 @@ description: Label our merged fixes for the person's decision, list the ones not
 person decides, fix by fix, whether we offer it upstream, and upstream's author decides whether it goes into theirs.
 It covers every problem the person filed upstream (open, or closed without a fix) and every one they find later.
 1. **Shape it** (shaping-a-request skill).
-2. **Fix it here** as a patch (fork-patch skill), built for every Shepherdr user (below). Skip this only when
-   upstream's own release already fixes it; see "A fix upstream already has".
+2. **Fix it here** as a patch (fork-patch skill), built for every Shepherdr user (below). Skip this when upstream
+   already fixed it, in a release or on its main (the upstream check, fork-patch skill, step 1); see "A fix upstream
+   already has".
 3. **Mark it as not filed** once our pull request is merged and installed ("After a fix lands"). Nothing goes
    upstream yet.
 4. **The person decides:** file it, keep it ours, or undo it. They see what waits in the not-filed list ("The
@@ -22,7 +23,8 @@ Upstream is someone else's public project. It hears from us only what the person
 
 **The person's earlier issues count too.** List them with `gh search issues -R eliasstravik/shepherdr --author dmalis`
 (no `--state`: open and closed). Each one that is open, or closed with no fix in a release, and has no `patch` issue
-here yet, gets one (fork-patch skill, step 1), and goes through steps 1–5.
+here yet, goes through the upstream check (fork-patch skill, step 1). One upstream hasn't fixed gets an issue and goes
+through steps 1–5.
 
 ## Confusion is a UX problem
 
@@ -99,7 +101,8 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
    issue's number last: "A settings notice no longer ends the Assistant's work mid-turn; try it: change a setting
    while it works (#7)". Add a few words when they help the decision: upstream fixed it since, in a release or on
    main (nothing to file: the sync drops ours), upstream has an issue for it, it can't fit everyone (keep it ours),
-   or it is being reverted. Find the first two with the upstream check (fork-patch skill, step 1).
+   or it is being reverted. Find the first two with the upstream check (fork-patch skill, step 1). A fix upstream
+   has since fixed is offered as "Keep it ours", "Undo it" or "Not yet", never "File it".
 3. **End with the link** that opens exactly those issues on GitHub:
    https://github.com/dmalis/shepherdr/issues?q=is%3Aissue+is%3Aopen+label%3Anot-filed
 4. **When the person asked:** the Assistant gives the list, then asks with the question tool, one question per fix
@@ -112,8 +115,9 @@ The person gets it when they ask which fixes aren't filed, and once a day from a
 ## Filing a fix
 
 Only for a fix the person said to file. Never post upstream without their yes for that fix.
-1. **Find the upstream issue.** Start from our issue's "Upstream checked" line, then search again for a duplicate
-   filed since, as the fork-patch skill's step 1 does: a few short keyword searches, open and closed.
+1. **Check upstream again** (fork-patch skill, step 1), from our issue's "Upstream checked" line: a release or
+   upstream's main that fixed it since means nothing to post (tell the person why), and a duplicate filed since is
+   found with a few short keyword searches, open and closed.
 2. **Pick what to post** from what you found:
 
    | Found | Post |
@@ -190,7 +194,7 @@ The upstream check (fork-patch skill, step 1) finds these.
 - **When the author fixes it, their way or ours,** the sync drops our patch and keeps theirs (upstream-sync skill,
   step 3).
 - **When the author closes one of the person's issues without a fix,** our patch stays, or we build it now if we
-  haven't yet.
+  haven't yet, after the upstream check (fork-patch skill, step 1) finds it isn't fixed on upstream's main.
   - Don't ask the person whether to build it: the standing rule covers every decline.
   - Let the author's reasons shape how it's built (shaping-a-request).
   - Our issue's status line says "declined upstream: <link>", with the author's reason.

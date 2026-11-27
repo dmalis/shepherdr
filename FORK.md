@@ -97,6 +97,9 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - `sync-blocked`: a release waits on a patch.
   - `fixed-upstream`: upstream shipped it.
   - `later`: not now.
+  - `device-check`: a live fix only a real device can confirm (an iPhone's home screen, a real keyboard, push on a
+    device, haptics), not confirmed by the person yet. The install puts it on, from the issue's "Device check" line.
+    It comes off only when they confirm; if they say it's still wrong, the issue goes back to building.
 - **Is it on the person's machine:** `live`, installed and running on their Shepherdr. The install step puts it on
   every issue its installed `fork/patches.json` lists, and takes it off one whose fix left (upstream-sync skill,
   step 7). No `live`: not installed yet.
@@ -139,10 +142,11 @@ A release whose patches don't fit yet waits until they do. After 24 hours waitin
 ## Our own merges
 
 Our merges in this space merge right away, without waiting for CI, and install right away. The schedule "Install
-merged" runs each time a task here is merged, and follows the upstream-sync skill's install-merged steps:
+each merge" runs each time a task here is merged, and follows the upstream-sync skill's install-merged steps:
 1. Take main's tip as it is now. Fixes merged during an install go in with the next one, right after.
 2. Install it with no trial and no wait for CI. Its health check also reads the web app and herdr-task. Roll back if
-   the health check fails.
+   the health check fails. A fix only a device can confirm is never told as fixed: "not seen on a device yet: please
+   check <its Device check line>" (`device-check`).
 3. Then CI on main reports. A red result is told once, to open a fix task. Nothing rolls back on it. The last install
    whose CI passed is kept, to go back to on the person's request.
 
