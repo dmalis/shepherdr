@@ -63,9 +63,77 @@ const keepShared = async (req) => {
   }
 }
 
+/* Can't reach Shepherdr (fork #34): the installed app (or a tab) opened while the service is down, or a proxy in front
+   says so (502, 504, 520-530), shows this page of its own rather than the browser's error. It says what is going on in
+   the theme picked, and tries again by itself (sooner when the device comes back online or the app comes forward);
+   once anything answers, the app loads. Only the app's own address: an artifact, a file or the API is never touched. */
+const DOWN = [502, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530]
+
+/** the app's own page: the scope's folder, or its index.html, with any ?query */
+const appPage = (url) => {
+  const p = new URL(url).pathname
+  const s = new URL(self.registration.scope).pathname
+  return p === s || p === s + 'index.html'
+}
+
+const downPage = () =>
+  new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shepherdr</title><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff">
+<style>
+:root{color-scheme:light;--bg:#fff;--fg:#0a0a0a;--sub:#525252;--btn:#0a0a0a;--btnfg:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#121212;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#121212;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}
+:root[data-theme="night"]{color-scheme:dark;--bg:#000;--fg:#fafafa;--sub:#a3a3a3;--btn:#fafafa;--btnfg:#0a0a0a}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overscroll-behavior:none}
+body{display:grid;place-items:center;padding:env(safe-area-inset-top) 24px env(safe-area-inset-bottom);box-sizing:border-box;font:16px/24px ui-sans-serif,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;app-region:drag;-webkit-app-region:drag}
+main{display:grid;justify-items:center;gap:12px;max-width:340px;text-align:center}
+svg{width:56px;height:56px;margin-bottom:4px}
+h1{margin:0;font-size:20px;line-height:28px;font-weight:600}
+p{margin:0;color:var(--sub);font-size:15px;line-height:22px}
+button{margin-top:8px;height:40px;padding:0 20px;border:0;border-radius:999px;background:var(--btn);color:var(--btnfg);font:inherit;font-size:15px;font-weight:600;line-height:40px;cursor:pointer;app-region:no-drag;-webkit-app-region:no-drag;-webkit-user-select:none;user-select:none}
+button:disabled{opacity:.6;cursor:default}
+</style>
+<script>
+(function(){var t='System';try{t=(JSON.parse(localStorage.getItem('shepherdr.prefs')||'{}')||{}).theme||'System'}catch(e){}
+if(t!=='System')document.documentElement.dataset.theme=t.toLowerCase()
+var dark=t==='Night'||t==='Dark'||(t==='System'&&matchMedia('(prefers-color-scheme: dark)').matches)
+document.querySelector('meta[name=theme-color]').content=t==='Night'?'#000000':dark?'#121212':'#ffffff'})()
+</script></head><body><main>
+<svg viewBox="0 0 44 44" aria-hidden="true"><rect width="44" height="44" rx="10" fill="#09090b"/><g transform="translate(4.5 3) scale(1.125)"><path transform="rotate(12 16 16)" d="M21 60V12a7 7 0 0 0-14 0v2.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></g></svg>
+<h1>Can't reach Shepherdr</h1>
+<p id="why">It may be restarting or updating. This page tries again by itself and opens Shepherdr once it answers.</p>
+<button id="again" type="button">Try again</button>
+</main><script>
+(function(){var wait=2000,timer=0,busy=false,btn=document.getElementById('again'),why=document.getElementById('why')
+function say(){why.textContent=navigator.onLine===false?'This device is offline. Shepherdr opens once it is back online.':'It may be restarting or updating. This page tries again by itself and opens Shepherdr once it answers.'}
+function later(){clearTimeout(timer);timer=setTimeout(go,wait);wait=Math.min(wait*2,15000)}
+function go(){if(busy)return;busy=true;btn.disabled=true;btn.textContent='Trying…';say()
+fetch(location.href,{cache:'no-store',credentials:'include',redirect:'manual'}).then(function(r){
+if(r.type==='opaqueredirect'||${JSON.stringify(DOWN)}.indexOf(r.status)<0){location.reload();return}throw 0
+}).catch(function(){busy=false;btn.disabled=false;btn.textContent='Try again';later()})}
+btn.onclick=function(){wait=2000;go()}
+addEventListener('online',function(){wait=2000;go()})
+document.addEventListener('visibilitychange',function(){if(!document.hidden){wait=2000;go()}})
+say();later()})()
+</script></body></html>`,
+    { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+  )
+
+/** the app's page from the network, else the page above */
+const appOrDown = async (e) => {
+  try {
+    const r = await fetch(e.request)
+    return DOWN.includes(r.status) ? downPage() : r
+  } catch {
+    return downPage()
+  }
+}
+
 self.addEventListener('fetch', (e) => {
   const r = e.request
   if (r.method === 'POST' && r.url.split('?')[0] === new URL('share', self.registration.scope).href) e.respondWith(keepShared(r))
+  else if (r.mode === 'navigate' && r.method === 'GET' && appPage(r.url)) e.respondWith(appOrDown(e))
 })
 
 self.addEventListener('install', () => self.skipWaiting())

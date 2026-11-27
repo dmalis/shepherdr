@@ -1,0 +1,96 @@
+/* fork #34: Shepherdr as an installed app. */
+
+/* ---- a desktop window's title bar (Chrome's window controls overlay) ----
+   With the title bar given to the app, the window's own buttons float over the page's top corner: on the right
+   (Windows, Linux) or the left (a Mac). What sits at the top (each column's header, or a line above them) takes the
+   title bar's place: its empty part drags the window, a double click there maximizes it, and it keeps clear of the
+   window's buttons (titlebar-area-*: the free part of the title bar). Its buttons work as anywhere. With the title bar
+   shown, none of this applies and the window is as before. */
+@media (display-mode: window-controls-overlay) {
+  .app {
+    --tb-l: env(titlebar-area-x, 0px);
+    --tb-r: max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+    --tb-h: env(titlebar-area-height, 0px);
+  }
+  /* the top of the window: the first line above the columns, else each column's header */
+  .device > .tline:not(.device > :not(.upchip) ~ *),
+  .device > .anote:not(.device > :not(.upchip) ~ *),
+  .device > .shell:not(.device > :not(.upchip) ~ .shell) > :is(.side, .col) > :is(.brand, .hd):first-child {
+    app-region: drag;
+    -webkit-app-region: drag;
+  }
+  .device :is(.tline, .anote, .brand, .hd) :is(button, a, input, textarea, select, summary, label, [role], [tabindex]) {
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
+  }
+  /* a line on top is at least the title bar's height, and clear of the window's buttons */
+  .device > .tline:not(.device > :not(.upchip) ~ *) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tb-h);
+    padding-left: calc(16px + var(--tb-l));
+    padding-right: calc(16px + var(--tb-r));
+  }
+  .device > .anote:not(.device > :not(.upchip) ~ *) {
+    margin-left: calc(8px + var(--tb-l));
+    margin-right: calc(8px + var(--tb-r));
+  }
+  /* the columns' headers on top: the leftmost clear of a Mac's buttons, the rightmost of Windows' and Linux's */
+  .app:not(.phone) .device > .shell:not(.device > :not(.upchip) ~ .shell):not(.noside) > .side > .brand:first-child {
+    padding-left: calc(4px + var(--tb-l));
+  }
+  .app:not(.phone) .device > .shell.noside:not(.device > :not(.upchip) ~ .shell) > section.col:first-of-type > .hd:first-child {
+    padding-left: calc(12px + var(--tb-l));
+  }
+  .app:not(.phone) .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col:last-of-type > .hd:first-child {
+    padding-right: calc(12px + var(--tb-r));
+  }
+  /* a narrow window lays out as a phone: one column, its header clear of both */
+  .app.phone .device > .shell:not(.device > :not(.upchip) ~ .shell) > section.col > .hd:first-child {
+    padding-left: calc(12px + var(--tb-l));
+    padding-right: calc(12px + var(--tb-r));
+  }
+}
+
+/* ---- a phone's safe areas: the notch or island, the rounded corners and the home bar, on every screen ----
+   The frame keeps clear on every side (the sides matter with the phone turned); the bottom bar, sheets and the
+   full-screen views already keep clear of the home bar. A line at the very top still paints under the status bar. */
+.device {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.app.phone .device > .tline:first-child {
+  margin-top: calc(-1 * env(safe-area-inset-top));
+}
+.app .drawer {
+  padding-top: calc(8px + env(safe-area-inset-top));
+  padding-left: calc(8px + env(safe-area-inset-left));
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.app.phone .win {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.app .sheet {
+  padding-left: calc(8px + env(safe-area-inset-left));
+  padding-right: calc(8px + env(safe-area-inset-right));
+}
+.app .toasts {
+  top: calc(60px + env(safe-area-inset-top));
+}
+
+/* ---- installed: the frame doesn't rubber-band, a long press on a menu row or tab neither selects nor calls out ---- */
+@media (display-mode: standalone), (display-mode: window-controls-overlay) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+}
+@media (pointer: coarse) {
+  :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="switch"], [role="treeitem"]) {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
