@@ -4,6 +4,7 @@
 import { expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { launchOf, launches, wantsCall, wantsNeeds, wantsNewTask, withoutAsks } from './launch.ts'
+import { zoomValue } from '../../zoom-css.ts'
 
 const root = new URL('../../../', import.meta.url)
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
@@ -181,10 +182,13 @@ test("an iPhone's home screen: the top clears the status bar and the system's bl
   const css = read('web/plugins/installed/installed.css')
   // everywhere: the clear top is the inset alone (a browser tab, Android, a desktop, the phone turned)
   expect(css).toMatch(/\.app \{\s*--safe-top: env\(safe-area-inset-top\);\s*\}/)
-  // only installed on an iPhone (standalone, Safari's touch-callout), and only with an inset on top: 32px more
-  expect(css).toMatch(
-    /@media \(display-mode: standalone\) \{\s*@supports \(-webkit-touch-callout: none\) \{\s*\.app \{\s*--safe-top: calc\(env\(safe-area-inset-top\) \+ min\(32px, 100 \* env\(safe-area-inset-top\)\)\);/,
-  )
+  // only installed on an iPhone (standalone, Safari's touch-callout), and only with an inset on top: 32pt more,
+  // the system's band, so the app's zoom leaves it as it is
+  const ios = 'calc(env(safe-area-inset-top) + min(32PX, 100 * env(safe-area-inset-top)))'
+  expect(css).toContain(`@media (display-mode: standalone) {\n  @supports (-webkit-touch-callout: none) {\n    .app {\n      --safe-top: ${ios};`)
+  expect(zoomValue(ios)).toBe(ios)
+  // the viewer's pictures fit between the clear top and the home bar
+  expect(css).toMatch(/\.app \.lbody :is\(img, video\) \{\s*max-height: calc\(100dvh - 68px - var\(--safe-top, env\(safe-area-inset-top\)\) - env\(safe-area-inset-bottom\)\);/)
   // every top the app keeps clear takes it, so nothing starts inside the blur: the frame, a line on top, the drawer,
   // the settings window, toasts, the update chip, a full-screen terminal's bar and the viewer
   const top = css.slice(css.indexOf('.device {')).replaceAll('var(--safe-top, env(safe-area-inset-top))', 'var(--safe-top)')
@@ -208,6 +212,7 @@ test("an iPhone's home screen: the top clears the status bar and the system's bl
   expect(up).toMatch(/\.fbar\{[^}]*padding:calc\(4px \+ env\(safe-area-inset-top\)\) /)
   expect(up).toMatch(/\.fpill\{[^}]*top:calc\(8px \+ env\(safe-area-inset-top\)\)/)
   expect(read('web/src/ds.css')).toMatch(/\.lbox\{[^}]*padding:env\(safe-area-inset-top\) /)
+  expect(read('web/src/ds.css')).toContain('.lbody img,.lbody video{max-width:100%;max-height:calc(100dvh - 68px - env(safe-area-inset-top) - env(safe-area-inset-bottom));')
 })
 
 /* the upstream seams this leans on (fork #34): a sync that breaks one fails here first */

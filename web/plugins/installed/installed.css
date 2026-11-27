@@ -74,14 +74,15 @@
    full-screen views already keep clear of the home bar. A line at the very top still paints under the status bar.
    --safe-top is the top that stays clear. On an iPhone's home screen (iOS 26) the system blurs and fades the page for
    about 32pt below the status bar too, so a header right under it came out blurred: there the clear top takes that
-   band as well. It applies only where the status bar sits over the page (an inset on top): turned, it's nothing. */
+   band as well. It applies only where the status bar sits over the page (an inset on top): turned, it's nothing.
+   The band is the system's, so it stays 32PX at every app zoom (an iPad's home-screen app gets it too). */
 .app {
   --safe-top: env(safe-area-inset-top);
 }
 @media (display-mode: standalone) {
   @supports (-webkit-touch-callout: none) {
     .app {
-      --safe-top: calc(env(safe-area-inset-top) + min(32px, 100 * env(safe-area-inset-top)));
+      --safe-top: calc(env(safe-area-inset-top) + min(32PX, 100 * env(safe-area-inset-top)));
     }
   }
 }
@@ -136,6 +137,9 @@
 }
 .app .lbox {
   padding-top: var(--safe-top, env(safe-area-inset-top));
+}
+.app .lbody :is(img, video) {
+  max-height: calc(100dvh - 68px - var(--safe-top, env(safe-area-inset-top)) - env(safe-area-inset-bottom));
 }
 
 /* ---- installed: the frame doesn't rubber-band, a long press on a menu row or tab neither selects nor calls out ---- */
