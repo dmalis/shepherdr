@@ -1,0 +1,657 @@
+#!/usr/bin/env python3
+"""fork/bin/rehearse <sha>: the install, health and rollback steps rehearsed on a scratch root (fork/specs/sync-pipeline.md,
+"The rehearsal").
+
+The pipeline's own code, this checkout's `fork/bin/sync`, installs Shepherdr at <sha> the live way into a scratch
+root, with one change: the update itself is the scratch install's own `shepherdr update --root <root>` (the installed
+copy, which hands over to the stand-in install folder's installer, as live), because `herdr-task update-shepherdr`
+only runs inside a real schedule's run. It rehearses three runs on that one root, each a first run of the pipeline
+(a fresh sync state there):
+
+1. A forced failure: health is told to fail, so the rollback runs and must bring back the baseline, verified.
+2. A failed update: a commit on top of <sha> that breaks herdr-task's compile; the update's outcome is read, health
+   fails, the rollback brings back the baseline, verified.
+3. The real install: <sha> installed, the run's sync hold kept through the update, health passed, the hold let go.
+
+Each step prints `ok: <step>: <words>`; the last line is `PASS`, or `FAIL: <step>: <why>`, and the exit code 0 or 1.
+Everything it makes is in one scratch folder, removed at the end, also after a failure or Ctrl-C. It never touches
+the live install, the install folder, the live session or the real sync state, except to record a PASS there: the
+pipeline code that ran (fork/bin and fork/sync, as committed) rehearsed, so `install` lets a candidate with that code
+through (`--root` names another state's home, for tests and tries). Code with uncommitted changes is rehearsed but
+never recorded."""
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import types
+
+FORK = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+CODE_REPO = os.path.dirname(FORK)                 # the checkout whose pipeline code runs here
+sys.path.insert(0, FORK)
+from sync import install, state  # noqa: E402
+
+SYNC = os.path.join(FORK, "bin", "sync")
+ME = os.path.realpath(__file__)
+PREFIX = "fork-rehearse-"
+RUN = "REHEARSAL-1"                                # the stand-in run's key, in the scratch state only
+# The caller's variables no child gets: its terminal, its session, its agent, the pipeline's own knobs, git's.
+DROP_PREFIXES = ("HC_", "HERDR_", "CLAUDE", "CODEX_", "SHEPHERDR_", "FORK_", "GIT_")
+# A commit on top of the candidate that breaks herdr-task's compile: the update's own check fails it.
+BROKEN_FILE = "mods/tasks/bin/herdr_task/cli.py"
+BROKEN_LINE = "\n\ndef broken_by_the_rehearsal(:\n"
+FIXED = {"GIT_AUTHOR_NAME": "Fork Rehearsal", "GIT_AUTHOR_EMAIL": "rehearsal@example.invalid",
+         "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+0000", "GIT_COMMITTER_NAME": "Fork Rehearsal",
+         "GIT_COMMITTER_EMAIL": "rehearsal@example.invalid", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+0000"}
+UPDATE_TIMEOUT_S = 30 * 60                         # the runner stops an update after 30 minutes (self_update)
+TAIL_CHARS = 4000
+RELEASE = re.compile(r"^v\d+\.\d+\.\d+$")
+FORK_URL = f"https://github.com/{state.REPO}.git"
+
+# The stand-in for `herdr-task update-shepherdr`: install.py's scratch updater (FORK_SYNC_SCRATCH_UPDATER).
+UPDATER = """#!/bin/sh
+exec "{python}" "{me}" --updater "{scratch}" "$@"
+"""
+
+
+class Failed(Exception):
+    def __init__(self, step, why):
+        super().__init__(f"{step}: {why}")
+        self.step, self.why = step, one_line(why)
+
+
+class Interrupted(BaseException):
+    pass
+
+
+def one_line(text):
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    return (lines[-1] if lines else "no output")[:300]
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            v = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return v if isinstance(v, dict) else None
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def git(cwd, *args, env=None, timeout=600):
+    """(ok, stdout stripped, stderr)."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, env=env, timeout=timeout,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, "", type(e).__name__
+    return r.returncode == 0, r.stdout.strip(), r.stderr.strip()
+
+
+def version_key(tag):
+    return tuple(int(x) for x in tag[1:].split("."))
+
+
+# --- the stand-in updater: `<it> update-shepherdr <run> --folder <f> --no-wait | --status --json` ---
+
+def updates_dir(scratch):
+    return os.path.join(scratch, "updates")
+
+
+def status_path(scratch, task):
+    return os.path.join(updates_dir(scratch), re.sub(r"[^A-Za-z0-9_.-]", "_", task) + ".json")
+
+
+def updater_main(argv):
+    """What `herdr-task update-shepherdr` does for a schedule's run, on the scratch root: the ask starts the runner
+    in its own process session and comes back at once (--no-wait); --status --json prints the task's update state
+    ({state, at, done_at, code, version}). The runner keeps the ask's environment (the hold variable)."""
+    if len(argv) < 3 or argv[1] != "update-shepherdr":
+        print("fork/bin/rehearse --updater <scratch> update-shepherdr <run> --folder <f> [--no-wait|--status --json]",
+              file=sys.stderr)
+        return 2
+    scratch, task = argv[0], argv[2]
+    path = status_path(scratch, task)
+    cur = read_json(path) or {}
+    if "--status" in argv:
+        print(json.dumps(cur))
+        return 0
+    if cur.get("state") == "running":
+        print(json.dumps(cur))
+        return 75
+    u = {"state": "running", "at": now_ms()}
+    write_json(path, u)
+    try:
+        subprocess.Popen([sys.executable, ME, "--updater-run", scratch, task], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+    except OSError as e:
+        u.update(state="failed", done_at=now_ms(), tail=f"Couldn't start it: {e.strerror or e}")
+        write_json(path, u)
+    print(json.dumps(u))
+    return 75 if u["state"] == "running" else 1
+
+
+def updater_run(scratch, task):
+    """The runner (self_update.run_update's way): `shepherdr update --root <root>` by the scratch install's own CLI,
+    its output to a log in scratch; ok only when it exits 0; the version from its output."""
+    path = status_path(scratch, task)
+    write_json(path, dict(read_json(path) or {}, pid=os.getpid()))
+    root = os.path.join(scratch, "root")
+    argv = [os.path.join(root, ".local", "bin", "shepherdr"), "update", "--root", root]
+    if os.environ.get("FORK_REHEARSE_NO_BUILD") == "1":
+        argv.append("--no-build")
+    log = os.path.join(updates_dir(scratch), os.path.basename(path)[:-5] + ".log")
+    code = None
+    with open(log, "ab") as out:
+        out.write(f"$ {' '.join(argv)}\n".encode())
+        out.flush()
+        try:
+            code = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                  timeout=UPDATE_TIMEOUT_S).returncode
+        except subprocess.TimeoutExpired:
+            code = None
+        except OSError as e:
+            out.write(f"Couldn't start it: {e}\n".encode())
+            code = 127
+    try:
+        with open(log, "rb") as f:
+            f.seek(max(0, os.path.getsize(log) - 4 * TAIL_CHARS))
+            tail = f.read().decode(errors="replace")
+    except OSError:
+        tail = ""
+    u = dict(read_json(path) or {}, state="ok" if code == 0 else "failed", done_at=now_ms(), code=code)
+    m = re.findall(r"Shepherdr (\d+\.\d+\.\d+)", tail)
+    if m:
+        u["version"] = m[-1]
+    write_json(path, u)
+    return 0
+
+
+# --- the rehearsal ---
+
+def tool_path(path):
+    """The caller's PATH without a task terminal's guard folder (SHEP-323) and without any folder that holds the
+    live herdr-task or shepherdr: nothing the rehearsal runs can reach the live install or session by name."""
+    keep = []
+    for d in (path or "").split(os.pathsep):
+        if not d or d in keep:
+            continue
+        if any(os.path.exists(os.path.join(d, x)) for x in ("guard.sh", "herdr-task", "shepherdr")):
+            continue
+        keep.append(d)
+    for d in ("/usr/bin", "/bin"):
+        if d not in keep:
+            keep.append(d)
+    return os.pathsep.join(keep)
+
+
+def clean_env(caller, scratch, name, extra=None):
+    """Every child's whole environment: the real HOME (the commands take --root), the tools, and only these. Its
+    herdr-core session is the rehearsal's own name, so a stray hc call can never reach the live one."""
+    env = {
+        "HOME": caller.get("HOME") or os.path.expanduser("~"),
+        "PATH": tool_path(caller.get("PATH", "")),
+        "TERM": caller.get("TERM") or "xterm-256color",
+        "LANG": caller.get("LANG") or "C.UTF-8",
+        "TMPDIR": os.path.join(scratch, "tmp"),
+        "HC_SESSION": name,
+        "SHEPHERDR_SESSION": name,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    if caller.get("XDG_RUNTIME_DIR"):
+        env["XDG_RUNTIME_DIR"] = caller["XDG_RUNTIME_DIR"]
+    env.update(extra or {})
+    return env
+
+
+def code_hash(repo=CODE_REPO):
+    """The hash install's rehearsal gate looks for (install.pipeline_hash), of the pipeline code that runs here, as
+    committed. None when it has uncommitted changes, or isn't a git checkout: what ran isn't a commit's."""
+    ok, top, _ = git(repo, "rev-parse", "--show-toplevel")
+    if not ok or os.path.realpath(top) != os.path.realpath(repo):
+        return None
+    ok, dirty, _ = git(repo, "status", "--porcelain", "--untracked-files=all", "--", *install.PIPELINE_CODE)
+    if not ok or dirty:
+        return None
+    return install.pipeline_hash(repo, "HEAD")
+
+
+def session_up(env, name):
+    path = os.path.join(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}", "herdr-core", f"{name}.sock")
+    if not os.path.exists(path):
+        return False
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(2)
+    try:
+        s.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def live_snapshot(home):
+    """The live install's record, read only: the rehearsal must leave it as it found it."""
+    try:
+        with open(os.path.join(home, install.RECORD), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return "unreadable"
+
+
+class Rehearsal:
+    def __init__(self, sha, repo, baseline=None, state_root=None, no_build=False, out=None, caller_env=None):
+        self.want, self.repo, self.want_base = sha, repo, baseline
+        self.state_root, self.no_build = state_root, no_build
+        self.out = out or (lambda line: print(line, flush=True))
+        self.caller = dict(os.environ if caller_env is None else caller_env)
+        self.home = self.caller.get("HOME") or os.path.expanduser("~")
+        self.scratch = None
+        self.name = PREFIX + os.urandom(4).hex()
+        self.live_before = live_snapshot(self.home)
+
+    def log(self, step, words):
+        self.out(f"ok: {step}: {words}")
+
+    # --- the commits ---
+    def resolve(self):
+        ok, top, _ = git(self.repo, "rev-parse", "--show-toplevel")
+        if not ok:
+            raise Failed("commit", f"{self.repo} isn't a git checkout")
+        self.repo = top
+        ok, sha, _ = git(self.repo, "rev-parse", "--verify", "--quiet", f"{self.want}^{{commit}}")
+        if not ok or not state.SHA.match(sha):
+            raise Failed("commit", f"{self.want} isn't a commit here")
+        self.sha = sha
+        self.release = self.newest_release(sha)
+        self.base = self.pick_baseline()
+        if self.base == self.sha:
+            raise Failed("commit", "the baseline is the commit itself: nothing to rehearse")
+        self.code = code_hash()
+        self.log("commit", f"{self.sha[:12]} over the baseline {self.base[:12]}; the release in it "
+                           f"{self.release['tag'] or 'none'}")
+
+    def newest_release(self, sha):
+        """The newest vX.Y.Z tag the commit holds: the release a sync took, for the ancestry gate."""
+        ok, out, _ = git(self.repo, "tag", "--merged", sha, "--list", "v*")
+        tags = sorted((t for t in out.split() if RELEASE.match(t)), key=version_key) if ok else []
+        if not tags:
+            return {"tag": None, "sha": None}
+        ok, rel, _ = git(self.repo, "rev-parse", f"{tags[-1]}^{{commit}}")
+        return {"tag": tags[-1], "sha": rel} if ok else {"tag": None, "sha": None}
+
+    def pick_baseline(self):
+        """--baseline, else the sync state's recorded baseline (what is installed), else the release in the commit."""
+        for cand, where in ((self.want_base, "--baseline"), (self.recorded_baseline(), "the sync state's")):
+            if cand:
+                ok, sha, _ = git(self.repo, "rev-parse", "--verify", "--quiet", f"{cand}^{{commit}}")
+                if ok:
+                    return sha
+                if where == "--baseline":
+                    raise Failed("commit", f"the baseline {cand} isn't a commit here")
+        if not self.release["sha"]:
+            raise Failed("commit", "no baseline: name one with --baseline")
+        return self.release["sha"]
+
+    def recorded_baseline(self):
+        try:
+            with open(state.Paths(self.state_root).state, encoding="utf-8") as f:
+                return ((json.load(f) or {}).get("baseline") or {}).get("sha")
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    # --- running things ---
+    def env(self, extra=None):
+        return clean_env(self.caller, self.scratch, self.name, extra)
+
+    def run(self, argv, step, cwd=None, extra=None, timeout=1800):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, cwd=cwd, env=self.env(extra), timeout=timeout,
+                               stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            raise Failed(step, f"{os.path.basename(argv[0])} took longer than {timeout} s")
+        except OSError as e:
+            raise Failed(step, f"{os.path.basename(argv[0])} can't run: {e.strerror or e}")
+        return r
+
+    def sync(self, step, *args, repo=True, extra=None):
+        """One `fork/bin/sync` call against the scratch root: its JSON line."""
+        argv = [sys.executable, SYNC, *args, "--root", self.root, "--run", RUN, "--folder", self.folder]
+        if repo:
+            argv += ["--repo", self.folder]
+        knobs = {"FORK_SYNC_SCRATCH_UPDATER": self.updater, "FORK_SYNC_UPDATE_POLL_S": "1"}
+        if self.no_build:
+            knobs["FORK_REHEARSE_NO_BUILD"] = "1"
+        r = self.run(argv, step, extra=dict(knobs, **(extra or {})))
+        v = install.json_line(r.stdout)
+        if not isinstance(v, dict) or "ok" not in v:
+            raise Failed(step, f"fork/bin/sync {args[0]} printed no JSON line ({one_line(r.stderr)})")
+        if bool(v["ok"]) != (r.returncode == 0):
+            raise Failed(step, f"fork/bin/sync {args[0]}'s exit code disagrees with its JSON line")
+        return v
+
+    # --- the stand-in install folder and the scratch install ---
+    def setup(self):
+        self.scratch = tempfile.mkdtemp(prefix=self.name + "-")
+        os.makedirs(os.path.join(self.scratch, "tmp"))
+        self.root = os.path.join(self.scratch, "root")
+        self.folder = os.path.join(self.scratch, "shepherdr")
+        self.updater = os.path.join(self.scratch, "bin", "update-shepherdr")
+        os.makedirs(os.path.dirname(self.updater))
+        with open(self.updater, "w", encoding="utf-8") as f:
+            f.write(UPDATER.format(python=sys.executable, me=ME, scratch=self.scratch))
+        os.chmod(self.updater, 0o755)
+        env = self.env()
+        ok, _, err = git(self.scratch, "clone", "--quiet", "--shared", "--no-checkout", self.repo, self.folder, env=env)
+        if not ok:
+            raise Failed("clone", f"git clone --shared failed: {one_line(err)}")
+        # the fork's main, fetched by install the live way, comes from the space instead of GitHub
+        git(self.folder, "config", f"url.{self.repo}.insteadOf", FORK_URL, env=env)
+        ok, _, err = git(self.folder, "checkout", "--quiet", "--detach", self.base, env=env)
+        if not ok:
+            raise Failed("clone", f"the stand-in install folder can't be checked out at the baseline: {one_line(err)}")
+        self.log("clone", "the stand-in install folder, detached at the baseline")
+        argv = ["sh", os.path.join(self.folder, "install.sh"), "--root", self.root, "--yes"]
+        r = self.run(argv + (["--no-build"] if self.no_build else []), "install baseline", cwd=self.folder)
+        rec = install.record(self.site())
+        if r.returncode != 0 or not rec or rec.get("whole") is not True:
+            raise Failed("install baseline", "./install.sh --root didn't make a whole install"
+                         + (f" (exit {r.returncode})" if r.returncode else ""))
+        self.base_version = rec.get("version")
+        self.log("install baseline", f"a whole install of {self.base_version} under the scratch root")
+        cfg = state.Paths(self.root).config
+        write_json(cfg, {"hostname": socket.gethostname(), "install_folder": self.folder, "time_zone": "UTC"})
+
+    def site(self):
+        return types.SimpleNamespace(home=os.path.realpath(self.root), live=False,
+                                     record=os.path.join(os.path.realpath(self.root), install.RECORD),
+                                     tasks_bin=os.path.join(os.path.realpath(self.root), install.SHARE, "mods", "tasks",
+                                                            "bin"))
+
+    def broken_commit(self):
+        """<sha> plus one commit whose herdr-task doesn't compile, made in the stand-in folder without touching its
+        work tree (a scratch index)."""
+        env = self.env(dict(FIXED, GIT_INDEX_FILE=os.path.join(self.scratch, "tmp", "broken.index")))
+        ok, text, _ = git(self.folder, "show", f"{self.sha}:{BROKEN_FILE}", env=env)
+        if not ok:
+            raise Failed("failed update", f"{BROKEN_FILE} isn't in {self.sha[:12]}")
+        p = subprocess.run(["git", "-C", self.folder, "hash-object", "-w", "--stdin"], input=text + "\n" + BROKEN_LINE,
+                           capture_output=True, text=True, env=env)
+        blob = p.stdout.strip()
+        steps = (("read-tree", self.sha), ("update-index", "--cacheinfo", f"100644,{blob},{BROKEN_FILE}"),
+                 ("write-tree",))
+        out = ""
+        for s in steps:
+            ok, out, err = git(self.folder, *s, env=env)
+            if not ok:
+                raise Failed("failed update", f"the broken commit can't be made: {one_line(err)}")
+        ok, sha, err = git(self.folder, "commit-tree", out, "-p", self.sha, "-m", "Rehearsal: herdr-task doesn't compile",
+                           env=env)
+        if not ok:
+            raise Failed("failed update", f"the broken commit can't be made: {one_line(err)}")
+        return sha
+
+    # --- one first run of the pipeline on the scratch root ---
+    def seed(self, cand):
+        """A fresh sync state on the scratch root, as a run has it when its candidate's trial passed: the lease, the
+        release in it, main's checks and a trial on its tree, and a rehearsal of its pipeline code (the gates this
+        rehearsal isn't about). Then `baseline --capture`, as the first run does."""
+        p = state.Paths(self.root)
+        shutil.rmtree(p.dir, ignore_errors=True)
+        ok, tree, _ = git(self.folder, "rev-parse", f"{cand}^{{tree}}")
+        if not ok:
+            raise Failed("capture", f"{cand[:12]}'s tree can't be read")
+        with state.locked(p) as st:
+            state.take_lease(st, RUN, self.folder)
+            state.set_phase(st, "selected")
+            st["run"] = {"key": RUN, "folder": self.folder, "path": "install-main", "start": cand, "at": state.stamp()}
+            st["release"] = {"tag": self.release["tag"], "sha": self.release["sha"] or self.base}
+            st["candidate"] = cand
+            state.record_checks(st, cand)
+            state.record_rehearsal(st, cand, install.pipeline_hash(self.folder, cand))
+            state.record_trial(st, cand, tree)
+        v = self.sync("capture", "baseline", "--capture", repo=False)
+        if not v["ok"] or not v.get("captured") or (v.get("baseline") or {}).get("sha") != self.base:
+            raise Failed("capture", v.get("why") or "baseline --capture didn't capture the baseline")
+
+    def install_(self, cand, step):
+        for _ in range(10):        # one call waits at most a shell call's share; called again it reads on
+            v = self.sync(step, "install", cand)
+            if v.get("outcome") != "wait":
+                return v
+        raise Failed(step, "the update still runs after ten calls")
+
+    def holds(self):
+        """{path: first line} of the two real hold files and the installer's side file, where there are any."""
+        st_dir = os.path.join(self.root, ".local", "state", "shepherdr")
+        out = {}
+        for p in (os.path.join(self.root, ".herdr", "sync-hold"), os.path.join(st_dir, "sync-hold"),
+                  os.path.join(st_dir, "sync-hold.install")):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    out[os.path.basename(os.path.dirname(p)) + "/" + os.path.basename(p)] = f.readline().rstrip("\n")
+            except FileNotFoundError:
+                pass
+        return out
+
+    def real_holds(self):
+        return {k: v for k, v in self.holds().items() if not k.endswith(".install")}
+
+    def is_installed(self, sha, step):
+        """installed.json is that commit's: its version, whole, from the stand-in folder, and its files."""
+        s = self.site()
+        rec = install.record(s) or {}
+        want = install.version_at(self.folder, sha)
+        why = None
+        if rec.get("version") != want:
+            why = f"installed version {rec.get('version')}, not {want}"
+        elif rec.get("whole") is not True:
+            why = "the install isn't whole"
+        elif not install.same_path(rec.get("source"), self.folder):
+            why = "installed from another folder"
+        else:
+            why = install.installed_files_differ(s, self.folder, sha, rec)
+        if why:
+            raise Failed(step, why)
+
+    def rollback_(self, step):
+        v = self.sync(step, "rollback")
+        for _ in range(10):
+            if v.get("outcome") != "wait":
+                break
+            v = self.sync(step, "rollback")
+        if not v["ok"] or v.get("outcome") != "rolled-back":
+            raise Failed(step, f"the rollback ended {v.get('outcome')}: {v.get('why')}")
+        self.is_installed(self.base, step)
+        if self.real_holds():
+            raise Failed(step, "the sync hold is still there after the baseline's health passed")
+
+    def forced_failure(self):
+        step = "forced failure"
+        self.seed(self.sha)
+        v = self.install_(self.sha, step)
+        if not v["ok"]:
+            raise Failed(step, f"the install ended {v.get('outcome')}: {v.get('why')}")
+        v = self.sync(step, "health", self.sha, extra={install.FORCE_HEALTH_FAIL: "1"})
+        failed = next((x for x in v.get("lines") or [] if not x.get("ok")), {})
+        if v["ok"] or v.get("outcome") != "rollback" or failed.get("line") != "forced":
+            raise Failed(step, f"health wasn't failed by the flag (it ended {v.get('outcome')})")
+        if set(self.real_holds().values()) != {install.HOLD_LINE} or len(self.real_holds()) != 2:
+            raise Failed(step, "the run's sync hold didn't stay through the failed health")
+        self.rollback_(step)
+        self.log(step, f"health told to fail, rolled back to {self.base_version}: its health passed, its files are "
+                       "back, the hold let go")
+
+    def failed_update(self):
+        step = "failed update"
+        broken = self.broken_commit()
+        self.seed(broken)
+        v = self.install_(broken, step)
+        read = "failed" if v.get("outcome") == "failed" else "ok" if v["ok"] else None
+        if read is None:
+            raise Failed(step, f"the install ended {v.get('outcome')}: {v.get('why')}")
+        h = self.sync(step, "health", broken)
+        if h["ok"] or h.get("outcome") != "rollback":
+            raise Failed(step, f"health didn't fail on the broken install (it ended {h.get('outcome')})")
+        failed = next((x for x in h.get("lines") or [] if not x.get("ok")), {})
+        self.rollback_(step)
+        self.log(step, f"herdr-task broken: the update read as {read}, health failed at {failed.get('line')}, "
+                       f"rolled back to {self.base_version} and verified")
+
+    def real_install(self):
+        self.seed(self.sha)
+        v = self.install_(self.sha, "install")
+        if not v["ok"] or v.get("update") != "ok":
+            raise Failed("install", f"the install ended {v.get('outcome')}: {v.get('why')}")
+        self.log("install", "the candidate installed the live way, the update read as ok")
+        holds = self.holds()
+        real = self.real_holds()
+        if len(real) != 2 or set(real.values()) != {install.HOLD_LINE}:
+            raise Failed("hold", "both hold files don't carry the run's line before health")
+        if len(holds) != len(real):
+            raise Failed("hold", "the installer's side file (sync-hold.install) is still there")
+        self.log("hold", "both hold files carry the run's line; the installer's side file is gone")
+        made = [f for f in install.HOOK_FILES if os.path.lexists(os.path.join(self.root, f))]
+        if made:
+            raise Failed("hooks", "the update wrote " + " and ".join(install.HOOK_NAMES[f] for f in made))
+        self.log("hooks", "the simulation on the scratch root's hook files found nothing to write, and none was written")
+        v = self.sync("health", "health", self.sha)
+        if not v["ok"] or v.get("outcome") != "installed":
+            failed = next((x for x in v.get("lines") or [] if not x.get("ok")), {})
+            raise Failed("health", f"health failed at {failed.get('line')}: {failed.get('why') or v.get('why')}")
+        self.is_installed(self.sha, "health")
+        if self.real_holds():
+            raise Failed("health", "the hold files are still there after health's doctor")
+        self.log("health", "every line passed, doctor last; the hold files are gone")
+
+    def go(self):
+        self.resolve()
+        self.setup()
+        self.forced_failure()
+        self.failed_update()
+        self.real_install()
+
+    # --- cleanup ---
+    def stop_runners(self):
+        """A runner still updating (after a failure or Ctrl-C) ends by its own pid, only when it is this scratch's."""
+        d = updates_dir(self.scratch)
+        for f in os.listdir(d) if os.path.isdir(d) else []:
+            pid = (read_json(os.path.join(d, f)) or {}).get("pid") if f.endswith(".json") else None
+            if not isinstance(pid, int):
+                continue
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as h:
+                    mine = self.scratch.encode() in h.read()
+            except OSError:
+                mine = False
+            if mine:
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+
+    def cleanup(self):
+        problems = []
+        if self.scratch:
+            try:
+                self.stop_runners()
+            except OSError as e:
+                problems.append(f"stopping the update: {one_line(e)}")
+            shutil.rmtree(self.scratch, ignore_errors=True)
+            if os.path.exists(self.scratch):
+                time.sleep(1)
+                shutil.rmtree(self.scratch, ignore_errors=True)
+            if os.path.exists(self.scratch):
+                problems.append("left behind: the scratch folder")
+        if session_up(self.env() if self.scratch else self.caller, self.name):
+            problems.append(f"a herdr-core session {self.name} answers: something ran hc")
+        if live_snapshot(self.home) != self.live_before:
+            problems.append("the live install's record changed during the rehearsal")
+        return problems
+
+
+def record_pass(r, out):
+    """A PASS goes into the sync state: the pipeline code that ran, as committed, and the commit it installed. Only
+    the rehearsal writes it; install's gate reads it by the candidate's pipeline code."""
+    if not r.code:
+        out("ok: record: not recorded: the pipeline code here has uncommitted changes (fork/bin, fork/sync)")
+        return
+    try:
+        with state.locked(state.Paths(r.state_root)) as st:
+            state.record_rehearsal(st, r.sha, r.code)
+        out(f"ok: record: the pass on {r.sha[:12]} recorded in the sync state for this pipeline code")
+    except Exception as e:  # noqa: BLE001 - the rehearsal passed either way
+        out(f"ok: record: the pass couldn't be recorded ({getattr(e, 'why', None) or type(e).__name__})")
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--updater"]:
+        return updater_main(argv[1:])
+    if argv[:1] == ["--updater-run"] and len(argv) == 3:
+        return updater_run(argv[1], argv[2])
+    ap = argparse.ArgumentParser(prog="fork/bin/rehearse", description=__doc__.split("\n\n")[0])
+    ap.add_argument("sha", help="the commit to install in the rehearsal (main's exact SHA)")
+    ap.add_argument("--repo", default=".", help="the git repo that has it (default: here)")
+    ap.add_argument("--baseline", help="the commit installed first (default: the sync state's baseline, else the "
+                                       "newest release the commit holds)")
+    ap.add_argument("--no-build", action="store_true", help="install the web app as it is in the checkout (faster)")
+    ap.add_argument("--root", help=argparse.SUPPRESS)   # the sync state's home, where a PASS is recorded (tests)
+    a = ap.parse_args(argv)
+
+    def stop(sig, frame):
+        raise Interrupted(signal.Signals(sig).name)
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, stop)
+    r = Rehearsal(a.sha, os.path.abspath(a.repo), baseline=a.baseline, state_root=a.root, no_build=a.no_build)
+    result = None
+    try:
+        r.go()
+    except Failed as e:
+        result = f"FAIL: {e.step}: {e.why}"
+    except Interrupted as e:
+        result = f"FAIL: interrupted: {e}"
+    except Exception as e:  # noqa: BLE001 - any surprise is a failure, after cleanup
+        result = f"FAIL: rehearsal: {type(e).__name__}: {one_line(e)}"
+    finally:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)   # cleanup runs to its end
+        problems = r.cleanup()
+    if result is None and problems:
+        result = f"FAIL: cleanup: {problems[0]}" + (f" (and {len(problems) - 1} more)" if len(problems) > 1 else "")
+    elif problems:
+        for p in problems:
+            print(f"cleanup: {p}", flush=True)
+    if result is None:
+        print("ok: cleanup: the scratch root and the stand-in folder are gone", flush=True)
+        record_pass(r, lambda line: print(line, flush=True))
+    print(result or "PASS", flush=True)
+    return 0 if result is None else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

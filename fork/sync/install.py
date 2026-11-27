@@ -39,6 +39,9 @@ HOLD_LINE = "held by the fork's sync until its health check passes: run shepherd
 HOLD_VAR = "SHEPHERDR_KEEP_SYNC_HOLD"            # on the update only: the hold patch keeps the installer off the hold
 PIPELINE_CODE = ("fork/bin", "fork/sync")        # what a rehearsal covers
 UNKNOWN_AFTER_S = 40 * 60                         # an update still running this long after it began: unknown
+# The rehearsal's test flag (fork/bin/rehearse, its forced failure): health on a candidate fails before its doctor, so
+# the rollback runs. Only on a scratch root: the real home never reads it.
+FORCE_HEALTH_FAIL = "FORK_SYNC_FORCE_HEALTH_FAIL"
 BUILT = ("web/dist/",)                            # installed files built, not tracked: health line 2 skips them
 VERSION_LINE = re.compile(r'^VERSION = "([^"]+)"', re.M)
 
@@ -791,6 +794,9 @@ def health_lines(s, repo_folder, sha, ins, update, candidate=True, sleep=time.sl
         if not line("scheduler", None if until(lambda: scheduler_runs_new_code(s), health_wait_s(), sleep) else
                     "the scheduler doesn't run the installed herdr-task"):
             return out
+    if candidate and not s.live and os.environ.get(FORCE_HEALTH_FAIL) == "1":
+        line("forced", "told to fail (the rehearsal's test flag)")
+        return out
     if candidate and ins.get("failed"):
         line("doctor", f"not run: {ins['failed']} failed")
         return out
