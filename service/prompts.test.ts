@@ -181,7 +181,8 @@ test("#45: the seams the patch hangs on", () => {
   const hook = src("hooks/ask-hook.sh");
   for (const how of ['declined) echo "Declined or interrupted in the terminal"', '*) echo "Answered in the terminal"']) expect(hook).toContain(how);
   // the page: the ended row shows when, and the row's words go through answeredWords
-  expect(src("web/plugins/chat/client.tsx")).toContain("{line}{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}");
+  // #85 draws the line through KindLine (a task's kind and name first); the time still follows it
+  expect(src("web/plugins/chat/client.tsx")).toContain("<KindLine text={line} />{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}");
   expect(src("web/shared/view.ts")).toContain("export const taskLine = (t: Task): string => answeredWords(t, rowLine(t))");
   // herdr-task's news pass tells the Assistant
   expect(src("mods/tasks/bin/herdr_task/news.py")).toContain('answered = prompt_answered(t, v, live)');
