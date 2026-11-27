@@ -28,6 +28,13 @@ export function KindTitle({ title }: { title: string }) {
   return p ? <KindName kind={p.kind} name={p.name} state={p.what} /> : <>{title}</>
 }
 
+/** a quiet line that starts with a task ("Task · Fix login · Asked to allow npm test: answered Yes"): its kind and name
+ *  as one line, the name cut on a narrow screen, then what happened, wrapping as words do; any other line as it is */
+export function KindLine({ text }: { text: string }) {
+  const p = splitKindTitle(text)
+  return p ? <><KindName kind={p.kind} name={p.name} /><span className="kw">{p.what}</span></> : <>{text}</>
+}
+
 /** the kind inside a link to a task, before its title ("Task Fix login") */
 export function KindWord({ t }: { t?: Named }) {
   return <span className="kdi">{taskKind(t)}</span>

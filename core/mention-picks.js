@@ -42,12 +42,11 @@ export function pickedElsewhere(text, rows, machine) {
   const out = [];
   for (const p of picks(text)) {
     if (!p.route && !p.folder) continue;
-    const hop = p.route ? p.route.split(">").pop() : null;
-    const want = hop ?? machine ?? null;
-    const all = (rows ?? []).filter((x) => sameRef(p, x) && (!p.folder || sameFolder(p.folder, x.folder)));
-    const there = all.filter((x) => (x.machine ?? null) === want);
-    const one = there.length === 1 ? there[0] : !there.length && hop && all.length === 1 ? all[0] : null;
-    if (one && !out.includes(one)) out.push(one);
+    // the route's last hop is the machine the task is on; no route: the chat's own machine, another folder
+    const hop = p.route ? p.route.split(">").pop().toLowerCase() : null;
+    const there = (rows ?? []).filter((x) => sameRef(p, x) && (!p.folder || sameFolder(p.folder, x.folder)) &&
+      (hop ? String(x.machine ?? "").toLowerCase() === hop : (x.machine ?? null) === (machine ?? null)));
+    if (there.length === 1 && !out.includes(there[0])) out.push(there[0]);
   }
   return out;
 }

@@ -20,13 +20,14 @@ export const kindWho = (kind: Kind, name: string) => `${kind} · ${name}`
 export const rowWho = (r: { title?: string; x?: { automation?: unknown } | null }) => kindWho(r.x?.automation ? 'Schedule run' : 'Task', String(r.title ?? ''))
 
 const cut = (s: string, room: number) => (s.length <= room ? s : `${s.slice(0, room - 1).trimEnd()}…`)
-const letters = (s: string) => s.replace(/[\s…]/g, '').length
+const letters = (s: string) => s.match(/\p{L}/gu)?.length ?? 0
 
 /** a "<kind> · <name> · <what>" title in its parts (the alerts list draws it as one line, its name cut), else null */
 export function splitKindTitle(title: string): { kind: Kind; name: string; what: string } | null {
+  // split at the first " · " after the name: what happened may have its own ("Checkout · Approval code")
   const kind = KINDS.find((k) => title.startsWith(`${k} · `))
-  const at = title.lastIndexOf(' · ')
-  return kind && at > kind.length ? { kind, name: title.slice(kind.length + 3, at), what: title.slice(at + 3) } : null
+  const at = kind ? title.indexOf(' · ', kind.length + 3) : -1
+  return kind && at > kind.length + 3 ? { kind, name: title.slice(kind.length + 3, at), what: title.slice(at + 3) } : null
 }
 
 /** "<who> · <what>" in n characters (an alert's title, kept whole for the alerts list): a kind title's name is
@@ -34,8 +35,11 @@ export function splitKindTitle(title: string): { kind: Kind; name: string; what:
 export function fitWho(who: string, what: string, n: number): string {
   const whole = `${who} · ${what}`
   const kind = KINDS.find((k) => who.startsWith(`${k} · `))
-  const room = n - what.length - 3 - (kind ? kind.length + 3 : 0)
-  return whole.length <= n || !kind || room < 4 ? whole : `${kind} · ${cut(who.slice(kind.length + 3), room)} · ${what}`
+  if (whole.length <= n || !kind) return whole
+  const name = who.slice(kind.length + 3), free = n - kind.length - 6
+  // the name keeps at least twelve characters; a long event then gives way too, so neither is lost
+  const room = Math.min(name.length, Math.max(12, free - what.length))
+  return free - room < 4 ? whole : `${kind} · ${cut(name, room)} · ${cut(what, free - room)}`
 }
 
 /** the fewest letters of a name a cut title keeps before its kind takes a shorter word */

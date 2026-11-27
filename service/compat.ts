@@ -269,8 +269,9 @@ export class Compat {
   pickedFor(chatKey: string, text: string) {
     const t = chatKey.endsWith("/worker") ? this.rows.find((r) => taskId(r) === chatKey.slice(0, -7)) : null;
     const machine = t ? t.machine ?? null : this.spaceList.find((x) => placeKey(x.id) === chatKey)?.machine ?? null;
+    // on: its machine when not the chat's, so it is never taken for the chat's own task with the same key and folder
     return pickedElsewhere(text, this.rows, machine)
-      .map((r: Row) => ({ ref: r.ref, id: r.id, title: r.title, status_text: r.sub ?? r.section, why: r.why, folder: r.folder, prompt: r.prompt, state: r.section }));
+      .map((r: Row) => ({ ref: r.ref, id: r.id, title: r.title, status_text: r.sub ?? r.section, why: r.why, folder: r.folder, prompt: r.prompt, state: r.section, on: (r.machine ?? null) === machine ? "" : String(r.machine) }));
   }
 
   /** One task as a mention's tag line wants it (tasksFor's shape), by its id, wherever it is: what a reply to a task

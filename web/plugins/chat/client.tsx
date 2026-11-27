@@ -27,7 +27,7 @@ import { replyToTask, SlideHint, useSlide } from './slide.tsx'
 import { dayLabel } from './days.ts'
 import { Markdown, withLinks } from './markdown.tsx'
 import { expandPicked, useMentions } from './mentions.tsx'
-import { KindName } from './kind.tsx'
+import { KindLine, KindName } from './kind.tsx'
 import { taskKind } from '@shared/kinds.ts'
 import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
@@ -826,7 +826,7 @@ function Messages({ thread }: { thread: Thread }) {
       const line = endedLine(m.ended, lastEnded)
       if (!line) continue
       // dmalis/shepherdr#45: an answered permission says when, in the reader's clock; one nobody answered here, a warning
-      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span>{line}{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
+      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span><KindLine text={line} />{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
     }
     // a recap of what happened (the agent's own, or its answer to Recap), and a heads-up its CLI wrote: never bubbles
     else if (m.recap === 'heads') out.push(<QuietRow key={k} kind="heads" icon="info" label={m.text ?? ''} meta={m.at ? [{ word: clock(m.at) }] : []} />)

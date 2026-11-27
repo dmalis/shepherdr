@@ -284,7 +284,7 @@ export function quoteOf(b: any, compat: Compat, r: any): { quote: string | null;
   const t = id ? compat.replyTaskOf(id) : null;
   const quote = t ? String(t.title ?? t.ref) : typeof b.reply === "string" ? r?.conv?.items?.find((x: any) => x.id === b.reply)?.text ?? null : null;
   const said = [...mentionedIn(String(b.text ?? ""), compat.tasksFor(b.chat)), ...(compat.pickedFor?.(b.chat, String(b.text ?? "")) ?? [])]
-    .filter((x: any, i, all) => (!t || x.ref !== t.ref || x.folder !== t.folder) && all.findIndex((y: any) => y.ref === x.ref && y.folder === x.folder) === i);
+    .filter((x: any, i, all) => (!t || x.on || x.ref !== t.ref || x.folder !== t.folder) && all.findIndex((y: any) => y.ref === x.ref && y.folder === x.folder && (y.on ?? "") === (x.on ?? "")) === i);
   const tags = [...(t ? [t] : []), ...said].map((x: any) => taskTag(x, x.ref ?? `#${x.id}`)).join("");
   return { quote, tags, quoteTask: t ? id : null };
 }

@@ -16,3 +16,5 @@
 /* an alert in the alerts list (inbox.css .inbx-t) whose title names a task: one line, its name cut, never what happened */
 .inbx-t:has(>.knd){display:flex;min-width:0}.inbx-t>.knd{flex:0 1 auto}
 .inbx-t>.knd>.kn{color:inherit}
+/* a quiet line that starts with a task (KindLine): what happened after its name, set apart the same way */
+.knd+.kw::before{content:"·" / "";margin-inline:4px;color:var(--muted)}

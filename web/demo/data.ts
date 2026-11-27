@@ -327,8 +327,8 @@ export const chats: Record<string, Chat> = Object.fromEntries(
       ask('q-pil', 'Run a command', byPhoto, ['Allow once', 'Decline'], { command: 'pip install pillow' }),
       // a working task's row with its time left, then how its asks closed: the same line twice shows once
       { id: `m${++n}`, who: 'agent', news: { task: 'SHOP-15', ref: 'SHOP-15', mark: 'other', what: 'blocked', text: 'Waiting at a prompt' } },
-      { id: `m${++n}`, who: 'agent', ended: 'Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
-      { id: `m${++n}`, who: 'agent', ended: 'Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
+      { id: `m${++n}`, who: 'agent', ended: 'Task · Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
+      { id: `m${++n}`, who: 'agent', ended: 'Task · Bigger checkout button on phones · Run: npm test · Allowed in the chat' },
       a('Dependency check started on its schedule in #shop. It found 3 packages behind and is updating them.', { id: 'm-dep' }),
       me('And the sale plan, APP/?artifact=a-plan, still good?'),
       // #1560: pictures the chat can't show here, and an artifact on its way

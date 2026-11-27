@@ -34,6 +34,7 @@ test('every place a chat names a task uses it (pins the call sites in upstream f
   expect(read('client.tsx')).toContain("newsRow(m.news, t ? `the ${taskKind(t).toLowerCase()} ${t.name}` : '')")
   expect(read('../artifacts/client.tsx')).toContain('<Tile id={msg.artifact.id} v={msg.artifact.v} kind />')
   expect(read('../inbox/client.tsx')).toContain('<KindTitle title={x.title} />')
+  expect(read('client.tsx')).toContain('<span><KindLine text={line} />')
   // the Assistant's lines for its tasks' settled asks and start screens; an agent's alert title
   expect(read('../../../service/compat.ts').match(/\$\{who\} · /g)?.length).toBe(3)
   expect(read('../../../service/compat.ts')).toContain('screens(r.worker, who, by);')

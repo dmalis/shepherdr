@@ -21,7 +21,8 @@ const rows = [
   { ...login, ref: "SD-7", id: 7, title: "Other folder's", folder: "/srv/other", machine: null },
   { ...login, ref: "SD-7", id: 7, title: "On the vm", folder: "/srv/me/dev/repo", machine: "vm" },
 ];
-const withPicks = (tasks: any[]) => ({ ...fake(tasks), pickedFor: (_: string, text: string) => pickedElsewhere(text, rows, null) }) as any;
+const withPicks = (tasks: any[], all: any[] = rows, reply: any = null) => ({ ...fake(tasks), replyTaskOf: () => reply,
+  pickedFor: (_: string, text: string) => pickedElsewhere(text, all, null).map((x: any) => ({ ...x, on: x.machine ?? "" })) }) as any;
 
 test("a pick from another machine or folder names that task, never the chat's own task with the same key", () => {
   // the route's last hop is the machine; a "~/" folder is matched by its end
@@ -60,4 +61,16 @@ test("a picked link's words never count as a title written in the message", () =
   expect(mentionedIn("[@Fix login flow](task:SD-40)", [login, other]).map((x: any) => x.ref)).toEqual(["SD-40"]);
   expect(unpicked("ask [@A b](task:X-1) and [#shop](space:sp1) now")).toBe("ask   and   now");
   expect([...sharedTitles([{ title: "A b" }, { title: "a  B" }, { title: "C" }])]).toEqual(["a b"]);
+});
+
+test("a pick on another machine never falls back to this chat's task, and keeps its own tag beside a reply to that one", () => {
+  const here = { ...login, ref: "APP-1", id: 1, title: "Here", folder: "/srv/app", machine: null };
+  const vm = { ...here, title: "On the vm", machine: "vm" };
+  const text = "[@Remote task](task:vm/APP-1?folder=/srv/app)";
+  // no row for it on the vm: nothing, never the local APP-1 in the same folder
+  expect(quoteOf({ chat: "p:sp1", text }, withPicks([here], [here]), null).tags).toBe("");
+  // a reply to the local APP-1 and a pick of the vm's: both tags
+  const q = quoteOf({ chat: "p:sp1", text, replyTask: "t1" }, withPicks([here], [here, vm], here), null);
+  expect(q.tags.match(/<hc task=/g)?.length).toBe(2);
+  expect(q.tags).toContain('title="On the vm"');
 });
