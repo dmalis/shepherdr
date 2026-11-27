@@ -176,12 +176,13 @@ export const SCREEN = {
 // A CLI's folder-trust screen (#1441): Claude Code's "Quick safety check" / "Do you trust the files in this folder?" (its
 // Enter on the wrong choice exits), Codex's "Do you trust the contents of this directory?". The person's choice every
 // time: { yes, no } (the screen's own choice for each, wherever its cursor is) and the folder it names, else null.
-// (and Claude Code's --add-dir one, "Is this a directory you created or one you trust?", a reviewer's: dmalis/shepherdr#62)
+// dmalis/shepherdr#62: also Claude Code's --add-dir one (a reviewer's: "Is this a directory you created or one you trust?",
+// "Yes, add it"), and Codex 0.172's ("Trust this folder?", "Trust and continue" / "Quit"), its words read across wrapped lines.
 const TRUST_WORDS = /Quick safety check|Do you trust the files in this folder|trust this folder|Do you trust the contents of this directory|allow Codex to work in this folder|Is this a directory you created or one you trust/i;
 export function trustOf(card) {
-  if (!card || !TRUST_WORDS.test(`${card.all ?? ""}\n${card.words ?? ""}`)) return null;
+  if (!card || !TRUST_WORDS.test(`${card.all ?? ""}\n${card.words ?? ""}`.replace(/\s+/g, " "))) return null;
   const labels = (card.choices ?? []).map((c) => String(c.label ?? ""));
-  const yes = labels.findIndex((l) => /^yes\b/i.test(l)), no = labels.findIndex((l) => /^no\b/i.test(l));
+  const yes = labels.findIndex((l) => /^(yes|trust)\b/i.test(l)), no = labels.findIndex((l) => /^(no|quit|exit|back to)\b/i.test(l));
   if (yes < 0 || no < 0) return null;
   const folder = cleaned(card.all).map((l) => l.trim()).find((l) => /^(\/|~\/|~$|[A-Z]:\\)\S*$/.test(l)) ?? null;
   return { yes, no, folder };

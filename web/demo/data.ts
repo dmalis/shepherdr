@@ -335,7 +335,7 @@ export const chats: Record<string, Chat> = Object.fromEntries(
     chat('BLOG-12/worker', [ask('scr-t42-1', 'Trust this folder?', undefined, ['Trust this folder and start', 'No, stop the task'], { press: true, noNote: true,
       // its task folder is a worktree of the blog repo: the card's tip trusts the repo once (service/trust-tip.ts)
       trust: { cli: 'Claude Code', folder: '/Users/sam/.local/share/shepherdr/worktrees/blog/add-an-rss-feed', waits: "Claude Code won't start in /Users/sam/.local/share/shepherdr/worktrees/blog/add-an-rss-feed until you trust this folder.", allows: "Trusting it lets the folder's project settings and hooks run.",
-        tip: { key: 'mac-mini:/Users/sam/dev/blog', machine: 'mac-mini', folder: '/Users/sam/dev/blog', lead: "Trust this repo once, so its next tasks don't ask:", command: 'cd /Users/sam/dev/blog && claude', then: 'answer “Yes, I trust this folder”, then type /exit.', covers: 'Its task folders are worktrees of it, so trusting it covers them.' } } })], opus),
+        tip: { key: 'mac-mini:claude:/Users/sam/dev/blog', machine: 'mac-mini', folder: '/Users/sam/dev/blog', lead: "Trust this repo once, so its next tasks don't ask:", command: 'cd /Users/sam/dev/blog && claude', then: 'answer “Yes, I trust this folder”, then type /exit.', covers: 'Its task folders are worktrees of it, so trusting it covers them.' } } })], opus),
     chat('BLOG-10/worker', [a('Fixed it straight in the blog folder, as this space is set up.')], opus),
     chat('NOTES-4/worker', [a('I read the three quotes in your notes folder and wrote up a comparison.')], opus),
     chat('vm:GARDEN-4/worker', permQ().map((x, i) => (i ? x : { ...x, suggests: ['Allow it once'] })), opus),

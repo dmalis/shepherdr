@@ -7401,6 +7401,10 @@ class TaskFlow(unittest.TestCase):
                   " This session hasn't worked here before. Is this a directory you created or one you trust?\n"
                   " ❯ No, exit\n   Yes, add it\n")
         self.assertEqual(agents.startup_reason("claude", screen), agents.REASONS["trust"])
+        # Codex 0.172's own trust screen, wrapped
+        codex = ("  Folder access\n  /home/me/dev/shop\n\n  Trust this folder? Codex can read, edit, and run files here,\n"
+                 "  subject to your permission settings.\n\n› 1. Trust and continue\n  2. Quit\n")
+        self.assertEqual(agents.startup_reason("codex", codex), agents.REASONS["trust"])
 
     def test_codex_hooks_wait_for_the_person_before_the_first_turn(self):
         from herdr_task import agents, base

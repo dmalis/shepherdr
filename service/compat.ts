@@ -674,7 +674,7 @@ export class Compat {
   private trustTipOf(c: any, folder: string | null): { tip?: TrustTip } {
     const w = this.trustWho(c.addr);
     const row = w?.task ? this.rows.find((r) => taskId(r) === w.task) : null;
-    const tip = trustTip({ cli: c.cli, screen: folder, row, here: this.host, card: c.id, seen: this.shared?.value(TIP_SEEN) });
+    const tip = trustTip({ cli: c.cli, screen: folder, all: c.all, row, here: this.host, card: c.id, seen: this.shared?.value(TIP_SEEN) });
     return tip ? { tip } : {};
   }
 
