@@ -18,7 +18,9 @@ import { setChatSide, type Layout, type Side } from './sides.ts'
 import { ReviewRows } from './review-rows.tsx'
 import { About } from './about.tsx'
 import { AGENT_USAGE, notRead } from '@core/agent-usage.js'
-import { READS } from '@core/machines.js'
+import { healthReadWords, READS } from '@core/machines.js'
+import { attention, attentionWords, servingOf } from '@shared/machine-facts.ts'
+import { MachineCard } from './machine-card.tsx'
 import { IconButton } from './space-icon.tsx'
 import { Btn, cx, I, IB, Meter, Row, Tgl } from './ui.tsx'
 
@@ -344,7 +346,6 @@ function addMachineDialog(snap: Snapshot) {
   )
 }
 
-const meterOf = (m: Snapshot['machines'][number], re: RegExp) => m.health?.meters.find((x) => re.test(x.name))?.pct
 
 type Mach = Snapshot['machines'][number]
 /** #1548: the agents live on a machine now, as the Tasks list and the spaces show them: its tasks' agents and its
@@ -412,48 +413,34 @@ function limitsDialog(id: string) {
 }
 
 function Machines({ snap }: { snap: Snapshot }) {
-  const warns = snap.machines.filter((m) => machineWarn(m))
+  const ph = useUI((u) => u.phone)
+  // dmalis/shepherdr#107: every machine that needs the person, with all it needs (a restart, an older version too)
+  const serving = servingOf(snap.machines)
+  const warns = snap.machines.filter((m) => machineWarn(m) || attention(m, serving).length)
   return (
     <>
       {warns.map((m) => (
         <div className="banner" key={m.id}>
           <I n="warn" c="c-ask" />
-          <span className="n">{unreachable(m) ? `Can't reach ${m.name}${m.unreachableSince ? ` · last seen ${m.unreachableSince}` : ''}${m.linkWhy ? ' · its link is broken' : ''}` : `${m.name}: ${machineWarn(m).toLowerCase()}`}</span>
+          <span className="n">{unreachable(m) ? `Can't reach ${m.name}${m.unreachableSince ? ` · last seen ${m.unreachableSince}` : ''}${m.linkWhy ? ' · its link is broken' : ''}` : `${m.name}: ${attentionWords(m, serving)}`}</span>
         </div>
       ))}
       {snap.machines.map((m) => {
         const off = unreachable(m)
-        const agents = agentsOn(snap, m)
-        const tri: [string, number | undefined][] = [['Processor', meterOf(m, /cpu|processor|load/i)], ['Memory', meterOf(m, /mem/i)], ['Disk', meterOf(m, /disk/i)]]
-        // #1547: each meter's start limit under it (new tasks wait above it), and Start limits to change them
+        // #1547: each meter's start limit marked on it (new tasks wait above it), and Start limits to change them
         const lims = limitsOf(snap, m)
         const desk = !off && snap.config?.desktops?.includes(m.machine)
         return (
-          <div className="mcard" key={m.id}>
-            <div>
-              <div className="nm">{m.name}</div>
-              <div className="hint">{m.machine === snap.host ? 'Serves this app' : 'Linked'} · {off ? `can't reach it${m.unreachableSince ? ` since ${m.unreachableSince}` : ''}${m.linkWhy ? ': its link is broken' : ''}` : `${agents} ${agents === 1 ? 'agent' : 'agents'} running`}</div>
-              {off && m.linkWhy && <div className="hint" style={{ whiteSpace: 'normal', marginTop: 6 }}>{m.linkWhy}</div>}
-            </div>
-            {!off && (
-              <div className="tri">
-                {tri.map(([name, pct]) => (
-                  <div key={name}>
-                    <span className="hint">{name}</span>
-                    <span className="num">{pct === undefined ? '–' : `${Math.round(pct)}%`}</span>
-                    <Meter pct={pct ?? 0} />
-                    {((l) => l && <span className="hint">{l.off ? 'No limit' : `Limit ${l.row.value}`}</span>)(lims.find((x) => x.name === name))}
-                  </div>
-                ))}
-              </div>
-            )}
-            {(desk || lims.length > 0) && (
-              <div className="acts" style={{ justifyContent: 'flex-start' }}>
+          <MachineCard key={m.id} m={m} serving={serving} role={m.machine === snap.host ? 'Serves this app' : 'Linked'} agents={agentsOn(snap, m)}
+            working={snap.tasks.filter((t) => (t.on || snap.host) === m.machine && t.status === 'work').length}
+            limits={lims.map((l) => ({ name: l.name, value: l.row.value, off: l.off }))} foldable={!!ph} linkWhy={off ? m.linkWhy : undefined}
+            read={m.stats ? healthReadWords(m.stats) : undefined}
+            actions={(desk || lims.length > 0) && (
+              <>
                 {lims.length > 0 && <Btn small onClick={() => limitsDialog(m.id)}>Start limits</Btn>}
                 {desk && <Btn small onClick={() => setUI({ settings: null, pane: 'screen', scr: { key: `machine:${m.machine}`, src: 'd', drive: false }, task: null, art: null })}>Open desktop</Btn>}
-              </div>
-            )}
-          </div>
+              </>
+            )} />
         )
       })}
       <div className="acts" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
