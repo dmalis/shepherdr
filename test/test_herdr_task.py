@@ -5573,6 +5573,30 @@ class AssistantSettings(unittest.TestCase):
         for line in self.aset.notice(rs).split("\n"):
             self.assertRegex(line, r'^<herdr-setting name="\w+" value="[^"]*" scope="\w+">[^\n]*</herdr-setting>$')
 
+    def test_a_notice_never_ends_work_under_way(self):
+        """dmalis/shepherdr#7: a notice can reach an Assistant between its tool calls, and "reply only <hc no-reply/>"
+        ended its turn mid-work. Every settings notice ends with the reactions notice's own words (one constant):
+        carry on with what you were doing; if nothing, reply only <hc no-reply/>. The template says the same."""
+        carry = self.aset.reactions.CARRY_ON
+        self.assertIs(self.aset.NOTICE_END, carry)
+        self.assertIn("carry on with what you were doing", carry)
+        self.assertTrue(carry.endswith("if nothing, reply only <hc no-reply/>."))
+        # a change to a running Assistant, and the whole block to one started before
+        self.assistant()
+        self.aset.session_note("t5")
+        self.assistant("t6", "sp2")
+        self.write({"everywhere": {"tasks": {"merge": "auto"}}})
+        self.aset.settings_pass({}, {})
+        self.assertEqual([a for a, _ in self.sent], ["t5", "t6"])
+        self.assertTrue(self.sent[1][1].startswith('<herdr-setting name="all">'))
+        for _, text in self.sent:
+            self.assertTrue(text.endswith(f" {carry}</herdr-setting>"), text)
+            self.assertNotIn("Nothing to answer: reply only", text)  # the old words that ended its turn
+        with open(os.path.join(ROOT, "templates", "assistant.md")) as f:
+            t = f.read()
+        self.assertIn("line tells you one changed (nothing to answer: carry on with what you were doing; if nothing, reply only `<hc no-reply/>`)", t)
+        self.assertIn("Nothing to add: carry on with what you were doing; if nothing, reply only `<no-reply>`", t)
+
 
 class NoStarPrompt(unittest.TestCase):
     """SHEP-225 (#981): the one-time "Enjoying Shepherdr?" GitHub star card (SHEP-79) is gone: no command, no module,
