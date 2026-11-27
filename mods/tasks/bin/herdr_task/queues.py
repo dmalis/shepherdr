@@ -153,10 +153,10 @@ def waiting_for(s, task):
     return [i for i in task.get("after") or [] if i in known and known[i]["state"] != "done"]
 
 
-def queue_reason(s, task):
+def queue_reason(s, task, hold=True):
     """Why a start has to wait, in plain words: 'after "Add the API route"', or its machine too busy
     ("vm-a's memory is 92% full", HERD-40); None when it can go. Never a count: any number of tasks
-    run at once (3.2)."""
+    run at once (3.2). hold=False: only what it comes after (a queued task started again)."""
     refresh_ext(s, task)
     known = {t["id"]: t for t in s.data["tasks"]}
     # SHEP-322: by title, never by key
@@ -165,7 +165,7 @@ def queue_reason(s, task):
         for x in task.get("after_ext") or [] if x.get("state") not in ("done", "gone")]
     if wait:
         return "after " + ", ".join(wait)
-    return machine_hold()
+    return machine_hold() if hold else None
 
 
 # ---- the machine's room (HERD-40) -------------------------------------------------------------

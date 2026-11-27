@@ -31,6 +31,7 @@ from .launch import (
 )
 from .store import bare_by_mistake, Busy, is_task_list, locate, open_store, queue_progress, quoted, read_list, Store, store_files
 from .queues import after_refs, parse_after, queue_reason, set_after
+from .start_after import queue_at_add, wake
 from .archive import unarchive
 from .output import line, minutes, say, view
 from .scheduler import ensure_scheduler
@@ -131,16 +132,26 @@ def cmd_add(args):
         if at:
             # Started later by the scheduler, with no caller to ask: its space is kept now.
             schedule(s, t, at, {"space": space or default_space()})
+        elif args.after:
+            # dmalis/shepherdr#54: --after starts it by itself afterwards (start_after.py)
+            queue_at_add(s, t, space or default_space())
         v = view(s, t)
+        waits = queue_reason(s, t) if t["state"] == "queued" else None
+        if t["state"] == "queued":
+            v.update(queued=True, **({"reason": waits} if waits else {}))
         warn = shared_branch_warning(s, t)
         if warn:
             v["warning"] = warn
         # SHEP-335: what it got from its repo's settings (or Everywhere's), so the Assistant knows the repo's, not its own
         got = [x for x in task_settings(s, t) if x["by"] and x["by"] != "task" and x["label"] in ("Review", "Merge", "Proof", "Agent")]
-    if at:
+    if at or t["state"] == "queued":
         ensure_scheduler_quietly()
+    if t["state"] == "queued" and not waits:
+        wake()  # nothing left to wait for: the scheduler's next round starts it now
     said = "; ".join(f"{x['label']} {x['text'].split(':')[0]} ({SET_BY[x['by']]})" for x in got)
     say(args, v, f"{s.name(t)} added (its key, for commands only: {s.ref(t)})" + (f": {v['why']}" if at else "")
+        + (f"\nIt is queued ({waits}) and starts by itself when it can: no start needed." if waits else
+           "\nIt is queued and starts by itself in a moment: no start needed." if t["state"] == "queued" else "")
         + (f"\nIts settings: {said}." if said else "") + (f"\nHeads-up: {v['warning']}" if v.get("warning") else ""))
 
 
@@ -578,9 +589,11 @@ def cmd_start(args):
             schedule(s, t, at, plan)
             v = view(s, t)
             reason = "scheduled"
-        # A queued task started again goes now; other tasks wait their turn unless --now was given.
-        elif (reason := None if (t["state"] == "queued" or args.now) else queue_reason(s, t)):
-            t["state"], t["queued_at"] = "queued", now()
+        # A queued task started again goes now, past a busy machine, but still after its --after tasks (#54: added
+        # --after, it is queued already, and a start stays harmless); other tasks wait their turn unless --now was given.
+        elif (reason := None if args.now else queue_reason(s, t, hold=t["state"] != "queued")):
+            t["queued_at"] = (t["state"] == "queued" and t.get("queued_at")) or now()
+            t["state"] = "queued"
             t.pop("scheduled_for", None)
             t["queue"] = plan
             s.dirty = True

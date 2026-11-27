@@ -240,7 +240,8 @@ function startDialog(t: Task) {
         if (busy) return
         setBusy(true)
         // Start task starts it and opens its thread
-        if (await tryAct({ type: 'task-start', chat: taskChat(t), ...(pick === initial ? {} : { agent: pick }) })) {
+        // a queued one (added --after, dmalis/shepherdr#54): the person's Start is their go, as the dialog says
+        if (await tryAct({ type: 'task-start', chat: taskChat(t), ...(t.status === 'queued' ? { now: true } : {}), ...(pick === initial ? {} : { agent: pick }) })) {
           close()
           openTask(t.id)
         } else setBusy(false)

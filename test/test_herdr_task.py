@@ -11290,7 +11290,8 @@ class Next32(unittest.TestCase):
         self.add("Third", after="2")
         base = dict(title=None, prompt=None, prompt_file=None, after=None, at=None, in_=None, here=False, worktree=False, base=None)
         v = self.run_cmd(self.commands.cmd_edit, id="2", space="sp9", move_to=other, **base)
-        self.assertEqual((v["moved_from"], v["folder"], v["space"], v["model"], v["state"]), ("APP-2", other, "sp9", "opus", "todo"))
+        # added --after: queued at once (dmalis/shepherdr#54), and still queued where it moved to
+        self.assertEqual((v["moved_from"], v["folder"], v["space"], v["model"], v["state"]), ("APP-2", other, "sp9", "opus", "queued"))
         self.assertNotEqual(v["ref"], "APP-2")
         self.assertEqual([x["ref"] for x in v["after_ext"]], ["APP-1"])  # what it waited for, by its ref now
         with self.assertRaises(self.Fail):
@@ -12811,3 +12812,349 @@ class PromptAnswered(unittest.TestCase):
             hook = f.read()
         self.assertIn('ended "$(how answered)"', hook)
         self.assertIn('d="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/data/chat-asks"', hook)
+
+
+class StartAfter(unittest.TestCase):
+    """dmalis/shepherdr#54: a task added --after others starts by itself once they are all done. It is queued at add (no
+    start needed, a start stays harmless), and a task becoming done, whichever way, wakes the scheduler so it starts
+    within seconds; the tick stays the fallback and it starts once. Schedules32's real task list on disk."""
+    run_cmd, tick_at, task, auto, ready = Scheduled.run_cmd, Scheduled.tick_at, Scheduled.task, Schedules32.auto, Schedules32.ready
+    add = Schedules32.add
+
+    def setUp(self):
+        Schedules32.setUp(self)
+        import time
+        from unittest import mock
+        import herdr_task.github as github
+        import herdr_task.queues as queues
+        import herdr_task.start_after as start_after
+        self.sa, self.queues, self.github, self.time = start_after, queues, github, time
+        self.wake_file = os.path.join(self.tmp, "queue-wake")
+        for mod, name, value in ((start_after, "WAKE", self.wake_file), (start_after, "worker_argv", lambda s, t, space, key=None: ["claude"]),
+                                 (github, "after_accept", lambda s, t: None), (github, "live_agents", lambda key: []),
+                                 (github, "live_helpers", lambda key: []), (github, "mid_turn", lambda s, t: False),
+                                 (self.tick, "live_agents", lambda key: []), (self.tick, "prefetch", lambda s: {})):
+            p = mock.patch.object(mod, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def now_ms(self):
+        return int(self.time.time() * 1000)
+
+    def change(self, n, **fields):
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            s.find(n).update(fields)
+            s.dirty = True
+
+    def woken(self):
+        """Whether the scheduler was woken since the last look (and forget it)."""
+        if not os.path.exists(self.wake_file):
+            return False
+        os.remove(self.wake_file)
+        return True
+
+    def started_refs(self):
+        return [x[0] for x in self.started]
+
+    def running(self, title, **kw):
+        v = self.add(title, **kw)
+        self.run_cmd(self.commands.cmd_start, id=v["ref"], now=True)
+        self.started.clear()
+        return v["ref"]
+
+    def done_by_hand(self, ref):
+        """Mark as done: the menu's, the person's call (herdr-task done)."""
+        self.run_cmd(lambda a: self.commands.cmd_state(a, "done"), id=ref)
+
+    # ---- added --after: queued, no start needed ----
+
+    def test_added_after_alone_is_queued_and_starts_once_when_it_is_done(self):
+        first = self.running("First")
+        v = self.add("Second", after=first)
+        self.assertEqual((v["state"], v["queued"], v["reason"]), ("queued", True, 'after "First"'))
+        self.assertEqual(self.task(2)["queue"], {"space": "sp1", "parent": None})
+        self.assertEqual(self.tick_at(self.now_ms()), [])  # First still at work
+        self.assertFalse(self.woken())
+        self.done_by_hand(first)
+        self.assertTrue(self.woken())  # its done state saved: the scheduler goes now, not in 15 s
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+        for _ in range(3):  # the next rounds, and the wake's: never a second start
+            self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual((self.started_refs(), self.task(2)["state"]), (["APP-2"], "running"))
+        self.assertEqual(self.started[0][2:], ("sp1", None))  # its space, under its space's Assistant
+
+    def test_added_after_then_started_stays_harmless(self):
+        first = self.running("First")
+        self.add("Second", after=first)
+        out = self.run_cmd(self.commands.cmd_start, id="2", parent="t8")
+        self.assertEqual((out["queued"], out["reason"], self.task(2)["state"]), (True, 'after "First"', "queued"))
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.task(2)["queue"]["parent"], "t8")  # the start's own parent kept for when it goes
+        self.run_cmd(self.commands.cmd_start, id="2")  # again: still nothing
+        self.assertEqual(self.started, [])
+        self.done_by_hand(first)
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+        self.assertEqual(self.started[0][3], "t8")
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+
+    def test_one_launch_across_the_wake_ticks_and_a_start(self):
+        from unittest import mock
+
+        def begin(s, t, argv, space, parent=None):  # as DoubleStart's: its agent recorded, as the real launch does
+            t["state"], t["started"] = "running", 1
+            for k in ("queue", "queued_at", "held", "scheduled_for"):
+                t.pop(k, None)
+            t.setdefault("agents", []).append({"address": "t44", "agent": "claude", "at": self.now_ms()})
+            s.dirty = True
+            self.started.append((s.ref(t), argv, space, parent))
+            return t["agents"][-1]
+        first = self.running("First")
+        self.add("Second", after=first)
+        with mock.patch.object(self.commands, "begin", begin), mock.patch.object(self.tick, "begin", begin):
+            self.done_by_hand(first)
+            self.assertTrue(self.woken())
+            self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])  # the woken round
+            with self.assertRaises(self.Fail) as e:
+                self.run_cmd(self.commands.cmd_start, id="2")  # the Assistant's start, a moment late
+            self.assertIn("already running (t44)", str(e.exception))
+            self.assertEqual(self.tick_at(self.now_ms()), [])  # the tick 15 s on
+        self.assertEqual((self.started_refs(), len(self.task(2)["agents"])), (["APP-2"], 1))
+
+    def test_start_now_still_goes_at_once(self):
+        first = self.running("First")
+        self.add("Second", after=first)
+        self.run_cmd(self.commands.cmd_start, id="2", now=True)
+        self.assertEqual(self.started_refs(), ["APP-2"])
+
+    def test_added_after_a_task_already_done_starts_at_the_next_round(self):
+        first = self.running("First")
+        self.done_by_hand(first)
+        self.woken()
+        v = self.add("Second", after=first)
+        self.assertEqual((v["state"], v.get("reason")), ("queued", None))
+        self.assertTrue(self.woken())
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_a_person_can_still_hold_one_for_their_start(self):
+        """The way the code already had: added without --after, then edit --after. It waits for the person's Start."""
+        first = self.running("First")
+        self.add("Second")
+        self.run_cmd(self.commands.cmd_edit, id="2", after=first, title=None, prompt=None, prompt_file=None, here=False, worktree=False,
+                     base=None, at=None, in_=None)
+        self.done_by_hand(first)
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual(self.task(2)["state"], "todo")
+
+    # ---- every way of becoming done ----
+
+    def test_mark_as_done_frees_it(self):
+        first = self.running("First")
+        self.change(int(first.split("-")[1]), mode="worktree", worktree=os.path.join(self.tmp, "gone"), branch="task/1")
+        self.add("Second", after=first)
+        self.done_by_hand(first)  # closed unmerged, past finish(): still done
+        self.assertTrue(self.task(1).get("closed_unmerged"))
+        self.assertTrue(self.woken())
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_accept_frees_it(self):
+        first = self.running("First")
+        self.add("Second", after=first)
+        self.change(1, state="ready", ready_at=self.now_ms())
+        self.assertEqual(self.tick_at(self.now_ms()), [])  # Ready isn't done
+        self.run_cmd(self.commands.cmd_accept, id=first)
+        self.assertEqual(self.task(1)["state"], "done")
+        self.assertTrue(self.woken())
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_a_merge_the_tick_sees_frees_it_in_the_same_round(self):
+        from unittest import mock
+        first = self.running("First")
+        self.change(1, state="ready", ready_at=self.now_ms(), mode="worktree", worktree=os.path.join(self.tmp, "wt1"), branch="task/1",
+                    pr={"number": 7, "url": "https://example.com/pr/7"})
+        self.add("Second", after=first)
+        with mock.patch.object(self.tick, "pr_view", lambda t: {"state": "MERGED", "mergeCommit": {"oid": "abc"}}), \
+                mock.patch.object(self.tick, "watch_main", lambda *a: None):
+            self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+        self.assertEqual((self.task(1)["state"], self.task(1)["merged"]), ("done", True))
+        self.assertFalse(self.woken())  # started in that round already: nothing left waiting for it
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual(self.started_refs(), ["APP-2"])
+
+    def test_nothing_to_merge_closed_at_ready_frees_it(self):
+        """Under Right away, a worktree task with nothing to merge is done at ready (waits.closes_alone): the same
+        finish() as Accept, saved the same way."""
+        from unittest import mock
+        first = self.running("First")
+        self.add("Second", after=first)
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            t = s.find(1)
+            t.update(nothing_to_merge=True, mode="worktree", ready_at=self.now_ms())
+            self.assertTrue(self.commands.closes_alone(t, "auto"))
+            t["closed_alone"] = "auto"
+            self.github.finish(s, t, even_if_busy=True, quiet=True)  # cmd_ready's own call when it closes alone
+        self.assertTrue(self.woken())
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+        self.assertIn("closes_alone(t, policy)", self.source("commands.py"))
+        self.assertIn("finish(s, t, even_if_busy=True, quiet=True)", self.source("commands.py"))
+
+    def test_ready_nothing_and_told_free_it(self):
+        from unittest import mock
+        self.auto("add", title="Sweep", prompt="Go.", when="hourly", space="sp1")
+        self.auto("add", title="Brief", prompt="Go.", when="hourly", space="sp1")
+        self.auto("run-now", id="1")
+        self.auto("run-now", id="2")
+        self.started.clear()
+        self.add("After the sweep", after="APP-1")
+        self.add("After the brief", after="APP-2")
+        with mock.patch.object(self.commands, "finish", self.commands.finish):
+            self.ready(id="1", nothing=True)
+            self.assertTrue(self.woken())
+            self.assertEqual(self.tick_at(self.now_ms()), ["APP-3"])
+            self.ready(id="2", told="All green.")
+            self.assertTrue(self.woken())
+            self.assertEqual(self.tick_at(self.now_ms()), ["APP-4"])
+
+    # ---- what still holds it ----
+
+    def test_failed_stopped_and_archived_unfinished_still_block_and_archived_done_does_not(self):
+        for n in range(1, 5):
+            self.running(f"Dep {n}")
+        self.change(1, attention="Checks failing: test")
+        self.change(2, stopped_by="you", stopped_at=1)
+        self.change(3, state="ready", archived=1, archived_by="you")
+        self.change(4, state="done", done_at=1, archived=1)
+        for n in range(1, 4):
+            self.add(f"After {n}", after=f"APP-{n}")
+        self.add("After the archived done one", after="APP-4")
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-8"])
+        self.assertEqual([self.task(n)["state"] for n in (5, 6, 7)], ["queued"] * 3)
+
+    def test_several_wait_for_all(self):
+        a, b = self.running("A"), self.running("B")
+        v = self.add("After both", after=f"{a},{b}")
+        self.assertEqual(v["reason"], 'after "A", "B"')
+        self.done_by_hand(a)
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual(self.task(3)["state"], "queued")
+        self.done_by_hand(b)
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-3"])
+
+    def test_a_removed_one_stops_holding_it(self):
+        a = self.running("A")
+        self.add("After A", after=a)
+        self.run_cmd(self.commands.cmd_rm, id=a)
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_a_busy_machine_holds_it_and_says_why(self):
+        from unittest import mock
+        a = self.running("A")
+        self.add("After A", after=a)
+        self.done_by_hand(a)
+        with mock.patch.object(self.tick, "machine_hold", lambda: "vm-a's memory is 92% full"):
+            self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.assertEqual(self.task(2)["held"], "vm-a's memory is 92% full")
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-2"])
+
+    def test_the_persons_start_on_a_queued_one_still_goes_past_a_busy_machine(self):
+        """As before: a queued task started again goes now past a busy machine; only its --after tasks still hold it."""
+        from unittest import mock
+        a = self.running("A")
+        self.add("After A", after=a)
+        self.done_by_hand(a)
+        with mock.patch.object(self.queues, "machine_hold", lambda: "vm-a's memory is 92% full"):
+            self.run_cmd(self.commands.cmd_start, id="2")
+        self.assertEqual(self.started_refs(), ["APP-2"])
+
+    # ---- another folder, another machine ----
+
+    def other_folder(self):
+        other = os.path.join(self.tmp, "web")
+        os.makedirs(other)
+        subprocess.run(["git", "init", "-q", "-b", "main", other], check=True)
+        with self.store_mod.Store(self.store_mod.locate(other)) as s:
+            t = s.new("Their API", "", "here")
+            t.update(state="running", started=1, space="sp1")
+            s.dirty = True
+            return other, s.ref(t)
+
+    def test_another_folders_task_frees_it_and_wakes_the_scheduler(self):
+        other, ref = self.other_folder()
+        v = self.add("Use their API", after=ref)
+        self.assertEqual((v["state"], v["reason"]), ("queued", 'after "Their API"'))
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+        self.run_cmd(lambda a: self.commands.cmd_state(a, "done"), id=ref, folder=other)
+        self.assertTrue(self.woken())  # its done state, saved in its own folder, wakes the scheduler for this one
+        self.assertEqual(self.tick_at(self.now_ms()), ["APP-1"])
+        self.assertEqual(self.tick_at(self.now_ms()), [])
+
+    def test_another_machines_task_is_asked_once_a_minute_and_an_unreachable_one_keeps_it_waiting(self):
+        from unittest import mock
+        answers, asked = ["running"], []
+
+        def ext_state(x):
+            asked.append(x["ref"])
+            a = answers[0]
+            if isinstance(a, Exception):
+                raise a
+            if a:
+                x["title"] = "Their part"
+            return a
+        later = lambda: self.clock if self.clock is not None else self.now_ms()
+        with mock.patch.object(self.queues, "ext_state", ext_state), mock.patch.object(self.queues, "now", later):
+            v = self.add("After their part", after="vm-b:HAT-12")
+            self.assertEqual((v["state"], v["reason"]), ("queued", 'after "Their part"'))
+            t0 = self.now_ms()
+            self.assertEqual(self.tick_at(t0 + 1000), [])
+            n = len(asked)
+            answers[0] = "done"
+            self.assertEqual(self.tick_at(t0 + 30000), [])  # asked at most once a minute
+            self.assertEqual(len(asked), n)
+            answers[0] = self.Fail("vm-b didn't answer.")
+            self.assertEqual(self.tick_at(t0 + 70000), [])  # unreachable: it keeps waiting
+            self.assertEqual(self.task(1)["after_ext"][0]["error"], "vm-b didn't answer.")
+            answers[0] = None  # removed there: it holds nothing up
+            self.assertEqual(self.tick_at(t0 + 140000), ["APP-1"])
+
+    # ---- the wake ----
+
+    def test_the_scheduler_naps_less_once_woken(self):
+        from unittest import mock
+        with mock.patch.object(self.sa, "NAP_STEP", 0.02):
+            t0 = self.time.time()
+            self.assertFalse(self.sa.nap(0.1, t0))  # nothing woke it: the whole nap
+            self.assertGreaterEqual(self.time.time() - t0, 0.1)
+            began = self.time.time()
+            self.sa.wake()  # during the round that began then
+            t1 = self.time.time()
+            self.assertTrue(self.sa.nap(5, began))
+            self.assertLess(self.time.time() - t1, 1)
+
+    def test_a_done_with_nothing_waiting_never_wakes_it(self):
+        a = self.running("A")
+        self.running("B")
+        self.add("After B", after="APP-2")
+        self.done_by_hand(a)
+        self.assertFalse(self.woken())
+
+    # ---- pinned seams (a sync that changes them breaks this patch) ----
+
+    def source(self, name):
+        with open(os.path.join(BIN, "herdr_task", name)) as f:
+            return f.read()
+
+    def test_pinned_seams(self):
+        """dmalis/shepherdr#54 relies on: Store.save() calling the wake hook with its before-snapshot, the scheduler's
+        sleep being nap(15, <its round's start>), add queueing a task added --after, a queued task started again
+        still waiting for its --after tasks, and the tick's queue starting queued tasks with begin()."""
+        import inspect
+        self.assertIn("saved(self, self.before)", inspect.getsource(self.store_mod.Store.save))
+        self.assertIn("nap(15, began)", self.source("automations.py"))
+        self.assertIn("began = time.time()", self.source("automations.py"))
+        add = inspect.getsource(self.commands.cmd_add)
+        self.assertIn("queue_at_add(s, t, space or default_space())", add)
+        self.assertIn("queue_reason(s, t, hold=t[\"state\"] != \"queued\")", inspect.getsource(self.commands.cmd_start))
+        self.assertIn("hold", inspect.signature(self.queues.queue_reason).parameters)
+        turn = inspect.getsource(self.tick.tick_turn)
+        self.assertIn('t["state"] == "queued"', turn)
+        self.assertIn("begin(s, t, argv, sp, q.get(\"parent\"))", turn)
+        self.assertIn("def begin(s, t, argv, space, parent=None):", self.source("commands.py"))
