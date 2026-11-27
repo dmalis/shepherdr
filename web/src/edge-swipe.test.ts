@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { getState, type UI } from './kernel.ts'
 import { claims, EDGE, edgeOpens, speed, staysOpen, wayOf } from './edge-swipe.tsx'
 import { EDGE_PX } from '../plugins/chat/press.ts'
-import { lands, settleMs } from './motion.ts'
+import { calm, lands, settleMs } from './motion.ts'
 
 const ui = (o: Partial<UI>): UI => ({ ...getState().ui, phone: true, narrow: true, drawer: false, settings: null, search: false, task: null, art: null, pane: null, sideOff: false, ...o })
 const BAR = ['tasks', 'artifacts']
@@ -80,6 +80,7 @@ test("motion.ts's fling rules are still there, as this uses them", () => {
   expect(lands(10, 0.5, 100)).toBe(true)
   expect(lands(90, -0.5, 100)).toBe(false)
   expect(settleMs(300, 0)).toBeGreaterThan(0)
+  expect(typeof calm()).toBe('boolean')
 })
 
 test('the app shows the list with SideDrawer while the side is hidden, and listens for the swipe', () => {

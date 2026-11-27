@@ -10,7 +10,7 @@ import { useLayoutEffect, useRef, useSyncExternalStore, type MouseEvent as RME, 
 import { flushSync } from 'react-dom'
 import { getState, registry, setUI, sideHidden, type UI } from './kernel.ts'
 import { hasLayer } from './overlay.tsx'
-import { IOS, lands, moveTo, settleMs, still } from './motion.ts'
+import { calm, IOS, lands, moveTo, settleMs } from './motion.ts'
 import { EDGE } from './edge.ts'
 
 export { EDGE }
@@ -23,9 +23,6 @@ const TAP_MS = 400
 /** the list sliding in by its button, and back out after a tap on the shade */
 const OPEN_MS = 320
 const SHUT_MS = 260
-
-/** the device asks for less motion, or Settings › General › Motion is Reduced: nothing slides, things fade */
-const calm = () => still() || (typeof document !== 'undefined' && document.documentElement.dataset.motion === 'reduced')
 
 /** iOS and iPadOS, whose web view starts its own Back from a touch at the left edge unless the touch is held back */
 const ios = () => typeof navigator !== 'undefined' && (/iP(hone|ad|od)/.test(navigator.platform) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
