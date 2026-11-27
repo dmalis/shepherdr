@@ -20,7 +20,10 @@
     "web/shared/needs-you.test.ts",
     "core/chat-view.test.js",
     "core/chat-log.test.js",
-    "test/test_herdr_task.py",
-    "test/test_repo.py"
+    "test/test_herdr_task.py::HomeLead.test_only_what_needs_the_person_from_a_space_with_its_own_assistant",
+    "test/test_herdr_task.py::WaitChangesHands",
+    "test/test_herdr_task.py::Next32.test_news_of_a_wait_is_written_for_the_assistant",
+    "test/test_herdr_task.py::Schedules32.test_needs_you_still_sets_off_a_schedule_for_every_wait",
+    "test/test_repo.py::NoTaskNumbers.test_the_assistant_names_tasks_by_title"
   ]
 }
