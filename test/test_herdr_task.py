@@ -11771,3 +11771,85 @@ class StackedTasks(unittest.TestCase):
         self.assertIn("git rebase --onto origin/main", str(e.exception))
         self.assertEqual(b["base"], "main")
         self.assertEqual(b["state"], "running")
+
+
+class PromptAnswered(unittest.TestCase):
+    """#45 (dmalis/shepherdr): herdr-core tells a task's Assistant its worker is "blocked (permission)"; once that prompt
+    is answered (the chat hook's end/<id>), the Assistant hears it as the task's "working again" line, once, even when
+    the tick never saw the wait. hc is never run."""
+
+    def setUp(self):
+        import shutil
+        from unittest import mock
+        sys.path.insert(0, BIN)
+        import herdr_task.answered as answered
+        import herdr_task.news as news
+        self.a, self.news = answered, news
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.end = os.path.join(self.tmp, "end")
+        os.makedirs(self.end)
+        for name, value in (("END", self.end), ("TOLD", os.path.join(self.tmp, ".answered.json"))):
+            p = mock.patch.object(answered, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.claude = {"address": "t3", "state": "live", "labels": {"herdr.agent": "claude", "herdr.task": "shop#4"}}
+        self.working = {"status": "working"}
+
+    def ended(self, id_, how, age_s=1):
+        p = os.path.join(self.end, id_)
+        with open(p, "w") as f:
+            f.write(how + "\n")
+        t = time.time() - age_s
+        os.utime(p, (t, t))
+
+    def test_first_look_only_notes_what_was_there(self):
+        self.ended("t3.1.1", "Allowed on the web")
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [self.claude]))
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [self.claude]))
+
+    def test_an_answer_is_told_once(self):
+        self.a.prompt_answered({}, self.working, [self.claude])  # first look
+        self.ended("t3.2.2", "Allowed on the web")
+        self.assertEqual(self.a.prompt_answered({}, self.working, [self.claude]), "its prompt was answered Yes on the web")
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [self.claude]))
+        self.ended("t3.3.3", "Declined or interrupted in the terminal")
+        self.assertEqual(self.a.prompt_answered({}, self.working, [self.claude]), "its prompt was declined or interrupted in the terminal")
+
+    def test_only_its_own_agents_fresh_answers_while_it_works(self):
+        self.a.prompt_answered({}, self.working, [self.claude])
+        self.ended("t9.1.1", "Allowed on the web")              # another task's agent: left for it
+        self.ended("t3.1.1", "Allowed on the web", age_s=900)    # older than FRESH_MS: no news
+        self.ended("t3.2.2", "Agent stopped")                    # nobody answered it
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [self.claude]))
+        self.assertEqual(self.a.prompt_answered({}, self.working, [dict(self.claude, address="t9")]), "its prompt was answered Yes on the web")
+        # needing you again (or ready) says so itself; the answer waits for it to be back at work
+        self.ended("t3.4.4", "Answered in the terminal")
+        self.assertIsNone(self.a.prompt_answered({}, {"status": "needs"}, [self.claude]))
+        self.assertEqual(self.a.prompt_answered({}, self.working, [self.claude]), "its prompt was answered in the terminal")
+        # Claude's log showed the tool ran (hooks/ask-end.py): Yes
+        self.ended("t3.5.5", "Allowed in the terminal")
+        self.assertEqual(self.a.prompt_answered({}, self.working, [self.claude]), "its prompt was answered Yes in the terminal")
+
+    def test_a_codex_agent_was_never_told_blocked(self):
+        self.a.prompt_answered({}, self.working, [self.claude])
+        codex = dict(self.claude, labels={"herdr.agent": "codex"})
+        self.ended("t3.1.1", "Allowed on the web")
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [codex]))
+        self.assertIsNone(self.a.prompt_answered({}, self.working, [self.claude]))
+
+    def test_the_news_line(self):
+        s = types.SimpleNamespace(ref=lambda t: "SHOP-4", name=lambda t: '"Fix login"')
+        self.assertEqual(self.news.news_line(s, {}, {}, "working-again", "its prompt was answered Yes on the web"),
+                         '<herdr-news task="SHOP-4" event="working-again">"Fix login" is working again: its prompt was answered Yes on the web</herdr-news>')
+
+    def test_seams(self):
+        with open(os.path.join(BIN, "herdr_task", "news.py")) as f:
+            src = f.read()
+        self.assertIn("from .answered import prompt_answered", src)
+        self.assertIn('lines.append(("working-again", news_line(s, t, v, "working-again", answered)))', src)
+        # the hook's words for a prompt answered in the terminal (hooks/ask-hook.sh)
+        with open(os.path.join(ROOT, "hooks", "ask-hook.sh")) as f:
+            hook = f.read()
+        self.assertIn('ended "$(how answered)"', hook)
+        self.assertIn('d="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/data/chat-asks"', hook)

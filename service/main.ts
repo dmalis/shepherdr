@@ -39,6 +39,7 @@ import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
 import { keep, served as fileResponse, smaller } from "./media.ts";
 import { Asks } from "./asks.ts";
+import { whenWhyFound } from "./prompts.ts";
 import { Jobs } from "./jobs.ts";
 import { terminalBridge } from "./terminal.ts";
 import { worktree } from "./worktree.ts";
@@ -375,6 +376,7 @@ artifacts.start();
 const asks = new Asks();
 compat.asks = asks;
 asks.on(() => { model.rebuild(); live.chats?.refreshAll(); });
+whenWhyFound(() => { model.rebuild(); live.chats?.refreshAll(); }); // dmalis/shepherdr#45: a guard's reason, read off its screen
 asks.start();
 // another machine's agents a page shows (the web served from a machine other than theirs): their asks too
 asks.remote(hub, () => live.watched());

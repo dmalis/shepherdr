@@ -32,7 +32,7 @@ export type Ask = { id: string; terminal: string; at: number; req: any; words: a
 
 /** An ask that closed, as the window's chat keeps it for its quiet line ("✓ Run: npm test · Allowed in the chat"):
  *  what it asked and how it went (the hook's end/<id>, else "No longer waiting"), at its moment. */
-export type AskEnd = { id: string; terminal: string; title: string; how: string; at: number; kind: string };
+export type AskEnd = { id: string; terminal: string; title: string; how: string; at: number; kind: string; /** when it closed (dmalis/shepherdr#45) */ done?: number };
 const ENDS = join(DATA, "ask-ends.json");
 // When an ask was made: its id is <terminal>.<seconds>.<pid> (ask-hook.sh), at the end of that second (the window's askAt)
 const askAt = (id: string) => { const p = id.split("."); const s = Number(p[p.length - 2]); return Number.isFinite(s) && s > 1e9 ? s * 1000 + 999 : Date.now(); };
@@ -53,7 +53,7 @@ export class Asks {
     if (this.ends.some((e) => e.id === a.id)) return;
     let how = known ?? "";
     if (!a.machine) try { how = readFileSync(join(dir(), "end", a.id), "utf8").trim(); } catch {}
-    this.ends = [...this.ends, { id: a.id, terminal: a.terminal, title: a.words?.title ?? "", how: how || "No longer waiting", at: askAt(a.id), kind: a.words?.kind ?? "" }].slice(-200);
+    this.ends = [...this.ends, { id: a.id, terminal: a.terminal, title: a.words?.title ?? "", how: how || "No longer waiting", at: askAt(a.id), kind: a.words?.kind ?? "", done: Date.now() }].slice(-200);
     try { writeFileSync(`${ENDS}.tmp`, JSON.stringify(this.ends)); renameSync(`${ENDS}.tmp`, ENDS); } catch {}
   }
 

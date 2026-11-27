@@ -14,6 +14,7 @@ import { terminalQuestion } from '@shared/alerts.ts'
 import { machineLabel, placeDown, placeOf, spaceLabel } from '@shared/view.ts'
 import { SignInCard } from './sign-in.tsx'
 import { Markdown } from './markdown.tsx'
+import { PromptBody } from './prompt-body.tsx'
 
 /** a quiet line where a card was, once it is settled */
 export function DoneRow({ icon = 'check', children }: { icon?: 'check' | 'warn'; children: React.ReactNode }) {
@@ -127,7 +128,7 @@ export function QuestionCard({ q, chat, place }: { q: Question; chat: string; pl
       <div className="card" data-card={q.id} data-ask="">
         <span className="t">{q.title || 'Run a command'}</span>
         {p && snap && <span className="s">On {machineLabel(snap, p.machine)}, in {spaceLabel(snap, p.id).replace(/^#/, '')}</span>}
-        <Code text={q.command} />
+        <PromptBody why={q.why} command={q.command}><Code text={q.command} /></PromptBody>
         <div className="acts">
           {say('decline', { choice: 1 }, 'Decline', { busy: 'Declining…' })}
           {say('allow', { choice: 0 }, 'Allow once', { kind: 'pri', busy: 'Allowing…' })}

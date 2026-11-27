@@ -20,6 +20,7 @@ from .sessions import session_of
 from .launch import coordinator_in, core_spaces, everything_of, tilde_of
 from .store import locate, read_list, Store, store_files
 from .output import line, minutes, view
+from .answered import prompt_answered
 
 
 # ---- news -----------------------------------------------------------------------------------
@@ -230,6 +231,10 @@ def news_pass(report, folder=None):
                     lines.append((event, news_line(s, t, v, event, words)))
                 if stall and stall[0] != (prev or {}).get("stall"):
                     lines.append(("stalled", news_line(s, t, v, "stalled", stall[1])))
+                # dmalis/shepherdr#45: a prompt herdr-core told its Assistant about, answered (answered.py)
+                answered = prompt_answered(t, v, live)
+                if answered:
+                    lines.append(("working-again", news_line(s, t, v, "working-again", answered)))
                 for ev, text in lines:
                     # A newer word on the same task replaces one not sent yet.
                     # A failed command's line stands apart: it neither replaces nor is replaced.

@@ -299,6 +299,9 @@ export interface Task {
   waitsDesktop?: boolean
   /** Questions the person can answer while the agent keeps working. */
   queuedQuestions?: number
+  /** dmalis/shepherdr#45: its agent's prompt or question was just answered: what was chosen (Yes, No, or none for a
+   *  question's answer) and when (ms). Its row and its header say so a little while: "Answered: Yes · back to work" */
+  answered?: { choice?: 'Yes' | 'No'; at: number }
   /** done: its work was merged into the base branch */
   merged?: boolean
   /** its branch had no commits beyond its base: closing it merges nothing */
@@ -480,6 +483,8 @@ export interface Question {
   queued?: boolean
   /** 3.2: a permission request: the command (or what it wants to do) in the agent's own words; choice 0 allows once */
   command?: string
+  /** why a hook held the permission (a guard's reason, its first sentence), shown above the command (dmalis/shepherdr#45) */
+  why?: string
   id: string
   title: string
   kind: 'Form' | 'Question' | 'Plan'
@@ -703,6 +708,10 @@ export interface Message {
   /** 3.0's quiet line for an ask or start screen that closed: what it asked and how it went ("Run: npm test · Allowed
    *  in the chat") */
   ended?: string
+  /** dmalis/shepherdr#45: when the permission it asked was answered (ms), shown after its line in the reader's clock */
+  endedAt?: number
+  /** dmalis/shepherdr#45: nobody answered it here, so it may still wait in its agent's terminal */
+  endedWaits?: true
   /** the tasks your message mentions (#HAT-1), as 3.0's chips under it: a press opens the task */
   mentions?: { task: string; ref: string; title: string }[]
   at?: number
