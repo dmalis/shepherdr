@@ -305,6 +305,19 @@ class Outcomes(World):
         self.assertEqual(self.finish(says="3.2.22 with our patches")["outcome"], "installed")
         self.assertIsNone(self.st()["lease"])
 
+    def test_a_healthy_install_ends_the_held_records_it_carries(self):
+        """A held record whose release the healthy install carries is over (no 24-hour question about it later);
+        one for a release it doesn't carry stays."""
+        later = self.new_candidate("3.2.23")
+        with state.locked(self.p) as st:
+            state.hold(st, "v3.2.21", self.B, "trial", "trial", "the trial failed")
+            state.hold(st, "v3.2.23", later, "draft", "7", "a patch waits", branch="sync/v3.2.23", head=later)
+        self.set(plan=["ok"])
+        self.install()
+        out = self.health()
+        self.assertEqual((out["outcome"], out["held_over"]), ("installed", ["trial"]))
+        self.assertEqual([h["blocker"] for h in self.st()["held"]], ["7"])
+
     def test_the_runs_sync_hold(self):
         """The hold patch's other half (dmalis/shepherdr#19): the run's hold is in both files before the folder
         moves, for the install and again for the rollback; the update, and only it, carries the hold variable;

@@ -891,14 +891,21 @@ def passed(p, s, run_key, folder, repo, sha, words, want_tag):
             raise Refused(f"health passed, but the tag ours-{rec.get('version')}-<n> couldn't be pushed: call health "
                           "again (it retries only the tag)", outcome="wait", next="health", lines=words)
     with state.locked(p) as st:
+        held = [dict(h) for h in st.get("held") or []]
+    # a held record whose release this healthy install carries is over: no 24-hour question about it any more
+    over = [h.get("blocker") for h in held
+            if state.SHA.match((h.get("release") or {}).get("sha") or "") and is_ancestor(repo, h["release"]["sha"], sha)]
+    with state.locked(p) as st:
         state.owns_lease(st, run_key, folder)
+        for blocker in over:
+            state.clear_held(st, blocker)
         st["install"] = dict(st.get("install") or {}, health=words, tag=pushed)
         st["baseline"] = {"sha": sha, "branch": None, "version": rec.get("version"), "source": s.p.show(s.folder),
                           "at": rec.get("at"), "whole": rec.get("whole"), "installed": state.stamp(), "tag": pushed}
         st["installs"] = (st.get("installs") or [])[-(state.KEEP - 1):] + [
             {"sha": sha, "version": rec.get("version"), "at": state.stamp(), "tag": pushed}]
         state.set_phase(st, "healthy")
-    return {"outcome": "installed", "version": rec.get("version"), "tag": pushed, "lines": words}
+    return {"outcome": "installed", "version": rec.get("version"), "tag": pushed, "lines": words, "held_over": over}
 
 
 def push_tag(repo, sha, version):

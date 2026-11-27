@@ -551,6 +551,28 @@ class SyncCommand(Base):
         self.assertEqual(out["took_over"], {"run": "RUN-B", "was": "missing"})
         self.assertEqual(state.load(self.p)["run"]["key"], "RUN-B", "nothing to resume: select writes the next")
 
+    def test_preflight_names_what_it_resumes(self):
+        """A run that picks up an unfinished phase learns, from preflight alone, the commit and the sync PR its next
+        call names (install <sha>, health <sha>, merge <pr>); nothing to resume says None."""
+        code, out = self.sync("preflight")
+        self.assertEqual((code, out["resuming"]), (0, None))
+        rel = {"tag": "v3.2.22", "sha": A_SHA}
+        sync = {"branch": "sync/v3.2.22", "head": "b" * 40, "merge": "c" * 40, "run": "RUN-A", "folder": self.space,
+                "at": state.stamp(), "pr": 12, "main_before": "d" * 40, "merge_commit": "e" * 40}
+        self.write(dict(state.fresh(), phase="installing", release=rel, candidate="e" * 40, sync=sync,
+                        run={"key": "RUN-A", "folder": self.space, "path": "take"},
+                        lease={"run": "RUN-A", "folder": self.space, "at": state.stamp()}))
+        self.set_tasks({"RUN-A": "done"})
+        code, out = self.sync("preflight", "--repo", self.space)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["resuming"], {"path": "take", "release": rel, "candidate": "e" * 40,
+                                           "sync": {"branch": "sync/v3.2.22", "head": "b" * 40, "pr": 12,
+                                                    "merge_commit": "e" * 40}})
+        with state.locked(self.p) as st:
+            st.update(phase="healthy", sync=None)
+        code, out = self.sync("preflight", "--repo", self.space)
+        self.assertEqual((code, out["resuming"]), (0, None), "a finished phase resumes nothing")
+
     def test_preflight_stops_with_nothing_written(self):
         cases = [
             ("gh's default", lambda: self.sync("preflight", env={"FAKE_GH_DEFAULT": "someone/shepherdr"}), "held"),
