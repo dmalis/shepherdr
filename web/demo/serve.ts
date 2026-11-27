@@ -40,6 +40,7 @@ function resetDemo() {
   Object.assign(chats, structuredClone(seed))
   n = 1000
   removedDevices.clear()
+  for (const [cid, h] of held) if (h.answer) held.delete(cid)
   holdRace()
 }
 holdRace()
