@@ -703,8 +703,70 @@ class Hardened(Triaged):
         self.assertEqual(tpub.publish()["posted"], 1)
 
     def test_a_copy_of_another_machines_row_has_a_marker_the_reconciler_reads(self):
-        mark = tpub.fpost.marker("vm-b:b1", 1, "ab12cd34")
-        self.assertEqual(tpub.fpost.mark_of("body\n\n" + mark), mark)
+        fp = tpub.fpost
+        mark = fp.marker("vm-b:b1", 1, "ab12cd34")
+        self.assertEqual(fp.mark_of("body\n\n" + mark), mark)
+        self.assertNotIn("vm-b", mark)  # a machine's name never goes public, even hidden
+        self.assertEqual(mark, f"<!-- shepherdr-feedback {fp.mark_key('vm-b:b1')} rev 1 ab12cd34 -->")
+        self.assertNotEqual(fp.mark_key("vm-b:b1"), fp.mark_key("vm-c:b1"))
+        self.assertEqual(fp.mark_key("vm-b:b1"), fp.mark_key("vm-b:b1"))  # stable: the store keeps its secret
+        secret = os.path.join(fb.STORE, ".feedback-mark-key")
+        self.assertEqual(os.stat(secret).st_mode & 0o777, 0o600)
+        # keyed: a guess at the machine can't be checked against the public hash, and no other store makes the same
+        self.assertNotEqual(fp.mark_key("vm-b:b1")[1:], hashlib.sha256(b"vm-b:b1").hexdigest()[:16])
+        with mock.patch.object(fp, "mark_secret", lambda: "0" * 32):
+            self.assertNotEqual(fp.mark_key("vm-b:b1"), mark.split()[2])
+        self.assertEqual(fp.marker("a1b2c3", 2), "<!-- shepherdr-feedback a1b2c3 rev 2 -->")  # an own id: as it was
+        old = "<!-- shepherdr-feedback vm-b_b1 rev 1 ab12cd34 -->"  # as markers wrote it before
+        self.assertTrue(fp.same_mark(old, mark, "vm-b:b1") and fp.same_mark(mark, old, "vm-b:b1"))
+        self.assertFalse(fp.same_mark(old.replace("rev 1", "rev 2"), mark, "vm-b:b1"))
+        self.assertFalse(fp.same_mark(fp.marker("vm-c:b1", 1, "ab12cd34"), mark, "vm-b:b1"))
+        self.assertEqual(fp.fresh("vm-b:b1", "Words.\n\n" + old), "Words.\n\n" + mark)
+        self.assertEqual(fp.fresh("a1b2c3", "Words.\n\n<!-- shepherdr-feedback a1b2c3 rev 2 -->"), "Words.\n\n<!-- shepherdr-feedback a1b2c3 rev 2 -->")
+
+    def copy_with_yes(self, legacy=False):
+        """vm-b's finding copied in and drafted, its draft's marker in the old form if legacy, and the app's yes for it"""
+        there = os.path.join(self.dir, "there.json")
+        with open(there, "w") as f:
+            json.dump({"vm-b": [{"id": "b1", "line": "Search misses archived spaces", "details": "From the other machine.", "space": "sp1"}]}, f)
+        tpub.publish(there)
+        with tri.record() as d:
+            dr = d["copies"]["vm-b:b1"]["draft"]
+            if legacy:
+                dr["body"] = re.sub(r"shepherdr-feedback \S+ rev", "shepherdr-feedback vm-b_b1 rev", dr["body"])
+            h = tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))
+            rev = dr["rev"]
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": [{"kind": "draft", "repo": REPO, "key": "vm-b:b1", "rev": rev, "hash": h, "at": tri.now(), "by": "app"}]}, f)
+
+    def test_a_copys_post_names_no_machine_even_from_a_draft_made_before(self):
+        self.copy_with_yes(legacy=True)
+        self.assertEqual(tpub.publish()["posted"], 1)
+        body = self.hub.issues[max(self.hub.issues)]["body"]
+        self.assertNotIn("vm-b", body)
+        self.assertEqual(tpub.fpost.MARK_PARTS.search(body).group(1), tpub.fpost.mark_key("vm-b:b1"))
+        self.assertNotIn("vm-b", self.record()["copies"]["vm-b:b1"]["receipt"]["marker"])
+
+    def lost_then_found(self, rewritten):
+        self.copy_with_yes()
+        self.hub.mode = "lose"
+        self.assertEqual(tpub.publish()["unsure"], 1)
+        n = max(self.hub.issues)
+        with tri.record() as d:  # sent before mark_key: the marker kept named the machine
+            post = d["copies"]["vm-b:b1"]["post"]
+            post["mark"] = post["mark"].replace(tpub.fpost.mark_key("vm-b:b1"), "vm-b_b1")
+        if not rewritten:  # GitHub still has the old form; else it was rewritten to the new one since
+            self.hub.issues[n]["body"] = self.hub.issues[n]["body"].replace(tpub.fpost.mark_key("vm-b:b1"), "vm-b_b1")
+        self.hub.mode = "ok"
+        self.assertEqual(tpub.publish()["posted"], 1)
+        self.assertEqual(len(self.hub.creates()), 1)
+        self.assertEqual(self.record()["copies"]["vm-b:b1"]["receipt"]["number"], n)
+
+    def test_a_lost_answer_sent_before_is_found_by_its_old_marker_never_posted_twice(self):
+        self.lost_then_found(rewritten=False)
+
+    def test_a_lost_answer_is_found_after_its_marker_was_rewritten_never_posted_twice(self):
+        self.lost_then_found(rewritten=True)
 
 
 class Privacy(unittest.TestCase):
@@ -729,6 +791,29 @@ class Privacy(unittest.TestCase):
         }
         for text, want in cases.items():
             self.assertEqual(public.check(text, self.DENY, known, fb.redact)["verdict"], want, text)
+
+    def test_a_task_key_is_redacted_to_a_task_and_held_by_the_check(self):
+        for text, want in {
+            "Asked in AGEN-2 and fixed later": "Asked in a task and fixed later",
+            "Seen in BA-3,CART-1 and DEV-12": "Seen in some tasks",
+            "See SHEP-323 (BA-3 and CART-1).": "See a task (some tasks).",
+            "Fixed in AB-12, CD-34, and EF-56 at last": "Fixed in some tasks at last",  # an Oxford comma too
+            "Both AB-12/CD-34 broke": "Both some tasks broke",
+            "In task/AB-12; see AB-12/docs.md": "In task/a task; see a task/docs.md",  # a path names it as much
+            "UTF-8, SHA-256, ISO-8601, GPT-5, MPEG-4, CVE-2024-1234, H-1, X-1, RFC-9110 and COVID-19 stay": None,
+            "ab-12, v2-3 and a version AB-1.2 stay": None,
+        }.items():
+            self.assertEqual(fb.redact(text, []), want or text, text)
+        # a prefix the boards here use counts in any case, even one a standard shares
+        self.assertEqual(fb.no_task_keys("GPT-12 and shep-323, not GPT-5.2", ["GPT", "SHEP"]), "some tasks, not GPT-5.2")
+        with mock.patch.object(store, "prefixes_in_use", lambda: {"GPT": "/x"}), mock.patch.dict(fb._SEEN, {"prefixes": None}):
+            self.assertEqual(fb.redact("Seen in gpt-12", []), "Seen in a task")
+            self.assertEqual(public.check("Seen in gpt-12", self.DENY, {"seen", "in"}, None)["verdict"], "hit")
+        r = public.check("Fine.\nAsked in AGEN-2", self.DENY, {"fine", "asked"}, None)
+        self.assertEqual(r["verdict"], "hit")
+        self.assertIn({"kind": "a task key", "line": 2}, r["found"])
+        self.assertEqual(public.check("Asked in AGEN-2", hits_only=True)["verdict"], "pass")  # code's own arguments
+        self.assertEqual(public.check("Asked in a task", self.DENY, {"asked", "in", "a", "task"}, fb.redact)["verdict"], "pass")
 
     def test_it_says_kinds_and_lines_never_the_text(self):
         r = public.check("fine\nJane saw it", self.DENY, set(), None)
