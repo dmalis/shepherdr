@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, brief_rounds, ghbudget, proof_hold, sandbox, stack, urgent
+from . import after_merge, brief_rounds, cutoff, ghbudget, proof_hold, sandbox, stack, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -496,6 +496,8 @@ def begin(s, t, argv, space, parent=None):
         # The folder's commit as it starts: still there, and nothing tracked changed, at ready means
         # it changed nothing, so there is nothing to review (review_refusal, #744).
         t["folder_start"] = git(s.loc["folder"], "rev-parse", "HEAD")[1] or None
+        # dmalis/shepherdr (Needs you only when it's yours): and its branch (unchanged_folder())
+        t["folder_branch"] = git(s.loc["folder"], "rev-parse", "--abbrev-ref", "HEAD")[1] or None
     parent = parent_for(parent, space)
     return launch(s, t, argv, space, brief(s, t, parent, space, argv), parent=parent, setup=setup)
 
@@ -1011,7 +1013,23 @@ def unchanged_folder(s, t):
         return False
     ok, head, _ = git(folder, "rev-parse", "HEAD")
     clean, changed, _ = git(folder, "status", "--porcelain", "--untracked-files=no")
-    return ok and head == t["folder_start"] and clean and not changed
+    if not (ok and clean and not changed):
+        return False
+    if head == t["folder_start"]:
+        return True
+    # dmalis/shepherdr (Needs you only when it's yours): other tasks' merges fast-forward the folder meanwhile
+    # (update_main()): unchanged when it only moved forward, on its branch, to commits its branch's upstream already has
+    # (merged there by others). A move back, another branch, or a commit only it has (pushed elsewhere or not) is a change.
+    ok_b, start_branch, _ = git(folder, "rev-parse", "--abbrev-ref", "HEAD")
+    ok_u, upstream, _ = git(folder, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    if not (ok_b and ok_u and upstream and start_branch != "HEAD"):
+        return False
+    if t.get("folder_branch") and t["folder_branch"] != start_branch:
+        return False
+    if not git(folder, "merge-base", "--is-ancestor", t["folder_start"], "HEAD")[0]:
+        return False
+    mine_ok, mine, _ = git(folder, "rev-list", f"{t['folder_start']}..HEAD", "--not", upstream)
+    return mine_ok and not mine.strip()
 
 
 def rounds_this_run(t):
@@ -2128,7 +2146,9 @@ def _merge_now(s, t, accept=False):
             return GITHUB_CATCHING_UP
         # only the base branch's required checks hold a merge (#1221); merge "on its own" (also a merge by hand) none
         # beyond them
-        v = merge_checks(t, v, now_=(t.get("auto_merge") or merge_policy(s, t)) == "auto")
+        on_its_own = (t.get("auto_merge") or merge_policy(s, t)) == "auto"
+        v = merge_checks(t, v, now_=on_its_own)
+        v = cutoff.read(s, t, v)  # a run cut off at its time limit runs again by itself (the tick), never a failure first
         problem = pr_problem(v) or queue_refusal(t, v)
         if problem:
             # #1174: never into GitHub's merge queue while it conflicts, nor again at the commit whose
@@ -2139,7 +2159,7 @@ def _merge_now(s, t, accept=False):
         if t.get("merge_queued"):
             return IN_QUEUE
         # #1044: no checks yet while some will come is never "none set up": it merges once they ran.
-        if pr_pending(v) or checks_missing(v, checks_since(s, t, v), expected_checks(s, t, v.get("headRefOid"))) == "waiting":
+        if pr_pending(v) or checks_missing(v, checks_since(s, t, v), expected_checks(s, t, v.get("headRefOid")), on_its_own) == "waiting":
             return CHECKS_RUNNING
         if needs_approval(v):
             t["pr"]["needs_approval"] = True

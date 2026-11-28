@@ -459,23 +459,29 @@ def pr_view(task):
             v["checks_unknown"] = True
     if v.get("statusCheckRollup"):
         v["statusCheckRollup"] = latest_checks(v["statusCheckRollup"])
-    if v.get("state") == "OPEN" and not pr_pending(v) and runs_pending(pr["repo"], v.get("headRefOid")):
-        # #1044: a workflow run at its head not finished, its jobs not all shown as checks yet (a job
-        # that waits on another's needs, a run waiting for a runner): its checks still run.
-        v["runs_pending"] = True
+    if v.get("state") == "OPEN" and not pr_pending(v):
+        pending = runs_pending(pr["repo"], v.get("headRefOid"))
+        if pending:
+            # #1044: a workflow run at its head not finished, its jobs not all shown as checks yet (a job
+            # that waits on another's needs, a run waiting for a runner): its checks still run.
+            v["runs_pending"] = True
+        elif pending is False:
+            v["runs_none"] = True  # dmalis/shepherdr: Actions said no run is on its way (checks_missing()); unreadable: unset
     return v
 
 
 def runs_pending(repo, sha):
     """GitHub Actions has a run at commit sha not finished yet (queued, waiting, in progress). False
-    when none, or GitHub couldn't say."""
+    when none; None when GitHub couldn't say (dmalis/shepherdr: falsy as before, told apart by checks_missing())."""
     if not sha:
-        return False
+        return None
     ok, out, _ = gh("api", f"repos/{repo}/actions/runs?head_sha={sha}&per_page=50", "-q", "[.workflow_runs[].status]")
+    if not ok:
+        return None
     try:
-        states = json.loads(out) if ok else []
+        states = json.loads(out)
     except ValueError:
-        return False
+        return None
     return any(st != "completed" for st in states if isinstance(st, str))
 
 
@@ -528,12 +534,34 @@ def latest_checks(rows):
         name = c.get("name") or c.get("context")
         key = (c.get("workflowName") or "", name) if name else i
         when = c.get("startedAt") or c.get("completedAt") or ""
-        if key not in newest or when >= newest[key][0]:
-            newest[key] = (when, c)
-    return [c for _, c in newest.values()]
+        if not_started(c):
+            when = "9"  # dmalis/shepherdr: a run GitHub queued but hasn't started (0001-01-01) is the newest of its check
+        else:
+            when = "" if when.startswith("0001") else when
+        # dmalis/shepherdr: two Actions jobs of a check are ordered by job id (GitHub gives a rerun's new job a higher
+        # one), so an older run still queued never hides a newer one's result
+        job = re.search(r"/actions/runs/\d+/job/(\d+)", c.get("detailsUrl") or "")
+        job = int(job.group(1)) if job else None
+        if key in newest:
+            o_when, o_job, _ = newest[key]
+            newer = job > o_job if job is not None and o_job is not None and job != o_job else when >= o_when
+            if not newer:
+                continue
+        newest[key] = (when, job, c)
+    return [c for _, _, c in newest.values()]
 
 
-BEHIND = "It is behind its base branch, which must be up to date to merge."
+def not_started(c):
+    """A check run GitHub has queued and not started: pending, no conclusion, no start time."""
+    st = (c.get("status") or c.get("state") or "").upper()
+    start = str(c.get("startedAt") or "")
+    return st in PENDING and not c.get("conclusion") and (not start or start.startswith("0001"))
+
+
+CUT_OFF = " (cut off at its time limit)"
+
+
+BEHIND ="It is behind its base branch, which must be up to date to merge."
 
 
 # #1106: closed on GitHub (often on purpose): the person's Accept then closes the task, nothing merged.
@@ -547,7 +575,7 @@ def pr_problem(v):
     if v.get("mergeable") == "CONFLICTING":
         return "It conflicts with the base branch."
     checks = v.get("statusCheckRollup") or []
-    bad = [c.get("name") or c.get("context") or "a check" for c in checks
+    bad = [(c.get("name") or c.get("context") or "a check") + (CUT_OFF if c.get("cut_off") else "") for c in checks
            if (c.get("conclusion") or c.get("state") or "").upper() in BAD]
     if bad:
         return "Checks failing: " + ", ".join(bad[:3]) + (" and more." if len(bad) > 3 else ".")
@@ -751,6 +779,7 @@ CHECKS_START_MS = 20 * 60000  # one that runs on it: this long, then "they never
 UNKNOWN_CHECKS_MS = 20 * 60000
 CHECKS_RUNNING, GITHUB_LOOKS, BACK_TO_AGENT = "Checks running", "Waiting for GitHub", "Back to its agent to fix"
 CHECKS_NEVER = "Its checks never started on GitHub."
+MERGES_NOW = ("CLEAN", "UNSTABLE", "HAS_HOOKS")  # GitHub's mergeStateStatus when nothing it requires holds the merge
 WORKFLOWS = ".github/workflows"
 PR_EVENTS = ("pull_request", "pull_request_target")
 
@@ -865,15 +894,21 @@ def checks_since(s, task, v):
     return max(task.get("ready_at") or 0, pr.get("head_at") or 0)
 
 
-def checks_missing(v, since, expect=None):
+def checks_missing(v, since, expect=None, now_=False):
     """No checks on its pull request yet (#1044): None when it has some or none are coming; "waiting"
-    while they may still start; "never" when they should have and didn't (CHECKS_START_MS)."""
+    while they may still start; "never" when they should have and didn't (CHECKS_START_MS). now_: Merge on its own,
+    which waits only on what its base requires (merge_checks())."""
     if v.get("statusCheckRollup") or v.get("optional_checks"):
         return None  # optional ones it has don't count (merge_checks()): none are missing
     gone = now() - (since or 0)
     if v.get("checks_unknown"):
         # Checks that can't be read here (SHEP-179): a moment for GitHub, then pr_wait() decides.
         return "waiting" if gone < NO_CHECKS_MS else None
+    if now_ and gone >= NO_CHECKS_MS and v.get("runs_none") and v.get("mergeStateStatus") in MERGES_NOW:
+        # dmalis/shepherdr (Needs you only when it's yours): GitHub says it can merge, nothing it requires is missing,
+        # and Actions said no run is on its way (its workflows off for the repo, [skip ci]): none will come to wait
+        # for. Never while Actions couldn't be read (no runs_none), nor in GitHub's first moment after a push.
+        return None
     blocked = v.get("mergeStateStatus") == "BLOCKED" and not needs_approval(v)
     if expect == "yes" or blocked:
         return "waiting" if gone < CHECKS_START_MS else "never"
@@ -885,7 +920,7 @@ def checks_missing(v, since, expect=None):
 UNKNOWN_MERGEABLE_MS = 5 * 60000
 
 
-def pr_wait(v, since, expect=None, mergeable_head=None):
+def pr_wait(v, since, expect=None, mergeable_head=None, now_=False):
     """SHEP-175: what a Ready task's pull request (v: pr_view's answer) still waits on before the
     person has anything to do, in a few words, or None once its checks are done and GitHub knows it
     can merge. A problem (pr_problem()) goes back to its agent: Working still, never Ready first.
@@ -903,7 +938,7 @@ def pr_wait(v, since, expect=None, mergeable_head=None):
         seen = mergeable_head and mergeable_head == v.get("headRefOid")
         if not (seen or now() - (since or 0) >= UNKNOWN_MERGEABLE_MS):
             return GITHUB_LOOKS
-    if checks_missing(v, since, expect) == "waiting":
+    if checks_missing(v, since, expect, now_) == "waiting":
         return CHECKS_RUNNING
     if v.get("checks_unknown") and v.get("mergeStateStatus") == "BLOCKED" and not needs_approval(v) \
             and now() - (since or 0) < UNKNOWN_CHECKS_MS:

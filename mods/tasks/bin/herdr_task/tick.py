@@ -27,6 +27,7 @@ from .queues import machine_hold, refresh_ext, set_hold, waiting_ext, waiting_fo
 from .archive import archive_pass
 from . import after_merge
 from . import checkwait
+from . import cutoff, ready_again
 from .browsers import browser_pass
 from .output import progress_clock, say
 from .commands import back_to_work, begin, merge_failed, merge_now, merge_waits, MERGE_FAILED, restack, workers
@@ -75,12 +76,25 @@ def holds_open(s, t):
 def merge_held(s, t):
     """Whether its pull request's merge waits to close the task (at_work(), holds_open()). #1124: once the task said
     ready on this pull request, its merge outranks an agent that only waits (idle, or asking the person): done, its
-    running slot freed; only an agent mid-work still holds it, and a reopened task (kept_open) until it says ready."""
+    running slot freed; only an agent mid-work still holds it, and a reopened task (kept_open) while its agent works.
+    dmalis/shepherdr (Needs you only when it's yours): a merged task's ready never opens a second pull request (#48), so
+    a reopened one held until ready sat Working, its rounds reset, until someone finished it by hand. Once its agent
+    rests it is done again, merged; what it committed since is offered as a follow-up (finish()). Its folder holding
+    anything not committed (an untracked draft too, which finish()'s cleanup doesn't look at) keeps it open."""
     if t.get("kept_open"):
-        return True
+        return at_work(s, t) or unsaved_files(t)
     if t.get("ready_at"):
         return any(status_word(k) == "working" for k in mid_turn_agents(live_agents(s.key(t)), detail))
     return at_work(s, t) or holds_open(s, t)
+
+
+def unsaved_files(t):
+    """Its worktree holds a change not committed, untracked files too (or can't be read): True."""
+    wt = t.get("worktree")
+    if not wt or not os.path.isdir(wt):
+        return False
+    ok, out, _ = git(wt, "status", "--porcelain")
+    return not ok or bool(out.strip())
 
 
 QUEUE_GRACE = 2 * 60000  # a pull request just queued may take a moment to show in GitHub's queue
@@ -210,6 +224,7 @@ def facts(s, t, report):
         # check sent to its agent would take it out of Ready, and the merge with it)
         if t.get("auto_merge"):
             v = merge_checks(t, v, now_=t["auto_merge"] == "auto")
+        v = cutoff.read(s, t, v, rerun=True, report=report)  # a run cut off at its time limit runs again, once
         problem = pr_problem(v)
         if t.get("merge_queued"):
             queue_pass(s, t, v, report)
@@ -221,7 +236,8 @@ def facts(s, t, report):
             pr.pop("needs_approval", None)
         since, expect = checks_since(s, t, v), expected_checks(s, t, v.get("headRefOid"))
         # #1044, #1018: no checks yet (at its newest commit) while some will come is never "all passed".
-        missing = checks_missing(v, since, expect)
+        on_its_own = t.get("auto_merge") == "auto"  # Merge on its own: no checks at all is nothing to wait for
+        missing = checks_missing(v, since, expect, on_its_own)
         # SHEP-348: the mark on its row (running, failed, passed)
         word = checks_state(v, missing)
         checkwait.keep(s, t, v, missing, held=word == "failed" and held_by_base(s, t, v))  # dmalis/shepherdr#42: each check
@@ -235,7 +251,7 @@ def facts(s, t, report):
         if (v.get("mergeable") or "").upper() == "MERGEABLE" and v.get("headRefOid"):
             pr["mergeable_head"] = v["headRefOid"]  # #1151: its later brief UNKNOWNs are no wait
         if t["state"] == "ready":
-            wait = pr_wait(v, since, expect, pr.get("mergeable_head"))
+            wait = pr_wait(v, since, expect, pr.get("mergeable_head"), on_its_own)
             if wait != pr.get("wait"):
                 if wait:
                     pr["wait"] = wait
@@ -245,6 +261,8 @@ def facts(s, t, report):
                 pr["checked"] = now() - PR_EVERY + wait_every(t)
         try:
             pr_news(s, t, v, report)
+            # back at work from Ready, its fix pushed: told to say ready again (with a check that failed on it)
+            ready_again.nudge(s, t, v, report, problem)
         except Exception as e:  # never stops the tick
             report.setdefault("github_error", []).append(f"{s.ref(t)}: {e}")
         # Kept up to date while it is back at work too (a fix pushed: the problem goes away), so its

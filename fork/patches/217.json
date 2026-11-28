@@ -1,0 +1,20 @@
+{
+  "issue": 217,
+  "name": "Needs you only when it's yours",
+  "files": [
+    "mods/tasks/bin/herdr_task/cutoff.py",
+    "mods/tasks/bin/herdr_task/ready_again.py",
+    "mods/tasks/bin/herdr_task/github.py",
+    "mods/tasks/bin/herdr_task/ghnews.py",
+    "mods/tasks/bin/herdr_task/ghbatch.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "templates/worker.md",
+    "fork/specs/needs-only-yours.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::NeedsOnlyYours",
+    "test/test_herdr_task.py::BackToWork",
+    "test/test_herdr_task.py::MergedWhileWaiting"
+  ]
+}
