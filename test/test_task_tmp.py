@@ -73,7 +73,7 @@ class TaskTmp(unittest.TestCase):
         t = {"id": 254}
         p = task_tmp.ensure(self.s, t)
         self.assertEqual(os.path.dirname(p), os.path.join(self.store, ".tmp"))
-        self.assertRegex(os.path.basename(p), r"^shop-254-[0-9a-f]{4}$")
+        self.assertRegex(os.path.basename(p), r"^[0-9a-z]{6}$")
         self.assertTrue(os.path.isdir(p))
         self.assertEqual(stat.S_IMODE(os.stat(p).st_mode), 0o700)
         self.assertEqual(t["tmp"], p)
@@ -85,10 +85,11 @@ class TaskTmp(unittest.TestCase):
         # two lists with the same prefix never share one
         self.assertNotEqual(p, task_tmp.ensure(FakeStore(slug="home-other-shop"), {"id": 254}))
 
-    def test_shepherdrs_cache_folder_without_a_throwaway_store(self):
+    def test_a_short_folder_in_the_home_without_a_throwaway_store(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERDR_TASK_STORE")
-            self.assertEqual(task_tmp.root(), os.path.join(task_tmp.WHERE.roots["cache"], "tmp"))
+            self.assertEqual(task_tmp.root(), os.path.join(task_tmp.WHERE.home, ".shep-tmp"))
+            self.assertEqual(task_tmp.roots(), [task_tmp.root(), os.path.join(task_tmp.WHERE.roots["cache"], "tmp")])
 
     def test_its_variables(self):
         self.assertEqual(task_tmp.env_for("/x/t"), ["TMPDIR=/x/t", "TMP=/x/t", "TEMP=/x/t"])
@@ -243,6 +244,155 @@ class TaskTmp(unittest.TestCase):
         self.assertEqual(os.path.dirname(p), os.path.join(self.store, ".tmp"))
         lists = [json.load(open(os.path.join(self.store, f))) for f in os.listdir(self.store) if f.endswith(".json")]
         self.assertEqual([x.get("tmp") for d in lists for x in d.get("tasks") or []], [p])  # recorded on the task
+
+
+# the longest home task_tmp.MAX_HOME is kept for, made up: macOS's Users folder and a 19-letter name, Linux's home and 20
+LONGEST_HOME = {"darwin": os.path.join(os.sep, "Users", "abcdefghijklmnopqrs"), "linux": os.path.join(os.sep, "home", "abcdefghijklmnopqrst")}
+
+
+class ShortTaskTmp(unittest.TestCase):
+    """The folder is short enough for the Unix sockets tools make in TMPDIR (#216's second fix), and the long ones
+    older copies made in the cache folder are still removed and swept. A throwaway home and store, no
+    HERDR_TASK_STORE (so the home's own root), hc faked."""
+
+    def setUp(self):
+        from herdr_task import layout
+        self.home = tempfile.mkdtemp(prefix="tasktmp-home-")
+        self.store = os.path.join(self.home, "store")
+        os.makedirs(self.store)
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.where = layout.Where(home=self.home, env={}, mac=False)
+        self.live = set()
+        env = {k: v for k, v in os.environ.items() if k != "HERDR_TASK_STORE"}
+        for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.object(task_tmp, "STORE", self.store),
+                  mock.patch.object(task_tmp, "WHERE", self.where), mock.patch.object(task_tmp, "hc_json", self.hc_json)):
+            p.start()
+            self.addCleanup(p.stop)
+        self.s = FakeStore()
+        self.old_root = os.path.join(self.home, ".cache", "shepherdr", "tmp")
+
+    def hc_json(self, *args):
+        key = args[2].split("=", 1)[1]
+        return {"terminals": [{"address": "t1", "state": "live"}] if key in self.live else []}
+
+    def old_folder(self, t, name):
+        """A folder as the copy before this one made it: the cache folder's tmp/, a long name, recorded on the task."""
+        p = os.path.join(self.old_root, name)
+        os.makedirs(p, mode=0o700)
+        t["tmp"] = p
+        return p
+
+    def test_the_folder_leaves_room_for_a_socket_with_the_longest_home(self):
+        """/Users/ and a 19-letter name, /home/ and 20: TMPDIR and SOCKET_ROOM more bytes stay under each OS's
+        socket limit; the cache folder older copies used did not, on either."""
+        from herdr_task import layout
+        for os_name, home in (("darwin", LONGEST_HOME["darwin"]), ("linux", LONGEST_HOME["linux"])):
+            with self.subTest(os=os_name):
+                self.assertEqual(len(home), task_tmp.MAX_HOME)
+                w = layout.Where(home=home, env={}, mac=os_name == "darwin")
+                with mock.patch.object(task_tmp, "WHERE", w):
+                    p = task_tmp.path_for(FakeStore(slug="a-very-long-list-name-" * 3, prefix="LONGPREFIX"), {"id": 123456})
+                    self.assertTrue(p.startswith(home + "/.shep-tmp/"), p)
+                    self.assertLessEqual(len(p.encode()) + task_tmp.SOCKET_ROOM, task_tmp.SOCKET_MAX[os_name], p)
+                    old = os.path.join(task_tmp.roots()[1], "longprefix-123456-abcd")
+                    self.assertGreater(len(old.encode()) + task_tmp.SOCKET_ROOM, task_tmp.SOCKET_MAX[os_name], old)
+
+    def test_a_socket_binds_in_a_task_folder_of_the_longest_home(self):
+        """For real on this machine: a socket at SOCKET_ROOM bytes past a TMPDIR as long as the longest home's."""
+        import socket
+        if not hasattr(socket, "AF_UNIX"):
+            self.skipTest("no Unix sockets")
+        longest = len(os.path.join(LONGEST_HOME["darwin"], task_tmp.ROOT_NAME, "")) + 6
+        base = os.path.realpath(tempfile.mkdtemp(prefix="s", dir="/tmp" if os.path.isdir("/tmp") else None))
+        self.addCleanup(shutil.rmtree, base, True)
+        if len(base) + 2 > longest:
+            self.skipTest("the machine's temp folder is already longer than that")
+        tmpdir = os.path.join(base, "x" * (longest - len(base) - 1))
+        os.makedirs(tmpdir)
+        self.assertEqual(len(tmpdir), longest)
+        sock = os.path.join(tmpdir, "s" * (task_tmp.SOCKET_ROOM - 1))
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as srv:
+            srv.bind(sock)
+
+    def test_its_name_is_six_letters_and_digits_for_any_key_and_never_an_older_copys(self):
+        a = task_tmp.name_for("home-dev-shop", "SHOP-1")
+        self.assertRegex(a, r"^[0-9a-z]{6}$")
+        self.assertRegex(task_tmp.name_for("x" * 200, "VERYLONGPREFIX-99999999"), r"^[0-9a-z]{6}$")
+        self.assertNotEqual(a, task_tmp.name_for("home-other-shop", "SHOP-1"))
+        self.assertNotEqual(a, task_tmp.name_for("home-dev-shop", "SHOP-2"))
+        self.assertTrue(task_tmp.NAME.match(a) and task_tmp.NAME.match("sd-254-9f3a"))
+
+    def test_the_homes_folder_is_owner_only_and_skipped_by_backups(self):
+        p = task_tmp.ensure(self.s, {"id": 1})
+        r = os.path.join(self.home, ".shep-tmp")
+        self.assertEqual(os.path.dirname(p), r)
+        self.assertEqual(stat.S_IMODE(os.stat(r).st_mode), 0o700)
+        with open(os.path.join(r, "CACHEDIR.TAG")) as f:
+            self.assertTrue(f.read().startswith("Signature: 8a477f597d28d172789f06886806bc55"))
+
+    def test_an_install_of_its_own_keeps_them_in_its_folder(self):
+        from herdr_task import layout
+        one = os.path.join(self.home, "one")
+        with mock.patch.object(task_tmp, "WHERE", layout.Where(home=self.home, env={"SHEPHERDR_HOME": one}, mac=False)):
+            self.assertEqual(task_tmp.roots(), [os.path.join(one, ".shep-tmp"), os.path.join(one, "cache", "tmp")])
+
+    def test_an_install_of_its_own_in_the_home_never_sweeps_the_persons_own_folders(self):
+        """SHEPHERDR_HOME=$HOME: today's root is still ~/.shep-tmp, never ~/tmp, and the old one (~/cache/tmp,
+        maybe the person's own) gives up only folders a task records; a name we never give is never touched."""
+        from herdr_task import layout
+        old = time.time() - 2 * task_tmp.STALE_S
+        mine = [os.path.join(self.home, *p) for p in (("tmp", "notes"), ("tmp", "k3x9q2"), ("cache", "tmp", "notes-2024"),
+                                                       ("cache", "tmp", "photos"), (".shep-tmp", "My Notes"))]
+        for p in mine:
+            os.makedirs(p)
+            os.utime(p, (old, old))
+        t = {"id": 1, "state": "done", "done_at": 1, "ended_at": 2}
+        recorded = os.path.join(self.home, "cache", "tmp", "shop-1-abcd")
+        os.makedirs(recorded)
+        t["tmp"] = recorded
+        with open(os.path.join(self.store, "home-dev-shop.json"), "w") as f:
+            json.dump({"folder": "/nowhere", "tasks": [t]}, f)
+        with mock.patch.object(task_tmp, "WHERE", layout.Where(home=self.home, env={"SHEPHERDR_HOME": self.home}, mac=False)):
+            self.assertEqual(task_tmp.root(), os.path.join(self.home, ".shep-tmp"))
+            self.assertEqual(task_tmp.sweep(force=True), ["shop-1-abcd"])
+        for p in mine:
+            self.assertTrue(os.path.isdir(p), p)
+
+    def test_an_older_copys_folder_is_still_removed_and_swept(self):
+        done = {"id": 1, "state": "done", "done_at": 1, "ended_at": 2}
+        running = {"id": 2, "state": "running"}
+        a, b = self.old_folder(done, "shop-1-abcd"), self.old_folder(running, "shop-2-abcd")
+        stray = os.path.join(self.old_root, "shop-3-abcd")
+        os.makedirs(stray)
+        old = time.time() - 2 * task_tmp.STALE_S
+        os.utime(stray, (old, old))
+        with open(os.path.join(self.store, "home-dev-shop.json"), "w") as f:
+            json.dump({"folder": "/nowhere", "tasks": [done, running]}, f)
+        self.assertEqual(sorted(task_tmp.sweep(force=True)), ["shop-1-abcd", "shop-3-abcd"])
+        self.assertTrue(os.path.isdir(b))
+        self.assertFalse(os.path.lexists(a))
+        self.assertTrue(task_tmp.remove(self.s, running))
+        self.assertFalse(os.path.lexists(b))
+        self.assertNotIn("tmp", running)
+
+    def test_a_start_moves_a_task_to_the_short_folder_once_nothing_uses_its_old_one(self):
+        t = {"id": 4, "state": "running"}
+        old = self.old_folder(t, "shop-4-abcd")
+        self.live = {self.s.key(t)}
+        self.assertEqual(task_tmp.ensure(self.s, t), old)  # its agent still runs in it: kept
+        self.assertTrue(os.path.isdir(old))
+        self.live = set()
+        new = task_tmp.ensure(self.s, t)
+        self.assertEqual(new, os.path.join(self.home, ".shep-tmp", task_tmp.name_for(self.s.slug, "SHOP-4")))
+        self.assertEqual(t["tmp"], new)
+        self.assertFalse(os.path.lexists(old))
+
+    def test_a_record_pointing_elsewhere_is_never_removed_on_a_move(self):
+        keep = os.path.join(self.home, "keep")
+        os.makedirs(keep)
+        t = {"id": 5, "tmp": keep}
+        self.assertNotEqual(task_tmp.ensure(self.s, t), keep)
+        self.assertTrue(os.path.isdir(keep))
 
 
 class TaskAgentEnv(unittest.TestCase):
@@ -482,6 +632,21 @@ class RunInATasksTemp(unittest.TestCase):
         os.makedirs(os.path.join(self.home, ".config", "shepherdr"), exist_ok=True)
         os.symlink(os.path.join(self.home, ".config", "shepherdr"), link)
         self.assertRefused(os.path.join(link, "settings.json"))  # a link out of the run's folder leads where it lands
+
+    def test_a_run_in_a_short_task_folder_opens_its_own_and_nothing_beside(self):
+        """Today's task folders are in ~/.shep-tmp: the same rules as in the cache folder older copies used."""
+        tempfile.tempdir = shared = os.path.join(self.home, ".shep-tmp", "k3x9q2")
+        os.makedirs(shared)
+        run = home_guard.start_run()
+        self.assertEqual(os.path.dirname(run), shared)
+        self.write(os.path.join(run, "tmp", "a"))
+        self.write(os.path.join(shared, "beside"))
+        for p in (".shep-tmp/zz00zz/x", ".shep-tmp/x", ".cache/shepherdr/tmp/sd-2-efgh/x"):
+            with self.subTest(p=p):
+                self.assertRefused(os.path.join(self.home, p))
+        home_guard.OWN.clear()
+        home_guard.own(shared=os.path.join(self.home, ".shep-tmp"))  # the whole folder is never one task's
+        self.assertEqual(home_guard.OWN, [])
 
     def test_a_whole_guarded_folder_as_tmpdir_stays_guarded(self):
         tempfile.tempdir = shared = os.path.join(self.home, ".cache", "shepherdr")

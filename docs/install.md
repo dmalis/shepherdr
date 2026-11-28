@@ -139,7 +139,8 @@ lists the hosts it could try, and tries each once only with `--go`.
 ~/.config/shepherdr/          settings.json, model-picks.json
 ~/.local/share/shepherdr/     tasks/, artifacts/, secrets/ (owner-only), worktrees/, and Shepherdr's own code
 ~/.local/state/shepherdr/     service/ (its token and log), browser/ (the agents' sign-ins), secret-drop/
-~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr), tmp/ (tasks' temp folders)
+~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr)
+~/.shep-tmp/                  tasks' temp folders (owner-only, safe to delete when no task runs)
 ```
 
 `SHEPHERDR_HOME=<folder>` puts all four under `<folder>/{config,data,state,cache}`. Otherwise `XDG_CONFIG_HOME`,
@@ -153,8 +154,15 @@ there: at once when it finishes with its agents ended, else at the scheduler's n
 uncommitted changes, a terminal open in it, or commits after the merge that main doesn't have (offered as a follow-up)
 stays, and is looked at again every hour; one made Done by hand with its work unmerged stays until you remove it.
 
-Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
-made when its agent starts, or when you open the task's terminal first. Its agent and that terminal get it as `TMPDIR`,
+Each task gets a temp folder of its own, `~/.shep-tmp/<task>` (on macOS too; `<task>` is a short code, like
+`k3x9q2`), made when its agent starts, or when you open the task's terminal first. It is kept short on purpose: tools
+make sockets in their temp folder (tmux, ssh, language servers, test runners), and a socket's path can't be longer
+than about 100 bytes, so a longer folder, like the cache folder copies before this used (`~/.cache/shepherdr/tmp`,
+macOS `~/Library/Caches/shepherdr/tmp`), made them fail. A task that still has one there moves to the short one at
+its next start (or when you open its terminal), and Shepherdr still removes the old ones. Only you can open
+`~/.shep-tmp`, and backup tools that honour `CACHEDIR.TAG` skip it. With `SHEPHERDR_HOME` set, it is
+`$SHEPHERDR_HOME/.shep-tmp` instead. It has room for a socket's name of 60 bytes with a home folder up to 26 bytes long
+(`/Users/` and a 19-letter name). Its agent and that terminal get it as `TMPDIR`,
 `TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust
 all use `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
 Shepherdr never deletes it while something uses it: the task's agents, their helpers, or its terminal in the web app.

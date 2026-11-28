@@ -28,18 +28,23 @@ export function shellArgv(at: ShellAt): string[] {
   return at.tmp ? ["--", "sh", "-c", TMP_SHELL, "herdr-shell", at.tmp] : [];
 }
 
-/** A task's temp folder for its terminal: the one it has, else herdr-task makes it now (its agent hasn't started).
- *  Null when that fails (an older herdr-task there): the shell then uses the machine's own, as before. */
+/** An older copy's task temp folder (sd-254-9f3a, in the cache folder, too long for sockets): task_tmp.py's names now
+ *  never have a dash. */
+export const olderTmp = (p: string) => (p.split("/").pop() || "").includes("-");
+
+/** A task's temp folder for its terminal: the one it has, else herdr-task makes it now (its agent hasn't started),
+ *  or moves an older copy's to the short one once nothing uses it (it answers the old one while something does).
+ *  Null when that fails (an older herdr-task there): the shell then uses the one it has, or the machine's own. */
 export async function taskTmp(at: ShellAt): Promise<string | null> {
-  if (at.tmp || !at.task) return at.tmp ?? null;
+  if (!at.task || (at.tmp && !olderTmp(at.tmp))) return at.tmp ?? null;
   try {
     const p = spawn([process.env.SHEPHERDR_HERDR_TASK || "herdr-task", ...(at.machine ? ["--on", at.machine] : []), "_task-tmp", at.task.id, "--folder", at.task.folder], { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
     const out = await new Response(p.stdout).text();
-    if ((await p.exited) !== 0) return null;
+    if ((await p.exited) !== 0) return at.tmp ?? null;
     const tmp = JSON.parse(out.trim().split("\n").pop() || "null")?.tmp;
-    return typeof tmp === "string" && tmp ? tmp : null;
+    return typeof tmp === "string" && tmp ? tmp : at.tmp ?? null;
   } catch {
-    return null;
+    return at.tmp ?? null;
   }
 }
 
