@@ -1,0 +1,24 @@
+{
+  "issue": 247,
+  "name": "The guard on every agent",
+  "files": [
+    "mods/tasks/bin/herdr_task/guard.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/revive.py",
+    "mods/tasks/bin/herdr_task/self_update.py",
+    "core/clean-env.js",
+    "core/clean-env.test.js",
+    "service/restart.sh",
+    "bin/shepherdr",
+    "docs/guard.md",
+    "docs/develop.md",
+    "docs/agents-and-terms.md",
+    "test/test_guard.py"
+  ],
+  "tests": [
+    "test/test_guard.py",
+    "test/test_self_update.py",
+    "test/test_restart.py",
+    "core/clean-env.test.js"
+  ]
+}

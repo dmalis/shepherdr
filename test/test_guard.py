@@ -380,7 +380,9 @@ class RealCore(unittest.TestCase):
         n = f"{os.getpid()}{int(time.time()) % 100000}"
         self.live, self.try_ = f"shep323live{n}", f"shep323try{n}"
         # a clean environment: the throwaway HOME, no terminal of the real core
-        self.env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], "TERM": "xterm"}
+        # (and no guard folder of the terminal this runs in on PATH)
+        path = ":".join(d for d in os.environ["PATH"].split(":") if not d.rstrip("/").endswith(os.path.join(".guard", "bin")))
+        self.env = {"HOME": os.environ["HOME"], "PATH": path, "TERM": "xterm"}
         for s in (self.live, self.try_):
             self.addCleanup(self.hc, s, "server", "stop")
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -399,21 +401,39 @@ class RealCore(unittest.TestCase):
         except ValueError:
             return {}
 
-    def replay(self, guarded):
+    def replay(self, guarded, start="task", reviewer=False):
+        """start: how Shepherdr starts the agent: "task" (launch's guard_argv) or "assistant" (the service's one sh
+        line, GUARD_SH, with this checkout's herdr-task). reviewer: first, the agent starts a reviewer the way a
+        worker does (`hc run --bg … --label herdr.role=reviewer -- <command>`), which tries a bare stop itself."""
         out = os.path.join(self.tmp, "out")
         script = os.path.join(self.tmp, "agent.sh")
+        rev = os.path.join(self.tmp, "reviewer.sh")
+        with open(rev, "w") as f:
+            f.write(f'hc server stop >/dev/null 2>{out}.rev; echo "reviewer stop: $?" >> {out}\n')
+        first = (f"hc run --bg --name rv --label herdr.task=x --label herdr.role=reviewer -- sh {rev} >/dev/null 2>&1\n"
+                 f'for i in $(seq 50); do grep -q reviewer {out} 2>/dev/null && break; sleep 0.2; done\n') if reviewer else ""
         with open(script, "w") as f:
             # each line a shell of its own, as an agent's tool calls are
-            f.write(f"""
+            f.write(f"""{first}
 sh -c 'export HC_SESSION={self.try_}; unset HC_TERMINAL_SOCKET; hc run --bg --name p1 -- sleep 30 >/dev/null 2>&1'
 sh -c 'hc server stop >/dev/null 2>{out}.err; echo "bare stop: $?" >> {out}'
 sh -c 'HC_SESSION={self.try_} hc server stop >/dev/null 2>&1; echo "throwaway stop: $?" >> {out}'
 echo done >> {out}
 """)
         argv = ["sh", script]
-        if guarded:
+        path = self.env["PATH"]
+        if guarded and start == "task":
             argv = guard.guard_argv(argv, self.live, os.path.join(self.tmp, "store"))
-        argv = ["env", f"PATH={self.env['PATH']}", *argv]   # as the person's shell gives it its PATH
+        elif guarded:
+            bin_ = os.path.join(self.tmp, "bin")
+            os.makedirs(bin_)
+            with open(os.path.join(bin_, "herdr-task"), "w") as f:
+                f.write(f'#!/bin/sh\nHERDR_TASK_STORE={self.tmp}/store exec {sys.executable} '
+                        f'{os.path.join(ROOT, "mods", "tasks", "bin", "herdr-task")} "$@"\n')
+            os.chmod(os.path.join(bin_, "herdr-task"), 0o755)
+            path = f"{bin_}:{path}"   # this checkout's herdr-task, not an installed older one
+            argv = ["sh", "-c", f'{guard.GUARD_SH} exec "$@"', "herdr-assistant", *argv]
+        argv = ["env", f"PATH={path}", *argv]   # as the person's shell gives it its PATH
         r = self.hc(self.live, "run", "--bg", "--name", "agent", "--", *argv)
         self.assertEqual(r.returncode, 0, r.stderr)
         for _ in range(150):
@@ -435,6 +455,18 @@ echo done >> {out}
         self.assertIn("bare stop: 77", said)
         self.assertIn("throwaway stop: 0", said)
         self.assertEqual(self.status(self.live).get("pid"), self.pid)   # the same core, still up
+
+    def test_247_an_assistant_and_the_reviewer_it_starts_keep_the_live_core_up(self):
+        said = self.replay(True, start="assistant", reviewer=True)
+        self.assertIn("reviewer stop: 77", said)
+        self.assertIn("bare stop: 77", said)
+        self.assertIn("throwaway stop: 0", said)
+        self.assertEqual(self.status(self.live).get("pid"), self.pid)
+
+    def test_247_a_tasks_reviewer_keeps_the_live_core_up(self):
+        said = self.replay(True, reviewer=True)
+        self.assertIn("reviewer stop: 77", said)
+        self.assertEqual(self.status(self.live).get("pid"), self.pid)
 
     def test_without_it_the_bare_stop_takes_the_live_core_down(self):
         # the bug, reproduced on the stand-in: the stop lands on the session the terminal runs in
