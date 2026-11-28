@@ -87,6 +87,10 @@ jobs:
         # fork #144: web/demo/reading-check.ts scrolls back through a chat and a task's thread: the tabs go, the box
         # folds, the view stays; a scroll down, a tap or focus brings them back; nothing with a draft
         run: bun web/demo/reading-check.ts
+      - name: either reduced-motion switch alone stops every move (the built demo, phone and desktop)
+        # fork/specs/ui-polish.md slice 5: web/demo/motion-check.ts opens a menu, a sheet and the spaces list, folds a
+        # machine, drags a row and taps a suggested reply under each switch alone, in the runner's own Chrome
+        run: bun web/demo/motion-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.

@@ -175,9 +175,9 @@ test('a short reply ("1") gets a bubble at least the send button and a fingertip
 test('every bubble looks the same: no filled first pick or other variant at rest', () => {
   const css = read('../../src/ds.css')
   // only the bubble's own rule, the touch size, a mouse's hover and the keyboard's focus ring style a bubble; a press
-  // and a tapped one lifting away as it sends (SHEP-450) are not at rest
+  // and a tapped one lifting away as it sends (SHEP-450) are not at rest, nor Motion › Reduced stopping that lift
   const rules = [...css.matchAll(/([^{}]*\.sug\b[^{}]*)\{/g)].map((m) => m[1]!.trim().replace(/^.*\*\/\s*/s, ''))
-  for (const r of rules) expect(r).toMatch(/^(\.sug|\.app\.tap \.sug|\.sug:hover|\.sug:focus-visible|\.sug:active|\.sug\.go)$/)
+  for (const r of rules) expect(r).toMatch(/^(\.sug|\.app\.tap \.sug|\.sug:hover|\.sug:focus-visible|\.sug:active|\.sug\.go|:root\[data-motion="reduced"\] \.sug\.go)$/)
   // and the code gives each the same class
   const row = chat.slice(chat.indexOf('export function Replies('), chat.indexOf('export function pickOf('))
   expect(row).not.toMatch(/primary|'pri'/)

@@ -12,7 +12,7 @@ import { partsOf, placeOutgoing, placesOf, keyOf, readNow, showsAs, type Outgoin
 import { confirm, openMenu } from '@client/overlay.tsx'
 import { AgentLine, openPicker, pickFor, pickWords, reportedPick, type Pick } from '@client/picker.tsx'
 import { attach, detach, dropOut, retry, reupload, send } from '@client/send.ts'
-import { still } from '@client/motion.ts'
+import { calm } from '@client/motion.ts'
 import { ActBtn, ActError, Btn, cx, Empty, I, IB, useCardActs, useGrow } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
 import { isImage, isVideo } from '@shared/files.ts'
@@ -703,8 +703,7 @@ function Messages({ thread }: { thread: Thread }) {
     const stopReturning = onPageReturn(reopen)
     const off = onEnd(thread.chat, reopen)
     const offAsk = onAsk(thread.chat, () => {
-      const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-      asksBelow(sc)[0]?.scrollIntoView({ block: 'center', behavior: still ? 'instant' : 'smooth' })
+      asksBelow(sc)[0]?.scrollIntoView({ block: 'center', behavior: calm() ? 'instant' : 'smooth' })
     })
     return () => {
       sc.removeEventListener('scroll', on)
@@ -1043,7 +1042,7 @@ function Reply({ text, onSend, onEdit }: { text: string; onSend: (t: string) => 
   const [going, setGoing] = useState(false)
   const leave = () => {
     if (going) return
-    if (still()) return onSend(text)
+    if (calm()) return onSend(text)
     setGoing(true)
     setTimeout(() => onSend(text), SUG_GO_MS)
   }

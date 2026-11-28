@@ -10,11 +10,14 @@
 - a monospace stack written out in `font:` or `font-family:` instead of `var(--mono)`, and a z-index above a
   component's own 1 to 3 (or under -1) written as a number instead of a `--z-` layer;
 - the grey of second lines (`--muted`) at 4.5:1 on the page, a field, an agent's bubble and your own, in light, the
-  device's dark, Dark and Night.
+  device's dark, Dark and Night;
+- reduced motion: whatever moves (a transform, or a box's size or place, in a transition or an animation) has a rule
+  that stops it under each switch alone, the device's and Settings › General › Motion's, and script asks calm().
 
 What each file holds today is its cap below: a count may go down, never up, and a new file starts at none. A cap above
 what a file holds fails too, so lower it with the change that removed some. Moving rules to another file moves their
-cap with them. Reduced motion, idle work and contrast on other states are checked in the browser, not here."""
+cap with them. Reduced motion as it plays (web/demo/motion-check.ts), idle work and contrast on other states are
+checked in the browser."""
 import home_guard  # noqa: F401  (first: a throwaway HOME)
 
 import os
@@ -420,6 +423,229 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample(sizes, inline_off_scale, ".tsx"), 2)
         branch = "<a style={{ fontSize: phone ? 'var(--ui)' : 11 }} /><b style={{ fontSize: width >= 768 ? 14 : 16 }} />"
         self.assertEqual(self.sample(branch, inline_off_scale, ".tsx"), 1)
+
+    def test_moves(self):
+        kf = {"spin", "rise"}
+        n = lambda css: len(moves([d for _, _, decls in self.sample(css, styled) for d in decls], kf))  # noqa: E731
+        self.assertEqual(n(".a{transition:transform .2s ease}.b{transition:opacity .2s,background-color .1s}"), 1)
+        self.assertEqual(n(".a{transition:.2s}.b{transition:visibility 0s .2s}.c{transition:none!important}"), 1)  # all
+        self.assertEqual(n(".a{transition:opacity .1s,transform 160ms cubic-bezier(.2,0,0,1)}.b{transition-property:height}"), 2)
+        self.assertEqual(n(".a{animation:spin 1s linear infinite}.b{animation:fade .2s}.c{animation-name:rise}"), 2)
+        self.assertEqual(n(".a{animation:none}.b{animation:spin 0s}"), 0)
+        self.assertEqual(self.sample("@keyframes up{from{transform:none}}@keyframes in{50%{opacity:.5}}", styled)[0][1], ["@keyframes up"])
+
+    def test_stops(self):
+        k = {"rxpop"}
+        self.assertEqual(stops([("animation", "none")], k), {"animation"})
+        self.assertEqual(stops([("animation-duration", "0s")], k), {"animation"})
+        self.assertEqual(stops([("animation", "fade .18s")], k), {"animation"})
+        self.assertEqual(stops([("transition", "none!important")], k), {"transition"})
+        self.assertEqual(stops([("transition", "background-color .12s ease")], k), {"transition"})
+        self.assertEqual(stops([("opacity", ".99")], k), set())  # names the selector, leaves its pop running
+        self.assertEqual(stops([("animation-delay", ".4s")], k), set())
+        self.assertEqual(stops([("transform", "none")], k), set())
+        self.assertEqual(stops([("animation", "rxpop 280ms")], k), set())
+        self.assertEqual(stops([("transition", "transform .2s")], k), set())
+
+    def test_covers(self):
+        self.assertTrue(covers(".settle", ".tslide .settle"))
+        self.assertTrue(covers(".settle", ".bmv.settle"))
+        self.assertTrue(covers(".a>.b", ".a>.b"))
+        self.assertFalse(covers(".a .b", ".c .b"))
+        self.assertFalse(covers(".b.c", ".a .b"))
+        self.assertFalse(covers(".grp", ".grp .i"))
+        self.assertTrue(covers(".app.phone .bar", ".reading .app.phone .bar"))
+        self.assertFalse(covers(".app.phone .bar", ".app.phone .bar.x"))
+        self.assertFalse(covers(".phone .bar", ".app.phone .bar"))
+        self.assertEqual(REDUCED.sub("", ':root[data-motion=""] .x'), ".x")  # as bare() leaves it
+        self.assertEqual(REDUCED.sub("", 'html[data-motion=""]'), "")
+
+
+def styled(rel):
+    """(selector, the at-rules around it, its own declarations) of each style rule in a stylesheet, nested ones and
+    keyframe steps included"""
+    out, stack, piece = [], [], ""
+    for ch in bare(rel):
+        if ch == "{":
+            stack.append((" ".join(piece.split()), []))
+            piece = ""
+        elif ch in ";}":
+            if ":" in piece and stack and not stack[-1][0].startswith("@"):
+                prop, value = piece.split(":", 1)
+                stack[-1][1].append((prop.strip().lower(), value.strip()))
+            piece = ""
+            if ch == "}" and stack:
+                head, decls = stack.pop()
+                if not head.startswith("@"):
+                    out.append((head, [h for h, _ in stack if h.startswith("@")], decls))
+        else:
+            piece += ch
+    return out
+
+
+# what moves the page when it changes: a transform, or the size and place of a box
+MOVES = re.compile(r"^(?:transform|translate|scale|rotate|all|width|height|(?:min|max)-(?:width|height)|top|left|right|"
+                   r"bottom|inset(?:-[\w-]+)?|margin(?:-[\w-]+)?|padding(?:-[\w-]+)?|grid-template-(?:rows|columns))$")
+TIME = re.compile(r"^-?[0-9.]+m?s$")
+REDUCED = re.compile(r"^(?::root|html)\[data-motion=(?:\"\"|\"reduced\"|reduced)\]\s*")
+
+
+def commas(value):
+    """a value's items at its own commas, not those inside cubic-bezier() or var()"""
+    return selectors(value)
+
+
+def moving_keyframes():
+    """the names of the app's keyframes that move something (not those that only fade)"""
+    out = set()
+    for rel in files(".css"):
+        for _, ats, decls in styled(rel):
+            for at in ats:
+                m = re.match(r"@(?:-webkit-)?keyframes\s+([\w-]+)", at)
+                if m and any(MOVES.match(p) for p, _ in decls):
+                    out.add(m.group(1))
+    return out
+
+
+def moves(decls, keyframes):
+    """the declarations of a rule that make something move: a transition of a transform or a box's size or place
+    that takes time, or an animation whose keyframes move"""
+    out = []
+    for prop, value in decls:
+        value = re.sub(r"\s*!important$", "", value)
+        if prop == "transition":
+            for item in commas(value):
+                words = item.split()
+                times = [w for w in words if TIME.match(w)]
+                names = [w for w in words if not TIME.match(w) and not re.match(r"^(?:ease|linear|step|cubic-bezier|allow)", w)]
+                if names[:1] == ["none"] or not times or float(re.sub(r"m?s$", "", times[0])) == 0:
+                    continue
+                if MOVES.match(names[0] if names else "all"):
+                    out.append(f"transition: {item}")
+        elif prop == "transition-property":
+            out += [f"transition-property: {n}" for n in commas(value) if MOVES.match(n.strip())]
+        elif prop in ("animation", "animation-name"):
+            for item in commas(value):
+                words = item.split()
+                times = [w for w in words if TIME.match(w)]
+                if prop == "animation" and (not times or float(re.sub(r"m?s$", "", times[0])) == 0):
+                    continue  # no duration, or none: it never runs
+                out += [f"{prop}: {item}" for w in words if w in keyframes]
+    return out
+
+
+STOPPERS = {"transition": ("transition", "transition-property", "transition-duration"),
+            "animation": ("animation", "animation-name", "animation-duration")}
+
+
+def stops(decls, keyframes):
+    """what a reduced rule stops: "transition" when it sets the transition again to one that moves nothing (none, a
+    fade, no time), "animation" the same for the animation; a delay or a transform alone stops neither"""
+    left = {m.split(":")[0].split("-")[0] for m in moves(decls, keyframes)}
+    return {kind for kind, props in STOPPERS.items() if kind not in left and any(p in props for p, _ in decls)}
+
+
+def reduced_rules():
+    """the selectors each switch writes its own rules for: the device's (@media (prefers-reduced-motion: reduce)) and
+    Settings › General › Motion's (html[data-motion="reduced"]), each without what says which and with what its rules
+    stop (stops()), and the rules themselves; html and :root are one"""
+    keyframes = moving_keyframes()
+    device, setting, rules_ = {}, {}, []
+    for rel in files(".css"):
+        for head, ats, decls in styled(rel):
+            in_media = any(re.search(r"prefers-reduced-motion\s*:\s*reduce", a) for a in ats)
+            for sel in selectors(head):
+                if in_media:
+                    device.setdefault(re.sub(r"^(?::root|html)\s+", "", re.sub(r"^:root$", "html", sel)), set()).update(stops(decls, keyframes))
+                    rules_.append((rel, sel, decls))
+                elif REDUCED.match(sel):
+                    setting.setdefault(REDUCED.sub("", sel) or "html", set()).update(stops(decls, keyframes))
+                    rules_.append((rel, sel, decls))
+    return device, setting, rules_
+
+
+def compound(sel):
+    """the simple selectors of a selector's last compound (`.a > .b.c:active` → .b, .c, :active), and whether it has
+    no combinator of its own"""
+    parts = re.split(r"\s*[>+~]\s*|\s+(?![^(]*\))", sel.strip())
+    last = parts[-1]
+    return set(re.findall(r"[.#]?[\w-]+|\[[^\]]+\]|::?[\w-]+(?:\([^)]*\))?", last)), len(parts) == 1
+
+
+def covers(over, sel):
+    """a reduced rule written for `over` reaches what `sel` styles: the same selector, or one compound naming less
+    (`.settle` reaches `.tslide .settle`), or the same selector inside another (`.a .b` reaches `.c .a .b`)"""
+    if over == sel or sel.endswith(" " + over):
+        return True
+    mine, alone = compound(over)
+    theirs, _ = compound(sel)
+    return alone and bool(mine) and mine <= theirs
+
+
+def moving_without_cover():
+    """each selector whose rule moves something, outside a reduced rule, that one of the two switches doesn't stop: a
+    reduced rule reaching it (covers()) has to stop that kind of move (stops()), not only name it"""
+    keyframes = moving_keyframes()
+    device, setting, _ = reduced_rules()
+    out = []
+    for rel in files(".css"):
+        for head, ats, decls in styled(rel):
+            if any(a.startswith(("@keyframes", "@-webkit-keyframes")) for a in ats):
+                continue
+            if any(re.search(r"prefers-reduced-motion", a) for a in ats):
+                continue
+            what = moves(decls, keyframes)
+            if not what:
+                continue
+            for sel in selectors(head):
+                if REDUCED.match(sel):
+                    continue
+                for name, under in (("the device's setting", device), ("Motion › Reduced", setting)):
+                    for w in what:
+                        kind = w.split(":")[0].split("-")[0]
+                        if not any(kind in stopped and covers(o, sel) for o, stopped in under.items()):
+                            out.append(f"{rel}: {sel} ({w}) moves under {name}")
+                            break
+    return out
+
+
+SCRIPTS = ("web/src", "web/plugins", "web/shared")
+
+
+class ReducedMotion(unittest.TestCase):
+    """docs/design.md, Motion: when the device asks for less (prefers-reduced-motion) or Settings › General › Motion is
+    Reduced (html[data-motion="reduced"]), nothing slides, grows or spins. Either switch alone is enough, in CSS and in
+    script. web/demo/motion-check.ts checks the same in a browser."""
+
+    def test_both_switches_stop_the_same_rules(self):
+        device, setting, _ = reduced_rules()
+        self.assertEqual(sorted(device.keys() - setting.keys()), [], 'stopped for the device only: add an html[data-motion="reduced"] rule')
+        self.assertEqual(sorted(setting.keys() - device.keys()), [], "stopped for Motion › Reduced only: add a prefers-reduced-motion rule")
+        self.assertEqual([s for s in device if device[s] != setting[s]], [], "each switch stops the same kinds of move")
+
+    def test_what_moves_stops_under_each(self):
+        self.assertEqual(moving_without_cover(), [])
+
+    def test_a_reduced_rule_moves_nothing(self):
+        keyframes = moving_keyframes()
+        moving = [f"{rel}: {sel} ({what[0]})" for rel, sel, decls in reduced_rules()[2] if (what := moves(decls, keyframes))]
+        self.assertEqual(moving, [], "under reduced motion the change is instant or a fade")
+
+    def test_script_asks_calm(self):
+        # calm() reads both switches; the device's alone (still(), or a matchMedia of its own) leaves the setting out
+        own = []
+        for rel in files(".ts", ".tsx"):
+            if not rel.startswith(SCRIPTS) or rel == "web/src/motion.ts":
+                continue
+            src = code(rel)
+            if "prefers-reduced-motion" in src or re.search(r"\bstill\(\)", src) or re.search(r"dataset\.motion\s*[!=]==", src):
+                own.append(rel)
+        self.assertEqual(own, [], "use calm() from web/src/motion.ts")
+        motion = code("web/src/motion.ts")
+        self.assertNotRegex(motion, r"export\s+const\s+still\b", "still() stays inside motion.ts")
+        calls = [line for line in motion.splitlines() if re.search(r"\bstill\(\)", line)]
+        self.assertEqual(len(calls), 1, calls)
+        self.assertRegex(calls[0], r"^export const calm = \(\) => still\(\) \|\|")
 
 
 def theme(name):
