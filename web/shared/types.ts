@@ -440,6 +440,9 @@ export interface Task {
   archived?: number
   /** when it was pinned (ms): it shows in the Pinned group at the top of its lists */
   pinned?: number
+  /** dmalis/shepherdr#119: the person marked it urgent, "this one first" (web/shared/urgent.ts isUrgent): first in
+   *  Working and Up next, with its mark. None: not urgent (an older service, too) */
+  urgent?: true
   /** the shared browser (the browser plugin), for a task not merged: whether it works on its machine, and if not why */
   browser?: { ready: boolean; hint?: string }
   /** what its row says it is in (3.0's Tasks): the space working in its list's folder, else the list's name */

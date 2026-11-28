@@ -55,6 +55,7 @@ export const IC = {
   "working": "<circle cx=\"10\" cy=\"10\" r=\"6.5\" opacity=\".35\"/><path d=\"M10 3.5a6.5 6.5 0 0 1 6.5 6.5\"/>",
   "next": "<circle cx=\"10\" cy=\"10\" r=\"6.5\"/>",
   "bolt": "<path d=\"M11.5 2 4.5 11.5h4.2L7.7 18l7.8-10h-4.6l.6-6Z\" fill=\"currentColor\" stroke=\"none\"/>",
+  "urgent": "<path d=\"M6.5 3.5h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-7a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3ZM9.1 6.9a.9.9 0 0 1 1.8 0l-.25 4.3a.65.65 0 0 1-1.3 0ZM10 12.45a1.05 1.05 0 1 1 0 2.1 1.05 1.05 0 1 1 0-2.1Z\" fill=\"currentColor\" fill-rule=\"evenodd\" stroke=\"none\"/>",
   "pin": "<path d=\"M7 3.5h6l-1 5 2.5 2.5h-9L8 8.5l-1-5ZM10 11v5.5\"/>",
   "ext": "<path d=\"M11 4h5v5M16 4l-7 7M8 5H4.5v10.5H15V12\"/>",
   "play": "<path d=\"M6.5 4.5v11l9-5.5-9-5.5Z\"/>",

@@ -771,7 +771,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     if (!r || !b.job.startsWith("b:") || !(await r.stopJob(b.job.slice(2)))) throw new Error("It isn't running any more.");
     return { ok: true };
   }
-  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "follow-up" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "task-start" || b?.type === "task-move" || b?.type === "task-rename") && typeof b.chat === "string") {
+  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "follow-up" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "task-start" || b?.type === "task-move" || b?.type === "task-rename" || b?.type === "task-urgent") && typeof b.chat === "string") {
     // a task's row menu: its chat key is "<task>/worker" (or 2.1's "/Agent")
     const t = compat.taskOf(b.chat.split("/")[0]);
     if (!t) throw new Error("That task isn't here any more.");
@@ -878,6 +878,19 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "It wasn't renamed." };
+      return { ok: true };
+    }
+    // dmalis/shepherdr#119: Mark as urgent / Mark as not urgent, on the task's own machine (its list read again at once:
+    // main.ts TASK_ACTS); herdr-task refuses a Done or archived one, with why
+    case "task-urgent": {
+      const { ref, folder, machine } = taskOf(b);
+      if (typeof b.on !== "boolean") throw new Error("bad input");
+      const r = await task(["edit", ref, "--urgent", ...(b.on ? [] : ["off"])], folder, machine);
+      let out: any = null;
+      try { out = JSON.parse(r.stdout); } catch {}
+      // a machine whose herdr-task is older than the mark: its argparse refuses the flag
+      if (r.code !== 0 && /unrecognized arguments:.*--urgent/.test(r.stderr)) return { ok: false, error: `${machine ?? "This computer"} needs Shepherdr's update to mark tasks urgent.` };
+      if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || (b.on ? "It wasn't marked." : "It wasn't unmarked.") };
       return { ok: true };
     }
     // Move to another space: only before the task has started, and on the same machine

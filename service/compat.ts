@@ -531,6 +531,7 @@ export class Compat {
         // the task's browser (agent-browser), relayed for this machine's tasks
         ...(r.machine ? { browser: { ready: false, hint: `This task runs on ${r.machine}. Its browser can be watched only on that machine for now.` } } : { browser: { ready: true } }),
         ...(r.pinned ? { pinned: 1 } : {}),
+        ...(r.urgent ? { urgent: true as const } : {}),
         ...(r.archived ? { archived: r.done_at ?? 1 } : {}),
         // what its agent last said, as the window's task header (mods/chat/panel.js reportLine): working, its words (a
         // provider retry's line first) and minutes left; needing you, frozen with the % it stopped at

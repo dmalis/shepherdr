@@ -733,7 +733,7 @@ const voiceIO: VoiceIO = {
 
 
 /** The person's calls on a task that change its state (its list says so): read again once done (model.reread). */
-const TASK_ACTS = new Set(["accept", "close", "delete", "archive", "reopen", "task-resume", "task-start", "task-move", "task-rename", "schedule"]);
+const TASK_ACTS = new Set(["accept", "close", "delete", "archive", "reopen", "task-resume", "task-start", "task-move", "task-rename", "task-urgent", "schedule"]);
 
 /** One of the web app's actions (an Action, POST /api/action), as the page sends it: a voice call's acts go here too. */
 async function doAction(body: any): Promise<Response> {

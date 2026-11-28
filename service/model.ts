@@ -13,6 +13,7 @@ import { carryOver, IMPORTED } from "./carry-over.ts";
 import { HOME } from "./paths.ts";
 import * as T from "../core/tasks.js";
 import { checksWait } from "../core/checks-wait.js";
+import { isUrgent } from "../web/shared/urgent.ts";
 // dmalis/shepherdr#42: checks' words without the time left (" · about 8 min", " · almost done")
 const sansLeft = (w: unknown) => (typeof w === "string" ? w.replace(/ · (about \d+ min|almost done)$/, "") : w);
 import { FIND } from "../core/chat-log.js";
@@ -362,6 +363,8 @@ export class Model {
         // the space whose Assistant started it (herdr-task keeps it): it is counted and listed there
         space: task.space ? (list.machine ? `${list.machine}/${task.space}` : task.space) : null,
         worker, archived: !!task.archived, pinned: pins.has(taskKey(list, task)),
+        // dmalis/shepherdr#119: marked urgent by the person, by herdr-task's own rule (web/shared/urgent.ts)
+        urgent: isUrgent(task),
         // 3.2: the facts the app works a status out from (service/next.ts enrich), as herdr-task keeps them
         x: { mode: task.mode ?? null, merged: !!task.merged, quiet: task.quiet ?? null, told: task.told ?? null, automation: task.automation ?? null, stopped_by: task.stopped_by ?? null, stopped_why: task.stopped_why ?? null,
           merge_failed: task.merge_failed ?? null, attention_at: task.attention_at ?? null, after: task.after ?? null,
