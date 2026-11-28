@@ -39,11 +39,11 @@ class Stand(unittest.TestCase):
         self.log = os.path.join(self.tmp, "log")
         self.dir = guard.guard_dir(os.path.join(self.tmp, "store"))
 
-    def call(self, line, session="shepherdr", **env):
+    def call(self, line, session="shepherdr", start=None, **env):
         """One shell call inside a task's terminal: HC_SESSION from its core, the guard first on PATH, as launch
-        starts the agent (guard_argv), each call a new shell."""
+        starts the agent (guard_argv; start=guard.assistant_argv: an Assistant's), each call a new shell."""
         e = {"HOME": os.environ["HOME"], "PATH": f"{self.fake}:/usr/bin:/bin", "FAKE_LOG": self.log, "HC_SESSION": session, **env}
-        argv = guard.guard_argv(["sh", "-c", line], session, os.path.join(self.tmp, "store"))
+        argv = (start or guard.guard_argv)(["sh", "-c", line], session, os.path.join(self.tmp, "store"))
         r = subprocess.run(argv, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         return r
 
@@ -165,6 +165,207 @@ class Launch(unittest.TestCase):
             guard.guard_dir(t)
             with open(os.path.join(d, "hc")) as f:
                 self.assertEqual(f.read(), guard.SCRIPT)
+
+
+class EveryAgent(Stand):
+    """dmalis/shepherdr#247: every agent Shepherdr starts has the guard, not only a task's."""
+
+    def assistant(self, line, **env):
+        return self.call(line, start=guard.assistant_argv, **env)
+
+    def test_an_assistant_is_refused_the_same(self):
+        for line in ("hc server stop", "hc server restart", "hc update", "systemctl --user restart shepherdr.service",
+                     "pkill -f herdr-core", "shepherdr update"):
+            with self.subTest(line):
+                r = self.assistant(line)
+                self.assertEqual(r.returncode, 77)
+                self.assertIn("HERDR_GUARD_ASKED=1", r.stderr)   # how to do it when the person asked for it
+                self.assertNotIn("update-shepherdr", r.stderr)    # a schedule's words, not an Assistant's
+        self.assertEqual(self.ran(), [])
+        self.assertEqual(self.assistant("HC_SESSION=try247 hc server stop").returncode, 0)
+        self.assertEqual(self.assistant("hc ls").returncode, 0)
+
+    def test_the_persons_yes_word_works_for_an_assistant_only(self):
+        r = self.assistant("HERDR_GUARD_ASKED=1 hc server restart")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("the person asked for it", r.stderr)
+        self.assertEqual(self.ran(), ["hc HC_SESSION=shepherdr server restart"])
+        # a task's terminal can't say yes for the person, nor can the next shell call
+        self.assertEqual(self.call("HERDR_GUARD_ASKED=1 hc server restart").returncode, 77)
+        self.assertEqual(self.assistant("hc server restart").returncode, 77)
+        self.assertEqual(len(self.ran()), 1)
+
+    def test_an_assistant_protects_the_session_it_runs_in(self):
+        self.assertEqual(self.assistant("hc server stop", session="mine").returncode, 77)
+        self.assertEqual(self.assistant("HC_SESSION=shepherdr hc server stop", session="mine").returncode, 77)
+
+    def run_args(self, line, **env):
+        """What the real hc was given for `hc run …`, one word per line (the fake writes them)."""
+        with open(os.path.join(self.fake, "hc"), "w") as f:
+            f.write(FAKE + 'printf "%s\\n" "$@" > "$FAKE_LOG.args"\n')
+        try:
+            os.remove(self.log + ".args")
+        except FileNotFoundError:
+            pass
+        r = self.call(line, **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.log + ".args") as f:
+            return f.read().splitlines()
+
+    def test_a_reviewer_or_helper_it_starts_gets_it_too(self):
+        # hc runs a child in herdr-core's environment, not its caller's: the stand-in wraps the command after --
+        for role in ("reviewer", "helper"):
+            with self.subTest(role):
+                args = self.run_args(f"hc run --bg --name sd-1-review --label herdr.task=x --label herdr.role={role} "
+                                     "-- env PATH=/usr/bin:/bin codex --no-daemon review")
+                at = args.index("--")
+                self.assertEqual(args[:at], ["run", "--bg", "--name", "sd-1-review", "--label", "herdr.task=x",
+                                             "--label", f"herdr.role={role}"])
+                child = args[at + 1:]
+                self.assertEqual(child[:2], ["sh", "-c"])
+                self.assertEqual(child[3:6], ["herdr-guard", os.path.realpath(self.dir), "shepherdr"])
+                self.assertEqual(child[6:], ["env", "PATH=/usr/bin:/bin", "codex", "--no-daemon", "review"])
+        # the wrapped child, run in a bare environment as the holder would: guarded, as a task (no yes word)
+        child = [*child[:6], "sh", "-c", "HERDR_GUARD_ASKED=1 hc server stop"]
+        e = {"HOME": os.environ["HOME"], "PATH": f"{self.fake}:/usr/bin:/bin", "FAKE_LOG": self.log, "HC_SESSION": "shepherdr"}
+        r = subprocess.run(child, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(r.returncode, 77, r.stderr)
+        self.assertIn("they do it from their own terminal", r.stderr)
+
+    def test_other_runs_are_left_as_they_are(self):
+        for line in ("hc run --bg --name w -- sleep 30",                                     # its own test program
+                     "hc run --bg --label herdr.role=reviewer reviewer 'review it'",          # a template
+                     "HC_SESSION=try247 hc run --bg --label herdr.role=reviewer -- codex",   # a throwaway core's
+                     "hc run --bg --on vmb --label herdr.role=helper -- codex"):             # another machine's
+            with self.subTest(line):
+                self.assertNotIn("herdr-guard", self.run_args(line))
+
+    def test_kill_by_number(self):
+        # `env kill`, `xargs kill`: not the shell's builtin, which no stand-in can reach (docs/guard.md)
+        procs = []
+        core = os.path.join(self.tmp, "herdr-core")
+        with open(core, "w") as f:
+            f.write("#!/bin/sh\nsleep 30\n")   # its process name is herdr-core, as the live core's
+        os.chmod(core, 0o755)
+        for argv in ([core], ["sh", "-c", "sleep 30; exit 0", "herdr-task", "scheduler"], ["sleep", "30"]):
+            procs.append(subprocess.Popen(argv))
+            self.addCleanup(procs[-1].wait)
+            self.addCleanup(procs[-1].kill)
+        time.sleep(0.3)
+        for p in procs[:2]:
+            for line in (f"env kill {p.pid}", f"echo {p.pid} | xargs kill -9", f"env kill -s TERM -- {p.pid}"):
+                with self.subTest(line):
+                    # xargs says 123 for any command that failed
+                    self.assertIn(self.call(line).returncode, (77, 123) if "xargs" in line else (77,))
+                    self.assertIsNone(p.poll())
+        self.assertEqual(self.ran(), [])
+        self.assertEqual(self.call(f"env kill {procs[2].pid}").returncode, 0)
+        self.assertEqual(self.call("env kill -l").returncode, 0)
+        self.assertEqual(len(self.ran()), 2)
+
+    def test_launchctl_on_a_mac(self):
+        for line in ("launchctl kickstart -k gui/501/dev.shepherdr.service", "launchctl bootout gui/501/dev.shepherdr.service",
+                     "launchctl stop dev.shepherdr.service"):
+            with self.subTest(line):
+                self.assertEqual(self.call(line).returncode, 77)
+        self.assertEqual(self.call("launchctl print gui/501/dev.shepherdr.service").returncode, 0)
+        self.assertEqual(self.call("launchctl kickstart -k gui/501/com.example.mine").returncode, 0)
+
+    def home(self):
+        h = os.path.join(self.tmp, "home")
+        for d in (".local/bin", ".local/share/shepherdr/mods/tasks/bin", ".local/share/shepherdr/web",
+                  ".local/share/shepherdr/worktrees/x", ".local/share/shepherdr/tasks", ".local/share/shepherdr/service", "build"):
+            os.makedirs(os.path.join(h, d), exist_ok=True)
+        for f in (".local/bin/hc", ".local/share/shepherdr/mods/tasks/bin/herdr-task", "build/hc", "build/herdr-task"):
+            open(os.path.join(h, f), "w").close()
+        return h
+
+    def test_no_copy_over_the_live_commands_or_install(self):
+        h = self.home()
+        share = f"{h}/.local/share/shepherdr"
+        for line in (f"cp build/hc {h}/.local/bin/hc", f"cp build/hc {h}/.local/bin/", f"cp -f build/hc build/herdr-task {h}/.local/bin",
+                     f"install -m 755 build/herdr-task {h}/.local/bin/herdr-task", f"cp -t {h}/.local/bin build/hc",
+                     f"ln -sf /x {h}/.local/bin/shepherdr", f"mv {h}/.local/bin/hc /tmp/old-hc", f"mv build/hc {h}/.local/bin",
+                     f"cp build/herdr-task {share}/mods/tasks/bin/herdr-task", f"cp -r build {share}/web/",
+                     f"cd {h}/.local/bin && cp ../../build/hc .", f"install -d {share}/service/x"):
+            with self.subTest(line):
+                r = self.call(f"cd {h} && {line}", HOME=h)
+                self.assertEqual(r.returncode, 77, r.stderr)
+        self.assertEqual(self.ran(), [])
+        for line in ("cp build/hc build/hc2", f"cp build/hc {h}/.local/bin/my-tool", f"cp build/hc {share}/worktrees/x/",
+                     f"mv build/hc {share}/tasks/x", f"install -d {h}/scratch", "ln -s build/hc", "cp -t build build/hc",
+                     f"cp {h}/.local/bin/hc build/hc-copy", "cp --help"):
+            with self.subTest(line):
+                r = self.call(f"cd {h} && {line}", HOME=h)
+                self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.ran()), 9)
+
+    def test_the_installer_run_by_its_path(self):
+        sh = os.path.join(ROOT, "bin", "shepherdr")
+        base = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin"}
+        for env, args, code in (({"HERDR_GUARD_SESSION": "shepherdr"}, ["update"], 77),
+                                ({"HERDR_GUARD_LIVE": "shepherdr"}, ["install", "--yes"], 77),
+                                ({"HERDR_GUARD_SESSION": "shepherdr", "HERDR_GUARD_ASKED": "1"}, ["uninstall"], 77),
+                                ({"HERDR_GUARD_LIVE": "shepherdr"}, ["migrate", "--rollback"], 77),
+                                ({"HERDR_GUARD_SESSION": "shepherdr"}, ["version"], 0)):
+            with self.subTest(args, env=env):
+                r = subprocess.run([sys.executable, sh, *args], env={**base, **env}, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+                self.assertEqual(r.returncode, code, r.stderr)
+        import importlib.machinery
+        import importlib.util
+        spec = importlib.util.spec_from_loader("shepherdr_cli", importlib.machinery.SourceFileLoader("shepherdr_cli", sh))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        A = lambda **k: type("A", (), {"cmd": "update", "root": None, "dry_run": False, **k})()
+        self.assertIsNone(cli.guard_refuses(A(), {}))                                          # the person's own shell
+        self.assertIsNone(cli.guard_refuses(A(root="/tmp/x"), {"HERDR_GUARD_SESSION": "s"}))   # a scratch root
+        self.assertIsNone(cli.guard_refuses(A(dry_run=True), {"HERDR_GUARD_SESSION": "s"}))
+        self.assertIsNone(cli.guard_refuses(A(), {"HERDR_GUARD_LIVE": "s", "HERDR_GUARD_ASKED": "1"}))
+        self.assertIn("update-shepherdr", cli.guard_refuses(A(), {"HERDR_GUARD_SESSION": "s"}))
+
+    def test_the_update_runner_drops_every_guard_word(self):
+        from herdr_task import self_update
+        e = self_update.clean_env({"PATH": f"{self.dir}:/usr/bin", "HERDR_GUARD_SESSION": "s", "HERDR_GUARD_LIVE": "s",
+                                   "HERDR_GUARD_ASKED": "1", "X": "1"}, os.path.join(self.tmp, "store"))
+        self.assertEqual(e, {"PATH": "/usr/bin", "X": "1"})
+
+
+class Starts(unittest.TestCase):
+    """dmalis/shepherdr#247: where Shepherdr starts an agent that isn't a task's, it starts guarded."""
+
+    def read(self, *p):
+        with open(os.path.join(ROOT, *p)) as f:
+            return f.read()
+
+    def test_one_guard_line_everywhere(self):
+        import re
+        js = re.search(r"^export const GUARD = '(.*)';$", self.read("core", "clean-env.js"), re.M).group(1)
+        sh = re.search(r"^guard='(.*)'$", self.read("service", "restart.sh"), re.M).group(1)
+        self.assertEqual(js, guard.GUARD_SH)
+        self.assertEqual(sh, guard.GUARD_SH)
+
+    def test_the_start_points(self):
+        self.assertIn("${CLEAN_ENV} ${AGENT_PATH} ${GUARD} exec", self.read("core", "clean-env.js"))   # the service's
+        restart = self.read("service", "restart.sh")
+        self.assertIn('sh -c "$clean $apath $guard"', restart)        # a restart on its own conversation
+        self.assertIn('"$clean $apath $guard exec $line"', restart)   # a handoff
+        self.assertIn("clean_env(assistant_argv(argv))", self.read("mods", "tasks", "bin", "herdr_task", "revive.py"))
+        self.assertIn("cleanCommand(cmd)", self.read("service", "spaces.ts"))   # execTemplate: new space, first message
+
+    def test_guard_sh_names_the_folder_herdr_task_writes(self):
+        with tempfile.TemporaryDirectory() as t:
+            bin_ = os.path.join(t, "bin")
+            os.makedirs(bin_)
+            with open(os.path.join(bin_, "herdr-task"), "w") as f:
+                f.write(f'#!/bin/sh\nexec {sys.executable} {os.path.join(ROOT, "mods", "tasks", "bin", "herdr-task")} "$@"\n')
+            os.chmod(os.path.join(bin_, "herdr-task"), 0o755)
+            e = {"HOME": os.environ["HOME"], "PATH": f"{bin_}:/usr/bin:/bin", "HERDR_TASK_STORE": os.path.join(t, "store"),
+                 "SHEPHERDR_NO_MIGRATE": "1", "HC_SESSION": "shepherdr"}
+            r = subprocess.run(["sh", "-c", guard.GUARD_SH + ' echo "$PATH|$HERDR_GUARD_LIVE"; command -v hc'], env=e,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            d = os.path.join(t, "store", ".guard", "bin")
+            self.assertEqual(r.stdout.splitlines(), [f"{d}:{bin_}:/usr/bin:/bin|shepherdr", f"{d}/hc"], r.stderr)
 
 
 HC = shutil.which("hc")

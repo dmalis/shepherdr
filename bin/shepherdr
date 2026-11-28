@@ -2818,6 +2818,28 @@ def hand_over(a, argv):
               dict(os.environ, SHEPHERDR_HANDED_OVER="1"))
 
 
+def guard_refuses(a, env=None):
+    """dmalis/shepherdr#247: in an agent's terminal (Shepherdr's guard set there, herdr_task/guard.py) an install,
+    update, uninstall or migrate of the live home is refused, as the guard's own `shepherdr` refuses it, also when this
+    script is run by its path (./install.sh, a checkout's bin/shepherdr). --root and --dry-run go through; so does an
+    Assistant's when the person asked for it (HERDR_GUARD_ASKED=1; never a task's). -> the refusal's words, or None."""
+    env = os.environ if env is None else env
+    task, live = env.get("HERDR_GUARD_SESSION"), env.get("HERDR_GUARD_LIVE")
+    if not (task or live) or a.cmd not in ("install", "update", "uninstall", "migrate"):
+        return None
+    if getattr(a, "root", None) or getattr(a, "dry_run", False) or (not task and env.get("HERDR_GUARD_ASKED") == "1"):
+        return None
+    words = [f"Shepherdr refused: `shepherdr {a.cmd}` would change the live install (use --root <scratch> for a try).",
+             "An agent's terminal can't update or reconfigure the live Shepherdr it runs in."]
+    if task:
+        if a.cmd == "update":
+            words.append("A schedule the person let update Shepherdr asks for it with `herdr-task update-shepherdr <its task>`.")
+        words.append("If the person wants the live one changed, they do it from their own terminal.")
+    else:
+        words.append(f"Only if the person asked you for exactly this, in their own words: HERDR_GUARD_ASKED=1 shepherdr {a.cmd} ...")
+    return "\n".join(words)
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="shepherdr", description="Install, update, check or remove Shepherdr.")
     sub = ap.add_subparsers(dest="cmd")
@@ -2869,6 +2891,10 @@ def main(argv):
     wn.add_argument("--root", help=argparse.SUPPRESS)
     sub.add_parser("version")
     a = ap.parse_args(argv)
+    no = guard_refuses(a)
+    if no:
+        print(no, file=sys.stderr)
+        return 77
     try:
         if a.cmd in ("install", "update"):
             hand_over(a, argv)

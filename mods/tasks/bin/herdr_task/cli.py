@@ -655,6 +655,8 @@ def main():
     c.add_argument("--folder")
     c.add_argument("--root")
     c.set_defaults(fn=lambda a: __import__("herdr_task.self_update", fromlist=["x"]).cmd_run(a), json=False)
+    c = sub.add_parser("_guard-dir")  # this machine's guard folder, written and printed, for an Assistant's start (guard.py GUARD_SH)
+    c.set_defaults(fn=lambda a: __import__("herdr_task.guard", fromlist=["cmd_guard_dir"]).cmd_guard_dir(a), json=False)
     c = sub.add_parser("_disk-top")  # what fills a disk that holds new tasks, found in the background (queues.disk_top)
     c.add_argument("path")
     c.set_defaults(fn=lambda a: __import__("herdr_task.queues", fromlist=["cmd_disk_top"]).cmd_disk_top(a), json=False)
