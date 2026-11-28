@@ -10,7 +10,8 @@
     "web/demo/reply-check.ts",
     ".github/workflows/check.yml",
     "docs/design.md",
-    "test/test_design.py"
+    "test/test_design.py",
+    "web/plugins/zoom/zoom.test.ts"
   ],
   "tests": [
     "web/plugins/chat/reply-boxes.test.ts",
