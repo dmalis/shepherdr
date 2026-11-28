@@ -109,3 +109,34 @@ Herdr's news to an Assistant: `waiting` for an inferred wait (with its reason an
 - **A machine that can't be read** keeps its last rows, records and all, so its wait keeps its id while it is away and comes back as the same action: nothing is sent again.
 - **A machine back on the list** reads as connecting until its task list is read (`service/model.ts`), so its last rows stay "Can't check" and send nothing on old facts.
 - Left for later: core-identity keys for the other action kinds (`need:`, `review:`, `hands:`): only waits are keyed by an id minted at the source.
+
+## As built: part 6b, hand-up
+
+- **Ask me after** (`tasks.ask_after`, minutes): Right away (0), 2, 5, 10, 15, 30; 5 when unset (`web/shared/ask-after.ts`). Everything's row is on Settings › Notifications, under the device's choice. A repo's own row is on its Tasks page, with Same as Everything or Set here · Reset (`web/plugins/alerts/ask-after.tsx`; `setConfig` takes only the row's choices). herdr-task reads it when it records a wait, so a change applies to waits from then on. Right away writes `deadline == first`: the wait is the person's as soon as its record lands, and quiet only for the moment before that (`waitPending`).
+- **When a wait is the person's** (`projectAttention`, the one rule):
+  - its hand-up stands (`up: 'asked'`);
+  - a fresh read says no Shepherdr chat runs in its space, stopped or none (`'no-shepherdr'`);
+  - its deadline passed with the wait still open (`'deadline'`). The deadline is fixed when the wait was first confirmed: a reply, a held send or a busy Shepherdr never moves it.
+  - A machine that can't be read hands nothing up; its last read stands.
+- **The service wakes at the next deadline** (`service/attention.ts wakeForHandUp`): one timer at the earliest deadline of a wait Shepherdr holds, which rebuilds the snapshot then. So the wait turns red, and its one alert goes, at its time and not at the next unrelated change.
+- **The hand-up** (`herdr-task alert "<the ask>" --task <task> --wait <id> [--choice "<a>" ...]`, `mods/tasks/bin/herdr_task/hand_up.py`): it writes `wait.up = {at, what, why?, choices?, lead, alert}` on each named task's open wait, inside that task list's lock.
+  - `--wait` names the wait the Assistant saw (news `wait="…"`, one per task). A wait that is over or was replaced is late: nothing is written, labelled or sent.
+  - A second hand-up of the same wait keeps its `lead` and `at`, so it stays the same action with no second alert. A deadline escalation followed by a hand-up keeps the same action id too.
+  - `--settled` takes it back (`up.settled`): the wait is Shepherdr's again, and quiet; its deadline no longer hands it up.
+  - The label it still sets (`herdr.alert`, with `waits`) is history only: the bell keeps it, push and the counts skip it, and its wait's action is the one.
+- **One question over several tasks** shares its lead wait: one action (`wait:<lead>`, `tasks` lists what it holds), one card and one alert. Each task it holds shows under Needs you and counts once, so the list still lists what the count says (`yours()` gives one entry a task). The alert names the first task, and its body names the others.
+- **Its card** (`web/plugins/alerts/hand-up.tsx`, `handup:<lead>`), in each task it holds, built like a question card:
+  - "Needs you · <the ask>", its line of why, "Also holds <task>";
+  - its choices as chips. A choice is sent to Shepherdr's chat as the person's own reply about that task (the reply tag line first), then the hand-up is taken back on the task's machine (`task-handup-settled`);
+  - "Answer in chat" puts the reply chip in Shepherdr's chat.
+  - Its alert's Reply goes to Shepherdr's chat too.
+- **Alert producers audited:**
+  - a task's agent's alert, one naming a task, a helper's (a sign-in) and the provider ones still reach the person;
+  - an Assistant's own alert about no task stays in the bell: only a hand-up pings for Shepherdr;
+  - need, review, stopped-wait and machine alerts are unchanged.
+  - Provider prompts never pass through Shepherdr: they stay the person's own, and nothing answers them.
+- **Shepherdr's rule** (`templates/assistant.md`):
+  - it hands up only what only the person can decide, as a one-line ask naming the decision, with choices when the answers are clear;
+  - it doesn't repeat the question in chat, never alerts for a wait the deadline or no-Shepherdr already hands up, and never alerts for a prompt that is already the person's;
+  - it takes a hand-up back once answered. Its other messages stay quiet.
+- Left for later: the card's words for a wait whose deadline passed (it shows as red with its agent's words, without a card of its own); Undo on a choice sent.

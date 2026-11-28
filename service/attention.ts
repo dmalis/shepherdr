@@ -5,6 +5,30 @@
 import { byAge, projectAttention, withActions, type Action } from "../web/shared/attention.ts";
 import type { Snapshot } from "../web/shared/types.ts";
 
+/** fork Needs you 6b: when the next wait Shepherdr handles reaches its hand-up deadline (ms), past `now`; none: no wait
+ *  has one ahead. A wait on a machine that can't be read hands up nothing until it is read again. */
+export function nextHandUp(actions: Action[], now = Date.now()): number | undefined {
+  let next: number | undefined;
+  for (const a of actions)
+    if (a.kind === "wait" && a.owner === "shepherdr" && !a.stale && typeof a.deadline === "number" && a.deadline > now && (next === undefined || a.deadline < next)) next = a.deadline;
+  return next;
+}
+
+let handUpTimer: ReturnType<typeof setTimeout> | null = null;
+let handUpAt: number | undefined;
+/** fork Needs you 6b: the snapshot is worked out again when the next deadline comes, so a wait still open then is the
+ *  person's at that moment (its one alert goes then), not at the next unrelated change. rebuild: the model's. */
+export function wakeForHandUp(snap: Pick<Snapshot, "attention">, rebuild: () => void, now = Date.now()) {
+  const at = nextHandUp(snap.attention?.actions ?? [], now);
+  if (at === handUpAt) return;
+  if (handUpTimer) clearTimeout(handUpTimer);
+  handUpTimer = null;
+  handUpAt = at;
+  if (at === undefined) return;
+  handUpTimer = setTimeout(() => { handUpTimer = null; handUpAt = undefined; rebuild(); }, Math.min(at - now + 250, 2 ** 31 - 1));
+  (handUpTimer as any).unref?.();
+}
+
 /** each other machine's open actions as last read (by its machine key): kept while it can't be read */
 const held = new Map<string, Action[]>();
 

@@ -1,0 +1,39 @@
+{
+  "issue": 204,
+  "name": "Needs you 6b/6: hand-up",
+  "files": [
+    "mods/tasks/bin/herdr_task/hand_up.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/wait_record.py",
+    "service/attention.ts",
+    "service/push.ts",
+    "service/wait-record.ts",
+    "service/actions.ts",
+    "service/next.ts",
+    "service/main.ts",
+    "web/shared/attention.ts",
+    "web/shared/ask-after.ts",
+    "web/shared/needs-you.ts",
+    "web/shared/needs-open.ts",
+    "web/shared/task-filter.ts",
+    "web/shared/types.ts",
+    "web/plugins/alerts/hand-up.tsx",
+    "web/plugins/alerts/ask-after.tsx",
+    "web/plugins/alerts/page.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/src/settings.tsx",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "templates/assistant.md",
+    "docs/settings.md",
+    "fork/specs/needs-you.md"
+  ],
+  "tests": [
+    "test/test_hand_up.py",
+    "service/hand-up.test.ts",
+    "service/ask-after.test.ts",
+    "service/push.test.ts",
+    "web/plugins/tasks/views.test.tsx"
+  ]
+}

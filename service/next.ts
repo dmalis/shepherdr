@@ -10,6 +10,7 @@ import { everythingOf, sameFolder } from "../core/spaces.js";
 import { readSettings, repoLayer, REPO_SECTIONS, writeSettings } from "./settings.ts";
 import { repoKey, repoOf } from "../core/host.js";
 import { MUST_FIX, ROUNDS } from "../core/settings.js";
+import { ASK_AFTER_DEFAULT, askAfterOf, isAskAfter } from "../web/shared/ask-after.ts";
 import { waitOf } from "./wait-record.ts";
 
 /** the plugins: Tasks, Artifacts, Search and Alerts are always on; the rest each have a switch */
@@ -83,6 +84,8 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
   if (has("merge")) own.push("merge");
   if (has("proof")) own.push("proof");
   if (has("must_fix")) own.push("must_fix");
+  // fork Needs you 6b: Ask me after (tasks.ask_after, minutes; 0: right away)
+  if (has("ask_after")) own.push("ask_after");
   // fork Needs you 3/6: Space alerts, kept as "alerts": "muted" | "on" in a space's own settings
   const alerts = layer?.alerts === "muted" ? "Muted" : layer?.alerts === "on" ? "On" : null;
   if (alerts) own.push("alerts");
@@ -97,6 +100,7 @@ function levelOf(layer: any, base: LevelConfig): { lv: LevelConfig; own: string[
       rounds: has("review_rounds") ? Number(t.review_rounds) || 0 : base.rounds,
       mustFix: has("must_fix") && MUST_FIX.some(([v]: any) => v === t.must_fix) ? t.must_fix : base.mustFix,
       alerts: alerts ?? base.alerts ?? "On",
+      askAfter: has("ask_after") ? askAfterOf(t.ask_after) : base.askAfter ?? ASK_AFTER_DEFAULT,
     },
   };
 }
@@ -198,7 +202,7 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
   }
   const all = place === "all";
   const repoPlace = place.startsWith("repo:") ? place.slice(5) : null;
-  const forTasks = /^agents\.(Tasks|Reviews)$/.test(key) || ["review", "merge", "proof", "review_rounds", "must_fix"].includes(key);
+  const forTasks = /^agents\.(Tasks|Reviews)$/.test(key) || ["review", "merge", "proof", "review_rounds", "must_fix", "ask_after"].includes(key);
   const repo = repoPlace ?? (forTasks && !all ? scope?.repo ?? null : null);
   if (repo !== null && !/^(\/|[\w.-]+:\/)/.test(repo)) throw new Error("That repo isn't here any more.");
   if (repoPlace && !forTasks) throw new Error("That is set per space.");
@@ -234,6 +238,10 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
     // fork #11: one of the row's own choices (core/settings.js ROUNDS, MUST_FIX), as the settings file keeps it
     if (value !== null && !(key === "must_fix" ? MUST_FIX : ROUNDS).some(([v]: any) => v === value)) throw new Error("Not one of its choices.");
     task(key, value);
+  } else if (key === "ask_after") {
+    // fork Needs you 6b: one of the row's own choices (web/shared/ask-after.ts), minutes; null: as Everything's
+    if (value !== null && !isAskAfter(value)) throw new Error("Not one of its choices.");
+    task("ask_after", value);
   } else if (key === "alerts" && !repo) {
     // fork Needs you 3/6: Space alerts, On or Muted (null: as Everything's)
     if (value !== null && value !== "On" && value !== "Muted") throw new Error("Not one of its choices.");

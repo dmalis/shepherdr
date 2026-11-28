@@ -62,7 +62,7 @@ import { Machines } from "./machines.ts";
 import { Push, alertsOf, agentAlerts, pushChanges, waitingTags } from "./push.ts";
 import { Inbox } from "./inbox.ts";
 import { waiting } from "../web/shared/alerts.ts";
-import { attend } from "./attention.ts";
+import { attend, wakeForHandUp } from "./attention.ts";
 import { AlertLedger, eventOf } from "./alert-ledger.ts";
 import { BELL_ONLY } from "../web/shared/reach.ts";
 import { GlanceFeed, MAX_CHATS, glanceOf, openUrlOk, saidToPerson } from "./glance.ts";
@@ -199,7 +199,7 @@ const ledger = new AlertLedger();
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
 // fork Needs you 5/6: every open action, worked out once (service/attention.ts), with the alerts it reads: what the pages,
 // the badge, the glance feed and push all count
-const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); try { attend(snap); } catch (err) { console.error(`attention: ${(err as Error).message}`); } alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
+const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); try { attend(snap); wakeForHandUp(snap, () => model.rebuild()); } catch (err) { console.error(`attention: ${(err as Error).message}`); } alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
 // what waits on you now, as the last alerts said it: the app icon's count and the tags of the alerts that may stay (the
 // service worker asks after a notification's button did something: GET /api/waiting)
 let waitingNow = { count: 0, tags: [] as string[] };
@@ -752,7 +752,7 @@ const voiceIO: VoiceIO = {
 /** The person's calls on a task that change its state (its list says so): read again once done (model.reread). */
 /** fork Needs you 4/6: the actions that answer what a chat or task waits on */
 const ANSWERS = new Set(["answer", "send", "accept", "close", "task-resume", "keys", "held-now", "restart"]);
-const TASK_ACTS = new Set(["accept", "close", "delete", "archive", "reopen", "task-resume", "task-start", "task-move", "task-rename", "task-urgent", "schedule"]);
+const TASK_ACTS = new Set(["accept", "close", "delete", "archive", "reopen", "task-resume", "task-start", "task-move", "task-rename", "task-urgent", "task-handup-settled", "schedule"]);
 
 /** One of the web app's actions (an Action, POST /api/action), as the page sends it: a voice call's acts go here too. */
 async function doAction(body: any): Promise<Response> {

@@ -1252,9 +1252,17 @@ ALERT = "herdr.alert"
 def cmd_alert(args):
     """An agent tells the person something that can't wait (as Shepherdr's `shepherdr alert`): a
     toast and a sound in every Herdr window. Never asks permission. A task's agent (or an alert
-    --task names) always reaches the person; an Assistant's follows its space's Notify (Off:
-    nothing). It sets the core label herdr.alert on the caller's own terminal, which every Herdr
-    client sees at once, here or on another machine; Herdr shows each new one once (inbox.js)."""
+    --task names) always reaches the person; any other stays in the bell (dmalis/shepherdr "Needs
+    you 6b"). It sets the core label herdr.alert on the caller's own terminal, which every Herdr
+    client sees at once, here or on another machine; Herdr shows each new one once (inbox.js).
+    --task hands the task's open wait up to the person (hand_up.py): written on its wait record,
+    so its card, its count and its one alert last as long as the wait does."""
+    refs = [str(r).strip() for r in (args.task or []) if str(r or "").strip()]
+    choices = getattr(args, "choice", None) or []
+    if (getattr(args, "wait", None) or choices or getattr(args, "settled", False)) and not refs:
+        raise Fail("Name the task it's about: herdr-task alert \"<the ask>\" --task <task> [--choice \"<an answer>\"]")
+    if getattr(args, "settled", False):
+        return hand_up_settle(args, refs)
     title, body = " ".join(str(args.title or "").split()), " ".join(str(args.body or "").split())
     if not title:
         raise Fail("Say what can't wait: herdr-task alert \"Deploy is down\" --body \"Checks fail on main since 12:40\"")
@@ -1265,9 +1273,17 @@ def cmd_alert(args):
         raise Fail("Run it from an agent's own terminal (there's no HC_TERMINAL_ID here).")
     labels = caller_labels()
     ref = None
-    if args.task:
-        with open_store(argparse.Namespace(folder=args.folder, id=args.task), write=False) as s:
-            ref = s.ref(s.find(args.task))
+    alert_id = secrets.token_hex(4)
+    handed, named = [], []
+    if refs:
+        handed, named = hand_up_mark(args, refs, alert_id, title, body, choices)
+        ref = named[0]
+        if getattr(args, "wait", None) and not handed:
+            # late: the wait it answers is over (the task moved on, or asks something new): nothing to hand up
+            say(args, {"sent": False, "late": True, "task": ref},
+                f"Not sent: that wait on {ref} is over (it moved on or asks something new). Look at it again: "
+                f"herdr-task show {ref}.")
+            return
     elif labels.get("herdr.task"):
         # Its own task: "<slug>#<n>" -> HERD-44, from that list's prefix.
         slug, _, n = labels["herdr.task"].rpartition("#")
@@ -1278,12 +1294,56 @@ def cmd_alert(args):
             pre = None
         ref = f"{pre}-{n}" if pre else None
     # The label holds what a toast shows (inbox.js cuts it again to fit).
-    alert = {"id": secrets.token_hex(4), "at": now(), "title": title[:120], "body": body[:300],
-             **({"task": ref} if ref else {}), **({"about": True} if args.task else {})}
+    alert = {"id": alert_id, "at": now(), "title": title[:120], "body": body[:300],
+             **({"task": ref} if ref else {}), **({"about": True} if refs else {}),
+             # a hand-up: its waits say it (their one action and alert), so the service lets this label go quiet
+             **({"tasks": named} if len(named) > 1 else {}), **({"waits": handed} if handed else {})}
     r = run(["hc", "label", me, f"{ALERT}={json.dumps(alert, ensure_ascii=False, separators=(',', ':'))}"])
-    if r.returncode != 0:
+    if r.returncode != 0 and not handed:
         raise Fail((r.stderr or r.stdout).strip() or "hc label failed")
-    say(args, alert, "Alert sent.")
+    if handed:
+        say(args, {**alert, "handed_up": handed},
+            f"Handed up: {', '.join(named)} needs the person now (one card, one alert). Its other news stays quiet.")
+    else:
+        say(args, alert, "Alert sent." if refs or ref or labels.get("herdr.role") != "coordinator" else
+            "Kept in the bell (an alert about no task never buzzes: name its task with --task to hand it up).")
+
+
+def hand_up_mark(args, refs, alert_id, title, body, choices):
+    """--task: each named task's open wait handed up as one question (hand_up.py), inside its list's lock. Returns
+    (the waits handed up, the tasks' refs)."""
+    from . import hand_up
+    handed, named, lead = [], [], None
+    for one in refs:
+        try:
+            with open_store(argparse.Namespace(folder=args.folder, id=one), wait=STATUS_WAIT) as s:
+                t = s.find(one)
+                named.append(s.ref(t))
+                got = hand_up.mark([t], alert_id, title, body, choices, wait=getattr(args, "wait", None), lead=lead)
+                if got:
+                    lead = lead or got[0]
+                    handed += got
+                    s.dirty = True
+        except Busy:
+            raise Fail("The task list is busy right now. Try again in a moment.")
+    return handed, named
+
+
+def hand_up_settle(args, refs):
+    """--task … --settled: the hand-up taken back; the wait is Shepherdr's again (hand_up.py)."""
+    from . import hand_up
+    done, named = [], []
+    for one in refs:
+        try:
+            with open_store(argparse.Namespace(folder=args.folder, id=one), wait=STATUS_WAIT) as s:
+                t = s.find(one)
+                named.append(s.ref(t))
+                if hand_up.settle([t]):
+                    done.append(s.ref(t))
+                    s.dirty = True
+        except Busy:
+            raise Fail("The task list is busy right now. Try again in a moment.")
+    say(args, {"settled": done}, f"Taken back: {', '.join(done)}." if done else f"Nothing handed up on {', '.join(named)}.")
 
 
 def back_to_work(s, t, why, said=WORKING_AGAIN, auto=False):
