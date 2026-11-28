@@ -102,6 +102,30 @@ Standard is always available. Faster tiers can cost more.
   picker integrates Claude Code and Codex. OpenCode's provider variants and Pi's extensions can set
   their own model options. [OpenCode models](https://opencode.ai/docs/models), [Pi documentation](https://pi.dev/)
 
+## Compact at
+
+When a long conversation reaches this size, its agent sums it up and keeps going on less (auto-compact). Open
+**Compact at** in a chat or task's picker, when starting a task, or in the Chats, Tasks and Reviews defaults in
+Settings › Agents. Task and reviewer defaults can also be set per repo. In the CLI, use `--compact 300k` on task add,
+edit or start, `--set reviewer.compact=300k` for its review, or `--set compact=300k` on a schedule (`""`: Settings'
+again).
+
+**Default** leaves it to the agent. The list offers sizes below the agent's own point for the model's window, and marks
+one Recommended: 300k on a 1M-token window (Claude Code's current models), where the agent's own point is near the end;
+Default on Codex, which compacts at 90% of the window. A change applies the next time the agent starts: the picker in a
+running chat restarts it on the same conversation.
+
+- **Claude Code** starts with [`--autocompact <tokens>`](https://code.claude.com/docs/en/cli-reference) (Claude Code
+  2.1.221 and later; it caps the size at the model's window). Its `CLAUDE_CODE_AUTO_COMPACT_WINDOW` environment
+  setting, where someone set one, wins over the flag.
+- **Codex** starts with `-c model_auto_compact_token_limit=<tokens>`, its
+  [config key](https://learn.chatgpt.com/codex/config-file/config-reference) set for that run only; Codex caps it at
+  90% of the model's window.
+- **Other agents** keep their own settings.
+
+Shepherdr never writes an agent's own settings files and never types `/compact` into it. In the settings file it is
+`compact` in a role's pick (`coordinator`, `worker`, `reviewer`), a whole number of tokens; none means the agent's own.
+
 ## Where they are kept
 
 `~/.config/shepherdr/settings.json` on the serving machine: `everywhere`, `repos[<folder>]` for a repo's task settings

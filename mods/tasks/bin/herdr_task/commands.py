@@ -15,6 +15,7 @@ from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, 
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
     require_task_cli, reviewer_pick, task_settings, worker_argv, worktrees_on, setting_sources, SET_BY,
+    argv_compact, argv_for, compact_own,
 )
 from .agents import (
     agent_log, agent_running, background_jobs, busy_again, BY_YOU, NOT_TRUSTED, clear_stopped, job_names, own_jobs, detail, fit, LINE_MAX, live_agents, ready_turns,
@@ -576,7 +577,7 @@ def cmd_start(args):
         space = bare(args.space) if args.space else (q.get("space") or t.get("space") or space_for_folder(s.loc["folder"], caller_space()) or default_space())
         # 3.2: started on any pick: its model, effort, speed and permission mode are kept on the task (as edit's)
         picked = False
-        for flag in ("model", "effort", "speed", "permission"):
+        for flag in ("model", "effort", "speed", "permission", "compact"):
             if getattr(args, flag, None) is not None:
                 set_task(t, flag, getattr(args, flag))
                 picked = True
@@ -1692,11 +1693,11 @@ def cmd_edit(args):
         if args.prompt_file:
             with open(args.prompt_file) as f:
                 t["prompt"] = f.read()
-        pick = [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")]
+        pick = [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm", "compact")]
         set_opts(t, args, s)
         if args.prompt is not None or args.prompt_file:
             brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: its new brief's rounds
-        if [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")] != pick:
+        if [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm", "compact")] != pick:
             # The next agent started for it runs on the new choice (start_again), a queued one too.
             t["pick_at"] = now()
             q = t.get("queue") or {}
@@ -1825,6 +1826,12 @@ def restart_argv(s, t, space, key, argv_json):
         (prev["argv"] if keep else worker_argv(s, t, space))
     if not argv_json:
         require_task_cli(agent_key(argv))
+    # fork #219: a size it compacted at (one picked in its chat, too) goes along when it starts again on new settings,
+    # unless the task has its own (start or edit --compact)
+    if not argv_json and argv is not (prev or {}).get("argv") and compact_own(t.get("compact")) is None:
+        was = argv_compact((prev or {}).get("argv"))
+        if was and argv_compact(argv) != was:
+            argv = argv_for({"argv": argv, "compact": was})
     reviewer_pick(s, t, space)
     return argv
 

@@ -192,14 +192,90 @@ def tier_args(agent, fast):
     return []
 
 
+# fork #219: Compact at, the size a long conversation compacts at, said at start with each CLI's documented per-run
+# switch (core/agents.js compactArgs): Claude Code's --autocompact <tokens>, Codex's -c model_auto_compact_token_limit=<n>.
+# Never its settings files, never a typed /compact. None: the CLI's own (nothing passed).
+def compact_of(v):
+    """A compact size as kept (a whole token count from 100k to 10M, ASCII digits, 300k and 1m too), else None."""
+    if isinstance(v, str):
+        w = v.strip().lower()
+        w = w[:-1] + "000" if w.endswith("k") else w[:-1] + "000000" if w.endswith("m") else w
+        v = int(w) if re.fullmatch(r"[0-9]+", w) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) and 100000 <= v <= 10000000 else None
+
+
+def compact_own(v):
+    """A layer's or a task's own Compact at: None (none of its own: the one above it), 0 (the CLI's own, whatever is
+    set above: the picker's Default) or a size."""
+    if v is None or isinstance(v, bool) or (isinstance(v, str) and not v.strip()):
+        return None
+    if v == 0 or (isinstance(v, str) and v.strip() == "0"):
+        return 0
+    return compact_of(v)
+
+
+COMPACT_KEY = "model_auto_compact_token_limit="
+
+
+def without_compact(argv):
+    """argv without any Compact at switch, in each spelling: --autocompact N, --autocompact=N, -c/--config key=N,
+    --config=key=N (one is said again after it, so never two)."""
+    out, skip = [], False
+    argv = [str(a) for a in argv or []]
+    for i, a in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+        if a == "--autocompact" or (a in ("-c", "--config") and nxt.startswith(COMPACT_KEY)):
+            skip = True
+            continue
+        if a.startswith("--autocompact=") or a.startswith("--config=" + COMPACT_KEY) or a.startswith("-c=" + COMPACT_KEY):
+            continue
+        out.append(a)
+    return out
+
+
+def compact_args(agent, v):
+    n = compact_of(v)
+    if n is None:
+        return []
+    return ["--autocompact", str(n)] if agent == "claude" else ["-c", f"model_auto_compact_token_limit={n}"] if agent == "codex" else []
+
+
+def argv_compact(argv):
+    """The compact size an agent's argv asks for, as compact_args writes it; None where it says none."""
+    argv = [str(a) for a in argv or []]
+    for i, a in enumerate(argv):
+        name, eq, value = a.partition("=")
+        if not eq:
+            value = argv[i + 1] if i + 1 < len(argv) else ""
+        if name == "--autocompact" or (name in ("-c", "--config") and value.startswith(COMPACT_KEY)):
+            n = compact_of(value.split("=", 1)[1] if value.startswith("model_auto") else value)
+            if n:
+                return n
+    return None
+
+
+def compact_words(n):
+    """ "300k", "1M" (core/agents.js compactName)."""
+    n = compact_of(n)
+    return None if n is None else f"{n // 1000000}M" if n % 1000000 == 0 else f"{round(n / 1000)}k"
+
+
 def argv_for(pick):
     """How to start an agent from a role's settings {agent, model, effort, fast, perm} (or its own
     argv), as the chat's agent picker builds it (mods/chat/agent.js argvFor). None: no setting."""
     if not pick:
         return None
     extra = [str(x) for x in pick.get("flags") or []]
+    # fork #219: a Compact at said here wins over one in the extra flags (or a saved command): said once
+    if compact_of(pick.get("compact")):
+        extra = without_compact(extra)
     if pick.get("argv"):
         a = [str(x) for x in pick["argv"]]
+        if compact_of(pick.get("compact")):
+            a = without_compact(a) + compact_args(agent_key(a), pick["compact"])
         return a[:1] + extra + a[1:]
     agent = pick.get("agent")
     if agent == "claude":
@@ -209,6 +285,7 @@ def argv_for(pick):
             a += ["--model", pick["model"]]
         if pick.get("effort"):
             a += ["--effort", pick["effort"]]
+        a += compact_args(agent, pick.get("compact"))
         a += tier_args(agent, pick.get("fast"))
         perm = PERM_ACROSS["claude"].get(pick.get("perm"), pick.get("perm"))
         if perm == "bypassPermissions":
@@ -222,6 +299,7 @@ def argv_for(pick):
             a += ["-m", pick["model"]]
         if pick.get("effort"):
             a += ["-c", f'model_reasoning_effort="{pick["effort"]}"']
+        a += compact_args(agent, pick.get("compact"))
         # always said, so Fast off wins over a service_tier in config.toml (default: the standard tier)
         # Ultrafast: Codex's fastest tier (SHEP-258), on models whose catalog offers it
         a += tier_args(agent, pick.get("fast"))
@@ -284,7 +362,9 @@ def worker_pick(s, task, space=None, agent=None):
         if key and key != pick.get("agent"):
             # #1219: the space's permission goes along, in the new CLI's words (full access stays full)
             perm = perm_across(pick.get("perm") or argv_perm(pick.get("argv")), key)
-            pick = {"agent": key, **({"perm": perm} if perm else {})}
+            # fork #219: so does its Compact at (each CLI caps it at its model's window)
+            pick = {"agent": key, **({"perm": perm} if perm else {}),
+                    **({"compact": pick["compact"]} if compact_of(pick.get("compact")) else {})}
     if not pick.get("agent") and not pick.get("argv"):
         pick["agent"] = "claude"
     for k in ("model", "effort"):
@@ -293,6 +373,10 @@ def worker_pick(s, task, space=None, agent=None):
     # 3.2: its own speed and permission mode (start or edit --speed / --permission), in its CLI's words
     if task.get("speed") in SPEEDS:
         pick["fast"] = SPEEDS[task["speed"]]
+    # fork #219: its own Compact at: a size, or 0 for the CLI's own over a size Settings set
+    own = compact_own(task.get("compact"))
+    if own is not None:
+        pick["compact"] = own
     if task.get("perm"):
         perm = perm_across(task["perm"], pick.get("agent") or agent_key(pick.get("argv") or ["claude"]))
         if perm:
@@ -398,7 +482,10 @@ SET_KEYS = {"review": "review", "brief.review": "review", "merge": "merge", "bri
             "proof": "proof", "brief.proof": "proof",
             "speed": "speed", "task.speed": "speed", "fast": "speed", "permission": "perm", "permissions": "perm", "perm": "perm",
             "task.permission": "perm",
-            "flags": "flags", "task.flags": "flags", "extra-flags": "flags", "extra_flags": "flags"}
+            "flags": "flags", "task.flags": "flags", "extra-flags": "flags", "extra_flags": "flags",
+            # fork #219: its own Compact at, and its reviewer's
+            "compact": "compact", "task.compact": "compact", "compact_at": "compact",
+            "reviewer.compact": "reviewer_compact", "reviewer_compact": "reviewer_compact", "reviewer-compact": "reviewer_compact"}
 # The Proof line (as Shepherdr's skill asks of its task agents), on and off.
 PROOF_WORDS = {"on": "show verifiable proof in one artifact: it opens with a short \"For you\" part (what to check or decide, "
                      "what is not proven, what you decided on your own), then each proof with a one-line caption, real and "
@@ -442,6 +529,13 @@ def set_task(t, key, value, agent=None):
         if not sets:
             t.pop("set", None)
         return
+    if field in ("compact", "reviewer_compact") and v == "0":
+        # fork #219: the CLI's own, over a size its settings give (the picker's Default)
+        sets.pop(field, None)
+        t[field] = 0
+        if not sets:
+            t.pop("set", None)
+        return
     if not v or v.lower() == "default":
         sets.pop(field, None)
         t.pop(field, None)
@@ -470,6 +564,12 @@ def set_task(t, key, value, agent=None):
         if low not in SPEED_VALUES:
             raise Fail("speed is regular, fast or ultrafast.")
         t[field] = SPEED_VALUES[low]
+    elif field in ("compact", "reviewer_compact"):
+        # fork #219: a size of 100k tokens or more, as 300000 or 300k; 0 the CLI's own (handled above it)
+        if compact_of(low) is None:
+            raise Fail("compact is a size of 100k tokens or more, e.g. 300k (0: the CLI's own; \"\": Settings' again).")
+        sets.pop(field, None)
+        t[field] = compact_of(low)
     else:
         # Agents, models and efforts are the task's own fields (worker_pick reads them).
         if field in ("agent", "reviewer"):
@@ -504,7 +604,7 @@ def set_opts(t, args, s=None, space=None):
     checked against the CLI it will run (its own --agent, else its space's Task agent)."""
     def cli():
         return (worker_pick(s, t, space or t.get("space")).get("agent") if s else None) or t.get("agent") or "claude"
-    for flag in ("agent", "model", "effort", "speed", "permission", "flags", "reviewer", "reviewer_model", "reviewer_effort", "reviewer_speed"):
+    for flag in ("agent", "model", "effort", "speed", "permission", "compact", "flags", "reviewer", "reviewer_model", "reviewer_effort", "reviewer_speed"):
         v = getattr(args, flag, None)
         if v is not None:
             set_task(t, flag, v, cli() if flag == "flags" else None)
@@ -651,12 +751,13 @@ def codex_login_now():
     return False, "" if re.search(r"^\s*not logged in\b", out, re.I | re.M) else "Sign-in status could not be confirmed."
 
 
-def reviewer_command(who, model=None, effort=None, folder=None, fast=None):
+def reviewer_command(who, model=None, effort=None, folder=None, fast=None, compact=None):
     """The worker's read-only reviewer. Codex keeps its own project trust and runs without user hooks."""
     if who == "codex":
         a = ["codex", "--no-daemon", "--sandbox", "read-only", "--ask-for-approval", "never", "--disable", "hooks"]
         a += ["-m", model] if model else []
         a += ["-c", f'model_reasoning_effort="{effort}"'] if effort else []
+        a += compact_args(who, compact)
         if fast is not None:
             a += tier_args(who, fast)
     elif who == "claude":
@@ -672,6 +773,7 @@ def reviewer_command(who, model=None, effort=None, folder=None, fast=None):
         a += [REVIEW_TEMPLATES_READ]
         a += ["--model", model] if model else []
         a += ["--effort", effort] if effort else []
+        a += compact_args(who, compact)
         if fast is not None:
             a += tier_args(who, fast)
         # #1131: hc run gives it hc's environment, not the worker's: the worker's own Claude profile, when it has one
@@ -724,13 +826,15 @@ def task_settings(s, t, space=None, argv=None, live=False):
     agent = agent_key(argv)
     if on:
         rv = reviewer_pick(s, t, space)
-        rv_by = "task" if any(t.get(f) for f in ("reviewer", "reviewer_model", "reviewer_effort", "reviewer_speed")) else \
+        rv_by = "task" if any(t.get(f) for f in ("reviewer", "reviewer_model", "reviewer_effort", "reviewer_speed", "reviewer_compact")) else \
             by_layer(s, space, "reviewer", None, bool(cfg.get("reviewer")), False)
         for f in ("model", "effort"):
             if t.get(f"reviewer_{f}"):
                 rv[f] = t[f"reviewer_{f}"]
         if t.get("reviewer_speed") in SPEEDS:
             rv["fast"] = SPEEDS[t["reviewer_speed"]]
+        if compact_own(t.get("reviewer_compact")) is not None:
+            rv["compact"] = compact_own(t["reviewer_compact"])
         other = {"claude": "codex", "codex": "claude"}.get(agent)
         want = rv.get("agent") or (other if other and shutil.which(other) else agent)
         who, said = want, ""
@@ -764,14 +868,15 @@ def task_settings(s, t, space=None, argv=None, live=False):
         folder = t.get("worktree") or getattr(s, "loc", {}).get("folder")
         if speed:
             text += f", {SPEED_NAMES[speed]}"
-        cmd = reviewer_command(who, rv.get("model"), rv.get("effort"), folder, rv.get("fast"))
+        cmd = reviewer_command(who, rv.get("model"), rv.get("effort"), folder, rv.get("fast"), rv.get("compact"))
         if cmd:
             text += f"; start it as `{cmd}`"
             # dmalis/shepherdr#215: hc wait alone ends on its startup idle, before the prompt it was started with
             from .launch import own_path
             text += f"; wait for it with `{own_path()} wait-for <its name> --timeout 600` (hc wait alone can end at its startup, turn 0)"
         add("Reviewer", text, {"agent": who, "model": rv.get("model"), "effort": rv.get("effort"), "command": cmd,
-                              **({"speed": speed} if speed else {})}, rv_by)
+                              **({"speed": speed} if speed else {}),
+                              **({"compact": compact_of(rv.get("compact"))} if compact_of(rv.get("compact")) and who in ("claude", "codex") else {})}, rv_by)
         if notice:
             lines[-1]["notice"] = notice
         if not live and t.get("brief_reviewer_fallback"):
@@ -800,15 +905,17 @@ def task_settings(s, t, space=None, argv=None, live=False):
     # The launch command always spells out Standard. Say it in the brief when it was chosen in the task or Settings.
     named_speed = speed and (speed != "regular" or t.get("speed") in SPEEDS or (cfg.get("worker") or {}).get("fast") is False)
     extra = FLAGS.extra(agent, argv)
+    compact = compact_words(argv_compact(argv))
     text = agent + (f", model {model}" if model else "") + (f", effort {effort}" if effort else "") + \
         (f", {SPEED_NAMES[speed]}" if named_speed else "") + \
+        (f", compacts at {compact}" if compact else "") + \
         (f", extra flags {FLAGS.words(extra)}" if extra else "")
     own_flags = agent in (t.get("flags") or {}) if isinstance(t.get("flags"), dict) else False
-    a_by = "task" if any(t.get(f) for f in ("agent", "model", "effort", "speed")) or own_flags else \
+    a_by = "task" if any(t.get(f) for f in ("agent", "model", "effort", "speed", "compact")) or own_flags else \
         by_layer(s, space, "worker", None, bool(cfg.get("worker")), False) or \
         (by_layer(s, space, "tasks", f"{agent}_flags", extra, []) if extra else None)
     add("Agent", text, {"agent": agent, "model": model, "effort": effort, "flags": extra,
-                       **({"speed": speed} if speed else {})}, a_by)
+                       **({"speed": speed} if speed else {}), **({"compact": argv_compact(argv)} if compact else {})}, a_by)
     # Suggested replies (SHEP-186): the reply ends with one to three replies the person would likely send next (templates/worker.md)
     sug = (cfg.get("agents") or {}).get("suggestions") is not False
     add("Suggested replies", "on (your reply ends with one to three replies the person would likely send next, or one per option, up to five, when it asks a question with options; each at most 30 characters, makes sense alone and names what it is about; shown as bubbles to tap, a tapped one sent as a reply to that message)" if sug

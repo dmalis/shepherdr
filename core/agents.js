@@ -5,28 +5,94 @@
 export const NAMES = { claude: "Claude Code", codex: "Codex" };
 
 // Claude Code's current models, as its /model menu offers them. `id` is what --model gets;
-// `match` the names a running agent may report for it.
+// `match` the names a running agent may report for it. `window`: its context window in tokens (all five run with a
+// native 1M window: https://code.claude.com/docs/en/context-window, read 2026-11-28).
 const CLAUDE_MODELS = [
-  { id: "opus", fast: true, name: "Opus 5.5", match: ["opus", "claude-opus-5-5"] },
-  { id: "opus[1m]", fast: true, name: "Opus 5.5 · 1M", match: ["opus[1m]", "claude-opus-5-5[1m]"] },
-  { id: "claude-fable-5-2", fast: true, name: "Fable 5.2", match: ["fable", "claude-fable-5-2"] },
-  { id: "sonnet", name: "Sonnet 5.5", match: ["sonnet", "claude-sonnet-5-5"] },
-  { id: "haiku", name: "Haiku 5.5", match: ["haiku", "claude-haiku-5-5"] },
+  { id: "opus", fast: true, name: "Opus 5.5", match: ["opus", "claude-opus-5-5"], window: 1000000 },
+  { id: "opus[1m]", fast: true, name: "Opus 5.5 · 1M", match: ["opus[1m]", "claude-opus-5-5[1m]"], window: 1000000 },
+  { id: "claude-fable-5-2", fast: true, name: "Fable 5.2", match: ["fable", "claude-fable-5-2"], window: 1000000 },
+  { id: "sonnet", name: "Sonnet 5.5", match: ["sonnet", "claude-sonnet-5-5"], window: 1000000 },
+  { id: "haiku", name: "Haiku 5.5", match: ["haiku", "claude-haiku-5-5"], window: 1000000 },
 ];
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // Codex's models as OpenAI publishes them (https://learn.chatgpt.com/docs/models and /docs/agent-configuration/speed,
 // read 2026-11-27). Shepherdr no longer asks Codex's App Server for its list: OpenAI says App Server sign-in was never
 // meant for commercial or hosted services. Codex itself decides what the account can use (its own /model).
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"];
+// `window`: the context window Codex itself gives each one (its models.json, rust-v0.172.0).
 const CODEX_MODELS = [
-  { id: "gpt-6.2-sol", label: "GPT-6.2 Sol", efforts: [...CODEX_EFFORTS, "max", "ultra"], fast: true, ultrafast: true },
-  { id: "gpt-6.2-astra", label: "GPT-6.2 Astra", efforts: [...CODEX_EFFORTS, "max", "ultra"], fast: true, ultrafast: true },
-  { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", efforts: CODEX_EFFORTS, fast: true, ultrafast: true },
-  { id: "gpt-6.1-terra", label: "GPT-6.1 Terra", efforts: CODEX_EFFORTS, fast: true },
-  { id: "gpt-6-astra", label: "GPT-6 Astra", efforts: CODEX_EFFORTS, fast: true, ultrafast: true },
-  { id: "gpt-6-sol", label: "GPT-6 Sol", efforts: CODEX_EFFORTS, fast: true },
-  { id: "gpt-6-luna", label: "GPT-6 Luna", efforts: [...CODEX_EFFORTS, "max"], fast: true },
+  { id: "gpt-6.2-sol", label: "GPT-6.2 Sol", efforts: [...CODEX_EFFORTS, "max", "ultra"], fast: true, ultrafast: true, window: 500000 },
+  { id: "gpt-6.2-astra", label: "GPT-6.2 Astra", efforts: [...CODEX_EFFORTS, "max", "ultra"], fast: true, ultrafast: true, window: 272000 },
+  { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", efforts: CODEX_EFFORTS, fast: true, ultrafast: true, window: 500000 },
+  { id: "gpt-6.1-terra", label: "GPT-6.1 Terra", efforts: CODEX_EFFORTS, fast: true, window: 500000 },
+  { id: "gpt-6-astra", label: "GPT-6 Astra", efforts: CODEX_EFFORTS, fast: true, ultrafast: true, window: 272000 },
+  { id: "gpt-6-sol", label: "GPT-6 Sol", efforts: CODEX_EFFORTS, fast: true, window: 272000 },
+  { id: "gpt-6-luna", label: "GPT-6 Luna", efforts: [...CODEX_EFFORTS, "max"], fast: true, window: 272000 },
 ];
+
+// fork #219: Compact at. When a long conversation compacts, said at start like the model and effort, with each CLI's
+// documented per-run switch (never its settings files, never a typed /compact): Claude Code's
+// `--autocompact <tokens>` (v2.1.221+, https://code.claude.com/docs/en/cli-reference: "for this session without
+// changing your saved settings"; it caps it at the model's window) and Codex's `-c model_auto_compact_token_limit=<n>`
+// (https://learn.chatgpt.com/codex/config-file/config-reference; Codex caps it at 90% of the model's window, its own
+// default). null: the CLI's own (nothing is passed).
+export const COMPACT_SIZES = [150000, 200000, 300000, 400000, 500000];
+// A compact size as kept: a whole token count Claude Code takes (100k or more), else null (the CLI's own).
+export function compactOf(v) {
+  const w = typeof v === "string" ? v.trim().replace(/k$/i, "000").replace(/m$/i, "000000") : null;
+  const n = w === null ? v : /^[0-9]+$/.test(w) ? Number(w) : null;
+  return Number.isInteger(n) && n >= 100000 && n <= 10000000 ? n : null;
+}
+const COMPACT_KEY = "model_auto_compact_token_limit=";
+// A Compact at switch in an agent's argv, as [words it takes, its value], else null: --autocompact N, --autocompact=N,
+// -c/--config key=N, --config=key=N.
+function compactAt(argv, i) {
+  const a = argv[i], next = argv[i + 1] ?? "";
+  if (a === "--autocompact") return [2, next];
+  if (a.startsWith("--autocompact=")) return [1, a.slice(14)];
+  if ((a === "-c" || a === "--config") && next.startsWith(COMPACT_KEY)) return [2, next.slice(COMPACT_KEY.length)];
+  for (const f of ["--config=", "-c="]) if (a.startsWith(f + COMPACT_KEY)) return [1, a.slice(f.length + COMPACT_KEY.length)];
+  return null;
+}
+// The size an argv says, in any of its spellings (the last one wins, as the CLI reads it); null: none.
+function argvCompact(argv) {
+  let v = null;
+  for (let i = 0; i < (argv ?? []).length; i++) { const c = compactAt(argv, i); if (c) v = c[1]; }
+  return v;
+}
+// argv without any Compact at switch (one is said after it: never two).
+function withoutCompact(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    const c = compactAt(argv, i);
+    if (c) { i += c[0] - 1; continue; }
+    out.push(argv[i]);
+  }
+  return out;
+}
+// "300k", "1M"; null for the CLI's own.
+export function compactName(v) {
+  const n = compactOf(v);
+  return n == null ? null : n % 1000000 === 0 ? `${n / 1000000}M` : `${Math.round(n / 1000)}k`;
+}
+// The window a model has; one typed by id: its agent's usual (Claude's current ones 1M, Codex's smaller 272k).
+export const windowOf = (agent, m) => m?.window ?? (agent === "claude" ? 1000000 : 272000);
+// The CLI's own point, roughly: Claude Code's near a 1M window's end (about 967k, its model-config docs), Codex's 90%.
+export const compactDefault = (agent, window) => (agent === "claude" ? (window >= 1000000 ? 967000 : window) : Math.floor(window * 0.9));
+// The sizes to offer for a window: those before the CLI's own point, at most four (the largest).
+export function compactSizes(agent, window) {
+  const at = compactDefault(agent, window);
+  return COMPACT_SIZES.filter((n) => n < at).slice(-4);
+}
+// The one marked Recommended: on a 1M window, 300k (a long task keeps its thread, and every turn after it resends a
+// third of the context); on a smaller window the CLI's own (null), which already sits near its end.
+export const compactRecommended = (agent, window) => (window >= 1000000 ? 300000 : null);
+// What starts it there.
+export function compactArgs(agent, v) {
+  const n = compactOf(v);
+  if (n == null) return [];
+  return agent === "claude" ? ["--autocompact", String(n)] : agent === "codex" ? ["-c", `model_auto_compact_token_limit=${n}`] : [];
+}
 // Permission modes as each CLI has them (Claude: --permission-mode, or
 // --dangerously-skip-permissions for full access; Codex: its sandbox and approvals, and Approve for me: its own
 // automatic review answers what it would ask, #1464).
@@ -129,7 +195,8 @@ export function current(kind, argv, meta, dflt) {
     const per = meta.model ? dflt.per?.[meta.model] ?? dflt.per?.[meta.model.replace(/-\d+$/, "")] : null;
     const perm = meta.perm ?? (argv.includes("--dangerously-skip-permissions") ? "bypassPermissions" : flag(argv, "--permission-mode") ?? dflt.mode ?? "manual");
     return { agent: "claude", model: meta.model ?? alias, alias, effort: meta.effort ?? flag(argv, "--effort") ?? per ?? dflt.effort,
-      fast: Boolean(fast), perm: perm === "default" ? "manual" : perm, used: meta.used ?? null, window: meta.window ?? (big ? 1000000 : 200000) };
+      fast: Boolean(fast), perm: perm === "default" ? "manual" : perm, compact: compactOf(flag(argv, "--autocompact")),
+      used: meta.used ?? null, window: meta.window ?? (big ? 1000000 : 200000) };
   }
   const o = overrides(argv);
   const tier = o.service_tier;
@@ -138,7 +205,7 @@ export function current(kind, argv, meta, dflt) {
   const perm = argv.includes("--dangerously-bypass-approvals-and-sandbox") || sandbox === "danger-full-access" ? "full"
     : argv.includes("--approve-for-me") || argv.includes("--not-so-yolo") ? "approve" : sandbox === "read-only" ? "read-only" : "auto";
   return { agent: "codex", model, label: dflt.models?.find((m) => m.id === model)?.label ?? null, perm: meta.perm ?? perm,
-    effort: meta.effort ?? o.model_reasoning_effort ?? dflt.effort,
+    effort: meta.effort ?? o.model_reasoning_effort ?? dflt.effort, compact: compactOf(argvCompact(argv)),
     fast: meta.speed ? speedOf(meta.speed) : tier ? speedOf(tier) : dflt.fast === "ultrafast" ? "ultrafast" : Boolean(dflt.fast), used: meta.used ?? null, window: meta.window ?? null };
 }
 
@@ -168,7 +235,8 @@ export const CHOICE_KEY = "coordinator.choice";
 export function choiceOf(all, space) {
   const c = space && all && typeof all === "object" ? all[space] : null;
   if (!c || (c.agent !== "claude" && c.agent !== "codex")) return null;
-  return { agent: c.agent, model: c.model ?? null, effort: c.effort ?? null, fast: c.fast === "ultrafast" ? "ultrafast" : Boolean(c.fast), perm: c.perm ?? null };
+  return { agent: c.agent, model: c.model ?? null, effort: c.effort ?? null, fast: c.fast === "ultrafast" ? "ultrafast" : Boolean(c.fast), perm: c.perm ?? null,
+    ...(compactOf(c.compact) ? { compact: compactOf(c.compact) } : {}) };
 }
 export const sameChoice = (a, b) => JSON.stringify(choiceOf({ x: a }, "x")) === JSON.stringify(choiceOf({ x: b }, "x"));
 // The choices with a space's kept (sel null: forgotten); only the newest 40 stay.
@@ -204,7 +272,7 @@ export function menuFor(agent, dflt, current = null) {
   if (agent === "claude") {
     // https://code.claude.com/docs/en/model-config and /en/fast-mode. Claude enforces account availability.
     const models = CLAUDE_MODELS.map((m) => ({
-      id: m.id, name: m.name, aliases: m.match, efforts: CLAUDE_EFFORTS,
+      id: m.id, name: m.name, aliases: m.match, efforts: CLAUDE_EFFORTS, window: m.window,
       defaultEffort: dflt?.per?.[m.match[1].replace(/\[1m\]$/, "")] ?? dflt?.effort ?? null,
       fast: m.fast ?? false,
     }));
@@ -216,7 +284,7 @@ export function menuFor(agent, dflt, current = null) {
     return { name: NAMES.claude, perms: PERMS.claude, models };
   }
   const all = (dflt?.models ?? []).map((m) => ({ id: m.id, name: m.label, efforts: m.efforts?.length ? m.efforts : ["low", "medium", "high", "xhigh"],
-    defaultEffort: m.defaultEffort ?? dflt?.effort ?? null, fast: m.fast, ...(m.ultrafast ? { ultrafast: true } : {}) }));
+    defaultEffort: m.defaultEffort ?? dflt?.effort ?? null, fast: m.fast, ...(m.ultrafast ? { ultrafast: true } : {}), ...(m.window ? { window: m.window } : {}) }));
   if (current && !all.some((m) => m.id === current)) all.unshift({ id: current, name: current, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: dflt?.effort ?? null, fast: false });
   return { name: NAMES.codex, perms: PERMS.codex, models: all };
 }
@@ -317,7 +385,7 @@ export function rowFor(agent, c) {
 }
 
 // Flags that are about what to resume, which model, effort or speed: set again by a restart.
-const CLAUDE_DROP = new Set(["--model", "--effort", "--settings", "--session-id", "--resume", "-r", "--permission-mode"]);
+const CLAUDE_DROP = new Set(["--model", "--effort", "--settings", "--session-id", "--resume", "-r", "--permission-mode", "--autocompact"]);
 const CLAUDE_BARE = new Set(["--continue", "-c", "--fork-session", "--dangerously-skip-permissions"]);
 // Flags whose next word is their value (so it isn't taken for a first message).
 const CLAUDE_VALUE = new Set(["--add-dir", "--mcp-config", "--append-system-prompt", "--system-prompt",
@@ -339,6 +407,14 @@ function kept(kind, argv) {
   const rest = argv.slice(Math.max(agentAt(argv), 0) + 1);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
+    // fork #219: a Compact at size is said again from the pick; one in a form it doesn't say (auto, a percentage)
+    // stays the person's own, one word
+    const c = compactAt(rest, i);
+    if (c) {
+      i += c[0] - 1;
+      if (!compactOf(c[1]) && c[1]) out.push(kind === "claude" ? `--autocompact=${c[1]}` : `--config=${COMPACT_KEY}${c[1]}`);
+      continue;
+    }
     if (kind === "claude") {
       if (CLAUDE_BARE.has(a)) continue;
       if (CLAUDE_DROP.has(a)) { if (rest[i + 1] && !rest[i + 1].startsWith("-")) i++; continue; }
@@ -349,7 +425,7 @@ function kept(kind, argv) {
       if (i === 0 && (a === "resume" || a === "fork")) { if (rest[1] && !rest[1].startsWith("-")) i++; continue; }
       if (a === "--no-daemon" || a === "--dangerously-bypass-approvals-and-sandbox" || a === "--full-auto" || a === "--approve-for-me" || a === "--not-so-yolo") continue;
       if (["-m", "--model", "-s", "--sandbox", "-a", "--ask-for-approval"].includes(a)) { i++; continue; }
-      if ((a === "-c" || a === "--config") && /^(model|model_reasoning_effort|service_tier)=/.test(rest[i + 1] ?? "")) { i++; continue; }
+      if ((a === "-c" || a === "--config") && /^(model|model_reasoning_effort|service_tier|model_auto_compact_token_limit)=/.test(rest[i + 1] ?? "")) { i++; continue; }
       if (CODEX_VALUE.has(a)) { out.push(a, rest[++i]); continue; }
       if (a.startsWith("-")) out.push(a);
     }
@@ -369,7 +445,7 @@ export function extraFlags(kind, argv) {
   return argv.slice(at + 1).map(String).filter((a, i, rest) => {
     if (!a.startsWith("--") || a === "--" || (i > 0 && value.has(rest[i - 1]))) return false;
     const name = a.split("=")[0];
-    if (a.includes("=")) return !CLAUDE_DROP.has(name) && !(name === "--config" && /^(model|model_reasoning_effort|service_tier|projects|hooks)[=.]/.test(a.slice(9)));
+    if (a.includes("=")) return !CLAUDE_DROP.has(name) && !(name === "--config" && /^(model|model_reasoning_effort|service_tier|model_auto_compact_token_limit|projects|hooks)[=.]/.test(a.slice(9)));
     return !value.has(a) && !OWN_BARE.has(a);
   });
 }
@@ -396,7 +472,7 @@ function stripSession(kind, argv) {
       if (/^--(resume|session-id)=/.test(a)) { resumed ||= a.startsWith("--resume"); continue; }
       if (a === "--continue" || a === "-c") { resumed = true; continue; }
       if (a === "--fork-session") continue;
-      if (CLAUDE_VALUE.has(a) || ["--model", "--effort", "--settings", "--permission-mode"].includes(a)) { out.push(a, rest[++i]); continue; }
+      if (CLAUDE_VALUE.has(a) || ["--model", "--effort", "--settings", "--permission-mode", "--autocompact"].includes(a)) { out.push(a, rest[++i]); continue; }
     } else {
       if (i === 0 && (a === "resume" || a === "fork")) { resumed = true; continue; }
       if (a === "--last") continue;
@@ -415,11 +491,14 @@ export function argvFor(pick, old) {
   // #1219: a mode in the other CLI's words (a switch carries the old agent's) is said in this one's: Claude's full access
   // is Codex's full access, never its sandbox
   if (pick.perm) pick = { ...pick, perm: PERM_ACROSS[pick.agent]?.[pick.perm] ?? pick.perm };
-  const flags = same ? kept(pick.agent, old.argv ?? []) : [];
+  const was = same ? kept(pick.agent, old.argv ?? []) : [];
+  // fork #219: a size picked replaces one the person's own flags said
+  const flags = compactOf(pick.compact) ? withoutCompact(was) : was;
   if (pick.agent === "claude") {
     const a = ["claude", ...flags];
     if (pick.model) a.push("--model", pick.model);
     if (pick.effort) a.push("--effort", pick.effort);
+    a.push(...compactArgs("claude", pick.compact));
     a.push("--settings", JSON.stringify({ fastMode: Boolean(pick.fast) }));
     if (pick.perm === "bypassPermissions") a.push("--dangerously-skip-permissions");
     else if (pick.perm) a.push("--permission-mode", pick.perm === "manual" ? "default" : pick.perm);
@@ -430,6 +509,7 @@ export function argvFor(pick, old) {
   const a = [...flags, "--no-daemon"];
   if (pick.model) a.push("-m", pick.model);
   if (pick.effort) a.push("-c", `model_reasoning_effort="${pick.effort}"`);
+  a.push(...compactArgs("codex", pick.compact));
   // always said, so Fast off wins over a service_tier in config.toml (default: the standard tier)
   a.push("-c", `service_tier="${codexTier(pick.fast)}"`);
   if (pick.perm === "full") a.push("--dangerously-bypass-approvals-and-sandbox");
@@ -458,11 +538,13 @@ export function forkArgv(kind, argv, session) {
   argv = argv ?? [];
   // The same model, effort and speed as the original.
   const same = kind === "claude"
-    ? ["--model", "--effort", "--settings"].flatMap((f) => { const v = flag(argv, f); return v ? [f, v] : []; })
+    ? [...["--model", "--effort", "--settings"].flatMap((f) => { const v = flag(argv, f); return v ? [f, v] : []; }),
+      ...compactArgs("claude", flag(argv, "--autocompact"))]
     : (() => {
       const m = flag(argv, "-m", "--model"), o = overrides(argv);
       return [...(m ? ["-m", m] : []), "--no-daemon",
-        ...["model_reasoning_effort", "service_tier"].flatMap((k) => (o[k] ? ["-c", `${k}="${o[k]}"`] : []))];
+        ...["model_reasoning_effort", "service_tier"].flatMap((k) => (o[k] ? ["-c", `${k}="${o[k]}"`] : [])),
+        ...compactArgs("codex", argvCompact(argv))];
     })();
   const flags = [...kept(kind, argv), ...same];
   return kind === "claude" ? ["claude", ...flags, "--resume", session, "--fork-session"] : ["codex", "fork", ...flags, session];
@@ -515,5 +597,5 @@ export function liveAgent(kind, t, meta, dflt) {
   const words = [c.label ?? modelName(c.model), levelName(c.effort), speedName(c.fast)].filter(Boolean).join(" · ") || NAMES[kind] || "Agent";
   const extra = extraFlags(kind, argv);
   return { kind, words, ...(extra.length ? { flags: extra } : {}), ...(c.model ? { model: c.model, modelLabel: label } : {}), ...(c.effort ? { effort: c.effort } : {}),
-    speed: speedWordOf(c.fast), ...(c.perm ? { perm: c.perm } : {}) };
+    speed: speedWordOf(c.fast), ...(c.perm ? { perm: c.perm } : {}), ...(c.compact ? { compact: c.compact } : {}) };
 }

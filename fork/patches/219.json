@@ -1,0 +1,37 @@
+{
+  "issue": 219,
+  "name": "Agents page and Compact at",
+  "files": [
+    "web/src/agent-rows.tsx",
+    "web/src/agent-rows.css",
+    "web/src/picker-compact.css",
+    "web/src/settings.tsx",
+    "web/src/picker.tsx",
+    "web/src/picker-sheet.tsx",
+    "web/plugins/chat/client.tsx",
+    "web/shared/types.ts",
+    "web/demo/data.ts",
+    "core/agents.js",
+    "service/actions.ts",
+    "service/agents.ts",
+    "service/model.ts",
+    "service/compat.ts",
+    "service/main.ts",
+    "service/next.ts",
+    "service/settings.ts",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/revive.py",
+    "mods/tasks/bin/herdr_task/settings.py",
+    "docs/settings.md",
+    "docs/agents-and-terms.md",
+    "web/src/picker.test.ts"
+  ],
+  "tests": [
+    "web/src/agent-rows.test.tsx",
+    "core/compact.test.js",
+    "service/compact.test.ts",
+    "test/test_herdr_task.py::CompactAt"
+  ]
+}

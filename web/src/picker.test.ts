@@ -40,18 +40,19 @@ test('Update appears only when the effective choice differs', () => {
     expect(samePick(now, { ...now, ...changed }, cat)).toBe(false)
 })
 
-test('every choice is a row, in the order Agent, Model, Effort, Speed, Permissions', () => {
+test('every choice is a row, in the order Agent, Model, Effort, Speed, Permissions, Compact at', () => {
   expect(pickerRows(pick, cat)).toEqual([
     { f: 'agent', label: 'Agent', value: 'Claude Code' },
     { f: 'model', label: 'Model', value: 'Big 1' },
     { f: 'effort', label: 'Effort', value: 'Medium' },
     { f: 'speed', label: 'Speed', value: 'Standard' },
     { f: 'mode', label: 'Permissions', value: 'Bypass' },
+    { f: 'compact', label: 'Compact at', value: 'Default' }, // fork #219
   ])
 })
 
 test('Standard is always available, while only supported faster tiers appear', () => {
-  expect(pickerRows({ ...pick, model: 'small' }, cat).map((r) => r.f)).toEqual(['agent', 'model', 'effort', 'speed', 'mode'])
+  expect(pickerRows({ ...pick, model: 'small' }, cat).map((r) => r.f)).toEqual(['agent', 'model', 'effort', 'speed', 'mode', 'compact'])
   expect(pickerRows({ agent: 'plain' }, cat).map((r) => r.f)).toEqual(['agent', 'model', 'speed'])
   expect(choiceList('speed', { ...pick, model: 'small' }, cat).items.map((x) => x.label)).toEqual(['Standard'])
 })

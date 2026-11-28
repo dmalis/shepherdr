@@ -6,7 +6,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { AgentPick, Catalog, CatalogAgent, CatalogModel, ChatAgent, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, machineLabel, machineOf, spaceName, spacesOf, unreachable } from '@shared/view.ts'
-import { levelName } from '@core/agents.js'
+import { compactDefault, compactName, compactRecommended, compactSizes, levelName, windowOf } from '@core/agents.js'
 import { act, getState, useChat } from './kernel.ts'
 import { openDialog } from './overlay.tsx'
 import { Btn, I, IB, Logo, Row } from './ui.tsx'
@@ -29,6 +29,7 @@ export function reportedPick(a?: ChatAgent): Pick | undefined {
     effort: a.effort ?? a.planned?.effort ?? null,
     fast: a.speed === 'ultrafast' ? 'ultrafast' : a.speed === 'fast',
     perm: a.perm ?? null,
+    compact: a.compact ?? null,
   }
 }
 
@@ -99,12 +100,16 @@ export function pickWords(p: Pick, cat?: Catalog) {
   const m = modelOf(a, p)
   const effort = p.effort ?? m?.defaultEffort ?? a?.defaultEffort ?? ''
   const perm = p.perm && a && p.perm !== a.permDefault ? (a.perms.find((x) => x.id === p.perm)?.label ?? p.perm) : ''
-  return { agent: a?.name ?? NAMES[p.agent] ?? p.agent, model: m?.name ?? p.label ?? p.model ?? '', group: m?.group ?? '', effort: levelName(effort) ?? '', speed: speedOf(p), perm }
+  return { agent: a?.name ?? NAMES[p.agent] ?? p.agent, model: m?.name ?? p.label ?? p.model ?? '', group: m?.group ?? '', effort: levelName(effort) ?? '', speed: speedOf(p), perm,
+    compact: compactName(p.compact) ?? '' }
 }
+
+/** fork #219: whether the agent has a Compact at (a documented per-run switch: Claude Code's and Codex's) */
+export const hasCompact = (agent: string) => agent === 'claude' || agent === 'codex'
 
 /** The spoken label for settings buttons. */
 function sayPick(w: ReturnType<typeof pickWords>): string {
-  return [w.agent, w.model, w.effort && `${w.effort} effort`, w.speed === 'regular' ? '' : SPEEDS[w.speed], w.perm.toLowerCase()].filter(Boolean).join(', ')
+  return [w.agent, w.model, w.effort && `${w.effort} effort`, w.speed === 'regular' ? '' : SPEEDS[w.speed], w.perm.toLowerCase(), w.compact && `compacts at ${w.compact}`].filter(Boolean).join(', ')
 }
 
 /** A compact model and effort label with a named speed icon. */
@@ -219,7 +224,7 @@ export function PickerHead({ title, back, close }: { title: ReactNode; back?: ()
   )
 }
 
-export type Field = 'agent' | 'model' | 'effort' | 'speed' | 'mode'
+export type Field = 'agent' | 'model' | 'effort' | 'speed' | 'mode' | 'compact'
 
 /** the agent picker's rows, in order: each one's label and what is picked; Effort, Speed and Permissions only when
  *  the agent or model has a choice there */
@@ -235,7 +240,25 @@ export function pickerRows(p: Pick, cat?: Catalog): { f: Field; label: string; v
   if (efforts.length) rows.push({ f: 'effort', label: 'Effort', value: w.effort })
   rows.push({ f: 'speed', label: 'Speed', value: SPEEDS[w.speed] })
   if (a?.perms.length) rows.push({ f: 'mode', label: 'Permissions', value: a.perms.find((x) => x.id === (p.perm ?? a.permDefault))?.label ?? '' })
+  if (hasCompact(p.agent)) rows.push({ f: 'compact', label: 'Compact at', value: w.compact || 'Default' })
   return rows
+}
+
+/** fork #219: Compact at's list: the agent's own point first, then sizes below it that fit the model's window, one
+ *  marked Recommended (core/agents.js compactSizes, compactRecommended); a size kept that the list lacks stays on it */
+export function compactChoices(p: Pick, cat?: Catalog): { id: string; label: string; sub?: string; recommended: boolean; on: boolean; pick: Pick }[] {
+  const a = agentOf(cat, p.agent)
+  const m = modelOf(a, p)
+  const w = pickWords(p, cat)
+  const win = windowOf(p.agent, m)
+  const rec = compactRecommended(p.agent, win)
+  const sizes = compactSizes(p.agent, win)
+  const kept = p.compact && !sizes.includes(p.compact) ? [p.compact] : []
+  const own = p.agent === 'claude' ? `${w.agent} decides: near the end of the window` : `${w.agent} decides: at about ${compactName(compactDefault(p.agent, win))}`
+  return [
+    { id: 'default', label: 'Default', sub: own, recommended: rec == null, on: !p.compact, pick: { ...p, compact: null } },
+    ...[...sizes, ...kept].sort((x, y) => x - y).map((n) => ({ id: String(n), label: compactName(n)!, recommended: n === rec, on: p.compact === n, pick: { ...p, compact: n } })),
+  ]
 }
 
 /** a short list a row opens (Effort, Speed, Permissions): its title, its choices, which one is on, and the pick
@@ -263,7 +286,7 @@ export function samePick(a: Pick, b: Pick, cat?: Catalog) {
   const agent = agentOf(cat, a.agent)
   const key = (p: Pick) => modelOf(agent, p)?.id ?? p.model ?? null
   return a.agent === b.agent && key(a) === key(b) && pickWords(a, cat).effort === pickWords(b, cat).effort &&
-    speedOf(a) === speedOf(b) && (a.perm ?? agent?.permDefault) === (b.perm ?? agent?.permDefault)
+    speedOf(a) === speedOf(b) && (a.perm ?? agent?.permDefault) === (b.perm ?? agent?.permDefault) && (a.compact ?? null) === (b.compact ?? null)
 }
 
 /** the model a typed name means ("sonnet", "gpt-5.5", "Opus 5.5"): by id or name, then by their start; the agent's

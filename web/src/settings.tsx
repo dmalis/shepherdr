@@ -12,7 +12,7 @@ import { copyText } from './copy.ts'
 import type { IconName } from './icons.ts'
 import { notice, openSettings, registry, setUI, tryAct, useStore, useUI } from './kernel.ts'
 import { confirm, openDialog, openForm } from './overlay.tsx'
-import { openPicker, PickerHead, pickFor, PickSummary, useCatalog, type Role } from './picker.tsx'
+import { openPicker, PickerHead, pickFor, useCatalog, type Role } from './picker.tsx'
 import { Appearance } from './appearance.tsx'
 import { Choice as Seg } from './choice.tsx'
 import { setChatSide, type Layout, type Side } from './sides.ts'
@@ -26,6 +26,7 @@ import { MachineCard } from './machine-card.tsx'
 import { IconButton } from './space-icon.tsx'
 import { Btn, I, IB, Meter, Row, Tgl } from './ui.tsx'
 import { ALL, Own, SRow } from './settings-rows.tsx'
+import { AgentRow } from './agent-rows.tsx'
 
 // fork #163: the rows other parts use live in settings-rows.tsx, so this window can come when first opened
 export { ALL, Own, SRow }
@@ -153,12 +154,10 @@ function Agents({ snap, place, only }: { snap: Snapshot; place: string; only?: R
   const name = (role: Role) => (repo ? (role === 'Tasks' ? 'Agent' : role === 'Reviews' ? 'Reviewer' : role) : role)
   const row = (role: Role, title: string) => {
     const pick = pickFor(snap, place, role)
-    // the small print under the name, as Review, Merge and Proof have it (beside the value it ran into the value)
+    // fork #219: one roomy row, the whole row opens its picker (agent-rows.tsx)
     return (
-      <SRow key={role} label={<>{name(role)}<Own place={place} own={own(`agents.${role}`)} k={`agents.${role}`} /></>} wrap>
-        <span className="val"><PickSummary pick={pick} cat={cat} full /></span>
-        <Btn small onClick={() => openPicker({ title, machine, pick, onChange: () => undefined, onClose: (now) => JSON.stringify(now) !== JSON.stringify(pick) && void set(place, `agents.${role}`, now) })}>Change</Btn>
-      </SRow>
+      <AgentRow key={role} name={name(role)} pick={pick} cat={cat} small={place === 'all' ? null : <Own place={place} own={own(`agents.${role}`)} k={`agents.${role}`} />}
+        onOpen={() => openPicker({ title, machine, pick, onChange: () => undefined, onClose: (now) => JSON.stringify(now) !== JSON.stringify(pick) && void set(place, `agents.${role}`, now) })} />
     )
   }
   const rows: [Role, string][] = [['Chats', 'Chats run on'], ['Tasks', 'Tasks run on'], ['Reviews', 'Reviews run on']]

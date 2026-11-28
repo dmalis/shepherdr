@@ -28,7 +28,7 @@ LABEL = "herdr.resume"
 CLAUDE_VALUE = {"--add-dir", "--mcp-config", "--append-system-prompt", "--system-prompt", "--allowedTools", "--allowed-tools",
                 "--disallowedTools", "--disallowed-tools", "--agent", "--agents", "--plugin-dir", "--fallback-model",
                 "--output-format", "--input-format", "--name", "--setting-sources", "--betas", "--debug-file",
-                "--model", "--effort", "--settings", "--permission-mode"}
+                "--model", "--effort", "--settings", "--permission-mode", "--autocompact"}
 CODEX_VALUE = {"-c", "--config", "-m", "--model", "-p", "--profile", "-s", "--sandbox", "-a", "--ask-for-approval",
                "-C", "--cd", "--add-dir", "-i", "--image", "--enable", "--disable", "--local-provider", "--oss"}
 

@@ -15,7 +15,7 @@ import * as SCREENS_ from "../core/screens.js";
 const SCREENS = SCREENS_ as any;
 import * as AGa from "../core/agents.js";
 import { steps as answerSteps } from "../core/asks.js";
-const { CHOICE_KEY, choiceOf, withChoice, speedOf } = AGa as any;
+const { CHOICE_KEY, choiceOf, withChoice, speedOf, compactOf } = AGa as any;
 import * as SP from "../core/spaces.js";
 import { iconValue } from "../core/space-icon.js";
 import { withGroupSlots } from "../core/group-slots.js";
@@ -595,7 +595,8 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       if (!["claude", "codex"].includes(b.kind)) throw new Error("Pick Claude Code or Codex.");
       const opt = (v: unknown) => (typeof v === "string" && /^[\w.\[\]-]{1,60}$/.test(v) ? v : null);
       if (!compat.shared) throw new Error("The choice couldn't be kept.");
-      await compat.shared.set(CHOICE_KEY, withChoice(compat.shared.value(CHOICE_KEY), fresh.id, { agent: b.kind, model: opt(b.model), effort: opt(b.effort), fast: speedOf(opt(b.speed)), perm: opt(b.perm) }));
+      if (b.compact != null && !compactOf(b.compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
+      await compat.shared.set(CHOICE_KEY, withChoice(compat.shared.value(CHOICE_KEY), fresh.id, { agent: b.kind, model: opt(b.model), effort: opt(b.effort), fast: speedOf(opt(b.speed)), perm: opt(b.perm), compact: compactOf(b.compact) }));
       return { ok: true, chosen: true };
     }
     const a = chat(b.chat), reader = compat.reader?.(a);
@@ -603,7 +604,9 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     if (b.type === "model-menu") return { ok: true, menu: await (compat.agents as any).menu(a, reader) };
     if (!["claude", "codex"].includes(b.kind)) throw new Error("Pick Claude Code or Codex.");
     const opt = (v: unknown) => (typeof v === "string" && /^[\w.\[\]-]{1,60}$/.test(v) ? v : undefined);
-    const pick = { kind: b.kind, model: opt(b.model), effort: opt(b.effort), speed: opt(b.speed), perm: opt(b.perm) };
+    // fork #219: compact, a size or null (the CLI's own); left out: what it runs with now
+    if (b.compact != null && !compactOf(b.compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
+    const pick = { kind: b.kind, model: opt(b.model), effort: opt(b.effort), speed: opt(b.speed), perm: opt(b.perm), ...("compact" in b ? { compact: compactOf(b.compact) } : {}) };
     const worker = b.chat.endsWith("/worker") ? compat.taskOf(b.chat.split("/")[0]) : null;
     // The running chat picker reports the settings applied by the restarted session.
     if (b.live === true) {
@@ -865,7 +868,10 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       const word = (v: unknown) => (typeof v === "string" && /^[\w.\[\]:/-]{1,80}$/.test(v) ? v : null);
       const args = ["start", ref, ...(b.now === true ? ["--now"] : []), ...(word(p.agent) ? ["--agent", word(p.agent)!] : []), ...(word(p.model) ? ["--model", word(p.model)!] : []), ...(word(p.effort) ? ["--effort", word(p.effort)!] : []),
         ...(p.fast === "ultrafast" || typeof p.fast === "boolean" ? ["--speed", p.fast === "ultrafast" ? "ultrafast" : p.fast ? "fast" : "regular"] : []),
-        ...(word(p.perm) ? ["--permission", word(p.perm)!] : [])];
+        ...(word(p.perm) ? ["--permission", word(p.perm)!] : []),
+        // fork #219: its own Compact at, from the dialog's picker: a size, or 0 (the CLI's own, the picker's Default)
+        // over one its settings give
+        ...(word(p.agent) ? ["--compact", String(compactOf(p.compact) ?? 0)] : [])];
       const r = await task(args, folder, machine);
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
