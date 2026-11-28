@@ -28,16 +28,19 @@
 .msgs>.card+:not(.fold,.ref,.donerow,.time,.chips,.mend){margin-top:calc(var(--c-air) - var(--c-run))}
 
 /* a question and its choices are one group: the chips sit right under what asks (in a bubble's run, or a row's own
-   air), and what comes next starts a row's air further than the usual, so the answers never read as the next
-   message's */
+   air, never into it: a chip's touch area reaches past its edge), and what comes next starts a row's air further than
+   the usual, so the answers never read as the next message's. A question that takes several answers puts its chips
+   in a card with its Send: that card is the same group. */
 .msgs>.chips{margin:0}
-.msgs>:is(.fold,.ref,.donerow)+.chips{margin-top:max(calc(var(--c-run) - var(--c-pad)),calc(-1 * var(--c-run)))}
-.msgs>.chips+:not(.fold,.ref,.donerow,.time,.mend){margin-top:calc(var(--c-air) + var(--c-pad) - var(--c-run))}
-.msgs>.chips+:is(.fold,.ref,.donerow){margin-top:calc(var(--c-air) - var(--c-run))}
+.msgs>*+.card[data-ask]:has(>.chips:first-child){margin-top:0}
+.msgs>:is(.chips,.card[data-ask]:has(>.chips:first-child))+:not(.fold,.ref,.donerow,.time,.mend){margin-top:calc(var(--c-air) + var(--c-pad) - var(--c-run))}
+.msgs>:is(.chips,.card[data-ask]:has(>.chips:first-child))+:is(.fold,.ref,.donerow){margin-top:calc(var(--c-air) - var(--c-run))}
 
-/* a day's line: a break before it, then it belongs to what follows; at the chat's top, the air under the header */
+/* a day's line: a break before it, then it belongs to what follows (a new speaker's own gap gives way to it); at the
+   chat's top, the air under the header */
 .msgs>.time{margin:var(--c-air) 0 var(--c-run)}
 .msgs>.time:first-child{margin-top:0}
+.msgs>.time+.gap{margin-top:0}
 .msgs>.time+:is(.fold,.ref,.donerow){margin-top:max(calc(-1 * var(--c-pad)),calc(-2 * var(--c-run)))}
 
 .msgs>.ref{max-width:100%}.msgs>.ref>.tring:not(.tside){width:16px}.msgs>.ref>.tmv>.tring:not(.tside){width:16px}.msgs>.ref>.tring.tside>.i,.msgs>.ref>.tmv>.tring.tside>.i{flex:none}.msgs>.ref>.tmv>.rt,.msgs>.ref>.rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.msgs>.ref>.tring>.i,.msgs>.ref>.tmv>.tring>.i{width:16px;height:16px}

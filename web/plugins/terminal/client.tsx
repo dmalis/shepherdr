@@ -22,7 +22,7 @@ import { linkLayer, type LinkLayer } from './linklayer.ts'
 import { mirrorFocus } from './focus.ts'
 import { focusAfterKey } from './keyrow.ts'
 import { opens, type Link } from './links.ts'
-import { promptLabel, stuckWords, type Prompt } from './stuck.ts'
+import { promptLabels, stuckWords, type Prompt } from './stuck.ts'
 
 /** a web page opens the way a chat's link does: a new tab (the outside browser in the Android app), or in the app
  *  when it is this app's own (kernel.ts catches it) */
@@ -494,7 +494,7 @@ function Stuck({ chat: own, thread }: { chat: Chat | undefined; thread: Thread }
   } else {
     const p = placeOf(snap, thread.place)
     if (p?.needs && !!own?.blocked && !own.messages.some((m) => m.question && m.question.sent === undefined && !m.question.closed)) waits.push({ key: 'own', open: view(thread.chat) })
-    for (const t of tasksIn(snap, thread.place).filter(stuck)) waits.push({ key: t.id, task: t.name, open: view(taskChat(t), t) })
+    for (const t of tasksIn(snap, thread.place).filter(stuck)) waits.push({ key: t.id, id: t.id, task: t.name, open: view(taskChat(t), t) })
   }
   if (!waits.length) return null
   return (
@@ -504,7 +504,7 @@ function Stuck({ chat: own, thread }: { chat: Chat | undefined; thread: Thread }
       {waits.length === 1 ? (
         <Btn small onClick={waits[0]!.open}>View as terminal</Btn>
       ) : (
-        <Btn small aria-haspopup="menu" onClick={(e) => openMenu(e.currentTarget, waits.map((w) => ({ icon: 'prompt' as const, label: promptLabel(w), run: w.open })), { label: 'Waiting at a prompt' })}>
+        <Btn small aria-haspopup="menu" onClick={(e) => openMenu(e.currentTarget, promptLabels(waits).map((label, i) => ({ icon: 'prompt' as const, label, run: waits[i]!.open })), { label: 'Waiting at a prompt' })}>
           View as terminal<I n="down" c="s16" />
         </Btn>
       )}

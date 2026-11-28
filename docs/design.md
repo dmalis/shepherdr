@@ -196,8 +196,9 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   around it as its rows sit from each other, and a row never overlaps its neighbour. A day's line has `--c-air` above
   it and belongs to what follows; at the top of a chat it starts the same air under the header as anything else.
 - **A question and its choices are one group:** the chips sit right under what asks (in a bubble's run, or the row's
-  own air), and what comes next starts a row's padding further than the usual air, so an answer never reads as the
-  next message's.
+  own air, never into it, since a chip's touch area reaches past its edge), and what comes next starts a row's padding
+  further than the usual air, so an answer never reads as the next message's. A question that takes several answers
+  keeps its chips and Send in a card: that card is the same group. A new speaker's gap gives way to a day's line.
 - **One left edge:** in a chat, bubbles, cards, news rows and folds share the same left edge, and so do their icons.
   In a pane, content starts on one edge whatever pads it (Target: today some panes reach 16 px by different sums).
 - **The side gutter** is `--gut` (16) on every width; on a phone the safe areas are added to it, never instead of it.
@@ -279,7 +280,8 @@ Use these before making anything new; each has its states in `ds.css`.
 - **Chips** (`.chip`): suggested replies and choices.
 - **Counts** (`.cnt`): quiet; `.needs` is red.
 - **Banners** (`.banner`): its words first, one button. On a phone the words wrap to two lines and the button goes
-  under them, at the end, before the words are cut; words short enough keep it beside them. Several of one kind fold
+  under them, at the end, before the words are cut; words short enough keep it beside them. Why it is there comes
+  before a name ("Waiting at a prompt · <task>"), so a long name is cut, never the why. Several of one kind fold
   into one banner that counts them and whose button lists each (Everything's warnings, "2 things need a look"; a
   chat's prompts, "2 tasks are waiting at a prompt", `web/plugins/terminal/stuck.ts`), so banners never stack over the
   message box.
