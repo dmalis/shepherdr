@@ -1,0 +1,22 @@
+/* fork #105: on a phone the message box is two rows: the text, then one bar with + on the left, the model line taking
+   what is left and send or stop on the right, as ChatGPT's and Claude's apps keep theirs. Short of room the model line
+   drops its logo, chevron and permission mode (picker.tsx's fitAgentLine), then its effort gives way before the
+   model's name, each cut with an ellipsis. Upstream's narrow box (ds.css, under 336px: a phone under 368px wide, or
+   Zoom over 100%) gives the model line a row of its own instead, which pushes send or stop alone onto a third row.
+   That stays only for a box too narrow for one bar with a readable model line (+, the microphone, send and about 60px
+   of model): under 216px, at the app's own Zoom (zoom-css.ts scales the query), e.g. a 320px phone at 150% and up.
+   Only where a finger is the pointer: a desktop window keeps upstream's narrow box. While typing the bar joins the
+   text's row (typing.css). */
+@media (pointer: coarse) {
+  @container (min-width: 216px) {
+    .app .cbox > .cbar:has(> .agent) {
+      flex-wrap: nowrap;
+    }
+    .app .cbox > .cbar > .agent {
+      flex: 0 1 auto;
+    }
+  }
+  .app .cbox > .cbar > .agent > .e:not(.pm) {
+    flex: 0 1000 auto;
+  }
+}
