@@ -13,7 +13,8 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
 - **What runs:** upstream's newest release, plus the person's changes upstream doesn't have (yet).
 - **Stay close to upstream:** a patch is small, lives in its own files where it can, is built the way upstream
   builds things (so upstream could take it as it is) and for every Shepherdr user (what suits only the person is a
-  setting). When upstream ships the same thing, ours is deleted.
+  setting), with a test for every upstream behaviour it relies on. When upstream ships the same thing, ours is
+  deleted.
 - **The person doesn't code.** Agents design, build, review, sync and install. Ask the person only for product
   decisions and the yeses named here.
 - **Think for the person:** shape every request with the shaping-a-request skill before building (the need behind
@@ -25,7 +26,7 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
 |---|---|
 | Our repo (public) | github.com/dmalis/shepherdr: remote `origin`, and `gh repo set-default` |
 | Upstream | github.com/eliasstravik/shepherdr: remote `upstream`. Releases are tags `vX.Y.Z` |
-| `main` | The newest upstream release we took, plus our patches. Changed only by pull request |
+| `main` | The newest upstream release we took, plus our patches. Changed only by pull request. A sync of an upstream release merges once its checks pass; our own merges in this space merge right away, and CI reports after (upstream-sync skill, "Schedules") |
 | Install tags | `ours-<upstream version>-<n>`, e.g. `ours-3.2.21-1`: a commit that was tried and installed |
 | This space | `~/development/projects/shepherdr-dev`. Tasks work in worktrees of it |
 | Install folder | `~/development/projects/shepherdr`: the live Shepherdr's checkout, detached at the installed tag. Only the install step moves it |
@@ -34,6 +35,7 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
 
 ## Rules
 
+- **Nothing that risks a ban:** every task checks it before ready (AGENTS.md: "Nothing that risks a ban").
 - **Everything here is public.** No customer or project names, business data or secrets, home paths (`/home/...`,
   `/Users/...`), host names, the person's email or their private settings, in any file, commit, issue or pull
   request. Commits use the repo's no-reply email (`git config user.email`); never change it. Before `ready`, read
@@ -87,7 +89,8 @@ brief, every Shepherdr step that confused them or that they did by hand.
 **Propose it, don't promise.** In the same reply, say the friction and its fix in one or two plain lines: what went
 wrong, the fix for every user, whether it would be a patch. Ask "File it and fix it?" only when it hurts now; else the
 row waits for the person's pick. A yes to file is also the yes to fix it. "I'll do better next time" is never the
-whole answer: a miss your instructions already cover still gets a product fix that makes it impossible or visible.
+whole answer. When the miss was your own and your instructions already cover it, say so, and still look for a
+product fix that makes the miss impossible or visible.
 Filing, the yes for the exact text, and what a post starts: shaping-a-request skill, "Filing and the handoff".
 
 **Every post becomes work here, once** (`fork/bin/found`). A handoff message ("Posted on the person's yes, to fix
