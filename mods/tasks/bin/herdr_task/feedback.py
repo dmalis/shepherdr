@@ -217,9 +217,22 @@ def problems():
         os.replace(tmp, STATE)
 
 
+def sourced(p, space, *fields):
+    """p with the space each of fields came from kept (`sources`, Triage's provenance per field, #235): a draft posts by
+    itself only when every field came from its repo's space. A field set where the space isn't known has no source."""
+    src = {**(p.get("sources") if isinstance(p.get("sources"), dict) else {})}
+    for f in fields:
+        if space:
+            src[f] = space
+        else:
+            src.pop(f, None)
+    return {**p, "sources": src} if src or p.get("sources") is not None else p
+
+
 def add_report(ps, key, report, fix=None, kind=None):
     """One more report on a problem (a new one is found): kept with its space; the first report's space is its origin."""
     p = ps.get(key) if isinstance(ps.get(key), dict) else {}
+    had_line = bool(p.get("line"))
     reports = [r for r in p.get("reports") or [] if isinstance(r, dict)]
     if not reports and p.get("line"):  # a row an older version wrote: its one report so far
         reports = [{k: v for k, v in (("at", p.get("at")), ("space", p.get("space")), ("line", p.get("line")),
@@ -228,6 +241,7 @@ def add_report(ps, key, report, fix=None, kind=None):
     reports.append({k: v for k, v in report.items() if v})
     p = {**p, "id": key, "line": p.get("line") or report["line"], "space": p.get("space") or report.get("space"),
          "reports": reports, "count": count, **({"fix": fix} if fix else {}), **({"kind": kind} if kind else {})}
+    p = sourced(p, report.get("space"), *(["line"] if not had_line else []), *(["fix"] if fix else []))
     p.setdefault("state", "found")
     p.setdefault("at", report["at"])
     if p.get("decision") == "later":  # Not now ends when it happens again (feedback_page.py)
@@ -570,7 +584,8 @@ def cmd_feedback(args):
                        "The person follows an issue for this one on the Feedback page: nothing filed, nothing changed. Carry on.")
         if args.no:
             from .feedback_post import cleared  # a yes the person gave before is taken back (#94, slice 4)
-            ps[key] = {**cleared(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
+            ps[key] = {**cleared(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space,
+                       "unyes": now()}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
@@ -635,6 +650,10 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
     entry = {**(p or {}), "id": key, "line": line, "at": now(), "space": (p or {}).get("space") or space,
              **({"details": trim(args.details)} if args.details else {}),
              **({"agent": agent_of(k)} if agent_of(k) and not assistant else {})}
+    if args.details:
+        entry = sourced(entry, space, "details")
+    if line != (p or {}).get("line"):  # this report's words are now the title: its source goes with them
+        entry = sourced(entry, space, "line")
     if assistant:
         if state == "offered" and recent(p):
             return ({"key": key, "offer": False, "why": "offered"}, "Already offered: don't offer it again."), None

@@ -147,6 +147,28 @@ Every run of a schedule starts an agent. Two options on `herdr-task auto add` or
 `--no-fold`) keeps what waits: the next round starts it as it would without. A reason that comes while a check runs
 is checked again after it, unless that check started the run. A one-off takes neither.
 
+## Triage
+
+Triage (fork #235, [fork/specs/issue-loop.md](../fork/specs/issue-loop.md)) files what agents found as issues in a
+repo and scores them. It is off for every repo until you switch one on, and only you switch it: the app's
+Settings › Triage (a later step), or `herdr-task triage set <key> <value> --folder <checkout>` from your own terminal
+(refused in an agent's). In the settings file they are `repos[<folder>].triage`, and all but the level also take an
+Everywhere default (`everywhere.triage`):
+
+| Key | Values | What it does |
+|---|---|---|
+| `level` | `off` (default), `score` | Score only: filed findings and new issues are scored; nothing starts a fix. Score and fix comes later |
+| `fix_from` | 3 to 5 (4) | The lowest score Score and fix will fix (kept for that step) |
+| `fixes_per_day` | 1 to 10 (3) | How many fixes a day Score and fix may start (kept for that step) |
+| `ask_merge` | `on`, `off` (off) | Whether Score and fix asks before it merges (kept for that step) |
+| `rules` | one paragraph | The repo's own "score 5" words (default: what its AGENTS.md says is at risk) |
+| `private_words` | a list | Words a post never carries, beside the ones Triage finds itself (emails, host names, other spaces and repos) |
+
+Switching a repo on fences the old posting off for it (`fork/bin/found`, `feedback --file` and another machine's Post
+it say "Triage files this repo's findings"), reconciles posts already in flight, and adds its schedule, "Triage",
+checked hourly. Its Pause is Triage's pause; Off pauses it too. Findings go to `agents.feedback_repo` only (never
+upstream's), and a finding whose words came from another space waits for your Post it in the app.
+
 ## Where they are kept
 
 `~/.config/shepherdr/settings.json` on the serving machine: `everywhere`, `repos[<folder>]` for a repo's task settings

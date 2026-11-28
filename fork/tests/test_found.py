@@ -35,6 +35,11 @@ a = sys.argv[1:]
 def log(name, v):
     with open(os.path.join(d, name), "a") as f:
         f.write(json.dumps(v) + "\n")
+if a[:2] == ["triage", "files"]:  # Triage files the repo: the sweep is off (#235); "triage-unknown": no clear answer
+    log("triage.jsonl", a)
+    if os.path.exists(os.path.join(d, "triage-unknown")):
+        sys.exit("herdr-task: invalid choice: 'triage'")
+    print(json.dumps({"repo": a[3], "files": os.path.exists(os.path.join(d, "triage-files"))})); sys.exit(0)
 if a == ["feedback", "--list", "--all", "--json"]:
     print(open(os.path.join(d, "list.json")).read()); sys.exit(0)
 if a == ["assistants", "--json"]:
@@ -200,6 +205,18 @@ class Found(tfp.World):
         again = self.found()
         self.assertEqual((again["made"], again["sent"]), ([], []))
         self.assertEqual(len(self.logged("sends.jsonl")), 1)
+
+    def test_when_triage_files_the_repo_the_sweep_and_handoffs_are_off_and_an_unclear_answer_counts_as_on(self):
+        self.filed()
+        for flag in ("triage-files", "triage-unknown"):
+            self.flag(flag)
+            out = self.found()
+            self.assertEqual((out["made"], out["sent"]), ([], []), flag)
+            self.assertIn("Triage files this repo's findings", out["off"])
+            self.assertEqual(self.logged("sends.jsonl"), [])
+            self.flag(flag, on=False)
+        self.assertEqual(self.logged("triage.jsonl")[0], ["triage", "files", "--repo", OURS, "--json"])
+        self.assertEqual(self.found()["sent"], [f"{OURS}#40"])  # a clear no: the sweep as before
 
     def test_one_handoff_per_issue_identity_and_none_for_another_repo(self):
         self.filed()

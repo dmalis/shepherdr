@@ -225,8 +225,19 @@ def assistant_in(folder):
 
 # --- the subcommands -----------------------------------------------------------------------------------------------
 
+def triage_files():
+    """Whether Triage files our repo's findings (herdr-task triage files): then it is the repo's only publisher and
+    turns its issues into work itself, so the sweep and the handoffs are off. An answer that isn't a clear no counts as
+    yes (fails closed: one issue never becomes work twice)."""
+    code, out, _ = run(["herdr-task", "triage", "files", "--repo", REPO, "--json"])
+    ans = json_of(out) if code == 0 else None
+    return not (isinstance(ans, dict) and ans.get("files") is False)
+
+
 def sweep_and_send(a):
     folder = space_folder(a.folder)
+    if triage_files():
+        return {"made": [], "sent": [], "pending": [], "off": "Triage files this repo's findings: no sweep, no handoffs."}
     code, out, err = run(["herdr-task", "feedback", "--list", "--all", "--json"])
     rows = json_of(out) if code == 0 else None
     if not isinstance(rows, list):

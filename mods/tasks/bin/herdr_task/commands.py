@@ -480,6 +480,10 @@ def cmd_show(args):
 
 def begin(s, t, argv, space, parent=None):
     """Starts the task's first agent. Returns its record."""
+    from .triage import start_refusal
+    no = start_refusal(s, t)  # a queued run of Triage's schedule: its Pause and plugin hold when it starts (#235)
+    if no:
+        raise Fail(no)
     reviewer_pick(s, t, space)
     t["state"], t["started"] = "running", now()
     # Its brief teaches `reviewed`: ready waits for a review of its final commit (review_refusal).

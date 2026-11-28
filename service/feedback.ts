@@ -16,6 +16,7 @@ import { pluginOn } from "./next.ts";
 import { readSettings } from "./settings.ts";
 import { spawn } from "./spawn.ts";
 import { FeedbackMachines, isMachine, spaceThere } from "./feedback-machines.ts";
+import { FENCED, keepYes, legacyFenced } from "./triage.ts";
 
 type Ran = { code: number; stdout: string; stderr: string };
 export type Runner = (args: string[]) => Promise<Ran>;
@@ -283,6 +284,8 @@ export class Feedback {
   readonly there = new FeedbackMachines();
   /** is a page open (live.ts anyone): only pages show the list, so other machines are read only then */
   watched: () => boolean = () => true;
+  /** a yes Triage posts was kept (jobs.ts: its publisher runs soon) */
+  yesKept: () => void = () => {};
 
   constructor(private run: Runner = herdrTask, private file = () => join(process.env.HERDR_TASK_STORE || where().tasks, ".feedback.json"),
     private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback"),
@@ -379,6 +382,8 @@ export class Feedback {
       // a row another machine kept (slice 8): the call goes there, and that machine's list is read again; the box's
       // reports stay on this machine
       if (!isMachine(b.machine) || b.do === "report") return { ok: false, error: "That machine isn't linked any more." };
+      // Triage is the repo's only publisher (#235, turning it on, step 2): another machine's Post it would post there
+      if (b.do === "approve" && legacyFenced(this.settings(), dirname(this.file()))) return { ok: false, error: `${FENCED}.` };
       const why = this.there.refusal(b.machine);
       if (why) return { ok: false, error: why };
       r = await this.there.run(b.machine, args);
@@ -392,7 +397,12 @@ export class Feedback {
     const out = answer(r.stdout);
     if (r.code !== 0 || !out || out.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "That didn't work." };
     // Post it (slice 4): the yes is kept, or was already (a second tap, another device): either way the chat is told
-    if (b.do === "approve") return out.approved === b.rev ? { ok: true, key: out.key, changed: out.changed } : { ok: false, error: NO_POST[out.why] ?? NO_POST.changed };
+    if (b.do === "approve") {
+      if (out.approved !== b.rev) return { ok: false, error: NO_POST[out.why] ?? NO_POST.changed };
+      // the app's yes for Triage (#235): kept only here, bound to the draft's exact text; Triage posts it soon
+      if (b.machine == null && keepYes(b.key, b.rev, dirname(this.file()), this.settings())) this.yesKept();
+      return { ok: true, key: out.key, changed: out.changed };
+    }
     // Check again: found on GitHub (filed), or still not known (and never posted again)
     if (b.do === "reconcile") return out.filed ? { ok: true, key: out.key, filed: true } : { ok: false, error: out.why === "unsure" ? STILL_UNSURE : "Nothing to look for: the list shows it as it is now." };
     // a decision already made (another device, a list that was old): said as it is, no Undo that would reverse theirs

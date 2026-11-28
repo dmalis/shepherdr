@@ -1,0 +1,32 @@
+{
+  "issue": 235,
+  "name": "Triage: findings filed as issues and scored (file and score, Score only)",
+  "files": [
+    "fork/specs/issue-loop.md",
+    "mods/tasks/bin/herdr_task/triage.py",
+    "mods/tasks/bin/herdr_task/triage_gh.py",
+    "mods/tasks/bin/herdr_task/triage_public.py",
+    "mods/tasks/bin/herdr_task/triage_publish.py",
+    "mods/tasks/bin/herdr_task/feedback.py",
+    "mods/tasks/bin/herdr_task/feedback_check.py",
+    "mods/tasks/bin/herdr_task/feedback_post.py",
+    "mods/tasks/bin/herdr_task/feedback_page.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/automations.py",
+    "mods/tasks/bin/herdr_task/schedule_gate.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "service/triage.ts",
+    "service/feedback.ts",
+    "service/jobs.ts",
+    "service/next.ts",
+    "fork/bin/found",
+    "docs/settings.md",
+    "docs/plugins.md",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "test/test_triage.py",
+    "service/triage.test.ts",
+    "fork/tests/test_found.py"
+  ]
+}
