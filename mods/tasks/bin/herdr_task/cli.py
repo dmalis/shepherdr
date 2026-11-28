@@ -354,8 +354,9 @@ def main():
     c = cmd("reviewed", cmd_reviewed, "a task's agent records one review round of its current commit (Review: on): ready then "
                                       "accepts that commit; uses one of its Review rounds")
     c.add_argument("--report", help="the round's findings in a line (levels, what was fixed)")
-    c.add_argument("--commit", help="the commit the round reviewed, when fixes were committed since (default: the newest commit of "
-                                         "the task's branch, wherever it is checked out)")
+    c.add_argument("--commit", help="the commit the reviewer read, never a fix committed after it; only needed when you "
+                                    "committed since (default: HEAD, the newest commit of the task's branch, wherever it is "
+                                    "checked out)")
     # dmalis/shepherdr#215: hc wait, waiting again through an agent's startup idle at turn 0
     c = cmd("wait-for", lambda a: __import__("herdr_task.helper_wait", fromlist=["cmd_wait_for"]).cmd_wait_for(a),
             "a task's agent waits on its own reviewer or helper until it really stops (hc wait, again through its startup)",

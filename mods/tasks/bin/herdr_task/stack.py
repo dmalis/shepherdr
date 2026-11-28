@@ -135,6 +135,9 @@ def move(s, t, into, tip=None, rebase=True):
         return res
     head = git(wt, "rev-parse", "HEAD")[1]
     res["rebased"] = head
+    if head and head != before:
+        # dmalis/shepherdr#388: Herdr's own clean rebase: a round recorded on `before` still holds for it (review_refusal)
+        t["moved_heads"] = ((t.get("moved_heads") or []) + [{"from": before, "to": head, "at": now()}])[-5:]
     t["start"] = git(wt, "merge-base", "HEAD", ref)[1] or t.get("start")
     if t.get("head") == before:
         t["head"] = head  # where it said ready: the same work, on its new base
