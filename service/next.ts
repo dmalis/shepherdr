@@ -13,6 +13,7 @@ import { MUST_FIX, ROUNDS } from "../core/settings.js";
 import { compactOf } from "../core/agents.js";
 import { ASK_AFTER_DEFAULT, askAfterOf, isAskAfter } from "../web/shared/ask-after.ts";
 import { waitOf } from "./wait-record.ts";
+import { setTriage, triageConfig } from "./triage-keys.ts";
 
 /** the plugins: Tasks, Artifacts, Search and Alerts are always on; the rest each have a switch */
 /** offByDefault: off until switched on in Settings › Plugins (kept in everywhere.plugins_on) */
@@ -171,6 +172,8 @@ export function configOf(input: { defaults: Defaults; spaces: string[]; secrets:
     plugins: PLUGINS.map((p) => ({ id: p.id, name: p.name, on: !off.includes(p.id), ...(p.always ? { always: true } : {}) })),
     plans: input.plans,
     shortcuts: shortcutsOf(f),
+    // Settings › Triage (fork #235): its keys, Everywhere's and each of this machine's repos'
+    ...(off.includes("triage") ? {} : { triage: triageConfig(f, repos) }),
     ...(input.addMachine ? { addMachine: input.addMachine } : {}),
     ...(input.desktops?.length ? { desktops: input.desktops } : {}),
   };
@@ -202,6 +205,14 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
     const e = (next.everywhere ??= {});
     if (key === "analytics.on") { if (value === false) e.analytics_off = true; else delete e.analytics_off; }
     else e.analytics_noted = true;
+    return writeSettings(next);
+  }
+  if (key.startsWith("triage.")) {
+    // Settings › Triage (fork #235): checked as herdr-task checks them (service/triage-keys.ts); the level's schedule
+    // follows in main.ts once saved
+    if (!pluginOn("triage")) throw new Error("Triage is switched off in Settings › Plugins.");
+    if (["__proto__", "constructor", "prototype"].includes(place.slice(5))) throw new Error("That repo isn't here any more.");
+    setTriage(next, place, key, value, scope?.id ?? null);
     return writeSettings(next);
   }
   const all = place === "all";

@@ -1550,6 +1550,58 @@ export interface Snapshot {
   sections?: Section[]
   /** the Feedback page (plugin feedback, friction loop #94): every problem in Shepherdr this machine kept */
   feedback?: FeedbackList
+  /** Triage (plugin triage, fork #235): what Settings › Triage shows beside its keys, and the cards waiting for your
+   *  answer (Needs you). None while the plugin is off. */
+  triage?: TriageView
+}
+
+/** One of Triage's yes cards: a draft it holds until you say (another machine's or space's words, or a privacy
+ *  check that wasn't sure), or an outside issue you marked ready (Start a fix for this?). Its hash binds your answer
+ *  to this exact text: a changed text asks again. */
+export interface TriageCard {
+  /** draft:<f|c>:<key> or start:<issue> */
+  id: string
+  kind: 'draft' | 'start'
+  /** a draft's finding (c: a copy of another machine's, keyed machine:id) and its revision */
+  key?: string
+  copy?: boolean
+  rev?: number
+  /** an outside issue's number; a draft's: the issue its comment goes on */
+  issue?: number
+  /** a draft's: a new issue (create) or a comment on `issue` */
+  action?: 'create' | 'comment'
+  /** owner/name on GitHub */
+  repo: string
+  title: string
+  body: string
+  hash: string
+  /** the text was too long to carry here whole (its hash isn't what the card shows): No only */
+  cut?: boolean
+  at: number
+  /** why a draft waits: machine, written (by an agent, by hand), unknown (where its words came from), space (another
+   *  space's words), private (the check found something) */
+  why?: string
+  /** what the privacy check found: its kind and line, never the text */
+  found?: string[]
+}
+
+export interface TriageView {
+  /** agents.feedback_repo when it is a valid repo that isn't upstream's */
+  destination: string | null
+  /** the repo Triage files this machine's findings in now (on, not paused, fenced); none: nothing posts */
+  files: string | null
+  /** each of this machine's repos the page can show, by folder: its GitHub repo, its schedule, why Triage does
+   *  nothing there now */
+  repos: Record<string, { repo: string | null; stopped: string | null; schedule: { id: string; paused: boolean; space: string | null; by: string | null } | null }>
+  cards: TriageCard[]
+}
+
+/** Triage's keys at one level (service/triage-keys.ts) */
+export interface TriageKeys {
+  level: 'off' | 'score'
+  fix_from: number
+  fixes_per_day: number
+  ask_merge: boolean
 }
 
 /** One problem in Shepherdr itself, as the Feedback page shows it (service/feedback.ts, from herdr-task's record) */
@@ -1888,6 +1940,9 @@ export interface Config {
   /** Settings › Shortcuts: the shortcuts the person changed (a command's id to its keys; empty: none), and whether
    *  single-letter keys work; the same on every device */
   shortcuts?: { keys: Record<string, string[]>; letters: boolean }
+  /** Settings › Triage (fork #235): Everywhere's keys, and each of this machine's repos' with the ones it sets itself;
+   *  none while the plugin is off */
+  triage?: { all: TriageKeys; repos: Record<string, TriageKeys & { own: string[] }> }
 }
 
 /* ---------- 3.2: screens, an agent's browser and desktop ---------- */

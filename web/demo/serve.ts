@@ -5,6 +5,7 @@
 // `?case=one` and `?case=five` show one machine only and five.
 // `?case=post` gives the Feedback page a draft (File it…) and each step of a post after the yes (#94, slice 4).
 // `?case=handup` has Shepherdr's hand-up (with choices, one question over two tasks) and a wait past Ask me after (6b).
+// `?case=triage` switches Triage on for shop: its schedule, Settings › Triage and two yes cards in #shop's chat (fork #235).
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 // `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
@@ -20,9 +21,9 @@ import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -53,7 +54,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -308,6 +309,27 @@ function action(a: Record<string, any>): unknown {
   if (a.type === 'read') return each((snap) => { snap.read = { ...snap.read, ...a.chats } }), { ok: true }
   // #1547: a machine's start limit (null: back to all machines')
   if (a.type === 'setting' && /^machine\.start_/.test(a.key)) return each((snap) => { snap.settings = snap.settings.map((sec) => ({ ...sec, rows: sec.rows.map((r) => (r.key !== a.key ? r : a.value === null ? { ...r, value: r.stepFrom ?? r.value, inherits: undefined, from: 'all machines' } : { ...r, value: a.value, inherits: { value: r.stepFrom ?? '', from: 'all machines' }, from: undefined })) })) }), { ok: true }
+  // Triage (fork #235): its keys as the service checks them, and a card's answer takes it out of Needs you
+  if (a.type === 'config' && typeof a.key === 'string' && a.key.startsWith('triage.')) {
+    const k = a.key.slice(7)
+    if (k === 'level' && a.place === 'all') return { ok: false, error: 'Triage is switched on one repo at a time: pick it under Applies to.' }
+    each((snap) => {
+      const t = snap.config?.triage
+      if (!t) return
+      if (a.place === 'all') t.all = { ...t.all, [k]: a.value ?? ({ fix_from: 4, fixes_per_day: 3, ask_merge: true } as any)[k] }
+      else {
+        const key = String(a.place).slice(5)
+        const r = t.repos[key] ?? { ...t.all, own: [] }
+        t.repos[key] = { ...r, [k]: a.value ?? (k === 'level' ? 'off' : (t.all as any)[k]), own: a.value === null ? r.own.filter((x) => x !== k) : [...new Set([...r.own, k])] }
+      }
+    })
+    return { ok: true }
+  }
+  if (a.type === 'triage') {
+    if (a.do === 'answer') each((snap) => { if (snap.triage) snap.triage = { ...snap.triage, cards: snap.triage.cards.filter((c) => c.hash !== a.hash) } })
+    return { ok: true }
+  }
+  if (a.type === 'automation') each((snap) => { for (const r of Object.values(snap.triage?.repos ?? {})) if (r.schedule?.id === a.id && (a.op === 'pause' || a.op === 'resume')) r.schedule = { ...r.schedule, paused: a.op === 'pause' } })
   if (a.type === 'config') {
     each((snap) => {
       const c = snap.config!
@@ -390,7 +412,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)

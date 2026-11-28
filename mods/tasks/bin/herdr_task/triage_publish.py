@@ -191,7 +191,8 @@ def post_one(key, copy, pub, ctx):
         if str(dr["target"].get("repo") or "").lower() != pub["repo"].lower():
             return "waits"
         yes = tri.yes_for(key, p, pub["repo"])
-        if not yes and not auto_ok(p, dr, pub, ctx):
+        # the person's No to this very text keeps it private: it never posts by itself either
+        if not yes and (tri.yes_for(key, p, pub["repo"], "no") or not auto_ok(p, dr, pub, ctx)):
             return "waits"
         post = {"state": "posting", "rev": dr["rev"], "target": dr["target"], "started": now(),
                 "mark": fpost.mark_of(dr["body"]) or fpost.marker(key, dr["rev"]), "by": "triage"}
@@ -320,29 +321,58 @@ def auto_ok(p, dr, pub, ctx):
     return True
 
 
+def held_why(p, dr, copy, pub, check):
+    """Why a draft waits for the app's yes, as the card says it: {why: machine | written | unknown | space | private,
+    found?: [the kinds the privacy check found, with their line, never the text]}. check(text) -> the check's answer."""
+    if copy or p.get("_copy"):
+        return {"why": "machine"}
+    if dr.get("by") != "triage":
+        return {"why": "written"}
+    src = p.get("sources") if isinstance(p.get("sources"), dict) else {}
+    if not pub or not own_space(p, pub["space"]):
+        return {"why": "unknown" if any(not src.get(f) for f in fields_of(p)) else "space"}
+    found = []
+    raw = "\n".join(str(p.get(f) or "") for f in ("line", "details", "fix"))
+    for text in (dr["title"] + "\n" + fpost.shown(dr["body"]), raw):
+        found += [f"{x['kind']}, line {x['line']}" for x in check(text).get("found") or []]
+    return {"why": "private", "found": list(dict.fromkeys(found))[:6]}
+
+
 def waiting_rows():
     """Findings with a Triage draft that wait for the person's yes in the app: [{key, copy, rev, hash, title, body,
-    target}] (the service's cards read this, and the digest counts it)."""
+    target, at, why, found?}] (the service's cards read this, and the digest counts it). One the person said No to, for
+    its exact text, no longer waits: it stays private until its text changes."""
+    from . import triage_public as public
     pub = tri.publisher()
     out = []
     ctx = []  # read once, only when an own-space draft needs its check
 
-    def posts_by_itself(p, dr):
+    def context():
         if not ctx:
             ctx.append(tri.ctx_for(pub["folder"], pub["repo"]))
-        return auto_ok(p, dr, pub, ctx[0])
+        return ctx[0]
+
+    def posts_by_itself(p, dr):
+        return auto_ok(p, dr, pub, context())
+
+    def check(text):
+        c = context()
+        return public.check(text, c.get("deny"), c.get("known"), c.get("redact"))
     for copy, rows in ((False, fbm.problems_read()), (True, (tri.record_read().get("copies") or {}))):
         for key, p in rows.items():
-            if not isinstance(p, dict) or not eligible(p) or p.get("joined"):
-                continue
+            if not isinstance(p, dict) or not eligible(p) or p.get("joined") or p.get("there_done"):
+                continue  # a copy whose finding is done on its own machine asks nothing any more
             dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
             if not dr or (pub and str(dr["target"].get("repo") or "").lower() != pub["repo"].lower()):
                 continue
+            if pub and (tri.yes_for(key, p, pub["repo"], "no") or tri.yes_for(key, p, pub["repo"])):
+                continue  # answered for this very text: No keeps it private, Yes waits only for the publisher's pace
             if dr.get("by") == "triage" and not copy and pub and own_space(p, pub["space"]) and posts_by_itself(p, dr):
                 continue  # posts by itself: not waiting (one its privacy check holds back waits for the yes)
             body = fpost.shown(dr["body"])
             out.append({"key": key, "copy": copy, "rev": dr["rev"], "title": dr["title"], "body": body,
-                        "target": dr["target"], "hash": tri.yes_hash(dr["target"], dr["title"], body)})
+                        "target": dr["target"], "hash": tri.yes_hash(dr["target"], dr["title"], body),
+                        "at": int(dr.get("at") or p.get("at") or 0), **held_why(p, dr, copy, pub, check)})
     return out
 
 

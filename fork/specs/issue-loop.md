@@ -27,7 +27,7 @@ flow. It is written for any repo; Shepherdr's own is the first.
 | **the repo's space** | The space on the repo's pinned checkout, where its Triage schedule runs. |
 | **own issue** | An issue Triage's publisher posted, proven by a **receipt** on its finding: `{repo, number, rev, marker, at}`. |
 | **the owner** | The repo owner's GitHub login. On our repo, the person. |
-| **the app's yes** | The person tapping Yes on a card in the Shepherdr app: the service's call from their signed-in web session, refused in an agent's terminal. No CLI command records it, and `--by chat` doesn't count for Triage. |
+| **the app's yes** | The person tapping Yes on a card in the Shepherdr app: the service's call from their signed-in web session, bound to the card's exact text and answered once. No CLI command records it, and `--by chat` doesn't count for Triage. Known limit, as for every app action today: the service can't tell a process running as the person (an agent that reads the service's token) from the app; a person-only proof (a passkey on the yes) is a later step. |
 | **fix** | An ordinary task in the repo, added by Triage and linked to one issue (`owner/name#n`). |
 | **the Triage schedule** | One schedule per repo, pinned to one checkout on one machine. Its Pause is Triage's only pause. |
 
@@ -304,9 +304,10 @@ for another machine's):
 | `triage.level` | `off`, `score`, `fix` | `off` |
 | `triage.fix_from` | 3, 4 or 5 | 4 |
 | `triage.fixes_per_day` | 1 to 10 | 3 |
-| `triage.ask_merge` | on, off | off |
+| `triage.ask_merge` | on, off | on |
 
-Only the person sets them: the service saves them, and herdr-task refuses them from an agent's terminal.
+Ask me before merging starts on everywhere, as a human approves first: a repo turns it off under Set here once it
+trusts the fixes. Only the person sets them: the service saves them, and herdr-task refuses them from an agent's terminal.
 `triage.rules` and `triage.private_words` live only in the settings file.
 
 **Settings › Triage** is the plugin's page (a `SettingsSection`). It has the Tasks page's "Applies to" picker, moved

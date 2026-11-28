@@ -1,0 +1,9 @@
+/* Triage (fork #235): its yes card's exact text, as a quiet folded block (docs/design.md, Surfaces: a well is quiet
+   content), scrolling inside itself so a long body never pushes the buttons off the screen; and the page's one warning
+   line, amber with its icon (a status, never colour alone). Nothing here moves. */
+.tri-text{display:grid;gap:4px;max-height:240px;min-width:0;padding:8px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line);overflow:auto;overscroll-behavior:contain}
+.tri-text b{font-weight:600;overflow-wrap:anywhere}
+.tri-text pre{margin:0;font:inherit;font-size:var(--sec);line-height:var(--secl);color:var(--sub);white-space:pre-wrap;overflow-wrap:anywhere}
+.tri-text:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.tri-why{display:flex;align-items:flex-start;gap:8px;margin:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.tri-why .i{flex:none;color:var(--amber);width:var(--ic-sm);height:var(--ic-sm);margin-top:2px}

@@ -45,6 +45,7 @@ export const LABELS: Record<string, string> = {
   recap: 'Recap',
   screen: 'Screen',
   automation: 'Change a schedule',
+  triage: 'Answer a triage card',
   config: 'Save a setting',
   setting: 'Save a setting',
   secret: 'Save a secret',

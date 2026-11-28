@@ -217,6 +217,11 @@ def main():
             # the person's own calls (#94) are made on that machine's Feedback page, never sent there from here
             print("herdr-task: The person decides feedback on that machine's own Feedback page: nothing sent.", file=sys.stderr)
             return 1
+        if argv[2:4] == ["triage", "set"] or ("triage" in argv[2:] and "set" in argv[2:]):
+            # the other machine can't tell who sent it (hc exec carries no terminal): switched there, never from here
+            print("herdr-task: Triage is switched on that machine itself: its Settings › Triage, or a terminal outside "
+                  "Shepherdr there. Nothing sent.", file=sys.stderr)
+            return 1
         try:
             return remote(argv[1], argv[2:])
         except Fail as e:

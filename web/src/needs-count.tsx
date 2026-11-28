@@ -41,7 +41,7 @@ export function listNeeds(scopes: string[], goTo?: string): boolean {
 /** the chats among the filter's spaces that ask you themselves: they have no task row, so the Needs you group adds one */
 export const needsAsks = (snap: Snapshot, f: TaskFilter, at: string) => (f.needs?.length ? needsChats(snap, f.needs, f, at) : f.view === 'needs' ? needsChats(snap, [''], f, at) : [])
 export const AskRow = ({ snap, i }: { snap: Snapshot; i: NeedItem }) => (
-  <Row icon="chat" label={i.title || `${spaceLabel(snap, i.place)} asks you`} sub={i.title ? `${spaceLabel(snap, i.place)}, in its chat` : 'In its chat'} onClick={() => openItem(i)} />
+  <Row icon="chat" label={i.title || `${spaceLabel(snap, i.place)} asks you`} sub={i.sub ?? (i.title ? `${spaceLabel(snap, i.place)}, in its chat` : 'In its chat')} onClick={() => openItem(i)} />
 )
 
 /** the red count: its own button, beside the row it counts for. Nothing when nothing needs you. */

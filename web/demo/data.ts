@@ -1,7 +1,7 @@
 // A fictional day for the demo (bun web/demo/serve.ts): Sam, the machines mac-mini, vm, studio and pi, the spaces
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
-import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList } from '../shared/types.ts'
+import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList, TriageView } from '../shared/types.ts'
 import { demoFacts, outOfFileSlots } from './machine-facts.ts'
 import * as CW from '../../core/checks-wait.js'
 import { plainSuggests } from '../../core/plain-suggests.js'
@@ -263,6 +263,9 @@ export const config: Config = {
   plans: [{ name: 'ElevenLabs Creator', windows: [{ name: 'Characters', used: 76, resets: 'Resets Monday 9:00' }] }],
   addMachine: 'hc machine add <name>',
   desktops: ['mac-mini'],
+  // Settings › Triage (fork #235): off in every repo here (?case=triage switches shop on)
+  // Everywhere's defaults as the service's (Ask me before merging on: a fix waits for you until a repo trusts its fixes)
+  triage: { all: { level: 'off', fix_from: 4, fixes_per_day: 3, ask_merge: true }, repos: Object.fromEntries(['/Users/sam/dev/shop', '/Users/sam/dev/blog', '/Users/sam/notes'].map((k) => [k, { level: 'off' as const, fix_from: 4, fixes_per_day: 3, ask_merge: true, own: [] }])) },
 }
 
 // what machine.py sends for each agent CLI it finds: where to see its plan usage, never a read
@@ -322,6 +325,38 @@ const fiveMachines = (s: Snapshot): Snapshot => ({
 
 // fork Needs you 6b, ?case=handup: one question Shepherdr handed up, holding two tasks, and a wait past its Ask me after
 const LEVELS_UP = { at: NOW - 3 * min, what: 'Choose whether locked levels show', why: 'Both designs are ready and keep the save format.', choices: ['Show them greyed out', 'Hide them'], lead: 'w-ev13' }
+// Triage (fork #235): ?case=triage switches it on for shop (its schedule hourly in #shop) and holds two cards for you in
+// #shop's chat: a draft another space wrote part of, and an outside issue marked ready. Every other day has Triage off.
+const TRI_REPO = 'example/shop'
+const TRI_SCHEDULE = `|/Users/sam/dev/shop|SHOP-TRI`
+export const triageView: TriageView = {
+  destination: TRI_REPO,
+  files: TRI_REPO,
+  repos: {
+    '/Users/sam/dev/shop': { repo: TRI_REPO, stopped: null, schedule: { id: TRI_SCHEDULE, paused: false, space: P.shop, by: null } },
+    '/Users/sam/dev/blog': { repo: 'example/blog', stopped: null, schedule: null },
+    '/Users/sam/notes': { repo: null, stopped: null, schedule: null },
+  },
+  cards: [
+    { id: 'draft:f:t1c2', kind: 'draft', key: 't1c2', copy: false, rev: 2, repo: TRI_REPO, action: 'create', at: NOW - 35 * min, why: 'space', hash: 'a'.repeat(64),
+      title: 'The cart badge keeps the old count after an item is removed',
+      body: '## What happened\n\nRemoving an item from the cart leaves the badge in the header at the old count until the page is reloaded.\n\n## Expected\n\nThe badge shows the new count at once.\n\n## Suggested fix\n\nUpdate the badge from the cart’s own change event, not only on page load.' },
+    { id: 'start:41', kind: 'start', issue: 41, repo: TRI_REPO, at: NOW - 12 * min, hash: 'b'.repeat(64),
+      title: 'Coupon field accepts an expired code',
+      body: 'Steps: add any item, enter SPRING24 at checkout. The discount applies although the code ended in May.' },
+  ],
+}
+
+function triageDay(s: Snapshot): Snapshot {
+  const c = s.config!
+  return {
+    ...s,
+    config: { ...c, triage: { all: c.triage!.all, repos: { ...c.triage!.repos, '/Users/sam/dev/shop': { ...c.triage!.all, level: 'score', own: ['level'] } } } },
+    automations: { ...s.automations, [P.shop]: [...(s.automations[P.shop] ?? []), sched('SHOP-TRI', 'Triage', P.shop, 'Every hour', 'in 24 min', '10:00 · scored 3 issues', 'Score and label new issues in example/shop.', { id: TRI_SCHEDULE })] },
+    triage: triageView,
+  }
+}
+
 const HANDUP: Record<string, Partial<Task>> = {
   'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },
   'EV-14': { status: 'need', state: 'need', needsAt: NOW - 6 * min, agent: { chat: 'EV-14/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Should locked levels count in the cart?' },
@@ -330,7 +365,8 @@ const HANDUP: Record<string, Partial<Task>> = {
     wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
 }
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' = 'normal'): Snapshot {
+  if (mode === 'triage') return triageDay(snapshot('normal'))
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))

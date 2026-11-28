@@ -12,7 +12,7 @@ import { copyText } from './copy.ts'
 import type { IconName } from './icons.ts'
 import { notice, openSettings, registry, setUI, tryAct, useStore, useUI } from './kernel.ts'
 import { confirm, openDialog, openForm } from './overlay.tsx'
-import { openPicker, PickerHead, pickFor, useCatalog, type Role } from './picker.tsx'
+import { openPicker, pickFor, useCatalog, type Role } from './picker.tsx'
 import { Appearance } from './appearance.tsx'
 import { Choice as Seg } from './choice.tsx'
 import { setChatSide, type Layout, type Side } from './sides.ts'
@@ -26,6 +26,7 @@ import { MachineCard } from './machine-card.tsx'
 import { IconButton } from './space-icon.tsx'
 import { Btn, I, IB, Meter, Row, Tgl } from './ui.tsx'
 import { ALL, Own, SRow } from './settings-rows.tsx'
+import { AppliesTo, repoMachine, tilde } from './applies-to.tsx'
 import { AgentRow } from './agent-rows.tsx'
 
 // fork #163: the rows other parts use live in settings-rows.tsx, so this window can come when first opened
@@ -54,8 +55,6 @@ export function SidesRow({ layout, side }: { layout: Layout; side: Side }) {
 
 /* ---------- SHEP-335: task settings are a repo's ---------- */
 
-/** a folder as it shows: a home folder as ~ */
-const tilde = (f: string) => f.replace(/^\/(home\/[^/]+|Users\/[^/]+|root)(?=\/|$)/, '~')
 /** a task's repo key, as the service keys Config.repos (its folder here, machine:folder on another machine) */
 const taskRepo = (snap: Snapshot, t: { on?: string; taskFolder?: string; work?: { folder: string } }) => {
   const f = t.work?.folder ?? t.taskFolder
@@ -74,56 +73,6 @@ function reposOfSpace(snap: Snapshot, id: string): [RepoConfig, number][] {
   const git = !!snap.places.find((p) => p.id === id)?.git
   const first = own && (git || n.has(own.key) || !used.length) ? [own] : []
   return [...first, ...used].map((r) => [r, n.get(r.key) ?? 0])
-}
-const repoMachine = (snap: Snapshot, r: RepoConfig) => machineLabel(snap, r.machine ?? snap.host)
-
-function RepoPicker({ snap, value, onPick, close }: { snap: Snapshot; value: string | null; onPick: (key: string | null) => void; close: () => void }) {
-  const [q, setQ] = useState('')
-  const repos = snap.config?.repos ?? []
-  const hit = (...words: string[]) => !q.trim() || words.join(' ').toLowerCase().includes(q.trim().toLowerCase())
-  const pick = (key: string | null) => {
-    onPick(key)
-    close()
-  }
-  const machines = [...new Set(repos.map((r) => r.machine ?? snap.host))]
-  const blocks = machines.map((m) => ({ m, list: repos.filter((r) => (r.machine ?? snap.host) === m && hit(r.name, r.folder, machineLabel(snap, m))) })).filter((b) => b.list.length)
-  const all = hit('Everything')
-  return (
-    <div className="pk">
-      <PickerHead title="Applies to" close={close} />
-      <input className="inp" name="rq" aria-label="Search repos and folders" placeholder="Search repos and folders" value={q} autoComplete="off" data-autofocus onChange={(e) => setQ(e.target.value)} />
-      <div className="list">
-        {all && <Row icon="layers" label="Everything" current={!value} end={!value ? <I n="check" /> : undefined} onClick={() => pick(null)} />}
-        {blocks.map((b) => (
-          <div key={b.m} style={{ display: 'contents' }}>
-            <div className="lab">{machineLabel(snap, b.m)}</div>
-            {b.list.map((r) => (
-              <Row key={r.key} icon="folder" label={r.name} sub={tilde(r.folder)} current={value === r.key} end={value === r.key ? <I n="check" /> : undefined} onClick={() => pick(r.key)} />
-            ))}
-          </div>
-        ))}
-        {!all && !blocks.length && <p className="hint" style={{ padding: 8 }}>No repo or folder matches.</p>}
-      </div>
-    </div>
-  )
-}
-
-/** Everything's Tasks page: which level its rows set, Everything or one repo (a searchable picker: there can be dozens) */
-function AppliesTo({ snap, repo }: { snap: Snapshot; repo: RepoConfig | undefined }) {
-  const s = useUI((u) => u.settings)!
-  const name = repo ? repo.name : 'Everything'
-  const where = repo ? `${tilde(repo.folder)}${repo.machine ? ` · ${repoMachine(snap, repo)}` : ''}` : ''
-  return (
-    <div className="fld">
-      <span>Applies to</span>
-      <button type="button" className="fake" aria-label={`Applies to ${name}. Change`}
-        onClick={() => openDialog((close) => <RepoPicker snap={snap} value={repo?.key ?? null} close={close} onPick={(key) => setUI({ settings: { ...s, repo: key } })} />, { wide: true, bare: true, label: 'Applies to' })}>
-        <I n={repo ? 'folder' : 'layers'} />
-        <span className="n"><b>{name}</b> {where && <span>{where}</span>}</span>
-        <I n="right" c="s16" />
-      </button>
-    </div>
-  )
 }
 
 /** A space's Tasks page: its tasks follow the repos they work in; each opens that repo's settings */
