@@ -1,10 +1,12 @@
 /* Diff viewer: the Changes pane */
 .dsrc{margin:4px 0 4px}
-.dfile .n{min-width:0}.dfile .l1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:13px}
+.dfile .n{min-width:0}.dfile .l1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:var(--code)}
 .dfile .l2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dnums{display:flex;gap:6px;flex:none;font:12px/16px var(--mono);font-variant-numeric:tabular-nums}
 .dnums .a{color:var(--green)}.dnums .d{color:var(--red)}
+/* a diff reads 12/18 with a mouse, at the code size (14/20) on touch */
 .dlines{padding:4px 0 16px;font:12px/18px var(--mono);color:var(--sub)}
+.app.tap .dlines{font-size:var(--code);line-height:var(--codel)}
 .dl{padding:0 12px 0 22px;white-space:pre-wrap;overflow-wrap:anywhere;position:relative;tab-size:4}
 .dl.add,.dl.del{color:var(--fg)}
 .dl.add{background:color-mix(in srgb,var(--green) 14%,transparent)}
@@ -13,4 +15,3 @@
 .dl.add::before{content:"+"}.dl.del::before{content:"−"}
 .dl.hunk{margin-top:8px;padding:2px 12px;color:var(--muted);background:var(--well);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dl.hunk:first-child{margin-top:0}
-.dstale{padding:8px 8px 0}
