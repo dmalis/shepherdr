@@ -84,6 +84,21 @@ test('two spaces with one name keep their machine: in the list, in the box and i
   dropPicks('p:sp2')
   // a name no other space has stays as it was
   expect((mentionItems(snap, 'sp2', '#', 'ca', twins)[0] as Item & { kind: 'space' }).space.as).toBeUndefined()
+  // the word the box writes finds it again
+  expect(mentionItems(snap, 'sp2', '#', 'shop.vm', twins).map((i) => i.key)).toEqual(['s:vm-b/sp9'])
+  // a space here already called "shop.vm-b": the other machine's shop takes another word, and both picks keep theirs
+  const taken: Got = { ...twins, spaces: [...twins.spaces, { id: 'sp7', name: 'shop.vm-b', route: '', machine: 'vm-a', target: 'sp7' }] }
+  const real = mentionItems(snap, 'sp2', '#', 'shop.vm-b', taken).find((i) => i.key === 's:sp7')!
+  const far = mentionItems(snap, 'sp2', '#', 'sh', taken).find((i) => i.key === 's:vm-b/sp9') as Item & { kind: 'space' }
+  expect(far.space.as).toBe('shop.vm-b-2')
+  const c = takeItem('p:sp2', '#shop.vm-b', '', real)
+  const d = takeItem('p:sp2', `${c.text}#sh`, '', far)
+  expect(d.text).toBe('#shop.vm-b #shop.vm-b-2 ')
+  expect(expandPicked('p:sp2', d.text)).toBe('[#shop.vm-b](space:sp7) [#shop](space:vm-b/sp9) ')
+  dropPicks('p:sp2')
+  // a name with a space goes in the box with a dash
+  const spaced: Got = { ...got, spaces: [{ id: 'a', name: 'my shop', route: '', machine: 'vm-a', target: 'a' }, { id: 'b', name: 'my shop', route: 'dev box', machine: 'dev box', target: 'dev box/b' }] }
+  expect((mentionItems(snap, 'sp2', '#', 'my', spaced)[1] as Item & { kind: 'space' }).space.as).toBe('my-shop.dev-box')
   // a task's row names the machine of a space whose name is on two machines, its own too
   const placed = { ...snap, places: [...snap.places, { id: 'vm-b/sp8', name: 'cafe', machine: 'vm-b', chat: 'p:vm-b/sp8' }] } as unknown as Snapshot
   const cafe = mentionItems(placed, 'sp1', '@', 'menu', got)[0] as Item & { kind: 'task' }

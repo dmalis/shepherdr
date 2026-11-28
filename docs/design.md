@@ -348,12 +348,13 @@ The message box is where people spend their day. It never loses words, never lag
   a sheet may take it.
 - **Lists:** `@` tasks, `#` spaces, `/` commands, each filtered as you type, with the arrow keys, Enter and Esc. A
   list fits the room left above the box, up to its pane's header, with the keyboard up too (measured, never a share of
-  the screen's height: iOS keeps that while the keyboard is up), at most 22rem; the arrow keys keep the chosen row in
-  view by scrolling the list alone, never the page, and a row the mouse is over never scrolls it
+  the screen's height: iOS keeps that while the keyboard is up), at most 22rem; with no room under the header it takes
+  about a row over it, never past the page's top. The arrow keys keep the chosen row in view, and so does a list made
+  shorter while open, by scrolling the list alone, never the page; a row the mouse is over never scrolls it
   (`web/plugins/chat/list-fit.ts`). A key that ends a word an input method is composing is never the list's (Safari's
   keyCode 229, as `enter.ts` does for sending). Two spaces with one name keep their machine: each row names it, and
-  another machine's goes in the box as `#shop.vm`, as GitHub writes another repo's `owner/repo#12`, so each sends its
-  own space. `web/demo/phone-box-check.ts` checks the room and 20 arrow presses each way.
+  another machine's goes in the box as `#shop.vm` (a word no other space has, found again by typing it), as GitHub
+  writes another repo's `owner/repo#12`, so each sends its own space. `web/demo/phone-box-check.ts` checks the room and 20 arrow presses each way.
 - **Attachments:** paste, drop or pick; each shows as a chip with its own Remove. While a file is dragged over the
   page, the box shows where to drop it, and says so again, darker, once the file is over it; a file dropped where
   nothing takes it does nothing, never the browser opening it in place of the app. A long paste folded into a chip is

@@ -10,8 +10,11 @@ test('the room is from the box up to the pane header, less the gap and some air,
   expect(roomAbove(400, 128)).toBe(400 - 6 - 8 - 128)
   // a header off the top (iOS slid the page) counts from the page's top
   expect(roomAbove(400, -40)).toBe(400 - 6 - 8)
-  // no room at all (a phone on its side): still a row's worth, over the header
+  // no room under the header (a phone on its side): still a row's worth, over the header
   expect(roomAbove(150, 128)).toBe(FLOOR)
+  // and never past the page's top: a box at 100 leaves 86 above the gap and the air
+  expect(roomAbove(100, 44)).toBe(86)
+  expect(roomAbove(10, 0)).toBe(0)
 })
 
 test('the chosen row scrolls into view by the least move, and stays put when it shows', () => {

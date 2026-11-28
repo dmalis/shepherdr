@@ -13,15 +13,19 @@ import { useCallback, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 const GAP = 6
 /** air between the list and the pane's header */
 const AIR = 8
-/** never less than about a row and its label: where there's no more room (a phone on its side, the keyboard up), the
- *  list goes over the header rather than show nothing */
+/** about a row and its label: where there's no more room under the header (a phone on its side, the keyboard up), the
+ *  list goes over the header to show that much rather than nothing, but never past the top of the page */
 export const FLOOR = 96
 
 /** a key that belongs to an input method composing a word, not to the list */
 export const composingKey = (e: KeyboardEvent<HTMLElement>) => e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
 
-/** the room for a list whose box's top is `boxTop`, with the pane's header ending at `top` (px from the page's top) */
-export const roomAbove = (boxTop: number, top: number) => Math.max(FLOOR, Math.floor(boxTop - GAP - AIR - Math.max(0, top)))
+/** the room for a list whose box's top is `boxTop`, with the pane's header ending at `top` (px from the page's top):
+ *  up to the header, else up to FLOOR over it, never above the page's top */
+export function roomAbove(boxTop: number, top: number): number {
+  const page = Math.max(0, Math.floor(boxTop - GAP - AIR))
+  return Math.max(Math.min(FLOOR, page), Math.floor(boxTop - GAP - AIR - Math.max(0, top)))
+}
 
 /** how far a list scrolled to `scroll` must scroll so its row from `rowTop` to `rowBottom` (in the list's content,
  *  from its top) shows inside its `height`, `pad` in from each end: the least move, none when it already shows */
@@ -44,13 +48,32 @@ function topOf(box: Element): number {
 export function useListFit(open: boolean, sel: number, shows: string) {
   const ref = useRef<HTMLDivElement | null>(null)
   const hovered = useRef(false)
+  const chosen = useRef(sel)
+  chosen.current = sel
 
-  // the room above the box, kept as --room while the list is open
+  /** scroll the list just enough to show the chosen row (the first one with the list's label above it) */
+  const show = useCallback(() => {
+    const list = ref.current
+    const row = list?.querySelectorAll<HTMLElement>('[role="option"]')[chosen.current]
+    if (!list || !row) return
+    if (chosen.current === 0) return void (list.scrollTop = 0)
+    const l = list.getBoundingClientRect()
+    const r = row.getBoundingClientRect()
+    const top = r.top - l.top - list.clientTop + list.scrollTop
+    list.scrollTop = scrollToShow(list.scrollTop, list.clientHeight, top, top + r.height)
+  }, [])
+
+  // the room above the box, kept as --room while the list is open; a list made shorter still shows its chosen row
   useLayoutEffect(() => {
     const list = ref.current
     const box = list?.parentElement
     if (!open || !list || !box) return
-    const fit = () => list.style.setProperty('--room', `${roomAbove(box.getBoundingClientRect().top, topOf(box))}px`)
+    const fit = () => {
+      const room = `${roomAbove(box.getBoundingClientRect().top, topOf(box))}px`
+      if (list.style.getPropertyValue('--room') === room) return
+      list.style.setProperty('--room', room)
+      show()
+    }
     fit()
     // the box grows with the draft; the keyboard and the window change what shows (viewport.ts says app-resized)
     const seen = new ResizeObserver(fit)
@@ -65,22 +88,14 @@ export function useListFit(open: boolean, sel: number, shows: string) {
       removeEventListener('app-resized', fit)
       vv?.removeEventListener('resize', fit)
     }
-  }, [open])
+  }, [open, show])
 
   // the chosen row in view, unless the mouse chose it
   useLayoutEffect(() => {
-    const list = ref.current
-    if (!open || !list) return
+    if (!open) return
     if (hovered.current) return void (hovered.current = false)
-    const row = list.querySelectorAll<HTMLElement>('[role="option"]')[sel]
-    if (!row) return
-    // the first row shows the list's label above it too
-    if (sel === 0) return void (list.scrollTop = 0)
-    const l = list.getBoundingClientRect()
-    const r = row.getBoundingClientRect()
-    const top = r.top - l.top - list.clientTop + list.scrollTop
-    list.scrollTop = scrollToShow(list.scrollTop, list.clientHeight, top, top + r.height)
-  }, [open, sel, shows])
+    show()
+  }, [open, sel, shows, show])
 
   const onHover = useCallback(() => void (hovered.current = true), [])
   return { ref, onHover }

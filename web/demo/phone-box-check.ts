@@ -289,6 +289,7 @@ async function checkLists(browser: Browser, base: string, s: ListScene) {
         box: r(el.parentElement!).top, head: head ? r(head).bottom : 0, over: el.scrollHeight > el.clientHeight + 1,
         cap: parseFloat(getComputedStyle(document.documentElement).fontSize) * 22, height: el.clientHeight,
         row: row ? [r(row).top, r(row).bottom] : null, index: [...el.querySelectorAll('[role="option"]')].indexOf(row!),
+        rows: el.querySelectorAll('[role="option"]').length,
         page: (document.scrollingElement?.scrollTop ?? 0) + (window.visualViewport?.offsetTop ?? 0),
       }
     })
@@ -307,18 +308,36 @@ async function checkLists(browser: Browser, base: string, s: ListScene) {
       want(at.bottom <= at.box, `${key}: the list covers the box by ${(at.bottom - at.box).toFixed(0)}px`)
       // more rows than fit: the list takes the room up to the header (its 8px of air), or its 22rem cap
       if (at.over) want(at.top - at.head <= 16 || at.height >= at.cap - 2, `${key}: the list leaves ${(at.top - at.head).toFixed(0)}px of its room unused`)
+      // the demo's @ and # lists have more rows than fit, so the arrows below have to scroll
+      if (key !== '/') want(at.over, `${key}: the list has room for all ${at.rows} rows, so nothing here needs a scroll`)
+      let was = at.index
       for (const arrow of ['ArrowDown', 'ArrowUp']) {
         for (let i = 1; i <= 20; i++) {
           await cin.press(arrow)
           await frames(page)
           const now = await where()
           if (!now.row) { fails.push(`${key}: no row chosen after ${arrow} ×${i}`); break }
+          // each press moves the choice one row, wrapping at the ends
+          const next = (was + (arrow === 'ArrowDown' ? 1 : -1) + now.rows) % now.rows
+          if (now.index !== next) { fails.push(`${key}: ${arrow} ×${i} chose row ${now.index + 1}, not ${next + 1}`); break }
+          was = now.index
           if (now.row[0] < now.inner[0] - 0.5 || now.row[1] > now.inner[1] + 0.5) {
             fails.push(`${key}: after ${arrow} ×${i} the chosen row (${now.index + 1}) is out of the list's view`)
             break
           }
           if (now.page) { fails.push(`${key}: ${arrow} ×${i} scrolled the page by ${now.page}px, not only the list`); break }
         }
+      }
+      // a window made shorter with the list open: the list shrinks and still shows its chosen row
+      if (!s.phone && key === '#') {
+        for (let i = 0; i < 6; i++) await cin.press('ArrowDown')
+        await page.setViewportSize({ width: s.width, height: 440 })
+        await frames(page)
+        const now = await where()
+        want(!!now.row && now.row[0] >= now.inner[0] - 0.5 && now.row[1] <= now.inner[1] + 0.5, `${key}: the window made shorter hid the chosen row (${now.index + 1})`)
+        want(now.top >= now.head - 1, `${key}: the window made shorter left the list over the header`)
+        await page.setViewportSize({ width: s.width, height: s.height })
+        await frames(page)
       }
       if (s.phone && key === '@' && shots) await page.screenshot({ path: `${shots}/${name.replace(/[^\w]+/g, '-')}.png` })
       await cin.press('Escape')

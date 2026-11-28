@@ -76,9 +76,15 @@ function whereOf(snap: Snapshot, t: Task) {
  *  each such row names its machine, and one on another machine goes in the box as "#shop.vm", as GitHub writes
  *  another repo's "owner/repo#12", so "#shop" stays this machine's and each pick sends its own space. */
 export function sharedName(spaces: Reach[]): Reach[] {
+  // a word the box can't send as one ("my shop") gets dashes; one another space is already called gets a number
+  const taken = new Set(spaces.map((s) => s.name))
+  const word = (w: string) => w.replace(/[^\w.-]+/g, '-')
   return spaces.map((s) => {
-    if (!spaces.some((x) => x !== s && x.name === s.name && x.target !== s.target)) return s
-    return s.route ? { ...s, as: `${s.name}.${s.machine.replace(/[^\w.-]+/g, '-')}` } : s
+    if (!s.route || !twinned(s, spaces)) return s
+    let as = `${word(s.name)}.${word(s.machine)}`
+    for (let n = 2; taken.has(as); n++) as = `${word(s.name)}.${word(s.machine)}-${n}`
+    taken.add(as)
+    return { ...s, as }
   })
 }
 const twinned = (s: Reach, all: Reach[] | undefined) => !!all?.some((x) => x.target !== s.target && x.name === s.name)
@@ -94,7 +100,12 @@ export function typed(before: string): { kind: '#' | '@'; q: string } | null {
 /** the list for what is typed. Spaces: the ones this chat's agent reaches. Tasks: the ones in those spaces (before
  *  that list comes, the chat's own space's), waiting on you and at work first, Done last. */
 export function mentionItems(snap: Snapshot, here: string, kind: '#' | '@', q: string, got: Got | null): Item[] {
-  if (kind === '#') return ((got ? M.match(sharedName(got.spaces), q, 8) : []) as Reach[]).map((s) => ({ kind: 'space', key: `s:${s.target}`, space: s, place: placeById(snap, s.id) }))
+  if (kind === '#') {
+    // matched by the word the box writes ("#shop.vm" finds another machine's shop), shown by its name
+    const all = got ? sharedName(got.spaces) : []
+    const hits = M.match(all.map((s) => (s.as ? { ...s, name: s.as } : s)), q, 8) as Reach[]
+    return hits.map((h) => all.find((s) => s.target === h.target)!).map((s) => ({ kind: 'space', key: `s:${s.target}`, space: s, place: placeById(snap, s.id) }))
+  }
   const reachOf = (t: Task): Reach | null => got?.spaces.find((s) => s.id === bare(t.place)) ?? (!got && t.place === here ? { id: bare(here), name: '', route: '', machine: '', target: bare(here) } : null)
   const live = snap.tasks.filter((t) => !t.archived && t.place && /^[\w.-]+$/.test(taskRef(t)) && reachOf(t))
   const rows = live.map((t) => ({ ref: taskRef(t), title: t.name, status: t.status, at: t.at, space: snap.places.find((p) => p.id === t.place)?.name, machine: t.on, t }))
