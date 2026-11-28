@@ -1,5 +1,11 @@
 # Friction loop
 
+> **2026-11-28, our own path (#233):** the upstream part of this loop was dropped. The fork moves faster than
+> upstream and in ways upstream would not take, so nothing is offered there any more: no upstream rounds, no
+> `not-filed` or `upstream-proposed` labels, no daily "Fixes not filed yet" run. The loop is closed here: found,
+> filed, fixed and installed on dmalis/shepherdr, and a fix's issue closes once it is live. Below, read "upstream
+> round" and "upstream decision" as history; the rest holds.
+
 Part of #94. The spec for one loop that catches every likely bug, confusion or workaround met while using Shepherdr,
 checks it, proposes a fix, takes the person's one yes, and follows the fix until it works on their device. It is built
 for every Shepherdr user, on upstream's own feedback feature, filing to the person's feedback repo. The fork's own

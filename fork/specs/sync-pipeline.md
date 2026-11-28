@@ -536,10 +536,11 @@ Only as far as the sync run needs them.
   `fork/patches.json`). Patches still being built aren't in it, so they are neither tested nor counted.
 - A patch dropped in the sync PR leaves the list there, and its issue gets `fixed-upstream`. It is closed only after the
   install that no longer has it is healthy.
-- After a healthy install, `fork/bin/sync issues` puts "carried since `ours-…`" on each listed issue's status line that
+- After a healthy install, `fork/bin/sync issues` puts "live since `ours-…`" on each listed issue's status line that
   lacks it, in one pass that writes only the issues whose line or labels change (`fork/sync/issues.py`). The tag is
-  the first install that carried the fix; later installs leave it.
-- Our pull requests say `Part of #n`, never `Closes`, so no merge closes a carried patch's issue.
+  the first install that carried the fix; later installs leave it. Since our own path (#233) the same pass closes
+  each listed issue, unless it waits on a device check or another waiting label.
+- Our pull requests say `Part of #n`, never `Closes`, so no merge closes a patch's issue before its fix is live.
 
 **Upstream issues (Codex point 17).** The run's report lists the person's upstream issues closed or answered since the
 state's `issue_cursor`:
@@ -818,8 +819,8 @@ The rehearsal skips the live terminal check (`may_ask`: its updater is its own),
    never does: no round on the exact head means held, and the person is asked. The sync installs itself onto the
    tool they use every day.
 3. **Built-in feedback's repo.** It defaults to upstream. **Recommendation:** set the person's `feedback_repo` to
-   dmalis/shepherdr, so Shepherdr feedback lands in our issues first and reaches upstream only through the
-   upstream-issue skill.
+   dmalis/shepherdr, so Shepherdr feedback lands in our issues. Since our own path (#233) it never goes on to
+   upstream.
 4. **How soon, and how often, merged work installs.** Each install restarts the service for a few seconds.
    **Answered:** as soon as possible. No quiet wait, no gap, and no daily or per-run cap. One install at a time, each
    taking main's tip when it starts. Our merges skip the trial and don't wait for main's checks. Health covers what

@@ -3,18 +3,21 @@
 dmalis/shepherdr is a public fork of eliasstravik/shepherdr ("upstream"). Upstream's releases come first; our patches
 sit on top of each release, adapted to it. This file adds the fork's rules and never loosens AGENTS.md's safety and
 test rules, or the rules for agents' own logins and settings. Its two exceptions to AGENTS.md:
-- **Upstream issues** are posted only in an upstream round the person asked for, and replies to the author only in
-  the person's words (upstream-issue skill).
+- **Upstream issues:** the only thing posted upstream is the person's own reply, in their words, when the author asks
+  something on one of their open upstream issues (upstream-issue skill).
 - **The install step:** the "Upstream sync" schedule's run may install, once #2 has proven it, and may push `ours-*`
   tags. Install tags are not releases; AGENTS.md's release rules still hold.
 
 ## The aim
 
-- **What runs:** upstream's newest release, plus the person's changes upstream doesn't have (yet).
-- **Stay close to upstream:** a patch is small, lives in its own files where it can, is built the way upstream
-  builds things (so upstream could take it as it is) and for every Shepherdr user (what suits only the person is a
-  setting), with a test for every upstream behaviour it relies on. When upstream ships the same thing, ours is
-  deleted.
+- **Our own Shepherdr:** faster than upstream and shaped for the person, on top of every upstream release.
+- **A closed loop:** every problem and request is found here, filed here, fixed here and installed here. Upstream
+  hears nothing from us ("Upstream issues").
+- **Every upstream release comes in.** When it ships what we carry, we take theirs by default: carrying less is
+  cheaper. Ours stays only where it is clearly better for the person, as a small addition on top of theirs.
+- **Cheap to carry:** a patch is small, lives in its own files where it can, is built the way upstream builds things
+  and has a test for every upstream behaviour it relies on, so each sync stays cheap. It is built for every Shepherdr
+  user where that costs nothing extra; what suits only the person is a setting.
 - **The person doesn't code.** Agents design, build, review, sync and install. Ask the person only for product
   decisions and the yeses named here.
 - **Think for the person:** shape every request with the shaping-a-request skill before building (the need behind
@@ -43,8 +46,8 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
   working methods and settings live in `~/.config/shepherdr/settings.json` on the serving machine, never in this repo.
 - **Pull requests and issues go to dmalis/shepherdr.** `gh repo set-default --view` must print `dmalis/shepherdr`
   (else stop and fix that first). Name the repo on every `gh pr` or `gh issue`: `-R dmalis/shepherdr`, or
-  `-R eliasstravik/shepherdr` only as the upstream-issue skill allows. Never open a pull request on upstream unless
-  the person asks for that one.
+  `-R eliasstravik/shepherdr` only to read, or for the one reply the upstream-issue skill allows. Never open a pull
+  request or an issue on upstream.
 - **Only the install step installs.** Never run `shepherdr update` or `shepherdr install`, never change the install
   folder, never stop or restart the live Shepherdr, herdr-core or their agents. Every check runs on throwaway
   sessions and scratch roots (AGENTS.md: Tests).
@@ -57,24 +60,24 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
 ## Every piece of work is recorded on GitHub
 
 - Each change the person asks for starts as an issue on dmalis/shepherdr (fork-patch skill, step 1).
-- Each pull request names its issue with `Part of #n`, never `Closes`: an issue stays open while we carry its fix.
-- Status lines and labels (`patch`, `live`, `not-filed`, `device-check` and the rest): fork-patch skill, "The record
-  on GitHub".
+- Each pull request names its issue with `Part of #n`, never `Closes`: an issue closes once its fix is live and the
+  install is healthy (a device check waits for the person), never at merge.
+- Status lines and labels (`patch`, `live`, `device-check` and the rest): fork-patch skill, "The record on GitHub".
 - **Check upstream first,** before an issue for a change to Shepherdr and again when its task starts building:
   fork-patch skill, step 1. Then shape it (shaping-a-request) and build it (fork-patch).
 
 ## Upstream issues
 
-A closed loop: every problem and request is filed here and fixed here; the person never waits on upstream. Upstream
-hears from us only in an upstream round the person asks for, or in their own reply to the author's question, and
-upstream's author decides what goes into theirs. Rounds, labels after a fix lands, keep it ours or undo it, and
-following the person's upstream issues: upstream-issue skill.
+This fork is on its own path: we file nothing upstream and offer it nothing, and the person never waits on it. The
+person's issues already open there are followed until they close; the only post is the person's own reply when the
+author asks something on one of them. Following them, and taking upstream's fix when a release has it:
+upstream-issue skill.
 
 ## Every friction is a candidate fix
 
 Every agent watches for friction all the time, the Assistant and task agents alike. Friction is when:
 - the person is confused, misreads a screen or asks "what is this" (confusion is a UX problem: fix the screen, don't
-  explain it away; upstream-issue skill);
+  explain it away; shaping-a-request skill);
 - they work around something, or answer something they shouldn't need to;
 - an agent did by hand what should happen on its own (started a task that should have started, recovered lost work,
   re-ran a step);
