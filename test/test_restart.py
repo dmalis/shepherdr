@@ -251,8 +251,8 @@ class BarePath(unittest.TestCase):
         self.assertEqual(ran.stdout.strip(), "claude ran --model sonnet", ran.stderr)
 
 
-# A coordinator in tab t1 with one worker it started (t5, its child) and one an earlier coordinator started (t6,
-# found by the tab's herdr.coordinator label).
+# A coordinator (t2) in tab t1 with one worker it started (t5, its child) and one an earlier coordinator started (t6,
+# still the child of that one, t0, and found by the tab's herdr.coordinator label).
 INHERIT_HC = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_DIR/calls"
 case $1 in
@@ -261,8 +261,8 @@ case $1 in
          *) echo "{\"address\":\"$2\",\"name\":\"worker $2\"}" ;;
        esac ;;
   ls) case "$*" in
-        *--label*) echo '{"terminals":[{"address":"t6"},{"address":"t2"}]}' ;;
-        *) echo '{"terminals":[{"address":"t5","parent":"t2"},{"address":"t7","parent":"t3"}]}' ;;
+        *--label*) echo '{"terminals":[{"address":"t6","parent":"t0"},{"address":"t2"}]}' ;;
+        *) echo '{"terminals":[{"address":"t5","parent":"t2"},{"address":"t6","parent":"t0"},{"address":"t7","parent":"t3"}]}' ;;
       esac ;;
   run) printf '%s\n' "$@" >"$FAKE_DIR/run-args"
        for a in "$@"; do f="$HOME/.config/herdr-core/templates/$a.md"; [ -f "$f" ] && cp "$f" "$FAKE_DIR/one.md"; done
@@ -273,7 +273,8 @@ esac
 
 class InheritedWorkers(unittest.TestCase):
     """dmalis/shepherdr#211: herdr-core sets a terminal's parent only as it starts (hc run --parent), and hc has no
-    way to move a live one, so the workers a restarted coordinator leaves stay its children. The new coordinator's
+    way to move a live one, so the workers a restarted coordinator leaves keep the coordinator that started them as
+    their parent (it, or for one an earlier coordinator started, that one). The new coordinator's
     hc wait --children any returns at once without them: its handoff names them, says so, and says how to watch
     them (hc wait <t>)."""
 
@@ -294,8 +295,9 @@ class InheritedWorkers(unittest.TestCase):
         msg, _ = self.handoff()
         self.assertIn("still running: t5 (worker t5) t6 (worker t6).", msg)
         self.assertNotIn("t7", msg, "another coordinator's child isn't this one's")
-        self.assertIn("They stay children of t2 in herdr-core, so hc wait --children any doesn't cover them: "
-                      "watch each by its address with hc wait <t>", msg)
+        self.assertIn("herdr-core keeps the coordinator that started each as its parent, so hc wait --children any "
+                      "doesn't cover them: watch each by its address with hc wait <t>", msg)
+        self.assertNotIn("children of t2", msg, "t6 is t0's child, not t2's")
 
     def test_they_keep_the_tab_label_the_next_restart_finds_them_by(self):
         _, calls = self.handoff()
@@ -308,9 +310,13 @@ class InheritedWorkers(unittest.TestCase):
         hc = shutil.which("hc")
         if not hc:
             self.skipTest("no hc here")
+        moves = re.compile(r"(?i)(\bre-?parent|\badopt|--parent\b)")
+        self.assertRegex("      --parent <PARENT>    Parent terminal", moves)   # the pattern does catch an option
         for cmd in (["label", "--help"], ["--help"]):
-            out = subprocess.run([hc, *cmd], capture_output=True, text=True, timeout=30).stdout
-            self.assertNotRegex(out, r"(?i)\b(re-?parent|adopt|--parent)\b", " ".join(cmd))
+            r = subprocess.run([hc, *cmd], capture_output=True, text=True, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Usage", r.stdout, " ".join(cmd))
+            self.assertNotRegex(r.stdout, moves, " ".join(cmd))
 
 
 if __name__ == "__main__":
