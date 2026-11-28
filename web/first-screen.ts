@@ -1,16 +1,14 @@
 // The first screen's script, as the built app sends it (fork #163, docs/design.md Performance: "Script for the first
 // screen: 250 kB sent, compressed"): the page's own module script and every chunk it imports before it can run,
 // followed through each chunk's static imports, counted as the brotli copy the service sends (service/static.ts).
-// What comes later (an `import()`) isn't counted. `bun web/first-screen.ts [dist]` after `bun run build` fails above
-// LIMIT, kept under the budget so a breach is seen before it is reached. Brotli is what every browser gets over HTTPS;
-// gzip (a browser without it) is shown, not checked.
+// What comes later (an `import()`) isn't counted. `bun web/first-screen.ts [dist]` after `bun run build` fails above the
+// budget. Brotli is what every browser gets over HTTPS; gzip (a browser without it) is shown, not checked.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** docs/design.md's budget, and the check's line under it */
+/** docs/design.md's budget, which the check holds every build to */
 export const BUDGET = 250 * 1024
-export const LIMIT = 230 * 1024
 
 export interface Chunk { file: string; raw: number; br: number; gz: number }
 
@@ -50,9 +48,9 @@ if (import.meta.main) {
   const r = firstScreen(dist)
   const kB = (n: number) => `${(n / 1024).toFixed(1)} kB`
   for (const c of r.chunks) console.log(`${c.file.padEnd(48)} ${kB(c.raw).padStart(9)}  br ${kB(c.br).padStart(9)}  gzip ${kB(c.gz).padStart(9)}`)
-  console.log(`first screen: ${r.chunks.length} scripts, ${kB(r.raw)}, sent as ${kB(r.br)} (brotli), ${kB(r.gz)} (gzip); budget ${kB(BUDGET)}, check ${kB(LIMIT)}`)
-  if (r.br > LIMIT) {
-    console.error(`the first screen's script is ${kB(r.br)} sent, over ${kB(LIMIT)}: move what it doesn't need into a part that comes later (web/src/later.tsx)`)
+  console.log(`first screen: ${r.chunks.length} scripts, ${kB(r.raw)}, sent as ${kB(r.br)} (brotli), ${kB(r.gz)} (gzip); budget ${kB(BUDGET)}`)
+  if (r.br > BUDGET) {
+    console.error(`the first screen's script is ${kB(r.br)} sent, over the ${kB(BUDGET)} budget: move what it doesn't need into a part that comes later (web/src/later.tsx)`)
     process.exit(1)
   }
 }

@@ -13,6 +13,8 @@ import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '
 import { everything, isEverything, machineLabel, spaceLabel } from '@shared/view.ts'
 import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lockWords, lookUrl, machineWords, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, unknownOn, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
+// fork #163: the page's look comes with the page, when it is first opened (page.ts)
+import './feedback.css'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
 
@@ -462,10 +464,4 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
       </div>
     </PaneFrame>
   )
-}
-
-/** open the page: the middle column on a computer, the whole screen on a phone */
-export function openFeedback() {
-  const phone = getState().ui.phone
-  setUI({ page: 'feedback', drawer: false, search: false, settings: null, artWide: false, max: null, ...(phone ? { pane: null, task: null, art: null } : {}) })
 }

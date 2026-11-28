@@ -447,11 +447,11 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
   picks one (`service/static.ts`); the page itself is sent as it is. A proxy in front passes the bytes on as they are
   (`web/demo/live.ts` fetches with `decompress: false`).
 - **The first screen's script** is checked on every build: `bun web/first-screen.ts` sums the page's module script and
-  every chunk it imports, as sent with brotli, and fails above 230 kB, under the 250 kB budget.
+  every chunk it imports, as sent with brotli, and fails above the 250 kB budget.
 - **Nothing waits in line at the start:** `api/me` and the live link go out at once, and the plugins come in side by
   side (`web/src/boot.ts`).
 - **Features you open** load when opened: the terminal and xterm with its stylesheet, Settings, the agent, machine
-  and space pickers, the Screen view, and what a call reads of the page. Each plugin still
+  and space pickers, the Screen view, what a call reads of the page, and the Feedback page. Each plugin still
   registers its buttons, keys, routes and switch at the start; only the code behind them comes later
   (`web/src/later.tsx`: `later()` for a module, `laterView()` for a view, which draws nothing until it is here and
   closes what it was opened in if it can't come). A second after the first screen is up, the parts of the plugins

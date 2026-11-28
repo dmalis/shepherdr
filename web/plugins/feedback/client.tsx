@@ -2,11 +2,14 @@
 // shows how many problems wait under Found, as a quiet count (nothing here is urgent: Needs you keeps the only red),
 // and opens the page: the middle column on a computer, the whole screen with Back on a phone. Switched off
 // (Settings › Plugins), the row opens upstream's old Feedback box again, and a failed action's notice has no Report.
-import { definePlugin, useSnap, useUI } from '@client/kernel.ts'
+// fork #163: the page itself comes when it is first opened (page.ts); the row is here from the start.
+import { definePlugin, setUI, useSnap, useUI } from '@client/kernel.ts'
+import { laterView } from '@client/later.tsx'
 import { Cnt, Row } from '@client/ui.tsx'
-import { FeedbackPage, openFeedback } from './rows.tsx'
+import { openFeedback, page } from './page.ts'
 import { reportAct } from './report.ts'
-import './feedback.css'
+
+const FeedbackPage = laterView(() => page.load().then((m) => m.FeedbackPage), () => setUI({ page: null }), 'feedback')
 
 function FeedbackRow() {
   const n = useSnap()?.feedback?.found ?? 0

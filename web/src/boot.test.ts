@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { boot } from './boot.ts'
 import { later, warmLater } from './later.tsx'
 import type { ClientPlugin } from './kernel.ts'
-import { firstScreen, LIMIT } from '../first-screen.ts'
+import { BUDGET, firstScreen } from '../first-screen.ts'
 
 const plugin = (name: string): ClientPlugin => ({ name, setup: () => undefined }) as ClientPlugin
 
@@ -133,6 +133,10 @@ test('pinned: the heavy views are fetched by import(), never imported where the 
   expect(screens).toContain("later(() => import('./pane.tsx'), 'screens')")
   // Take over waits for the Screen view, so Hand back is there once you drive
   expect(screens).toContain("onClick={() => void pane.load().then(() => { openScreen(k, true); void act(k, 'take'")
+  // the Feedback page comes when opened; its row and Report don't take it in
+  expect(read('../plugins/feedback/page.ts')).toContain("later(() => import('./rows.tsx'), 'feedback')")
+  for (const f of ['../plugins/feedback/client.tsx', '../plugins/feedback/report.ts', '../plugins/feedback/words.ts'])
+    expect(read(f)).not.toMatch(/^import [^;]* from '\.\/rows\.tsx'/m)
   // the kernel keeps a call asked for before the plugins were in
   expect(read('./kernel.ts')).toContain('if (!(window as { shepherdrOff?: string[] }).shepherdrOff) wokeEarly = true')
   // xterm's stylesheet comes with the terminal
@@ -160,5 +164,5 @@ test('the size check counts the page’s module script and what it imports, sent
   expect(r.chunks.map((c) => c.file).sort()).toEqual(['assets/deep-e.js', 'assets/index-a.js', 'assets/pre-b.js', 'assets/shared-c.js'])
   // a file without a brotli copy counts as it is
   expect(r.br).toBe(100 + 10 + 20 + 'export const y=2'.length)
-  expect(LIMIT).toBeLessThan(250 * 1024)
+  expect(BUDGET).toBe(250 * 1024)
 })

@@ -23,6 +23,10 @@
     "web/plugins/alerts/space.tsx",
     "web/plugins/shortcuts/client.tsx",
     "web/plugins/analytics/client.tsx",
+    "web/plugins/feedback/client.tsx",
+    "web/plugins/feedback/page.ts",
+    "web/plugins/feedback/report.ts",
+    "web/plugins/feedback/rows.tsx",
     "web/first-screen.ts",
     ".github/workflows/check.yml",
     "docs/design.md"
@@ -32,6 +36,7 @@
     "web/plugins/screens/full.test.ts",
     "web/src/settings-look.test.tsx",
     "web/plugins/inbox/inbox.test.tsx",
+    "web/plugins/feedback/report.test.tsx",
     "web/src/dictation.test.ts",
     "test/test_design.py::DesignTokens"
   ]
