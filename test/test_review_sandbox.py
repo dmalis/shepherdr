@@ -80,20 +80,24 @@ class LaunchLine(Roots):
             self.assertIsNone(review_sandbox.writable(inside, self.wt))
 
     def test_a_task_s_brief_names_the_folder_its_start_makes(self):
-        # the brief is written before launch() makes the folder (task_tmp.ensure): the same path, by task_tmp's name
+        # dmalis/shepherdr#216: a folder's name is random, so the start's brief makes it (launch.brief() ->
+        # task_tmp.ensure) and launch() keeps it: the reviewer's folder is the one recorded, the worker's TMPDIR
         class S:
-            slug, loc = "home-dev-shop", {"folder": self.wt}
+            slug, loc, dirty = "home-dev-shop", {"folder": self.wt}, False
 
-            def ref(self, t):
-                return f"SHOP-{t['id']}"
+            def key(self, t):
+                return f"{self.slug}#{t['id']}"
         t = {"id": 7, "title": "x"}
-        with mock.patch.object(task_tmp, "root", lambda: self.root):
-            want = task_tmp.path_for(S(), t)
-            self.assertEqual(review_sandbox.folder_of(S(), t, self.wt), want)
-            t["tmp"] = self.tmp  # recorded on the task: that one
-            self.assertEqual(review_sandbox.folder_of(S(), t, self.wt), self.tmp)
-            t["tmp"] = "/tmp"
-            self.assertIsNone(review_sandbox.folder_of(S(), t, self.wt))
+        self.assertIsNone(review_sandbox.folder_of(S(), t, self.wt))  # none yet: read-only
+        with mock.patch.object(task_tmp, "root", lambda: self.root), mock.patch.object(task_tmp, "_roots",
+                                                                                       lambda: [(self.root, task_tmp.NAME, True)]):
+            made = task_tmp.ensure(S(), t)
+            self.assertEqual(review_sandbox.folder_of(S(), t, self.wt), made)
+            self.assertEqual(task_tmp.ensure(S(), t), made)  # launch() keeps it
+        t["tmp"] = self.tmp  # recorded on the task: that one
+        self.assertEqual(review_sandbox.folder_of(S(), t, self.wt), self.tmp)
+        t["tmp"] = "/tmp"
+        self.assertIsNone(review_sandbox.folder_of(S(), t, self.wt))
 
     def test_its_temp_folder_is_still_the_worker_s_tmpdir(self):
         # the worker's shell expands TMPDIR, TMP and TEMP as before (task_tmp.py); a different one just stays read-only

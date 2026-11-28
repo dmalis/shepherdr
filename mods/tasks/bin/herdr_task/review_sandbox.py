@@ -51,13 +51,9 @@ def writable(path, folder=None):
 
 
 def folder_of(s, task, folder=None):
-    """The task's temp folder for its reviewer: the one recorded on it, else the one its start makes (the brief is
-    written before it), when writable(); None when there's none."""
-    try:
-        p = task.get("tmp") or task_tmp.path_for(s, task)
-    except Exception:
-        return None
-    return writable(p, folder)
+    """The task's temp folder for its reviewer: the one recorded on it (a start's brief makes it first, launch.brief()),
+    when writable(); None when there's none."""
+    return writable(task.get("tmp"), folder)
 
 
 def args(tmp):

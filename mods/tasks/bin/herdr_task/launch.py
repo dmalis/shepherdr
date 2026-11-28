@@ -685,6 +685,8 @@ def where_line(task):
 
 def brief(s, task, parent=None, space=None, argv=None):
     instructions("reviewer")  # the file its review's reviewer gets (WORKER_MD)
+    # dmalis/shepherdr#216: its temp folder, made now (launch() keeps it): the Reviewer line names the one it gets
+    task_tmp.ensure(s, task)
     keep_review(s, task, space)
     start = notes_part("Before you start", notes(s, task, "start", space))
     if start and task.get("worktree"):

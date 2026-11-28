@@ -3672,7 +3672,10 @@ class ReviewerLine(unittest.TestCase):
         with open(self.checks, "w") as f:
             json.dump({"machines": {"": {"claude": "ready", "codex": codex}}}, f)
         t = {"id": 1, "title": "x", "mode": "worktree"}
-        return next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"]) if x["label"] == "Reviewer")
+        s = Store([t])
+        from herdr_task import task_tmp
+        task_tmp.ensure(s, t)  # a start's brief makes its temp folder first (launch.brief(), dmalis/shepherdr#216)
+        return next(x for x in self.settings.task_settings(s, t, argv=["claude"]) if x["label"] == "Reviewer")
 
     def test_codex_runs_on_its_own_server(self):
         r = self.line("ready")

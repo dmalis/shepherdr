@@ -99,7 +99,7 @@ def root():
     return SCRATCH if _scratch_ok() else os.path.join(WHERE.home, ROOT_NAME)
 
 
-def roots():
+def _roots():
     """[(folder, the names made there, whether one no task records may go)]: root(), then where older copies made
     them. One no task records goes only from a folder Shepherdr names, never from an install of its own's
     <SHEPHERDR_HOME>/cache/tmp, which could be someone's ~/cache/tmp."""
@@ -112,14 +112,19 @@ def roots():
     return out + [o for o in old if all(os.path.abspath(o[0]) != os.path.abspath(b) for b, _, _ in out)]
 
 
+def roots():
+    """The folders task temp folders are in (review_sandbox.py's)."""
+    return [b for b, _, _ in _roots()]
+
+
 def _ours(p):
-    """Only a real folder right inside one of roots(), with a name made there, is ever locked for removal or removed:
+    """Only a real folder right inside one of _roots(), with a name made there, is ever locked for removal or removed:
     never a link, never anything a task record points elsewhere."""
     if not p or os.path.islink(p) or not os.path.isdir(p):
         return False
     d, n = os.path.split(os.path.abspath(p))
     return any(d == os.path.abspath(b) and name.match(n) and os.path.dirname(os.path.realpath(p)) == os.path.realpath(b)
-               for b, name, _ in roots())
+               for b, name, _ in _roots())
 
 
 def _make_root(r):
@@ -301,7 +306,7 @@ def sweep(report=None, force=False):
         return []
     _swept = time.time()
     found = []
-    for base, name, strays in roots():
+    for base, name, strays in _roots():
         try:
             found += [(os.path.join(base, n), strays) for n in os.listdir(base) if name.match(n)]
         except OSError:

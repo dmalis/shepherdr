@@ -494,7 +494,7 @@ class WhereTaskTmp(unittest.TestCase):
         one = os.path.join(self.home, "own")
         with mock.patch.object(task_tmp, "WHERE", layout.Where(home=self.home, env={"SHEPHERDR_HOME": one}, mac=False)):
             self.assertEqual(task_tmp.root(), os.path.join(one, ".shep-tmp"))
-            self.assertEqual([r[0] for r in task_tmp.roots()], [os.path.join(one, ".shep-tmp"), os.path.join(one, "cache", "tmp")])
+            self.assertEqual(task_tmp.roots(), [os.path.join(one, ".shep-tmp"), os.path.join(one, "cache", "tmp")])
 
     def test_an_install_of_its_own_in_the_home_never_sweeps_the_persons_own_folders(self):
         """SHEPHERDR_HOME=$HOME: its old place is ~/cache/tmp, maybe the person's own: only a folder a task records

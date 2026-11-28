@@ -34,6 +34,7 @@
     "test/test_task_tmp.py::SharedWords",
     "test/test_task_tmp.py::RunInATasksTemp",
     "test/test_machine_disk_files.py",
+    "test/test_review_sandbox.py",
     "service/shells-tmp.test.ts",
     "test/test_herdr_task.py::CleanEnv",
     "test/test_herdr_task.py::DetachedActions",
