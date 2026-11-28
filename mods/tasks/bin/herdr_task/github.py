@@ -10,17 +10,25 @@ from .base import Fail, GH, git, hc_json, now, run, STORE
 from .agents import agent_running, detail, live_agents, live_helpers, mid_turn_agents
 from .after_accept import start as after_accept
 from . import rebased_push
+from . import ghbudget
 
 
 # ---- GitHub ---------------------------------------------------------------------------------
 
 def gh(*args, cwd=None):
+    # dmalis/shepherdr#201: GitHub said the hour's request limit ran out: nothing that spends it goes out till it resets
+    until = ghbudget.held(args)
+    if until:
+        return False, "", ghbudget.held_err(until)
     # gh not installed (or not on this caller's PATH, as a background service's): it doesn't work here, said plainly
     try:
         r = run([GH, *args], cwd=cwd or STORE)
     except FileNotFoundError:
         return False, "", "gh isn't installed here (GitHub CLI)"
-    return r.returncode == 0, r.stdout.strip(), (r.stderr or r.stdout).strip()
+    err = (r.stderr or r.stdout).strip()
+    if r.returncode != 0 and ghbudget.limited(err):
+        ghbudget.refused(args, err)
+    return r.returncode == 0, r.stdout.strip(), err
 
 
 # #1490: what the scheduler asked GitHub with the task list's lock let go (tick.prefetch()), each answer used once by
@@ -56,6 +64,8 @@ def github(s):
     if g and now() - g.get("at", 0) < 3600000:
         return g.get("repo")
     ok, out, err = gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner", cwd=s.loc["folder"])
+    if not ok and g.get("repo") and ghbudget.limited(err):
+        return g["repo"]  # dmalis/shepherdr#201: GitHub's request limit, not a new answer: the repo it said, asked again later
     if not (ok and out) and not settled(err) and on_github(s.loc["folder"]):
         s.github_error = err or "gh couldn't read the repo"
         return None
@@ -334,11 +344,15 @@ def pr_adopt(task, repo):
     return task.get("pr") if found else None
 
 
-def pr_for_branch(task, repo):
+def pr_for_branch(task, repo, strict=False):
     """The open pull request from this repo for the task's branch into its base, whatever its head
-    (opened by its agent, ready never knowing: #988), as gh lists it, or None."""
-    ok, out, _ = gh("pr", "list", "--repo", repo, "--head", task["branch"], "--state", "open",
-                    "--json", "number,url,isCrossRepository,baseRefName,headRefOid")
+    (opened by its agent, ready never knowing: #988), as gh lists it, or None. strict: GitHub not answering (its
+    request limit, a blip) raises Fail instead of the same None as "none" (dmalis/shepherdr#201)."""
+    ok, out, err = gh("pr", "list", "--repo", repo, "--head", task["branch"], "--state", "open",
+                      "--json", "number,url,isCrossRepository,baseRefName,headRefOid")
+    if strict and not ok:
+        raise Fail(f"Couldn't ask GitHub whether {task.get('branch')} has a pull request ({err or 'gh failed'}); "
+                   "nothing merged. Try again" + (f" after {ghbudget.clock(ghbudget.reset_at())}." if ghbudget.reset_at() else "."))
     try:
         return next((p for p in json.loads(out) if not p.get("isCrossRepository")
                      and p.get("baseRefName") == (task.get("base") or "main")), None) if ok and out else None
@@ -409,7 +423,7 @@ BAD = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP
 PENDING = {"QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED"}
 
 
-VIEW = "state,mergeable,headRefOid,mergeCommit,reviewDecision,mergeStateStatus"
+VIEW = "state,mergeable,headRefOid,mergeCommit,reviewDecision,mergeStateStatus,updatedAt"  # updatedAt: #201's comments gate
 # SHEP-179: a token that may read a pull request but not its checks (a fine-grained one without Checks: read, as
 # the exe.dev GitHub integration's) gets GitHub's "Resource not accessible" for them: a permission, never a blip.
 DENIED = ("resource not accessible", "http 403", "must have", "not have permission", "insufficient scope")
@@ -418,7 +432,8 @@ CHECKS_PERMISSION = "Checks: read and Commit statuses: read"
 
 
 def denied(err):
-    return any(x in (err or "").lower() for x in DENIED)
+    # a 403 for the request limit is no permission (dmalis/shepherdr#201): it waits for the reset
+    return any(x in (err or "").lower() for x in DENIED) and not ghbudget.limited(err)
 
 
 def pr_view(task):
@@ -696,7 +711,12 @@ def drop_branch(s, task):
 
 
 def merge_method(repo):
-    """The first enabled merge method in the repository's settings."""
+    """The first enabled merge method in the repository's settings. dmalis/shepherdr#201: from GitHub's GraphQL
+    (its own hourly budget, apart from REST's) and kept an hour (ghbatch.merge_method()); REST as before otherwise."""
+    from . import ghbatch
+    flag = ghbatch.merge_method(repo)
+    if flag:
+        return flag
     ok, out, err = gh("api", f"repos/{repo}")
     if not ok:
         raise Fail(f"Couldn't read merge methods for {repo}: {err or 'no answer'}")

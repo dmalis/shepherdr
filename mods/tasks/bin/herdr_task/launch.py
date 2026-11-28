@@ -676,13 +676,16 @@ def brief(s, task, parent=None, space=None, argv=None):
         start += f"\n(The main folder is {s.loc['folder']}.)"
     body = "Your task, " + s.name(task) + ":\n" + ((task.get("prompt") or "").strip() or task["title"])
     finish = notes_part("Before you say ready", notes(s, task, "finish", space))
-    return "\n\n".join(x for x in [instructions("worker"), start, body, where_line(task), finish, closing_line(s, task, parent, argv),
+    from .ghbudget import brief_line  # dmalis/shepherdr#201
+    return "\n\n".join(x for x in [instructions("worker"), start, body, where_line(task), brief_line(s, task), finish, closing_line(s, task, parent, argv),
                                     settings_block(s, task, space, argv, live=True)] if x)
 
 
 def handoff(s, task, prev, parent=None, argv=None):
     lines = [f"You are taking over the task {s.name(task)} from another agent.", instructions("worker")]
     lines.append(where_line(task))
+    from .ghbudget import brief_line  # dmalis/shepherdr#201
+    lines.append(brief_line(s, task))
     lines.append("The task:\n" + ((task.get("prompt") or "").strip() or task["title"]))
     if prev and prev.get("log"):
         lines.append(f"The previous agent ({prev.get('agent') or 'agent'}) kept its session log at {prev['log']}: read the recent part to pick up where it left off.")

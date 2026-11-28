@@ -5,6 +5,7 @@ import datetime
 import json
 import re
 
+from . import ghbudget
 from .base import now
 from .agents import status_word
 from .github import _ASK, answer, BAD, collision, collision_words, gh
@@ -17,6 +18,7 @@ PR_NEWS_EVERY = 120000      # how often a Ready task's pull request is read for 
 MAIN_EVERY = 120000         # how often a watched base branch's runs are read (ms)
 NOTICE_KEEP_MS = 6 * 3600000
 TAIL = 3000                 # the end of a failed log, in characters
+SETTLE = 60000              # dmalis/shepherdr#201: a pull request's updatedAt this old: its reviews and comments show in the lists
 GREEN = {"success", "neutral", "skipped"}
 RED = {"failure", "timed_out", "action_required", "startup_failure", "stale"}
 
@@ -101,6 +103,13 @@ def resting(s, t):
     return k if k and status_word(k) not in ("working", "blocked") else None
 
 
+def unchanged(t, v):
+    """dmalis/shepherdr#201: its pull request is as it was when its reviews and comments were last read since it said
+    ready (GitHub's updatedAt, from the tick's batched read, moves with every new review or comment): no new ones."""
+    w = (t.get("pr") or {}).get("watch") or {}
+    return bool(v.get("updatedAt")) and w.get("since") == (t.get("ready_at") or 0) and w.get("updated") == v["updatedAt"]
+
+
 def pr_news(s, t, v, report):
     """A Ready task's pull request (v: pr_view's answer): a check that failed and new reviews and
     comments with words since it said ready (a bare approval isn't news) wait in its "news" to be
@@ -142,9 +151,16 @@ def pr_news(s, t, v, report):
     green = bool(checks) and not failed and all((c.get("conclusion") or c.get("state") or "").upper() in ("SUCCESS", "NEUTRAL", "SKIPPED") for c in checks)
     news_checks = failed if mark and mark != w.get("failed") else []
     w["failed"] = mark or (None if green else w.get("failed"))
-    all_c = pr_comments(pr["repo"], pr["number"])
+    # dmalis/shepherdr#201: unchanged on GitHub since its comments were last read: none new, nothing asked
+    all_c = None if unchanged(t, v) else pr_comments(pr["repo"], pr["number"])
     fresh = []
     if all_c is not None:
+        # kept only once the change is a minute old: a review GitHub's lists don't show yet is read again next time
+        changed = ghbudget.iso_ms(v.get("updatedAt"))
+        if changed and now() - changed >= SETTLE:
+            w["updated"] = v["updatedAt"]
+        else:
+            w.pop("updated", None)
         seen = set(w.get("seen") or [])
         # Its own summary, posted when it said ready, is no news to it.
         own = {(t.get("summary") or "").strip()} - {""}

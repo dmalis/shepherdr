@@ -1092,7 +1092,9 @@ class BackToWork(unittest.TestCase):
                     stack.enter_context(self.mock.patch.object(self.commands, name))
                 t = self.pr_task()
                 self.assertIsNone(self.commands.merge_now(self.store, t, accept=True))
-                policy.assert_called_once_with("api", "repos/o/r")
+                # dmalis/shepherdr#201: GraphQL asked first; it says nothing here, so REST's settings decide
+                self.assertEqual(policy.call_args_list[0].args[:2], ("api", "graphql"))
+                self.assertEqual(policy.call_args_list[-1], self.mock.call("api", "repos/o/r"))
                 self.assertIn(flag, merge.call_args.args)
                 self.assertIn("abc", merge.call_args.args)
 
@@ -4087,7 +4089,8 @@ class RequiredChecksOnly(PrLooks):
         self.github_says(checks=[self.BUILD])
         self.assertEqual(self.merge(t), self.commands.IN_QUEUE)  # merged on GitHub (this fake's pull request stays open)
         with open(self.gh_log) as f:
-            self.assertFalse(any(a[:2] == ["api", "graphql"] for a in map(json.loads, f)))
+            # dmalis/shepherdr#201: only the repo's merge methods (GraphQL's own budget), never its required checks
+            self.assertFalse(any(a[:2] == ["api", "graphql"] and "isRequired" in " ".join(a) for a in map(json.loads, f)))
 
     def test_accept_without_after_checks_still_bounces_a_red_optional_check_to_its_agent(self):
         # Not merging by itself: a Ready task's red check still goes back to its agent, as before.
@@ -10619,6 +10622,355 @@ class MergeableAfterAPush(PrLooks):
         self.assertTrue(t.get("merge_failed") or t.get("attention"), t)
 
 
+class GitHubLimit(PrLooks):
+    """dmalis/shepherdr#201: GitHub's hourly request limit is the account's, shared by every task. One batched read per
+    repo per pass, whatever the number of pull requests; reads back off while checks run and while little budget is
+    left; once GitHub refuses for the limit nothing more goes out until its reset, and a merge refused for it waits,
+    says when it merges, and merges by itself after the reset."""
+
+    RUNNING = {"name": "check", "status": "IN_PROGRESS", "conclusion": ""}
+    PASSED = {"name": "check", "status": "COMPLETED", "conclusion": "SUCCESS"}
+    LIMIT_ERR = "HTTP 403: API rate limit exceeded for user ID 1. (https://api.github.com/repos/o/r)"
+
+    def gh_script(self):
+        # "limited" holds "core" (REST refused) or "all" (GraphQL too); rate_limit always answers (it never counts)
+        return ("#!/usr/bin/env python3\nimport json, os, re, sys\n"
+                f"d = {self.dir!r}\n"
+                "a = sys.argv[1:]\n"
+                "open(os.path.join(d, 'gh.log'), 'a').write(json.dumps(a) + '\\n')\n"
+                "lim = open(os.path.join(d, 'limited')).read() if os.path.exists(os.path.join(d, 'limited')) else ''\n"
+                "rest = not (a[:1] in (['pr'], ['repo']) or a[:2] == ['api', 'graphql'])\n"
+                "if a[:2] == ['api', 'rate_limit']:\n"
+                "    print(open(os.path.join(d, 'rate.json')).read()); sys.exit(0)\n"
+                "if lim == 'all' or (lim == 'core' and rest):\n"
+                f"    sys.stderr.write({self.LIMIT_ERR!r} + '\\n'); sys.exit(1)\n"
+                "def view():\n"
+                "    v = json.load(open(os.path.join(d, 'view.json')))\n"
+                "    if os.path.exists(os.path.join(d, 'merged')):\n"
+                "        v['state'] = 'MERGED'\n"
+                "    return v\n"
+                "if a[:2] == ['pr', 'view']:\n"
+                "    print(json.dumps(view()))\n"
+                "elif a[:2] == ['pr', 'merge']:\n"
+                "    open(os.path.join(d, 'merged'), 'w').write(a[2])\n"
+                "elif a[:2] == ['api', 'graphql']:\n"
+                "    q = next(x for x in a if x.startswith('query='))\n"
+                "    repo = {'squashMergeAllowed': True}\n"
+                "    for n in re.findall(r'p_(\\d+): pullRequest', q):\n"
+                "        v = view()\n"
+                "        rows = [{'__typename': 'CheckRun', 'isRequired': False, **c} for c in v.pop('statusCheckRollup')]\n"
+                "        repo['p_' + n] = {**v, 'commits': {'nodes': [{'commit': {'statusCheckRollup': {'contexts': {'nodes': rows}},\n"
+                "                         'checkSuites': {'nodes': []}}}]}}\n"
+                "    print(json.dumps({'data': {'repository': repo, 'rateLimit': {'limit': 5000, 'remaining': 4000,\n"
+                "                                                                  'resetAt': '2030-01-01T00:00:00Z'}}}))\n"
+                "elif a[:1] == ['api']:\n"
+                "    print('[]')\n")
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        import herdr_task.ghbatch as ghbatch
+        import herdr_task.ghbudget as ghbudget
+        self.ghbatch, self.ghbudget = ghbatch, ghbudget
+        for mod in (ghbatch, ghbudget):
+            p = mock.patch.object(mod, "now", lambda: self.clock[0])
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.dict(ghbatch._METHODS, clear=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self.rate(core=5000, graphql=5000)
+
+    def rate(self, core, graphql, reset=None):
+        reset = reset or (self.clock[0] + 30 * 60000)
+        with open(os.path.join(self.dir, "rate.json"), "w") as f:
+            json.dump({"resources": {"core": {"limit": 5000, "remaining": core, "reset": reset // 1000},
+                                     "graphql": {"limit": 5000, "remaining": graphql, "reset": reset // 1000}}}, f)
+        return reset // 1000 * 1000
+
+    def limit(self, which):
+        p = os.path.join(self.dir, "limited")
+        if which:
+            with open(p, "w") as f:
+                f.write(which)
+        elif os.path.exists(p):
+            os.remove(p)
+
+    def read_rate(self):
+        with open(os.path.join(self.dir, "rate.json")) as f:
+            return json.load(f)["resources"]
+
+    def calls(self, free=False):
+        """gh's calls so far; rate_limit (which never counts) only with free."""
+        if not os.path.exists(self.gh_log):
+            return []
+        with open(self.gh_log) as f:
+            return [a for a in map(json.loads, f) if free or a[:2] != ["api", "rate_limit"]]
+
+    def tasks(self, n, **more):
+        self.store.data["tasks"] = [
+            {"id": i, "title": f"Task {i}", "state": "ready", "space": "sp1", "agents": [], "mode": "worktree",
+             "worktree": self.dir, "branch": f"b{i}", "ready_at": self.clock[0], **more,
+             "pr": {"number": 100 + i, "url": f"https://github.com/o/r/pull/{100 + i}", "repo": "o/r", "checked": 0}}
+            for i in range(1, n + 1)]
+        return self.store.data["tasks"]
+
+    def iso(self, ago):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime((self.clock[0] - ago) // 1000))
+
+    def github_says(self, mergeable="MERGEABLE", checks=()):
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump({"state": "OPEN", "mergeable": mergeable, "headRefOid": "abc", "mergeCommit": None, "reviewDecision": "",
+                       "mergeStateStatus": "CLEAN", "updatedAt": self.iso(10 * 60000), "statusCheckRollup": list(checks)}, f)
+
+    def changed(self, ago):
+        """GitHub's updatedAt for the pull request, `ago` ms before now (a review or comment came then)."""
+        with open(os.path.join(self.dir, "view.json")) as f:
+            v = json.load(f)
+        v["updatedAt"] = self.iso(ago)
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump(v, f)
+        return v["updatedAt"]
+
+    def a_pass(self, after=15000):
+        """One pass of the tick over the list: its batched read, then each task's look (facts)."""
+        self.clock[0] += after
+        found = self.tick.prefetch(self.store)
+        with self.tick.answered(found):
+            for t in self.store.data["tasks"]:
+                self.tick.facts(self.store, t, {"attention": [], "done": []})
+        return found
+
+    def test_fifteen_pull_requests_are_one_call_per_pass(self):
+        tasks = self.tasks(15)
+        self.github_says(checks=[self.RUNNING])
+        found = self.a_pass()
+        self.assertEqual(len([k for k in found if k[0] == "view"]), 15)
+        graphql = [a for a in self.calls() if a[:2] == ["api", "graphql"]]
+        self.assertEqual(len(graphql), 1)
+        self.assertEqual(len(re.findall(r"p_\d+: pullRequest", " ".join(graphql[0]))), 15)
+        # nothing else per pull request: no gh pr view, no runs, no required checks; only each new ready's comments
+        self.assertEqual([a for a in self.calls() if a[:2] == ["pr", "view"] or "runs?" in " ".join(a)], [])
+        self.assertTrue(all(t["pr"]["checked"] == self.clock[0] for t in tasks))
+        self.assertEqual([t["pr"].get("checks") for t in tasks], ["running"] * 15)
+        # read again only once one is due, and then all of them in one call again
+        before = len(self.calls())
+        self.a_pass(after=15000)
+        self.assertEqual(len(self.calls()), before)
+        self.a_pass(after=60000)
+        self.assertEqual(len([a for a in self.calls()[before:] if a[:2] == ["api", "graphql"]]), 1)
+        self.assertEqual([a for a in self.calls()[before:] if a[:2] != ["api", "graphql"]], [])  # comments: unchanged
+
+    def test_comments_are_read_only_when_the_pull_request_changed(self):
+        t = self.tasks(1)[0]
+        self.github_says(checks=[self.PASSED])
+        self.a_pass()
+        lists = lambda: [a for a in self.calls() if a[:1] == ["api"] and "comments" in " ".join(a)]
+        self.assertEqual(len(lists()), 2)  # its first read since ready: reviews, review comments, comments
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 2)
+        came = self.changed(-self.ghnews.PR_NEWS_EVERY + 5 * 60000)  # a comment came, minutes before the next read
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 4)
+        self.assertEqual(t["pr"]["watch"]["updated"], came)
+
+    def test_a_change_seconds_old_is_read_again_in_case_github_s_lists_lag(self):
+        # review: updatedAt can move before the review shows in GitHub's REST lists; a fresh one isn't kept as read
+        t = self.tasks(1)[0]
+        self.github_says(checks=[self.PASSED])
+        self.a_pass()
+        lists = lambda: [a for a in self.calls() if a[:1] == ["api"] and "comments" in " ".join(a)]
+        self.changed(-self.ghnews.PR_NEWS_EVERY + 10000)  # 10 s before the next read
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 4)
+        self.assertNotIn("updated", t["pr"]["watch"])
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)  # read once more, then kept
+        self.assertEqual(len(lists()), 6)
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 6)
+
+    def test_a_new_hand_in_never_pulls_in_pull_requests_still_backing_off(self):
+        old = self.tasks(1)[0]
+        self.github_says(checks=[self.RUNNING])
+        self.a_pass()
+        checked = old["pr"]["checked"]
+        new = {**json.loads(json.dumps(old)), "id": 2, "branch": "b2", "ready_at": self.clock[0]}
+        new["pr"] = {"number": 102, "url": "https://github.com/o/r/pull/102", "repo": "o/r", "checked": 0}
+        self.store.data["tasks"].append(new)
+        before = len(self.calls())
+        self.a_pass(after=15000)
+        graphql = [a for a in self.calls()[before:] if a[:2] == ["api", "graphql"]]
+        self.assertEqual(len(graphql), 1)
+        self.assertEqual(re.findall(r"p_(\d+): pullRequest", " ".join(graphql[0])), ["102"])
+        self.assertEqual(old["pr"]["checked"], checked)
+
+    def test_a_secondary_limit_holds_every_call_a_minute_whatever_the_budget_says(self):
+        err = "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)"
+        self.assertTrue(self.ghbudget.secondary(err))
+        self.assertFalse(self.ghbudget.secondary(self.LIMIT_ERR))
+        self.ghbudget.refused(["pr", "view"], err)
+        self.assertEqual(self.calls(free=True), [])  # nothing asked, rate_limit included
+        until = self.clock[0] + self.ghbudget.SECONDARY_WAIT
+        self.assertEqual((self.ghbudget.held(["api", "repos/o/r"]), self.ghbudget.held(["pr", "merge"])), (until, until))
+        self.clock[0] += 5000
+        self.ghbudget.keep(self.read_rate())  # a read showing plenty left
+        self.assertEqual(self.ghbudget.held(["pr", "view"]), until)
+        self.clock[0] = until + 1
+        self.assertIsNone(self.ghbudget.held(["pr", "view"]))
+
+    def test_accept_never_merges_here_when_github_couldnt_say_there_is_no_pull_request(self):
+        # review: a held lookup gave the same None as "none", and Accept merged locally past an open pull request
+        t = self.tasks(1)[0]
+        t.pop("pr")
+        self.rate(core=5000, graphql=0)
+        self.limit("all")
+        self.ghbudget.refused(["pr", "list"], self.LIMIT_ERR)
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
+        with self.assertRaises(self.commands.Fail) as e:
+            self.commands.own_open_pr(self.store, t)
+        self.assertIn("nothing merged", str(e.exception))
+        self.assertNotIn("pr", t)
+
+    def test_a_known_repo_stays_known_through_the_limit(self):
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0] - 2 * 3600000}  # an hour old: asked again
+        self.rate(core=5000, graphql=0)
+        self.limit("all")
+        self.ghbudget.refused(["repo", "view"], self.LIMIT_ERR)
+        from unittest import mock
+        with mock.patch.object(self.tick.github_mod.shutil, "which", lambda x: x):
+            self.assertEqual(self.tick.github_mod.github(self.store), "o/r")
+
+    def test_ready_with_its_pull_request_open_waits_out_the_limit_quietly(self):
+        # review: a held look at its open pull request set attention, and the tick then never merged it
+        t = self.tasks(1, state="running")[0]
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
+        held = self.ghbudget.held_err(self.clock[0] + 600000)
+        from unittest import mock
+        with mock.patch.object(self.commands, "pr_open", side_effect=self.commands.Fail(f"Couldn't open a pull request: {held}")), \
+                mock.patch.object(self.commands, "github", lambda s: "o/r"), \
+                mock.patch.object(self.commands, "merge_policy", lambda s, t: "checks"):
+            msg = self.commands.finalize(self.store, t)
+        self.assertNotIn(self.commands.READY_BUT, msg)
+        self.assertEqual((t["state"], t.get("attention"), t.get("auto_merge")), ("ready", None, "checks"))
+
+    def test_checks_that_run_are_read_no_faster_than_a_minute_and_slower_later(self):
+        t = self.tasks(1)[0]
+        self.github_says(checks=[self.RUNNING])
+        self.assertEqual(self.tick.wait_every(t), 60000)
+        self.a_pass()
+        self.assertEqual(t["pr"]["wait"], self.tick.github_mod.CHECKS_RUNNING)
+        before = len(self.calls())
+        self.a_pass(after=45000)
+        self.assertEqual(len(self.calls()), before)  # 45 s later: not yet
+        self.a_pass(after=15000)
+        self.assertEqual(len(self.calls()), before + 1)
+        self.clock[0] = t["ready_at"] + 12 * 60000
+        self.assertEqual(self.tick.wait_every(t), self.tick.PR_WAIT_MAX)  # waited long: every 3 minutes
+        self.clock[0] = t["ready_at"] + 8 * 60000
+        self.assertEqual(self.tick.wait_every(t), 2 * 60000)
+
+    def test_little_budget_left_slows_every_read(self):
+        reset = self.rate(core=1000, graphql=5000)
+        self.ghbudget.keep(self.read_rate())
+        self.assertEqual(self.ghbudget.slow(), 2)  # under a quarter left
+        self.rate(core=300, graphql=5000, reset=reset)
+        self.ghbudget.keep(self.read_rate())
+        self.assertEqual((self.ghbudget.slow(), self.ghbudget.every(60000)), (4, 240000))
+        self.clock[0] = reset + 1  # the hour reset
+        self.assertEqual(self.ghbudget.slow(), 1)
+
+    def test_the_budget_is_read_from_rate_limit_every_few_minutes_only(self):
+        self.tasks(1)
+        self.github_says(checks=[self.RUNNING])
+        rl = lambda: sum(1 for a in self.calls(free=True) if a[:2] == ["api", "rate_limit"])
+        self.a_pass()
+        self.assertEqual(rl(), 1)
+        self.a_pass(after=60000)
+        self.assertEqual(rl(), 1)
+        self.a_pass(after=self.ghbudget.LOOK_EVERY)
+        self.assertEqual(rl(), 2)
+
+    def test_a_merge_refused_for_the_limit_waits_and_says_when(self):
+        t = self.tasks(1, auto_merge="auto")[0]
+        self.github_says(checks=[self.PASSED])
+        reset = self.rate(core=0, graphql=0)
+        self.limit("all")
+        err = self.commands.merge_now(self.store, t)
+        words = f"GitHub's request limit: merging at {self.ghbudget.clock(reset)}"
+        self.assertEqual(err, words)
+        self.assertTrue(self.commands.merge_waits(err))  # never "merging it failed": ready keeps it Ready
+        self.assertEqual((t["state"], t.get("merge_failed"), t.get("attention")), ("ready", None, None))
+        self.assertEqual(t["pr"]["wait"], words)
+        self.assertEqual(self.agents.ready_wait(t, self.live), words)  # its card says when it merges
+        # nothing more goes to GitHub until the reset
+        before = len(self.calls())
+        self.assertEqual(self.commands.merge_now(self.store, t), words)
+        self.a_pass(after=60000)
+        self.assertEqual(len(self.calls()), before)
+
+    def test_it_merges_by_itself_after_the_reset_with_no_agent_run(self):
+        t = self.tasks(1, auto_merge="auto")[0]
+        self.github_says(checks=[self.PASSED])
+        reset = self.rate(core=0, graphql=0)
+        self.limit("all")
+        self.commands.merge_now(self.store, t)
+        self.limit(None)
+        self.rate(core=5000, graphql=5000, reset=reset + 3600000)
+        self.clock[0] = reset + 1000
+        from unittest import mock
+        told = mock.Mock()
+        with mock.patch.object(self.commands, "tell", told), mock.patch.object(self.commands, "finish") as finish, \
+                mock.patch.object(self.commands, "update_main"), mock.patch.object(self.commands, "drop_branch"), \
+                mock.patch.object(self.commands, "watch_main"), mock.patch.object(self.tick, "after_merge"), \
+                mock.patch.object(self.tick, "expected_checks", lambda s, t, sha: "yes"):
+            report = {"started": [], "done": [], "attention": [], "fired": []}
+            self.tick.tick_store(self.store, report)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "merged")))
+        self.assertTrue(t["merged"])
+        finish.assert_called_once()
+        self.assertEqual((report["done"], report.get("merge_failed")), ([t["id"]], None))
+        told.assert_not_called()
+        self.assertEqual(self.sent, [])
+
+    def test_with_rest_out_a_merge_still_goes_through_graphql(self):
+        # the reports: ready's merge read the repo's merge methods from REST, refused for its limit
+        t = self.tasks(1, auto_merge="auto")[0]
+        self.github_says(checks=[self.PASSED])
+        self.rate(core=0, graphql=4000)
+        self.limit("core")
+        from unittest import mock
+        with mock.patch.object(self.commands, "finish"), mock.patch.object(self.commands, "update_main"), \
+                mock.patch.object(self.commands, "drop_branch"), mock.patch.object(self.commands, "watch_main"):
+            self.assertIsNone(self.commands.merge_now(self.store, t))
+        self.assertTrue(t["merged"])
+        self.assertNotIn(["api", "repos/o/r"], self.calls())
+
+    def test_a_task_in_a_github_repo_is_told_not_to_watch_github_itself(self):
+        t = {"id": 1, "mode": "worktree"}
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
+        line = self.ghbudget.brief_line(self.store, t)
+        self.assertIn("don't watch GitHub runs or checks", line)
+        self.assertIn("--interval 60", line)
+        self.store.data.pop("github")
+        from unittest import mock
+        with mock.patch.object(self.tick.github_mod, "on_github", lambda folder: False):
+            self.assertIsNone(self.ghbudget.brief_line(self.store, t))  # not on GitHub: nothing said
+        self.assertIsNone(self.ghbudget.brief_line(self.store, {"id": 2, "mode": "folder"}))
+        # the seam: the brief and a takeover's brief both carry it (launch.py, not templates/worker.md)
+        with open(os.path.join(BIN, "herdr_task", "launch.py")) as f:
+            self.assertEqual(f.read().count("brief_line(s, task)"), 2)
+
+    def test_rate_limit_answers_are_told_apart(self):
+        for err in (self.LIMIT_ERR, "GraphQL: API rate limit already exceeded for user ID 1.",
+                    "HTTP 403: You have exceeded a secondary rate limit.", "HTTP 429: Too Many Requests"):
+            self.assertTrue(self.ghbudget.limited(err), err)
+        for err in ("HTTP 403: Resource not accessible by integration", "HTTP 405: Pull Request is not mergeable", ""):
+            self.assertFalse(self.ghbudget.limited(err), err)
+        self.assertFalse(self.tick.github_mod.denied(self.LIMIT_ERR))  # never "can't read checks here"
+        self.assertEqual(self.ghbudget.resource(["pr", "view", "1"]), "graphql")
+        self.assertEqual(self.ghbudget.resource(["api", "repos/o/r"]), "core")
+
+
 class ReadyAndPrFlow(unittest.TestCase):
     """SHEP-283: ready and pull request fixes (#1207, #1208, #1087, #1155, #1194, #1204, #1116), in TaskFlow's throwaway
     repo and store; hc and gh are never run."""
@@ -12110,7 +12462,8 @@ class ParallelCollisions(unittest.TestCase):
         self.assertEqual((b["state"], b["attention"]), ("ready", "It conflicts with the base branch."))
         self.assertEqual(b["merge_failed"], "Conflicts with main after \"Task 1\" merged")
         self.assertEqual(self.told, [])
-        self.assertLess(b["pr"]["checked"], self.tick.now() - self.tick.PR_EVERY + self.tick.PR_WAIT_EVERY + 1000)
+        # dmalis/shepherdr#201: soon, though no sooner than a minute and slower the longer it waits
+        self.assertLess(b["pr"]["checked"], self.tick.now() - self.tick.PR_EVERY + self.tick.PR_WAIT_MAX + 1000)
         # once it rests: handed back at once, Working, and only now "its agent is rebasing"
         rests.append({"address": "t9"})
         b["pr"]["checked"] = 0
