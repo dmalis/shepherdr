@@ -233,7 +233,7 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   for (const p of snap.places) {
     if (asking.has(p.chat)) continue
     // fork "Shepherdr's asks in Needs you": or it ended its turn asking in plain words, its question unanswered
-    const plain = p.needs ? null : asksYou(p, snap.tasks, snap.last)
+    const plain = p.needs ? null : asksYou(p, snap.last)
     if (p.needs || plain)
       add({ id: `chat:${p.id}`, owner: 'you', kind: 'chat', what: plain?.what ?? 'Waits for you', since: 0, place: p.id, chat: p.chat, card: null, ...(plain ? { plain: true } : {}), ...((s) => (s ? { stale: s } : {}))(staleOf(snap, p.machine)) })
   }

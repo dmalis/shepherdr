@@ -22,12 +22,24 @@ def row():
 
 
 def for_running(changed, k):
-    """settings_pass: this row's notice goes only to a chat whose agent is running now, never to one a shell is in front
-    of (sending would start it again; its next start's settings note has the row). The other rows as they are; None
-    when nothing is left to send now. changed may be None already (urgent.for_running)."""
+    """settings_pass, the whole block (it goes anyway): this row only to a chat whose agent is running now, never to one
+    a shell is in front of (its next start's settings note has the row). The other rows as they are; None when nothing
+    is left."""
     if not changed or not any(r.get("key") == KEY for r in changed):
         return changed
     from .urgent import running
     if running(k):
         return changed
     return [r for r in changed if r.get("key") != KEY] or None
+
+
+def not_alone(changed, k):
+    """settings_pass, the rows that changed: this row never sends a message of its own, so it can never reach or start
+    again a chat that is stopped or about to be (its next start's settings note has the row). It rides along only when
+    another row goes to a running agent anyway; alone, it is just noted ([]: labelled, nothing sent). changed may be
+    None already (urgent.for_running)."""
+    if not changed or not any(r.get("key") == KEY for r in changed):
+        return changed
+    from .urgent import running
+    rest = [r for r in changed if r.get("key") != KEY]
+    return changed if rest and running(k) else rest

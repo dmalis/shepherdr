@@ -304,7 +304,7 @@ def settings_pass(report, quiet):
                 continue  # just started: its hook is about to tell it
             # started before Assistants were told their settings: the whole block, once
             rs = urgent.for_running(rs, k)  # dmalis/shepherdr#119: its row only to a running agent
-            rs = asking.for_running(rs, k) or rs  # its row only to a running agent; the rest as before
+            rs = asking.for_running(rs, k) or rs  # the whole block goes anyway: its row only to a running agent
             on = next(r for r in rs if r["key"] == "reactions")["value"] == "on"
             guide = reactions.GUIDE if on and labels.get(reactions.LABEL) != "on" else ""
             text = (f'<herdr-setting name="all">{block(rs)}' + (f"\n{guide}" if guide else "") + f" {NOTICE_END}</herdr-setting>")
@@ -314,7 +314,7 @@ def settings_pass(report, quiet):
             if had.get("instructions") not in (None, NO_INSTRUCTIONS):  # it was told some: once, that they're gone
                 changed.append({"key": "instructions", "value": "off", "scope": "everywhere"})
             changed = urgent.for_running(changed, k)  # dmalis/shepherdr#119: its row only to a running agent
-            changed = asking.for_running(changed, k)  # its row only to a running agent
+            changed = asking.not_alone(changed, k)  # its row never sends a message of its own: its next start reads it
             if changed is None:
                 continue
             if not changed:  # a line no longer said: just note it

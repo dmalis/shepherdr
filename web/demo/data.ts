@@ -306,13 +306,14 @@ const LONG_SECRETS = [
 ]
 /** ?case=asks (Shepherdr's asks in Needs you): #notes' Shepherdr finished everything and ended its turn on a choice in
  *  plain words, with reply bubbles and no card; the portal space has nothing running and one task up next */
+export const NOTES_CHAT = P.notes
 export const NOTES_ASK = "Everything I started is finished and merged, and the next step on the quotes is your call.\n\n" +
   "To keep things moving meanwhile, I'd start on the one that hurts most now: **the supplier sheet has old prices**."
 const asksDay = (s: Snapshot): Snapshot => ({
   ...s,
   last: { ...s.last, [P.notes]: 4 },
   read: { ...s.read, [P.notes]: 4 },
-  places: s.places.map((p) => (p.id === P.notes ? { ...p, asks: { what: "To keep things moving meanwhile, I'd start on the one that hurts most now: the supplier sheet has old prices.", question: false, choices: 3, turn: 4 } } : p)),
+  places: s.places.map((p) => (p.id === P.notes ? { ...p, asks: { what: 'Everything I started is finished and merged, and the next step on the quotes is your call.', turn: 4 } } : p)),
   tasks: s.tasks.map((t) => (t.id === 'NOTES-4' || t.id === 'vm:PORTAL-2' ? { ...t, status: 'done' as const, state: 'done' as const } : t)),
 })
 const longDay = (s: Snapshot): Snapshot => ({

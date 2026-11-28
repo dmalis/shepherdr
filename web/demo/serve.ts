@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import type { Chat, Message, Snapshot, Task } from '../shared/types.ts'
 import { withLinks } from '../../service/artifact-links.ts'
 import { commandList } from '../../core/slash.js'
-import { artifacts, catalog, chats as seed, config, EV, foldersOf, newSpaceInfo, snapshot } from './data.ts'
+import { artifacts, catalog, chats as seed, config, EV, foldersOf, newSpaceInfo, NOTES_ASK, NOTES_CHAT, snapshot } from './data.ts'
 import { demoBuild, demoBuilds } from './builds.ts'
 // fork Needs you 5/6: what needs the person, worked out as the service does (service/attention.ts)
 import { withAttention } from '../shared/attention.ts'
@@ -84,7 +84,12 @@ const chatFor = (s: Sock, key: string): Chat => {
   // a link to the app itself (APP/?artifact=…) gets this page's own address, as `herdr-artifact link` prints it (SHEP-339)
   if (s.data.app) chat = { ...chat, messages: chat.messages.map((m) => (m.text?.includes('APP/') ? { ...m, text: m.text.replaceAll('APP/', s.data.app!) } : m)) }
   // ?case=radar: #shop's payment question was answered (data.ts RADAR_PAID), so Radar's card is #shop's one question
-  if (s.data.mode === 'radar') chat = { ...chat, messages: chat.messages.map((m) => (m.question?.id === 'q-pay' && m.question.sent === undefined ? { ...m, question: { ...m.question, sent: 0, said: m.question.choices[0]?.label } } : m)) }
+  // ?case=asks: #notes' Shepherdr ended its turn on its plain-words ask, before anything you send there
+  if (s.data.mode === 'asks' && key === NOTES_CHAT) {
+    const ask = { id: 'm-notes-ask', who: 'agent' as const, at: Date.now() - 20 * 60_000, text: NOTES_ASK, suggests: ['Yes, fix the prices now', 'Leave it for today'] }
+    chat = { ...chat, messages: [...chat.messages.filter((m) => !m.id.startsWith('n')), ask, ...chat.messages.filter((m) => m.id.startsWith('n'))] }
+  }
+  if (s.data.mode === 'radar') chat ={ ...chat, messages: chat.messages.map((m) => (m.question?.id === 'q-pay' && m.question.sent === undefined ? { ...m, question: { ...m.question, sent: 0, said: m.question.choices[0]?.label } } : m)) }
   return s.data.mode === 'down' ? { ...chat, messages: chat.messages.map(({ suggest, suggests, ...m }) => m) } : chat
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
@@ -218,6 +223,8 @@ function action(a: Record<string, any>): unknown {
     if (a.type === 'held-now') say(h.chat, { who: 'you', text: h.text, cid: h.cid })
     return { ok: true }
   }
+  // ?case=asks: your reply answers #notes' ask, as the service reads it off the log
+  if (a.type === 'send' && a.chat === NOTES_CHAT) { const p = state.asks.places.find((x) => x.id === NOTES_CHAT); if (p?.asks) { delete p.asks; push() } }
   if (a.type === 'send') {
     // as the service gives your message back from the log: its words, then each file under them, a moment later
     const paths: string[] = Array.isArray(a.attachments) ? a.attachments.filter(Boolean) : []

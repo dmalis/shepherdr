@@ -15669,7 +15669,7 @@ class ScheduleFold(unittest.TestCase):
 
 class AskingThePerson(unittest.TestCase):
     """Shepherdr's asks in Needs you (dmalis/shepherdr): every Shepherdr chat's settings note says to wait on the person
-    with its question tool, never only in plain chat words; a running chat hears it once, a shell in front never (its
+    with its question tool, never only in plain chat words; it never sends a message of its own, a shell in front never (its
     next start's note says it). Pins the seam: the row rides on assistant_settings.rows, not on templates/assistant.md."""
 
     setUp = AssistantSettings.setUp
@@ -15689,8 +15689,9 @@ class AskingThePerson(unittest.TestCase):
         with open(os.path.join(BIN, "..", "..", "..", "templates", "assistant.md")) as f:
             self.assertNotIn("Asking the person", f.read())
 
-    def test_a_running_chat_hears_it_once_and_a_shell_in_front_never(self):
-        import herdr_task.asking as asking
+    def test_never_a_message_of_its_own_and_a_shell_in_front_never(self):
+        # a chat the app marks stopped can still have its CLI in front, or lose it just before the send: the row alone
+        # sends nothing (its next start's note has it), so it can never reach or start one again
         self.assistant()
         self.aset.session_note("t5")
         told = self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"])
@@ -15700,20 +15701,22 @@ class AskingThePerson(unittest.TestCase):
         self.terminals["t6"]["foreground"] = {"name": "zsh"}  # its agent ended: a plain shell in front
         report = {}
         self.aset.settings_pass(report, {})
-        self.assertEqual([a for a, _ in self.sent], ["t5"])  # nothing to t6: sending would start it again
-        self.assertEqual(self.sent[0][1], f'<herdr-setting name="asking" value="on" scope="everywhere">{asking.NOTICE} '
-                                          f'{self.aset.NOTICE_END}</herdr-setting>')
-        self.assertEqual(report["settings"], [{"to": "t5", "changed": ["asking"]}])
-        self.assertEqual(self.terminals["t6"]["labels"]["herdr.settings"], before)
-        self.write({})
+        self.assertEqual(self.sent, [])
+        self.assertNotIn("settings", report)
+        # noted as told, so no pass sends it later
+        self.assertIn("asking", self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"]))
         self.aset.settings_pass({}, {})
-        self.assertEqual(len(self.sent), 1)  # once
-        # t6's shell, with another setting changed too: that one goes as before, without the row
+        self.assertEqual(self.sent, [])
+        # another setting changed: it rides along to the running chat, never to the shell
+        self.terminals["t5"]["labels"]["herdr.settings"] = before
+        self.terminals["t6"]["labels"]["herdr.settings"] = before
         self.write({"everywhere": {"tasks": {"merge": "auto"}}})
         self.aset.settings_pass({}, {})
-        self.assertEqual([a for a, _ in self.sent], ["t5", "t5", "t6"])
-        self.assertNotIn('name="asking"', self.sent[2][1])
-        self.assertIn('name="merge"', self.sent[2][1])
+        sent = dict(self.sent)
+        self.assertIn('name="asking"', sent["t5"])
+        self.assertIn('name="merge"', sent["t5"])
+        self.assertNotIn('name="asking"', sent["t6"])
+        self.assertIn('name="merge"', sent["t6"])
 
     def test_the_whole_block_to_a_shell_in_front_leaves_it_out(self):
         self.assistant("t5", "sp1")

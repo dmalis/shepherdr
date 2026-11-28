@@ -33,7 +33,7 @@ import { checkFlags } from "./flags.ts";
 import type { Snapshot } from "../web/shared/types.ts";
 import { catalogOf, configOf, enrich, offPlugins, pluginOn, plansOf, reposOf, scheduleAgentArgs, scheduleOf, setConfig, spaceRepo } from "./next.ts";
 import { ensureShell, type ShellAt } from "./shells.ts";
-import { Chats } from "./chats.ts";
+import { Chats, withForeground } from "./chats.ts";
 import { act, findMachines, hc as hcRun } from "./actions.ts";
 import { feedback } from "./feedback.ts";
 import { answerBatch, answerCard, followLevel, TriageView, triageRun, triageWhy } from "./triage.ts";
@@ -76,7 +76,7 @@ import { dictate, liveToken, cachedKey, refused, forgetKey, checkVoiceKey } from
 import { readUsage } from "../core/voice.js";
 import { sh, exec } from "./model.ts";
 import { existedWords, folders, newSpace, newSpaceInfo } from "./spaces.ts";
-import { kindOf } from "../core/chat-reader.js";
+import { ChatReader, kindOf } from "../core/chat-reader.js";
 import * as SL from "../core/slash.js";
 import * as SCORE from "../core/settings.js";
 import { CHOICE_KEY, choiceOf, compactOf } from "../core/agents.js";
@@ -221,7 +221,7 @@ const lastWords = (key: string) => {
   return m ? { who: m.kind === "user" ? "you" as const : "agent" as const, text: m.text as string, ...(m.kind === "agent" ? { suggests: m.suggests as string[] | undefined } : {}) } : null;
 };
 // fork "Shepherdr's asks in Needs you": each idle Shepherdr chat's newest words, read once a turn (service/plain-ask.ts)
-const plainAsks = new PlainAsks(() => live.chats, (k) => compat.addrOf(k), lastWords, () => model.rebuild());
+const plainAsks = new PlainAsks((k) => compat.addrOf(k), (a) => withForeground(a, hub.terminals.get(a)), (a) => new ChatReader({ sh: (s: string, args: string[], on: string | null) => sh(hub, s, args, on) }, a), () => model.rebuild());
 // SHEP-447: an unread Assistant chat's newest words, for the glance feed's chats: Chats reads a chat only while someone
 // follows it, so each unread one is read once per new turn (followed until read, then let go) and its words kept
 const news = new Map<string, { turn: number; said?: ReturnType<typeof lastWords> }>();
