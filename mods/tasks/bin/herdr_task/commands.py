@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, ghbudget, sandbox, stack, urgent
+from . import after_merge, brief_rounds, ghbudget, proof_hold, sandbox, stack, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -122,6 +122,8 @@ def cmd_add(args):
             # the space it is for, from the start (3.2: a task not started yet shows there, and `edit --space` moves it)
             t["space"] = bare(space)
         set_opts(t, args, s, space)
+        # dmalis/shepherdr#215: rounds its brief names are its Review rounds, so ready counts the same ones
+        rounds = brief_rounds.apply(t, prompt)
         set_base(s, t, args.base, space, new=True)
         set_branch(s, t, getattr(args, "branch", None))
         take_pr(s, t, getattr(args, "pr", None))
@@ -153,7 +155,10 @@ def cmd_add(args):
     say(args, v, f"{s.name(t)} added (its key, for commands only: {s.ref(t)})" + (f": {v['why']}" if at else "")
         + (f"\nIt is queued ({waits}) and starts by itself when it can: no start needed." if waits else
            "\nIt is queued and starts by itself in a moment: no start needed." if t["state"] == "queued" else "")
-        + (f"\nIts settings: {said}." if said else "") + (f"\nHeads-up: {v['warning']}" if v.get("warning") else ""))
+        + (f"\nIts settings: {said}." if said else "")
+        + (f"\nIts brief names {rounds} review round{'s' if rounds > 1 else ''}: its Review rounds are {rounds} "
+           "(--set review.rounds sets others)." if rounds else "")
+        + (f"\nHeads-up: {v['warning']}" if v.get("warning") else ""))
 
 
 def detached_refusal(s, t):
@@ -703,8 +708,11 @@ def quiet_ready(args):
         if t["state"] == "done":
             raise Fail(f"{s.name(t)} is already done.")
         if not t.get("automation"):
+            # dmalis/shepherdr#215: the whole command, as its brief would give it, never only the flag's name
             raise Fail(f"{s.name(t)} wasn't started by a schedule: --nothing and --told are for a schedule's run. Hand it in "
-                       "with ready --summary \"…\".")
+                       f"like any task: `{own_path()} ready {ref} --folder {shlex.quote(s.loc['folder'])} --summary \"<what the "
+                       "person now sees or can do>\"`, with --details \"<the rest, one - bullet per line>\" if there is more "
+                       "to say (and --proof <its id> when your Settings block asks for proof).")
         wt = t.get("worktree") if t.get("mode") == "worktree" else None
         changed = None
         if wt and os.path.isdir(wt):
@@ -898,6 +906,8 @@ def cmd_ready(args):
                     "Stop any you don't need (a server, a watcher).")
         if proof:
             msg += f" Proof: {proof['title']}."
+        elif t.get("proof_held"):
+            msg += " No proof artifact found, and your Settings block asks for one." + proof_hold.TOLD
         elif asked:
             msg += (" No proof artifact found, and your Settings block asks for one: publish it (herdr-artifact), "
                     "then run ready again with --proof <its id>.")
@@ -1441,7 +1451,8 @@ def finalize(s, t):
         fresh(pr)
         msg = (f"{s.name(t)} is ready: pull request #{pr['number']}, {pr['url']}. It shows Working until its checks "
                "pass and GitHub says it can merge; a failing check or a conflict comes back to you to fix.")
-    policy = merge_policy(s, t)
+    # dmalis/shepherdr#215: Proof on and none found: a merge on its own waits for the person, never before its proof
+    policy = proof_hold.policy(s, t, merge_policy(s, t))
     if t.pop("dequeued", None) and t.get("pr") and policy not in ("auto", "checks"):
         # #1215: its push took it out of GitHub's merge queue, where an Accept had put it: back in once
         # its checks pass and GitHub says it can merge (never while it conflicts: merge_now()).
@@ -1474,7 +1485,7 @@ def finalize(s, t):
             t["attention"] = f"Couldn't ask for the merge: {e}"
     else:
         t.pop("auto_merge", None)
-        t["waits_why"] = waits_why(s, t, policy)
+        t["waits_why"] = proof_hold.WHY if t.get("proof_held") else waits_why(s, t, policy)
     return msg + " The person marks it as done on its card, which merges it."
 
 

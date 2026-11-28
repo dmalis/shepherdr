@@ -759,6 +759,9 @@ def task_settings(s, t, space=None, argv=None, live=False):
         cmd = reviewer_command(who, rv.get("model"), rv.get("effort"), folder, rv.get("fast"))
         if cmd:
             text += f"; start it as `{cmd}`"
+            # dmalis/shepherdr#215: hc wait alone ends on its startup idle, before the prompt it was started with
+            from .launch import own_path
+            text += f"; wait for it with `{own_path()} wait-for <its name> --timeout 600` (hc wait alone can end at its startup, turn 0)"
         add("Reviewer", text, {"agent": who, "model": rv.get("model"), "effort": rv.get("effort"), "command": cmd,
                               **({"speed": speed} if speed else {})}, rv_by)
         if notice:

@@ -1,0 +1,20 @@
+{
+  "issue": 215,
+  "name": "workers never stall: no merge before proof, the brief's review rounds, the hand-in command, a reviewer wait through its startup",
+  "files": [
+    "fork/specs/workers-never-stall.md",
+    "mods/tasks/bin/herdr_task/proof_hold.py",
+    "mods/tasks/bin/herdr_task/brief_rounds.py",
+    "mods/tasks/bin/herdr_task/helper_wait.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/settings.py"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::WorkersNeverStallProof",
+    "test/test_herdr_task.py::WorkersNeverStallRounds",
+    "test/test_herdr_task.py::WorkersNeverStallTold",
+    "test/test_herdr_task.py::WorkersNeverStallWait"
+  ]
+}
