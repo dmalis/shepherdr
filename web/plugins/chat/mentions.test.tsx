@@ -68,6 +68,29 @@ test('a pick puts the short form in the box, and at send the agent gets the full
   expect(expandPicked('p:sp1', '#cafe')).toBe('#cafe')
 })
 
+test('two spaces with one name keep their machine: in the list, in the box and in what is sent', () => {
+  // fork, "Writing: the @, # and / lists fit the room": a "shop" here and a "shop" on vm-b
+  const twins: Got = { ...got, spaces: [...got.spaces, { id: 'sp9', name: 'shop', route: 'vm-b', machine: 'vm-b', target: 'vm-b/sp9' }] }
+  const [here, there] = mentionItems(snap, 'sp2', '#', 'sh', twins) as (Item & { kind: 'space' })[]
+  expect([here.space.target, there.space.target]).toEqual(['sp1', 'vm-b/sp9'])
+  // this machine's keeps "#shop"; the other's goes in the box with its machine
+  expect(here.space.as).toBeUndefined()
+  expect(there.space.as).toBe('shop.vm-b')
+  const a = takeItem('p:sp2', 'ask #sh', '', here)
+  const b = takeItem('p:sp2', `${a.text}and #sh`, '', there)
+  expect(b.text).toBe('ask #shop and #shop.vm-b ')
+  // each pick sends its own space, both named "#shop"
+  expect(expandPicked('p:sp2', `${b.text}today.`)).toBe('ask [#shop](space:sp1) and [#shop](space:vm-b/sp9) today.')
+  dropPicks('p:sp2')
+  // a name no other space has stays as it was
+  expect((mentionItems(snap, 'sp2', '#', 'ca', twins)[0] as Item & { kind: 'space' }).space.as).toBeUndefined()
+  // a task's row names the machine of a space whose name is on two machines, its own too
+  const placed = { ...snap, places: [...snap.places, { id: 'vm-b/sp8', name: 'cafe', machine: 'vm-b', chat: 'p:vm-b/sp8' }] } as unknown as Snapshot
+  const cafe = mentionItems(placed, 'sp1', '@', 'menu', got)[0] as Item & { kind: 'task' }
+  expect(cafe.where).toBe('cafe · vm-a')
+  expect((mentionItems(placed, 'sp1', '@', 'fix', got)[0] as Item & { kind: 'task' }).where).toBe('shop')
+})
+
 test('a task in this chat\'s own space leaves its folder out', () => {
   const fix = mentionItems(snap, 'sp1', '@', 'fix', got)[0]
   takeItem('x', '@fix', '', fix)

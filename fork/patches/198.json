@@ -1,0 +1,19 @@
+{
+  "issue": 198,
+  "name": "Writing: the @, # and / lists fit the room",
+  "files": [
+    "web/plugins/chat/list-fit.ts",
+    "web/plugins/chat/mentions.tsx",
+    "web/plugins/chat/mentions.css",
+    "web/plugins/chat/slash.tsx",
+    "web/demo/phone-box-check.ts",
+    "docs/design.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "web/plugins/chat/list-fit.test.ts",
+    "web/plugins/chat/mentions.test.tsx",
+    "web/demo/phone-box-check.test.ts",
+    "test/test_design.py::DesignTokens"
+  ]
+}

@@ -14,11 +14,13 @@ import type { Place, Snapshot, Task } from '@shared/types.ts'
 import { machineLabel, spaceName, taskRef } from '@shared/view.ts'
 import { KindWord } from './kind.tsx'
 import { taskKind } from '@shared/kinds.ts'
+import { composingKey, useListFit } from './list-fit.ts'
 import './mentions.css'
 
 const M = MN as any
 
-export type Reach = { id: string; name: string; route: string; machine: string; target: string; emoji?: string }
+/** as: the word the box writes for it when its name alone is another space's too ("shop.vm", sharedName()) */
+export type Reach = { id: string; name: string; route: string; machine: string; target: string; emoji?: string; as?: string }
 export type Got = { from: string | null; spaces: Reach[]; checked: number | null }
 type TaskPick = { ref: string; route: string; folder: string; title: string }
 
@@ -60,12 +62,26 @@ export type Item = { kind: 'space'; key: string; space: Reach; place?: Place } |
 const placeById = (snap: Snapshot, id: string) => snap.places.find((p) => p.id === id || p.id.endsWith(`/${id}`))
 const bare = (id: string) => id.split('/').pop()!
 
-/** "shop", or "shop · vm-demo" for another machine's */
+/** "shop", or "shop · vm-demo" for another machine's, or where another machine has a space of the same name */
 function whereOf(snap: Snapshot, t: Task) {
   const p = snap.places.find((x) => x.id === t.place)
   if (!p) return ''
-  return p.machine && p.machine !== snap.host ? `${spaceName(snap, p)} · ${machineLabel(snap, p.machine)}` : spaceName(snap, p)
+  const name = spaceName(snap, p)
+  const mine = p.machine ?? snap.host
+  const twin = snap.places.some((x) => x.id !== p.id && (x.machine ?? snap.host) !== mine && spaceName(snap, x) === name)
+  return mine !== snap.host || twin ? `${name} · ${machineLabel(snap, mine)}` : name
 }
+
+/** Two spaces with one name keep their machine (fork, "Writing: the @, # and / lists fit the room"): in the # list
+ *  each such row names its machine, and one on another machine goes in the box as "#shop.vm", as GitHub writes
+ *  another repo's "owner/repo#12", so "#shop" stays this machine's and each pick sends its own space. */
+export function sharedName(spaces: Reach[]): Reach[] {
+  return spaces.map((s) => {
+    if (!spaces.some((x) => x !== s && x.name === s.name && x.target !== s.target)) return s
+    return s.route ? { ...s, as: `${s.name}.${s.machine.replace(/[^\w.-]+/g, '-')}` } : s
+  })
+}
+const twinned = (s: Reach, all: Reach[] | undefined) => !!all?.some((x) => x.target !== s.target && x.name === s.name)
 
 /** what the box is typing before its cursor: a "#word" (spaces) or an "@word" (tasks), else null */
 export function typed(before: string): { kind: '#' | '@'; q: string } | null {
@@ -78,7 +94,7 @@ export function typed(before: string): { kind: '#' | '@'; q: string } | null {
 /** the list for what is typed. Spaces: the ones this chat's agent reaches. Tasks: the ones in those spaces (before
  *  that list comes, the chat's own space's), waiting on you and at work first, Done last. */
 export function mentionItems(snap: Snapshot, here: string, kind: '#' | '@', q: string, got: Got | null): Item[] {
-  if (kind === '#') return ((got ? M.match(got.spaces, q, 8) : []) as Reach[]).map((s) => ({ kind: 'space', key: `s:${s.target}`, space: s, place: placeById(snap, s.id) }))
+  if (kind === '#') return ((got ? M.match(sharedName(got.spaces), q, 8) : []) as Reach[]).map((s) => ({ kind: 'space', key: `s:${s.target}`, space: s, place: placeById(snap, s.id) }))
   const reachOf = (t: Task): Reach | null => got?.spaces.find((s) => s.id === bare(t.place)) ?? (!got && t.place === here ? { id: bare(here), name: '', route: '', machine: '', target: bare(here) } : null)
   const live = snap.tasks.filter((t) => !t.archived && t.place && /^[\w.-]+$/.test(taskRef(t)) && reachOf(t))
   const rows = live.map((t) => ({ ref: taskRef(t), title: t.name, status: t.status, at: t.at, space: snap.places.find((p) => p.id === t.place)?.name, machine: t.on, t }))
@@ -95,7 +111,7 @@ const spacesOf = (chatKey: string) => (draftOf(chatKey).picks?.spaces ?? []) as 
 const tasksOf = (chatKey: string) => (draftOf(chatKey).picks?.tasks ?? []) as TaskPick[]
 
 function remember(chatKey: string, i: Item) {
-  const spaces = i.kind === 'space' ? [...spacesOf(chatKey).filter((x) => x.name !== i.space.name), i.space] : spacesOf(chatKey)
+  const spaces = i.kind === 'space' ? [...spacesOf(chatKey).filter((x) => (x.as ?? x.name) !== (i.space.as ?? i.space.name)), i.space] : spacesOf(chatKey)
   const tasks = i.kind === 'space' ? tasksOf(chatKey) : [...tasksOf(chatKey).filter((x) => x.ref !== i.pick.ref), i.pick]
   keepDraft(chatKey, 'picks', { spaces, tasks })
 }
@@ -103,7 +119,11 @@ function remember(chatKey: string, i: Item) {
 /** the words to send: each picked "#name" and "@REF" as its link. The picks stay with the draft until it is safely
  *  sent (dropPicks) */
 export function expandPicked(chatKey: string, text: string): string {
-  return M.expandTasks(M.expand(text, spacesOf(chatKey)), tasksOf(chatKey))
+  const spaces = spacesOf(chatKey)
+  // "#shop.vm" is that space's word in the box only: its link reads "#shop", as every space's does
+  let out: string = M.expand(text, spaces.map((s) => (s.as ? { ...s, name: s.as } : s)))
+  for (const s of spaces) if (s.as) out = out.split(`[#${s.as}](space:${s.target})`).join(`[#${s.name}](space:${s.target})`)
+  return M.expandTasks(out, tasksOf(chatKey))
 }
 /** the picks are spent: their draft was sent */
 export const dropPicks = (chatKey: string) => keepDraft(chatKey, 'picks', undefined)
@@ -112,7 +132,7 @@ export const dropPicks = (chatKey: string) => keepDraft(chatKey, 'picks', undefi
  *  at send) */
 export function takeItem(chatKey: string, before: string, after: string, i: Item): { text: string; caret: number } {
   remember(chatKey, i)
-  const b = i.kind === 'space' ? M.pickInto(before, i.space) : M.pickTaskInto(before, i.pick)
+  const b = i.kind === 'space' ? M.pickInto(before, { name: i.space.as ?? i.space.name }) : M.pickTaskInto(before, i.pick)
   const a = /^\s/.test(after) ? after.replace(/^ /, '') : after
   return { text: b + a, caret: b.length }
 }
@@ -134,6 +154,7 @@ export function useMentions(chatKey: string, here: string, text: string, setText
   useLayoutEffect(() => setAt(0), [t?.kind, t?.q])
   const sel = Math.min(at, items.length - 1)
   const id = `ml-${chatKey.replace(/[^\w-]/g, '_')}`
+  const fit = useListFit(open, sel, `${t?.kind}${t?.q}`)
 
   const sync = () => {
     const el = ref.current
@@ -151,7 +172,7 @@ export function useMentions(chatKey: string, here: string, text: string, setText
   }
   /** true when the list took the key */
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!open || e.nativeEvent.isComposing) return false
+    if (!open || composingKey(e)) return false
     const n = items.length
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (n) setAt((sel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
@@ -167,7 +188,7 @@ export function useMentions(chatKey: string, here: string, text: string, setText
   }
 
   const list = open && t ? (
-    <div className="pop mlist" role="listbox" id={id} aria-label={t.kind === '#' ? 'Mention a space' : 'Mention a task'}>
+    <div ref={fit.ref} className="pop mlist" role="listbox" id={id} aria-label={t.kind === '#' ? 'Mention a space' : 'Mention a task'}>
       <div className="lab">{t.kind === '#' ? (got?.from ? `Spaces ${got.from} can reach` : 'Spaces this agent can reach') : 'Tasks this agent can reach'}</div>
       {!items.length && <p className="hint">{t.kind === '#' && !got ? 'Looking for spaces…' : t.kind === '#' ? 'No spaces it can reach yet.' : 'No tasks yet.'}</p>}
       {items.map((i, n) => (
@@ -179,9 +200,9 @@ export function useMentions(chatKey: string, here: string, text: string, setText
           tabIndex={-1}
           lead={i.kind === 'space' ? (i.place && snap ? <SpaceIcon snap={snap} id={i.place.id} /> : <span className="mhash" aria-hidden="true">{i.space.emoji ?? '#'}</span>) : <StatusIcon t={i.task} time="none" />}
           label={i.kind === 'space' ? i.space.name : i.task.name}
-          sub={i.kind === 'space' ? (i.space.route ? i.space.machine : undefined) : [i.task.schedule ? taskKind(i.task) : '', taskRef(i.task), i.where].filter(Boolean).join(' · ')}
+          sub={i.kind === 'space' ? (i.space.route || twinned(i.space, got?.spaces) ? i.space.machine : undefined) : [i.task.schedule ? taskKind(i.task) : '', taskRef(i.task), i.where].filter(Boolean).join(' · ')}
           onMouseDown={(e) => e.preventDefault()}
-          onMouseMove={() => n !== sel && setAt(n)}
+          onMouseMove={() => n !== sel && (fit.onHover(), setAt(n))}
           onClick={() => pick(i)}
         />
       ))}

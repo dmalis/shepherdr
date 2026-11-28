@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useState, type KeyboardEvent, type RefObject } from 'react'
 import * as SL from '@core/slash.js'
 import { Row } from '@client/ui.tsx'
+import { composingKey, useListFit } from './list-fit.ts'
 
 const S = SL as any
 
@@ -66,6 +67,7 @@ export function useSlash(chatKey: string, text: string, setText: (t: string) => 
   useLayoutEffect(() => setAt(0), [word])
   const sel = Math.min(at, items.length - 1)
   const id = `sl-${chatKey.replace(/[^\w-]/g, '_')}`
+  const fit = useListFit(open, sel, word ?? '')
 
   const pick = (c: Command | undefined) => {
     if (!c) return
@@ -78,7 +80,7 @@ export function useSlash(chatKey: string, text: string, setText: (t: string) => 
   }
   /** true when the list took the key */
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!open || e.nativeEvent.isComposing) return false
+    if (!open || composingKey(e)) return false
     const n = items.length
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (n) setAt((sel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
@@ -95,7 +97,7 @@ export function useSlash(chatKey: string, text: string, setText: (t: string) => 
   }
 
   const shown = open ? (
-    <div className="pop mlist" role="listbox" id={id} aria-label="Commands">
+    <div ref={fit.ref} className="pop mlist" role="listbox" id={id} aria-label="Commands">
       <div className="lab">Commands</div>
       {!items.length && <p className="hint">Looking for commands…</p>}
       {items.map((c, n) => (
@@ -108,7 +110,7 @@ export function useSlash(chatKey: string, text: string, setText: (t: string) => 
           label={`/${c.name}`}
           sub={c.about}
           onMouseDown={(e) => e.preventDefault()}
-          onMouseMove={() => n !== sel && setAt(n)}
+          onMouseMove={() => n !== sel && (fit.onHover(), setAt(n))}
           onClick={() => pick(c)}
         />
       ))}

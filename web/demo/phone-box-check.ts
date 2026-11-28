@@ -253,6 +253,90 @@ async function check(browser: Browser, base: string, s: Scene) {
   }
 }
 
+/** The @, # and / lists (fork, "Writing: the @, # and / lists fit the room"): each opens in the room left between the
+ *  box and its pane's header, the on-screen keyboard up on a phone, and with more rows than fit uses that room; 20
+ *  presses of Down, then of Up, keep the chosen row inside the list, and only the list scrolls. */
+type ListScene = { width: number; height: number; where: 'space' | 'task'; phone: boolean }
+async function checkLists(browser: Browser, base: string, s: ListScene) {
+  const name = `lists ${s.where} ${s.width}×${s.height}${s.phone ? ' keyboard up' : ' desktop'}`
+  const chat = CHAT[s.where]
+  const ctx = await browser.newContext(s.phone
+    ? { viewport: { width: s.width, height: TALL }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }
+    : { viewport: { width: s.width, height: s.height } })
+  const fails: string[] = []
+  const want = (ok: boolean, what: string) => void (ok || fails.push(what))
+  try {
+    const page = await ctx.newPage()
+    page.setDefaultTimeout(8000)
+    await page.goto(s.where === 'task' ? `${base}?task=SHOP-15` : `${base}?place=${encodeURIComponent(CHAT.space)}`)
+    const box = page.locator(`.cbox:has(> .crow textarea.cin[data-box="${chat}"]) >> visible=true`)
+    const cin = box.locator(':scope > .crow textarea.cin')
+    await cin.waitFor()
+    if (s.phone) {
+      await cin.tap()
+      await page.setViewportSize({ width: s.width, height: s.height })
+      await page.waitForFunction(() => document.documentElement.classList.contains('kb-up'))
+    } else await cin.click()
+    const list = box.locator(':scope > .mlist')
+    /** the list, the box and the pane's header as they sit now, and the chosen row */
+    const where = () => list.evaluate((el) => {
+      const r = (e: Element) => e.getBoundingClientRect()
+      const head = el.closest('.col')?.querySelector(':scope > .hd')
+      const row = el.querySelector('[role="option"][aria-selected="true"]')
+      const cs = getComputedStyle(el)
+      return {
+        top: r(el).top, bottom: r(el).bottom, inner: [r(el).top + parseFloat(cs.borderTopWidth), r(el).bottom - parseFloat(cs.borderBottomWidth)],
+        box: r(el.parentElement!).top, head: head ? r(head).bottom : 0, over: el.scrollHeight > el.clientHeight + 1,
+        cap: parseFloat(getComputedStyle(document.documentElement).fontSize) * 22, height: el.clientHeight,
+        row: row ? [r(row).top, r(row).bottom] : null, index: [...el.querySelectorAll('[role="option"]')].indexOf(row!),
+        page: (document.scrollingElement?.scrollTop ?? 0) + (window.visualViewport?.offsetTop ?? 0),
+      }
+    })
+    for (const key of ['@', '#', '/']) {
+      await cin.fill('')
+      await cin.pressSequentially(key)
+      try {
+        await list.locator('[role="option"]').first().waitFor()
+      } catch {
+        fails.push(`${key}: its list never showed a row`)
+        continue
+      }
+      await frames(page)
+      const at = await where()
+      want(at.top >= at.head - 1, `${key}: the list starts ${(at.head - at.top).toFixed(0)}px over the pane's header`)
+      want(at.bottom <= at.box, `${key}: the list covers the box by ${(at.bottom - at.box).toFixed(0)}px`)
+      // more rows than fit: the list takes the room up to the header (its 8px of air), or its 22rem cap
+      if (at.over) want(at.top - at.head <= 16 || at.height >= at.cap - 2, `${key}: the list leaves ${(at.top - at.head).toFixed(0)}px of its room unused`)
+      for (const arrow of ['ArrowDown', 'ArrowUp']) {
+        for (let i = 1; i <= 20; i++) {
+          await cin.press(arrow)
+          await frames(page)
+          const now = await where()
+          if (!now.row) { fails.push(`${key}: no row chosen after ${arrow} ×${i}`); break }
+          if (now.row[0] < now.inner[0] - 0.5 || now.row[1] > now.inner[1] + 0.5) {
+            fails.push(`${key}: after ${arrow} ×${i} the chosen row (${now.index + 1}) is out of the list's view`)
+            break
+          }
+          if (now.page) { fails.push(`${key}: ${arrow} ×${i} scrolled the page by ${now.page}px, not only the list`); break }
+        }
+      }
+      if (s.phone && key === '@' && shots) await page.screenshot({ path: `${shots}/${name.replace(/[^\w]+/g, '-')}.png` })
+      await cin.press('Escape')
+    }
+    return { name, fails }
+  } catch (e) {
+    fails.push(`stopped: ${(e as Error).message.split('\n')[0]}`)
+    return { name, fails }
+  } finally {
+    await ctx.close()
+  }
+}
+const LISTS: ListScene[] = [
+  ...[320, 390].flatMap((width) => (['space', 'task'] as const).map((where) => ({ width, height: TALL - KEYBOARD, where, phone: true }))),
+  { width: 1280, height: 800, where: 'space', phone: false },
+  { width: 1280, height: 800, where: 'task', phone: false },
+]
+
 /** every width, place and state at Zoom 100%; Zoom 125% (where the bar wrapped on the person's iPhone); voice on */
 const SCENES: Scene[] = []
 for (const width of [320, 390])
@@ -266,8 +350,9 @@ const browser = await chromium.launch({ executablePath: chrome() })
 const started = performance.now()
 let failed = 0
 try {
-  for (const scene of SCENES) {
-    const { name, fails } = await check(browser, demo.url, scene)
+  const runs = [...SCENES.map((s) => () => check(browser, demo.url, s)), ...LISTS.map((s) => () => checkLists(browser, demo.url, s))]
+  for (const run of runs) {
+    const { name, fails } = await run()
     if (!fails.length) console.log(`ok    ${name}`)
     else {
       failed++
@@ -277,9 +362,9 @@ try {
   }
   const took = ((performance.now() - started) / 1000).toFixed(1)
   if (failed) {
-    console.log(`phone box check: ${failed} of ${SCENES.length} scenes broken (${took}s)`)
+    console.log(`phone box check: ${failed} of ${runs.length} scenes broken (${took}s)`)
     process.exitCode = 1
-  } else console.log(`phone box check: ${SCENES.length} scenes in ${took}s; two rows down, one row up, Return a new line, send and Enter send`)
+  } else console.log(`phone box check: ${runs.length} scenes in ${took}s; two rows down, one row up, Return a new line, send and Enter send; the @, # and / lists fit and keep their row in view`)
 } finally {
   await browser.close()
   demo.server.kill()
