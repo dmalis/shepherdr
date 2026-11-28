@@ -13339,9 +13339,45 @@ class ReviewerAtItsStartScreen(unittest.TestCase):
         self.assertIn("hasn't begun its session: Claude Code's screen has stayed the same for 90 s", msg)
         self.assertIn('its last line: "Enter to confirm"', msg)
         self.assertIn("Your reviewer is waiting on a startup screen; answer it in its terminal", msg)
-        for _ in range(20):
+        self.assertIn("if its screen still hasn't changed 5 minutes in, I'll end it as frozen", msg)
+        # a screen nobody knows is bounded, as before: told early, still ended at 5 minutes unchanged
+        for _ in range(6):
             self.assertEqual(self.tick(30), [])
         self.assertEqual(self.killed, [])
+        self.assertEqual(self.tick(30)[0]["why"], "frozen")
+        self.assertEqual(self.killed, ["t5"])
+
+    def test_a_statusless_freeze_on_working_still_ends_at_five_minutes(self):
+        """The review's repro: #1439's fixture with no status from herdr-core (a Codex "Working" that never moves)."""
+        self.reviewer("t5")
+        for i in range(11):
+            self.screens["t5"] = f"› review it\n\n• Working ({i}m {i * 7}s • esc to interrupt)\n\n  100% context left"
+            self.tick(30)
+        self.assertEqual(self.killed, ["t5"])
+        self.assertEqual([m[:40] for _, m in self.sent], ["Herdr: your reviewer shop-t5-review hasn",
+                                                          "Herdr: your reviewer shop-t5-review froz"])
+
+    def test_a_held_notice_is_withdrawn_once_the_reviewer_moves_on(self):
+        """A Codex worker busy in `hc wait` gets held messages only once idle: by then the screen may be gone."""
+        from unittest import mock
+        from herdr_task import news
+        held = os.path.join(self.tmp, ".held.json")
+        with mock.patch.object(news, "HELD", held), mock.patch.object(news, "STORE", self.tmp), \
+                mock.patch.object(news, "send_or_hold", lambda a, m: news.hold(a, m) or "held"):
+            news.hold("t1", "the person's own note")
+            for address in ("t5", "t6"):
+                self.reviewer(address)
+                self.screens[address] = CODEX_TRUST_SCREEN
+            self.tick(5)
+            with open(held) as f:
+                self.assertEqual(len(json.load(f)["t1"]), 3)
+            # the person trusted t5's folder and its session began; t6 they ended (No)
+            self.records["t5"]["status"] = {"app": "codex", "state": "working"}
+            self.screens["t5"] = "› review it\n\n• Working (0s • esc to interrupt)"
+            self.records.pop("t6")
+            self.tick(5)
+            with open(held) as f:
+                self.assertEqual([x["text"] for x in json.load(f)["t1"]], ["the person's own note"])
 
     def test_the_claude_reviewer_reads_its_templates_by_a_rule_not_add_dir(self):
         import shlex

@@ -110,20 +110,29 @@ class Refuses(Stand):
                 self.assertEqual(self.call(line).returncode, 0)
 
     def test_212_no_keys_in_its_own_reviewers_screen(self):
-        """dmalis/shepherdr#212: a worker answered its reviewer's folder-trust screen with keys; that's the person's."""
-        for line in ("hc keys sd-4-review down enter", "hc keys shop-12-review2 enter", "hc keys csp-4-review-2 enter",
-                     "hc keys demo-1-helper --text y", "HC_SESSION=shepherdr hc keys x-review enter"):
+        """dmalis/shepherdr#212: a worker answered its reviewer's folder-trust screen with keys; that's the person's.
+        Known by the terminal's role label (the real hc's `get`), whichever address names it."""
+        with open(os.path.join(self.fake, "hc"), "w") as f:
+            f.write(FAKE + 'if [ "$1" = get ]; then case "$2" in\n'
+                    '  sd-4-review|t5) echo \'{"address":"t5","labels":{"herdr.role":"reviewer","herdr.task":"x#4"}}\' ;;\n'
+                    '  demo-1-helper) echo \'{"address":"t6","labels":{"herdr.role": "helper"}}\' ;;\n'
+                    '  visual-review|t9) echo \'{"address":"t9","labels":{"herdr.task":"x#4"}}\' ;;\n'
+                    '  *) exit 1 ;;\nesac; fi\n')
+        for line in ("hc keys sd-4-review down enter", "hc keys t5 enter", "hc keys demo-1-helper --text y",
+                     "HC_SESSION=shepherdr hc keys sd-4-review enter"):
             with self.subTest(line):
                 r = self.call(line)
                 self.assertEqual(r.returncode, 77)
                 self.assertIn("the person's to answer", r.stderr)
-        self.assertEqual(self.ran(), [])
-        # its own test terminals, a throwaway session's reviewer, and waiting on or reading its reviewer go through
-        for line in ("hc keys t9 enter", "hc keys my-app down", "HC_SESSION=try212 hc keys sd-4-review enter",
-                     "hc wait sd-4-review --timeout 600", "hc read sd-4-review --lines 400", "hc kill sd-4-review"):
+        self.assertFalse([x for x in self.ran() if " keys " in x])
+        # its own test terminals (whatever their names), a throwaway session's reviewer, and waiting on or reading
+        # its reviewer go through
+        for line in ("hc keys t9 enter", "hc keys visual-review down", "hc keys gone-review enter",
+                     "HC_SESSION=try212 hc keys sd-4-review enter", "hc wait sd-4-review --timeout 600",
+                     "hc read sd-4-review --lines 400", "hc kill t5"):
             with self.subTest(line):
                 self.assertEqual(self.call(line).returncode, 0, line)
-        self.assertEqual(len(self.ran()), 6)
+        self.assertEqual(len([x for x in self.ran() if " get " not in x]), 7)
 
     def test_nested_guard_and_rc_files_putting_the_real_one_first_again(self):
         # a second launch inside the first (or an rc file prepending the real folder) still finds the real one

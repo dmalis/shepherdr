@@ -7,7 +7,9 @@ before its first answer", so the worker started it again, switched CLI, then ans
 
 Now such a reviewer is left running and its worker hears once, at once, what it waits on and that the screen is the
 person's to answer (Shepherdr's trust card, or its terminal). One that reported no status at all for START_MS on an
-unchanged screen is treated the same way: before its session began, a screen nobody recognised is still the person's.
+unchanged screen nobody recognises is told early too ("screen"), but stays bounded: still ended as frozen at
+reviewers.FROZEN_MS, as before (a Codex "Working" that never moves can report no status). A notice still held for a
+busy worker is withdrawn once its reviewer moved on (withdraw).
 Nothing here presses a key or answers a screen (AGENTS.md "Nothing that risks a ban").
 """
 
@@ -39,7 +41,7 @@ def before_session(k):
     return not status_word(k)
 
 
-def message(k, why, words):
+def message(k, why, words, end_ms=5 * 60 * 1000):
     """What its worker hears: what it waits on, that it is the person's, that it was left running and what to do."""
     name = k.get("name") or k["address"]
     cli = CLI.get(cli_of(k), "Its CLI")
@@ -55,4 +57,23 @@ def message(k, why, words):
             "It may be waiting on a start screen (trust, hooks, imports or sign-in), which is the person's to answer: "
             f"read it (`hc read {name}`) and, if it asks something, tell the person \"Your reviewer is waiting on a "
             "startup screen; answer it in its terminal\", then wait again. Never press keys in it yourself. I left it "
-            f"running. If it shows no question, end it (`hc kill {name}`) and start it once more; it is no review round.")
+            f"running for now; if its screen still hasn't changed {end_ms // 60000} minutes in, I'll end it as frozen. "
+            f"If it shows no question, end it now (`hc kill {name}`) and start it once more; it is no review round.")
+
+
+def withdraw(seen):
+    """Drops the wait notice (message) still held for its worker (news.hold: a Codex worker busy in `hc wait` gets
+    held messages only once it's idle): once the reviewer moved on, it would tell the worker of a screen that's gone.
+    seen: the reviewer's kept state ({asked, parent, name}); its notice keys are cleared."""
+    parent, name = seen.pop("parent", None), seen.pop("name", None)
+    seen.pop("asked", None)
+    if not parent or not name:
+        return
+    from .news import held_messages
+    head = (f"Herdr: your reviewer {name} hasn't begun its review:", f"Herdr: your reviewer {name} hasn't begun its session:")
+    with held_messages() as held:
+        items = held.get(parent)
+        if items:
+            items[:] = [x for x in items if not str(x.get("text") or "").startswith(head)]
+            if not items:
+                held.pop(parent)

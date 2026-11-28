@@ -22,8 +22,9 @@ FROZEN_MS = 5 * 60 * 1000
 
 
 def screen_text(address):
-    """Its screen and a little history as plain text; None when it can't be read."""
-    r = run(["hc", "read", address, "--lines", "40", "--json"])
+    """Its visible screen as plain text; None when it can't be read. No history (dmalis/shepherdr#212): this polls
+    screens herdr-core reports no status for, where a history read may scroll a full-screen program."""
+    r = run(["hc", "read", address, "--lines", "0", "--json"])
     if r.returncode != 0:
         return None
     try:
@@ -78,9 +79,11 @@ def verdict(k, seen, at, text):
     if seen.get("screen") != words:
         seen["screen"], seen["since"] = words, at
         return None
-    if reviewer_start.before_session(k):
-        return ("screen", last_line(text)) if at - seen.get("since", at) >= reviewer_start.START_MS else None
-    return ("frozen", last_line(text)) if at - seen.get("since", at) >= FROZEN_MS else None
+    same = at - seen.get("since", at)
+    if same >= FROZEN_MS:
+        return "frozen", last_line(text)
+    # #212: no status yet and no screen anyone knows: its worker hears early, and it's still ended at FROZEN_MS
+    return ("screen", last_line(text)) if same >= reviewer_start.START_MS and reviewer_start.before_session(k) else None
 
 
 def other_cli(k):
@@ -132,6 +135,9 @@ def reviewer_pass(report, read=screen_text):
         if seen.get("told"):
             continue
         v = verdict(k, seen, at, read(row["address"]))
+        if seen.get("asked") and (not v or v[0] not in reviewer_start.WAITS):
+            # #212: it moved on (begun, answered, or ended below): a wait notice still held for its worker is stale
+            reviewer_start.withdraw(seen)
         if not v:
             continue
         why, words = v
@@ -141,7 +147,8 @@ def reviewer_pass(report, read=screen_text):
                 parent = parent_of(k)
                 if parent:
                     from .news import send_or_hold
-                    send_or_hold(parent, reviewer_start.message(k, why, words))
+                    send_or_hold(parent, reviewer_start.message(k, why, words, FROZEN_MS))
+                    seen["parent"], seen["name"] = parent, k.get("name") or row["address"]
                 seen["asked"] = why
                 report.setdefault("reviewers", []).append({"reviewer": k.get("name") or row["address"], "why": why,
                                                            "task": (k.get("labels") or {}).get("herdr.task"), "ended": False})
@@ -157,5 +164,8 @@ def reviewer_pass(report, read=screen_text):
         seen["told"] = why
         report.setdefault("reviewers", []).append({"reviewer": k.get("name") or row["address"], "why": why,
                                                    "task": (k.get("labels") or {}).get("herdr.task"), "ended": ended})
+    for address, old in state.items():
+        if address not in keep and old.get("asked"):
+            reviewer_start.withdraw(old)   # #212: it ended on its start screen (the person said No, or it was killed)
     if keep != state:
         _save(keep)
