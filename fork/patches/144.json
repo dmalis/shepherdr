@@ -8,6 +8,7 @@
     "web/plugins/typing/typing.css",
     "web/plugins.json",
     "web/demo/reading-check.ts",
+    "web/demo/scroll-check.ts",
     ".github/workflows/check.yml",
     "docs/plugins.md"
   ],

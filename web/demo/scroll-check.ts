@@ -184,7 +184,8 @@ async function runChecks() {
         await sc.locator('[data-msg="new"]').waitFor({ state: 'attached' })
         await frames(page)
         assert.equal(await sc.evaluate((el) => el.scrollTop), at, 'new output must leave a reader in place')
-        await page.getByRole('button', { name: '1 new message, go to the newest' }).click()
+        // a click as long as a person's (fork #144): held 100 ms, the button must not slide away before it is let go
+        await page.getByRole('button', { name: '1 new message, go to the newest' }).click({ delay: 100 })
         await bottom(page, 'new messages button')
 
         await sc.evaluate((el) => { el.scrollTop -= 2400 })
@@ -229,7 +230,7 @@ async function runChecks() {
         await bottom(page, 'task reopened', taskChat)
         const taskScroll = page.locator(`.pane [data-scroll="${taskChat}"]`)
         await taskScroll.evaluate((el) => { el.scrollTop -= 1200 })
-        await page.locator('.pane .toend').click()
+        await page.locator('.pane .toend').click({ delay: 100 })
         await bottom(page, 'jump to the newest from the task pane', taskChat)
 
         await page.getByRole('button', { name: 'View as terminal', exact: true }).last().click()
