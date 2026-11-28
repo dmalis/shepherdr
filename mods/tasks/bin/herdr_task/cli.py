@@ -376,6 +376,7 @@ def main():
     g.add_argument("--undo", action="store_true", help="the person's Undo or Restore of a Not now or a No, from the Feedback page (never an agent)")
     g.add_argument("--approve", type=int, metavar="REV", help="the person's yes to draft REV, from the Feedback page's Post it (never an agent); --by chat: an Assistant's record of a yes said to a card that showed it")
     g.add_argument("--reconcile", action="store_true", help="a post whose answer was lost: look for it on GitHub by its hidden marker, read only")
+    g.add_argument("--track", action="store_true", help="each filed or followed problem's issue on GitHub, read only: open, closed as fixed, declined there or a duplicate (each at most once an hour; with --key, that one now)")
     c.add_argument("--by", choices=["page", "chat"], help="--approve: where the person said yes (default page)")
     c.add_argument("--rev", type=int, metavar="N", help="--file: post draft N, the one the person said yes to (without it, --file writes the draft and posts nothing)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
