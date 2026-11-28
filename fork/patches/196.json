@@ -14,6 +14,7 @@
     "web/plugins/chat/slide.tsx",
     "docs/design.md",
     "web/src/feel.test.ts",
+    "web/plugins/chat/swipe-left.test.ts",
     "test/test_design.py"
   ],
   "tests": [

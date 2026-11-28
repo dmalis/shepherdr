@@ -428,11 +428,13 @@ something that arrives, reorders or retries on its own.
 - **Where it fits:** a gesture crossing the point where it acts (the reply and swipe slides' `tick()`,
   `web/plugins/chat/slide.tsx`), a hold that picks something up (a row to drag, a held button), your send entering the
   outbox (`send()`, `web/src/send.ts`) and a failed send (a double tap, from the outbox's one place that marks it,
-  `putOutbox` in `web/src/kernel.ts`, where a screen reader hears it too).
+  `putOutbox` in `web/src/kernel.ts`, where a screen reader hears it too), once, and only for a send made by this
+  page's Send: not one a reload resumed, nor its Retry.
 - **Sounds,** only with Haptics and sounds: one very quiet short tick on your own send and a lower one on a failed
   send, synthesised (no file to load), under 120 ms and at most 5% loudness. They play as ambient audio where the
   browser has an audio session (`navigator.audioSession.type = 'ambient'`, Safari), so an iPhone's silent switch mutes
-  them and they never stop what else is playing; never during a voice call, and never while the page is away.
+  them and they never stop what else is playing; never during a voice call, and never while the page is away. A sound
+  that has to wait for the audio to wake is asked again as it starts, and dropped rather than played late.
 - Reduced motion, either switch, turns the app's haptics off (`haptic()` asks `calm()`); sounds stay as picked.
 
 ## Touch, gestures and keys

@@ -28,6 +28,7 @@ export function haptic(pattern: number | number[] = 8) {
   }
 }
 
+
 /* ---------- the two sounds ---------- */
 
 /** a tone's pitch (Hz), length (ms) and loudness (its peak gain, out of 1): very quiet, over in a moment */
@@ -41,59 +42,67 @@ export type Tone = keyof typeof TONES
  *  plugin's ("play-and-record", web/plugins/voice/call.ts) */
 type AudioSessionLike = { type: string }
 const session = (): AudioSessionLike | null => (globalThis.navigator as unknown as { audioSession?: AudioSessionLike } | undefined)?.audioSession ?? null
-
-/** how long the sounds' audio stays open after the last one: a send's failure soon after it still sounds, and the
- *  page then lets the device's audio go */
-const KEEP_MS = 15_000
-let ctx: AudioContext | null = null
-let idle: ReturnType<typeof setTimeout> | undefined
-
-function letGo() {
-  const c = ctx
-  ctx = null
-  void c?.close().catch(() => undefined)
-  // back to the browser's own choice, unless something else (a call) has taken the session meanwhile
+const setSession = (type: string) => {
   const s = session()
-  if (s?.type === 'ambient')
+  if (s)
     try {
-      s.type = 'auto'
+      s.type = type
     } catch {
-      /* an older WebKit */
+      /* an older WebKit: its own choice */
     }
+}
+
+/** is a voice call on (the kernel tells, as ui.call): its audio is the call's, on every browser */
+let calling = () => false
+export const whenCalling = (f: () => boolean) => void (calling = f)
+
+/** may a sound play now: the setting, the page on screen, no call */
+const mayChime = () => getPrefs().feel === 'Haptics and sounds' && seen() && !calling() && session()?.type !== 'play-and-record'
+
+/** after the last sound the audio rests (suspended, its session back to the browser's own): the same audio, unlocked
+ *  by the tap of a send, plays the failure that comes later without another tap */
+const REST_MS = 2_000
+/** a sound that couldn't start within this (a browser waiting for a tap) is dropped, never played late */
+const STALE_MS = 300
+let ctx: AudioContext | null = null
+let rest: ReturnType<typeof setTimeout> | undefined
+
+function sleep() {
+  if (!ctx || ctx.state !== 'running') return
+  void ctx.suspend().catch(() => undefined)
+  // back to the browser's own choice, unless something else (a call) has taken the session meanwhile
+  if (session()?.type === 'ambient') setSession('auto')
 }
 
 /** the sounds' audio, as ambient where the device has a session (again before each sound: a call that ended put the
  *  session back to the browser's own); null where the browser has none */
 function audio(): AudioContext | null {
-  const s = session()
-  if (s && s.type === 'auto')
-    try {
-      s.type = 'ambient'
-    } catch {
-      /* an older WebKit: its own choice */
-    }
+  const was = session()?.type
+  if (was === 'auto') setSession('ambient')
   if (ctx) return ctx
   const Ctx = (globalThis as unknown as { AudioContext?: typeof AudioContext }).AudioContext
-  if (!Ctx) return null
   try {
+    if (!Ctx) throw new Error('no audio')
     ctx = new Ctx({ latencyHint: 'interactive' })
   } catch {
+    if (was === 'auto') setSession('auto')
     return null
   }
   return ctx
 }
 
-/** One very quiet short tick, only with "Haptics and sounds" and only while the page is on screen. Never during a
- *  call (its audio is the call's). A browser that won't play without a tap just stays silent. */
+/** One very quiet short tick, only with "Haptics and sounds", while the page is on screen and no call is on. A
+ *  browser that won't play without a tap stays silent: a sound is never late. */
 export function chime(tone: Tone) {
-  if (getPrefs().feel !== 'Haptics and sounds' || !seen()) return
-  if (session()?.type === 'play-and-record') return
+  if (!mayChime()) return
   const c = audio()
   if (!c) return
-  clearTimeout(idle)
-  idle = setTimeout(letGo, KEEP_MS)
+  clearTimeout(rest)
+  rest = setTimeout(sleep, REST_MS)
+  const asked = performance.now()
   const play = () => {
-    if (c.state !== 'running') return
+    // asked again as it starts: the setting, a call or the page may have changed while the audio woke
+    if (c.state !== 'running' || performance.now() - asked > STALE_MS || !mayChime()) return
     const { hz, ms, gain } = TONES[tone]
     const t = c.currentTime
     const end = t + ms / 1000
@@ -114,9 +123,24 @@ export function chime(tone: Tone) {
   else void c.resume().then(play, () => undefined)
 }
 
-/** your send went into the outbox (ok), or it failed: a tap and, with sounds on, its tick */
-export function sendFelt(ok: boolean) {
-  if (ok) haptic(8)
-  else if (seen()) haptic([12, 60, 12])
-  chime(ok ? 'sent' : 'failed')
+/* ---------- your sends ---------- */
+
+/** the sends made on this page by the person's own Send: only theirs fail with a tap and a sound, once. One that a
+ *  reload resumed, a Retry of it, or one another tab sent is silent */
+const fresh = new Set<string>()
+
+/** your send went into the outbox: a tap and, with sounds on, its tick */
+export function sentFelt(cid: string) {
+  fresh.add(cid)
+  haptic(8)
+  chime('sent')
+}
+
+/** sends that just failed (the outbox's one place that marks them): one of yours made here gets a double tap and,
+ *  with sounds on, the lower tick, once; never while the page is away */
+export function failedFelt(cids: string[]) {
+  const mine = cids.filter((c) => fresh.delete(c))
+  if (!mine.length || !seen()) return
+  haptic([12, 60, 12])
+  chime('failed')
 }
