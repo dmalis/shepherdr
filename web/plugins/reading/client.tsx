@@ -8,15 +8,13 @@
 import './reading.css'
 import { definePlugin, getState, subscribe } from '@client/kernel.ts'
 import { fitBox } from '@client/grow.ts'
+import { IOS, calm } from '@client/motion.ts'
 import { READING, START, allowed, step, type Box, type Reading } from './reading.ts'
 
-/** iOS's sheet curve, the one its bars move on */
-const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)'
-const MS = 320
+/** a move a scroll starts many times a day: near 300 ms (docs/design.md, Motion), on iOS's curve */
+const MS = 300
 
 const COARSE = typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)') : null
-const REDUCE = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null
-const still = () => document.documentElement.dataset.motion === 'reduced' || !!REDUCE?.matches
 /** a phone, with a finger as the pointer: only there are there bottom tabs to step aside (a mouse window never) */
 const active = () => getState().ui.phone && !!COARSE?.matches
 
@@ -58,12 +56,12 @@ export default definePlugin({
     const set = (on: boolean) => {
       if (root.classList.contains(READING) === on) return
       const foot = sc?.isConnected ? footOf(sc) : null
-      const from = foot && !still() ? foot.getBoundingClientRect().top : null
+      const from = foot && !calm() ? foot.getBoundingClientRect().top : null
       root.classList.toggle(READING, on)
       refit()
       if (!foot || from == null) return
       const dy = from - foot.getBoundingClientRect().top
-      if (Math.abs(dy) >= 1) foot.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: MS, easing: EASE })
+      if (Math.abs(dy) >= 1) foot.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: MS, easing: IOS })
     }
     const back = () => {
       s = { ...s, on: false, run: 0 }
