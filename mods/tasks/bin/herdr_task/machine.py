@@ -62,13 +62,14 @@ def _share(used, avail):
 
 
 def _disks():
-    """Home and /tmp, once each when they're one disk: % full as df counts it (used over what an
+    """Home, /tmp and, off macOS, /var/tmp (where task temp folders are: task_tmp.SCRATCH), once each when they're one
+    disk: % full as df counts it (used over what an
     ordinary user could have), of its space or of its file slots (inodes, as df -i), whichever is
     fuller: a disk with no file slots left takes no new file however much space it has. `by` says
     which ("space" or "files"), chosen before rounding; a filesystem that keeps no count of files (0)
     is read by space, one with no size (a tmpfs with size=0) by its files alone, without space numbers."""
     out, seen = [], set()
-    for path in (HOME, "/tmp"):
+    for path in (HOME, "/tmp") + (() if MAC else ("/var/tmp",)):
         try:
             st, dev = os.statvfs(path), os.stat(path).st_dev
         except OSError:

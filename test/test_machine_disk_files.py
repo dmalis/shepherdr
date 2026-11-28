@@ -30,8 +30,8 @@ def blocks(total, free, files=0, ffree=0):
 class DiskFileSlots(unittest.TestCase):
     def read(self, home, tmp):
         disks = {machine.HOME: (home, 1), "/tmp": (tmp, 2)}
-        with mock.patch.object(machine.os, "statvfs", lambda p: disks[p][0]), \
-                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=disks[p][1])):
+        with mock.patch.object(machine.os, "statvfs", lambda p: disks.get(p, disks[machine.HOME])[0]), \
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=disks.get(p, disks[machine.HOME])[1])):
             return {d["path"]: d for d in machine._disks()}
 
     def test_tmp_out_of_file_slots_with_space_free_reads_full(self):
@@ -47,8 +47,8 @@ class DiskFileSlots(unittest.TestCase):
 
     def test_sample_alert_and_start_limit_follow_it(self):
         disks = {machine.HOME: vfs(1900, 85, files=10 ** 8, files_used=10 ** 6), "/tmp": vfs(32, 9, files=1000, files_used=1000)}
-        with mock.patch.object(machine.os, "statvfs", lambda p: disks[p]), \
-                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p))), \
+        with mock.patch.object(machine.os, "statvfs", lambda p: disks.get(p, disks[machine.HOME])), \
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p if p in disks else machine.HOME))), \
                 mock.patch.object(machine.os, "getloadavg", lambda: (0.0, 0.0, 0.0)), \
                 mock.patch.object(machine, "_memory", lambda: (100, 10)):
             # this machine's own load and memory stay out of it: only the disk may hold
@@ -87,14 +87,25 @@ class DiskFileSlots(unittest.TestCase):
     def test_the_fullest_disk_is_chosen_before_rounding(self):
         # home 99.6% by space, /tmp 100% by its file slots: both read 100, /tmp is the one that's full
         disks = {machine.HOME: blocks(1000, 4, files=1000, ffree=990), "/tmp": blocks(1000, 500, files=100, ffree=0)}
-        with mock.patch.object(machine.os, "statvfs", lambda p: disks[p]), \
-                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p))), \
+        with mock.patch.object(machine.os, "statvfs", lambda p: disks.get(p, disks[machine.HOME])), \
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p if p in disks else machine.HOME))), \
                 mock.patch.object(machine.os, "getloadavg", lambda: (0.0, 0.0, 0.0)), \
                 mock.patch.object(machine, "_memory", lambda: (100, 10)):
             h = machine.sample()
         self.assertEqual([d["pct"] for d in h["disks"]], [100, 100])
         self.assertEqual([d["path"] for d in h["disks"] if d.get("fullest")], ["/tmp"])
         self.assertEqual(machine.hold_reason(h), "disk is 100% full (/tmp's file slots)")
+
+    def test_var_tmp_on_a_disk_of_its_own_counts_with_its_file_slots(self):
+        # dmalis/shepherdr#216: task temp folders live in /var/tmp off macOS; on the home's disk it is read once, as home
+        disks = {machine.HOME: (vfs(500, 50), 1), "/tmp": (vfs(32, 1), 2), "/var/tmp": (vfs(100, 5, files=1000, files_used=995), 3)}
+        with mock.patch.object(machine.os, "statvfs", lambda p: disks[p][0]), \
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=disks[p][1])), \
+                mock.patch.object(machine, "MAC", False):
+            d = {x["path"]: x for x in machine._disks()}
+        self.assertEqual((d["/var/tmp"]["pct"], d["/var/tmp"]["by"], d["/var/tmp"].get("fullest")), (100, "files", True))
+        with mock.patch.object(machine, "MAC", True):
+            self.assertNotIn("/var/tmp", self.read(vfs(500, 50), vfs(32, 1)))
 
     def test_the_real_disks_read(self):
         for d in machine._disks():

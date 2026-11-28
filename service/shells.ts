@@ -18,25 +18,25 @@ export interface ShellAt {
   task?: { id: string; folder: string } | null;
 }
 
+/** task_tmp.py's TAKE, the same words: locks the folder "$1" names on descriptor 9 (shared, never waiting) for what
+ *  runs after, which inherits it, so herdr-task never removes the folder while the shell lives. */
+export const TAKE = '[ -d "$1" ] && command exec 9<"$1" && { flock -s -n 9 || python3 -c "import fcntl; fcntl.flock(9, fcntl.LOCK_SH | fcntl.LOCK_NB)"; } 2>/dev/null';
+
 /** That machine's own shell (hc gives every program SHELL), with the task's temp folder as TMPDIR, TMP and TEMP when
- *  it is still there: hc run has no way to set a variable, so a short sh sets them first (dmalis/shepherdr#216). Its
- *  .shell-<pid> mark (exec keeps the pid) tells herdr-task the folder is in use while the shell lives. */
-export const TMP_SHELL = 'if [ -d "$1" ]; then TMPDIR=$1 TMP=$1 TEMP=$1; export TMPDIR TMP TEMP; : > "$1/.shell-$$" 2>/dev/null; fi; exec "${SHELL:-/bin/sh}"';
+ *  it is still there, held (TAKE): hc run has no way to set a variable, so a short sh sets them first
+ *  (dmalis/shepherdr#216). */
+export const TMP_SHELL = `if [ -d "$1" ]; then TMPDIR=$1 TMP=$1 TEMP=$1; export TMPDIR TMP TEMP; ${TAKE}; fi; exec "\${SHELL:-/bin/sh}"`;
 
 /** What hc runs for a shell: nothing (its own shell), or TMP_SHELL with the task's temp folder. */
 export function shellArgv(at: ShellAt): string[] {
   return at.tmp ? ["--", "sh", "-c", TMP_SHELL, "herdr-shell", at.tmp] : [];
 }
 
-/** An older copy's task temp folder (sd-254-9f3a, in the cache folder, too long for sockets): task_tmp.py's names now
- *  never have a dash. */
-export const olderTmp = (p: string) => (p.split("/").pop() || "").includes("-");
-
-/** A task's temp folder for its terminal: the one it has, else herdr-task makes it now (its agent hasn't started),
- *  or moves an older copy's to the short one once nothing uses it (it answers the old one while something does).
- *  Null when that fails (an older herdr-task there): the shell then uses the one it has, or the machine's own. */
+/** A task's temp folder for its terminal, from herdr-task on the task's machine: the one it has, or one made now (its
+ *  agent hasn't started, or an older copy's is in its old place). Null when that fails (an older herdr-task there):
+ *  the shell then uses the one it has, or the machine's own. */
 export async function taskTmp(at: ShellAt): Promise<string | null> {
-  if (!at.task || (at.tmp && !olderTmp(at.tmp))) return at.tmp ?? null;
+  if (!at.task) return at.tmp ?? null;
   try {
     const p = spawn([process.env.SHEPHERDR_HERDR_TASK || "herdr-task", ...(at.machine ? ["--on", at.machine] : []), "_task-tmp", at.task.id, "--folder", at.task.folder], { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
     const out = await new Response(p.stdout).text();

@@ -9683,6 +9683,7 @@ class DiskHoldSaysWhatFillsIt(unittest.TestCase):
         sys.path.insert(0, BIN)
         import herdr_task.machine as machine
         import herdr_task.queues as queues
+        import herdr_task.task_tmp as task_tmp
         import herdr_task.settings as settings
         self.queues, self.machine, self.mock = queues, machine, mock
         self.tmp = tempfile.mkdtemp()
@@ -9693,7 +9694,7 @@ class DiskHoldSaysWhatFillsIt(unittest.TestCase):
         for mod, name, value in ((settings, "SETTINGS", os.path.join(self.tmp, "shepherdr.json")),
                                  (queues, "HOLD_FILE", os.path.join(self.tmp, "machine-hold.json")),
                                  (queues, "DISK_TOP", os.path.join(self.tmp, "disk-top.json")), (queues, "HOME", "/home/demo"),
-                                 (machine, "sample", lambda: full), (queues, "_hold", {})):
+                                 (machine, "sample", lambda: full), (queues, "_hold", {}), (task_tmp, "pressed", lambda: [])):
             p = mock.patch.object(mod, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -9717,6 +9718,22 @@ class DiskHoldSaysWhatFillsIt(unittest.TestCase):
             self.queues.cmd_disk_top(type("A", (), {"path": "/home/demo"})())
         self.assertEqual(self.hold(), "vm-demo's disk is 96% full (biggest: ~/dev 120 GB (mostly ~/dev/app), ~/.cache 1.5 GB)")
         self.assertEqual(len(self.spawned), 1)
+
+    def test_a_disk_out_of_file_slots_sweeps_task_temp_folders_then_looks_again(self):
+        """dmalis/shepherdr#216: a start held on a full disk (its space or its file slots, here /var/tmp's, where task
+        temp folders are) has the safe sweep run once (task_tmp.pressed(): rate-limited), then a new sample decides."""
+        import herdr_task.task_tmp as task_tmp
+        slots = {"memory": 40, "load": 0.1, "cores": 4, "cpu": 3, "disk": 100,
+                 "disks": [{"path": "home", "pct": 20, "by": "space"}, {"path": "/var/tmp", "pct": 100, "by": "files", "fullest": True}]}
+        after = {**slots, "disk": 60, "disks": [{"path": "home", "pct": 20}, {"path": "/var/tmp", "pct": 60, "by": "files"}]}
+        samples, swept = [slots, after], []
+        sweep = lambda: swept.append(1) or ["abc123"]
+        with self.mock.patch.object(self.machine, "sample", lambda: samples.pop(0)), self.mock.patch.object(task_tmp, "pressed", sweep):
+            self.assertIsNone(self.hold())
+        self.assertEqual(swept, [1])
+        # nothing to sweep (or swept a moment ago): it holds, and says which disk's file slots
+        with self.mock.patch.object(self.machine, "sample", lambda: slots), self.mock.patch.object(task_tmp, "pressed", lambda: []):
+            self.assertEqual(self.hold(), "vm-demo's disk is 100% full (/var/tmp's file slots)")
 
     def test_biggest_reads_du(self):
         root = os.path.join(self.tmp, "home")

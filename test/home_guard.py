@@ -32,6 +32,8 @@ REAL_DIRS = [os.path.join(REAL, p) for p in (
     ".herdr", ".config/herdr-app", ".config/herdr-core", ".config/shepherdr", ".local/share/herdr",
     ".local/share/shepherdr", ".local/state/herdr-core", ".local/state/shepherdr", ".cache/shepherdr", ".shep-tmp",
     ".claude", ".codex")]
+# Every task's temp folder on this machine's disk (task_tmp.SCRATCH, #216): the person's too, though not in the home.
+SCRATCH = os.path.realpath("/var/tmp/shepherdr")
 # What the person's environment points at its own terminal, chat and agent with.
 DROP = ("HC_TERMINAL_SOCKET", "HC_TERMINAL_ID", "HC_SCOPE", "HC_SOCKET", "HC_SESSION", "HERDR_BROWSER_TASK",
         "HERDR_ASK_CHAINED", "HERDR_APP_HOME", "SHEPHERDR_HOME", "SHEPHERDR_DATA", "HERDR_TASK_STORE",
@@ -56,24 +58,24 @@ def touches(path):
     path = os.fsdecode(path)
     if not os.path.isabs(path):
         path = os.path.join(os.getcwd(), path)
-    return _inside(path, REAL_DIRS) and not _inside(path, [os.path.realpath(ROOT)] + OWN)
+    return _inside(path, REAL_DIRS + [SCRATCH]) and not _inside(path, [os.path.realpath(ROOT)] + OWN)
 
 
 # The run's own temp folders, the only other real-home paths a test may open. A task's TMPDIR is its own folder under
-# ~/.shep-tmp (older copies: ~/.cache/shepherdr/tmp; #216), so a run in a task makes its shep-run-* folder inside
-# a guarded folder. Kept here: the temp folder the run started from, only when it is one task's folder (where its
-# links lead: right inside one of those two, never that folder, another guarded one or the home), and the shep-run-*
-# folder the run made (where its links lead), named in RUN_VAR for the programs it starts.
+# SCRATCH or ~/.shep-tmp (older copies: the cache folder's tmp/; #216), so a run in a task makes its shep-run-*
+# folder inside a guarded folder. Kept here: the temp folder the run started from, only when it is one task's folder
+# (where its links lead: right inside one of those three, never that folder, another guarded one or the home), and the
+# shep-run-* folder the run made (where its links lead), named in RUN_VAR for the programs it starts.
 OWN = []
 CACHE = os.path.join(".cache", "shepherdr")  # older copies' task_tmp.roots(): the cache root's tmp/<task>
-TASK_TMP = ".shep-tmp"  # task_tmp.root(): ~/.shep-tmp/<task>
+TASK_TMP = ".shep-tmp"  # task_tmp.root() on macOS: ~/.shep-tmp/<task>
 
 
 def own(shared=None, run=None):
     if shared:
         p = os.path.realpath(shared)
         tasks = [os.path.join(d, "tmp") for d in REAL_DIRS if d.endswith(os.sep + CACHE)]
-        tasks += [d for d in REAL_DIRS if d.endswith(os.sep + TASK_TMP)]
+        tasks += [d for d in REAL_DIRS if d.endswith(os.sep + TASK_TMP)] + [SCRATCH]
         if os.path.dirname(p) in tasks:
             OWN.append(p)
     if run:
