@@ -3,7 +3,8 @@
 // `urgent` time is set, it is open, it isn't archived and it hasn't been done since it was marked. So Done by any path
 // ends it, and nothing that reopens a task brings it back. The service reads it here from the raw task (service/model.ts);
 // the app gets `urgent: true` on the task, and lists urgent tasks first in Working and Up next (urgentFirst). Needs you,
-// Done and Archived keep their own order.
+// Done and Archived keep their own order. In the one action list (web/shared/attention.ts inOrder), Shepherdr's own
+// waits on urgent tasks come first (urgentWaitsFirst); the person's actions keep theirs.
 
 const OPEN = new Set(['todo', 'scheduled', 'queued', 'running', 'ready'])
 
@@ -21,4 +22,14 @@ export function isUrgent(raw: unknown): boolean {
 export function urgentFirst<T extends { urgent?: boolean }>(tasks: T[]): T[] {
   const first = tasks.filter((t) => t.urgent)
   return first.length && first.length < tasks.length ? [...first, ...tasks.filter((t) => !t.urgent)] : tasks
+}
+
+/** Shepherdr's own open actions (owner shepherdr: its waits) on an urgent task first, each part in the order it came in
+ *  (a stable partition): the one action list's order (web/shared/attention.ts inOrder). The person's keep their order. */
+export function urgentWaitsFirst<A extends { owner: string; task?: string; tasks?: string[] }>(actions: A[], tasks: { id: string; urgent?: boolean }[]): A[] {
+  const urgent = new Set(tasks.filter((t) => t.urgent).map((t) => t.id))
+  if (!urgent.size) return actions
+  const first = (a: A) => a.owner === 'shepherdr' && (a.tasks ?? (a.task ? [a.task] : [])).some((id) => urgent.has(id))
+  const lead = actions.filter(first)
+  return lead.length ? [...lead, ...actions.filter((a) => !first(a))] : actions
 }

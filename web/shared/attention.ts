@@ -14,6 +14,7 @@
 // A task stopped by the person (Paused), a working one and one waiting for its checks have no action at all.
 // The source facts are the snapshot's own: no model, no guess (docs/develop.md Rules).
 import type { HandUp, Need, Snapshot, Task } from './types.ts'
+import { urgentWaitsFirst } from './urgent.ts'
 
 export type Alert = NonNullable<Snapshot['alerts']>[number]
 
@@ -68,7 +69,8 @@ export type TaskAction = Pick<Action, 'id' | 'owner' | 'kind' | 'what' | 'since'
 export interface Attention {
   /** when it was worked out (ms) */
   at: number
-  /** every open action, oldest first (ties by id), each once */
+  /** every open action, oldest first (ties by id), each once; Shepherdr's own waits on urgent tasks ahead of the rest
+   *  (inOrder) */
   actions: Action[]
 }
 
@@ -161,6 +163,12 @@ function noShepherdr(snap: AttentionSnap, place: string): boolean {
 export const PENDING_MAX_MS = 2 * 60_000
 
 export const byAge = (a: Action, b: Action) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+
+/** the one list's order: oldest first (ties by id), with Shepherdr's own waits on urgent tasks ahead of every other
+ *  action, so Shepherdr takes those first (dmalis/shepherdr#119, fork/specs/urgent-tasks.md slice 3). Ids, owners and
+ *  deadlines are as they were, and the person's actions keep their order among themselves: their counts, cards, badge
+ *  and phone feed read only theirs (yours), so nothing they see moves. */
+export const inOrder = (actions: Action[], tasks: Pick<Task, 'id' | 'urgent'>[]) => urgentWaitsFirst([...actions].sort(byAge), tasks)
 
 /**
  * Every open action, from the snapshot's facts, at `now` (alerts age by it). Pure: the service works it out once per
@@ -266,7 +274,7 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
       card: ask ? `handup:${ask.lead}` : t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}),
       ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : late !== undefined ? { deadline: late } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
   }
-  return { at: now, actions: [...out.values()].sort(byAge) }
+  return { at: now, actions: inOrder([...out.values()], snap.tasks) }
 }
 
 /** Everything's id, as web/shared/view.ts everything() finds it: the root space, else the serving machine's home */
