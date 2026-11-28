@@ -9,7 +9,8 @@
 
 /** a file in a message box: `lost` when its bytes didn't come back after a reload */
 export type DraftFile = { name: string; path?: string; id?: string; failed?: string; lost?: boolean }
-export type DraftPaste = { id: string; text: string }
+/** `at`: where in the words it was pasted (fork #186); none: after them */
+export type DraftPaste = { id: string; text: string; at?: number }
 export type DraftReply = { id: string; text: string; who?: string; task?: string }
 /** what each # and @ picked points at: kept as mentions.tsx made them */
 export type DraftPicks = { spaces?: unknown[]; tasks?: unknown[] }
@@ -170,6 +171,17 @@ function schedule() {
   timer = setTimeout(flushDrafts, soon ? 0 : Math.max(0, Math.min(IDLE, since + MAX_WAIT - now)))
 }
 
+/** a list both this page and another tab changed (fork #186: a paste moved here while another tab added one): theirs,
+ *  less what this page took out, with this page's copy of each, then what this page added. `was`: as this page read it */
+export function byId<T extends { id: string }>(was: T[] = [], mine: T[] = [], theirs: T[] = []): T[] | undefined {
+  const had = new Set(was.map((x) => x.id))
+  const here = new Map(mine.map((x) => [x.id, x]))
+  const out = theirs.filter((x) => !had.has(x.id) || here.has(x.id)).map((x) => here.get(x.id) ?? x)
+  const seen = new Set(out.map((x) => x.id))
+  for (const x of mine) if (!had.has(x.id) && !seen.has(x.id)) out.push(x)
+  return out.length ? out : undefined
+}
+
 /** write each changed chat over what storage holds now: only the parts changed here, so another tab's newer parts
  *  stay; a record another tab cleared (it sent the draft) is not brought back. False when storage refused one (a
  *  full storage): it stays to write, and the next change or hide tries again */
@@ -191,7 +203,7 @@ function writeNow(): boolean {
           continue
         }
         d = { ...theirs }
-        for (const p of parts) (d as Record<string, unknown>)[p] = drafts[k]?.[p]
+        for (const p of parts) (d as Record<string, unknown>)[p] = p === 'pastes' ? byId(parse(base.get(k) ?? null)?.pastes, drafts[k]?.pastes, theirs.pastes) : drafts[k]?.[p]
         for (const p of parts) if (d[p] === undefined) delete d[p]
       }
       const out = empty(d) ? null : JSON.stringify(d)

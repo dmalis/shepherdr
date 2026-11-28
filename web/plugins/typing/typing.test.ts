@@ -274,7 +274,7 @@ test('one line of text sits level with the + and send: as tall as the buttons, c
 })
 
 test('suggested replies step aside once there is text in the box, only while typing', () => {
-  expect(css).toContain('.kb-up .app .foot:has(.cin:not(:placeholder-shown)) > .sugs {\n    display: none;')
+  expect(css).toContain('.kb-up .app .foot:has(.cin:not(:placeholder-shown)) > :is(.sugs, .sugfor) {\n    display: none;')
 })
 
 test('each change of the mark fits the box again, in the same step', () => {

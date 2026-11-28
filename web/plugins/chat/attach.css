@@ -20,3 +20,9 @@
 .alost>span{min-width:0;overflow-wrap:anywhere}
 /* a lost file's tile names it, so two of them can be told apart */
 .ast .an{max-width:100%;padding:0 4px;color:var(--sub);font-weight:400;overflow-wrap:anywhere}
+/* fork #186: a file dragged over the page: the box shows where it goes, and takes the drop. Over the box, it is ready (the
+   ink, as the one accent). It shows and goes at once: nothing moves */
+.cbox.drop{position:relative}
+.cdrop{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border-radius:inherit;background:var(--well);outline:2px dashed var(--muted);outline-offset:-2px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);text-align:center;pointer-events:none}
+.cdrop .i{flex:none;color:inherit}
+.cbox.over>.cdrop{outline-style:solid;outline-color:var(--fg);background:var(--raised);color:var(--fg)}

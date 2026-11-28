@@ -1,0 +1,28 @@
+{
+  "issue": 186,
+  "name": "Writing: edits keep what you wrote",
+  "files": [
+    "web/plugins/chat/edit-keeps.tsx",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/fold.ts",
+    "web/plugins/chat/attach.tsx",
+    "web/plugins/chat/attach.css",
+    "web/plugins/typing/typing.css",
+    "web/src/kernel.ts",
+    "web/src/draft.ts",
+    "web/src/dictate.tsx",
+    "web/plugins/voice/client.tsx",
+    "web/demo/edit-check.ts",
+    ".github/workflows/check.yml",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/plugins/chat/edit-keeps.test.tsx",
+    "web/plugins/chat/fold.test.tsx",
+    "web/plugins/chat/attach.test.tsx",
+    "web/plugins/typing/typing.test.ts",
+    "web/plugins/voice/box.test.tsx",
+    "web/src/draft.test.ts",
+    "web/demo/phone-box-check.test.ts"
+  ]
+}

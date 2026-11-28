@@ -102,7 +102,7 @@ export interface Registry {
     box?: FC<{ thread: Thread; placeholder: string }>
     /** the message box's right end (voice): the mic, and the round button where Send is, a voice call while the box
      *  is empty (SHEP-363); without it the box ends with Send */
-    boxEnd?: FC<{ thread: Thread; setText: (value: string) => void; filled: boolean; send: () => void; later?: () => void }>
+    boxEnd?: FC<{ thread: Thread; setText: SetText; filled: boolean; send: () => void; later?: () => void }>
     /** an open task's header: back, title, its menu (Terminal and Screen are in it), and Expand and Close in the pane */
     taskHead?: FC<{ task: Task; where: 'chat' | 'pane'; scrolled?: boolean }>
     /** an open task's status line, over its messages */
@@ -156,7 +156,7 @@ export interface Registry {
   /** above the message box, in the middle by default */
   aboveBox: { order: number; inPane?: boolean; View: FC<{ thread: Thread }> }[]
   /** in the message box's bar, before its right end (none today: the voice plugin fills views.boxEnd) */
-  boxButtons: { order: number; View: FC<{ thread: Thread; setText: (value: string) => void }> }[]
+  boxButtons: { order: number; View: FC<{ thread: Thread; setText: SetText }> }[]
   /** under a column, below its message box (your own terminal) */
   drawer: { when: (ui: UI, thread: Thread) => boolean; View: FC<{ thread: Thread }> }[]
   /** the list's brand row, before Search */
@@ -446,14 +446,23 @@ export const useChat = (key: string | null | undefined) => useStore((s) => (key 
 let drafts: Record<string, string> = draftParts('text')
 const draftListeners = new Set<() => void>()
 export const getDraft = (key: string): string => drafts[key] ?? ''
-export function setDraft(key: string, text: string) {
-  if ((drafts[key] ?? '') === text) return
+/** What an edit of a box's words replaced, when the box knows it (fork #186: a folded paste keeps its place in the
+ *  words, fold.ts): the part `from`..`to` of the words before it, or an undo or redo */
+export type DraftEdit = { from: number; to: number } | { undo: true }
+/** a box's words set to `value`, with what the edit replaced when known */
+export type SetText = (value: string, edit?: DraftEdit) => void
+/** told of each edit of a box's words before it shows */
+export const draftEdits = new Set<(key: string, before: string, after: string, edit?: DraftEdit) => void>()
+export function setDraft(key: string, text: string, edit?: DraftEdit) {
+  const before = drafts[key] ?? ''
+  if (before === text) return
+  draftEdits.forEach((f) => f(key, before, text, edit))
   drafts = { ...drafts, [key]: text }
   if (!text) delete drafts[key]
   keepDraft(key, 'text', text || undefined)
   draftListeners.forEach((l) => l())
 }
-export function useDraft(key: string): [string, (v: string) => void] {
+export function useDraft(key: string): [string, SetText] {
   const v = useSyncExternalStore(
     (l) => {
       draftListeners.add(l)
@@ -461,7 +470,7 @@ export function useDraft(key: string): [string, (v: string) => void] {
     },
     () => drafts[key] ?? '',
   )
-  return [v, (t) => setDraft(key, t)]
+  return [v, (t, edit) => setDraft(key, t, edit)]
 }
 
 /* ---------- the outbox: what you sent shows at once ---------- */

@@ -83,8 +83,8 @@
   }
 
   /* fork #105: suggested replies step aside once you start typing, as Google Messages' and Gmail's smart replies do;
-     an empty box shows them again */
-  .kb-up .app .foot:has(.cin:not(:placeholder-shown)) > .sugs {
+     an empty box shows them again. Their "Replying to" line goes and comes with them (fork #186) */
+  .kb-up .app .foot:has(.cin:not(:placeholder-shown)) > :is(.sugs, .sugfor) {
     display: none;
   }
 }

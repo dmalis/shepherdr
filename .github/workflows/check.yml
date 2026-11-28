@@ -86,6 +86,10 @@ jobs:
         # fork #149: web/demo/draft-check.ts reloads a draft with everything in it, a file still going up, a send cut
         # off mid-upload, files the browser couldn't keep and a full storage, in the runner's own Chrome
         run: bun web/demo/draft-check.ts --phone
+      - name: edits keep what you wrote (the built demo, desktop and phone)
+        # fork #186: web/demo/edit-check.ts holds a suggestion with words in the box, pastes in the middle, types on a
+        # phone with the keyboard up and drags a file over the page, in the runner's own Chrome
+        run: bun web/demo/edit-check.ts
       - name: a still page does no work while pictures wait (the built demo, phone and desktop)
         # fork/specs/ui-polish.md slice 2: web/demo/still-check.ts, no running animation and almost no style work over
         # 10 s with pictures blocked, hung and served, and no layout shift as they load, in the runner's own Chrome

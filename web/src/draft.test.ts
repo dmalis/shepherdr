@@ -1,7 +1,7 @@
 // A draft is never lost (fork dmalis/shepherdr#149): one record per chat, written once typing pauses, back after a
 // reload whole; a box clears on Send once its send is safe; another tab never brings a sent draft back.
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { draftOf, draftParts, dropFile, fileOf, flushDrafts, IDLE, keepDraft, keepEach, keepFile, loadDrafts, MAX_WAIT, PREFIX, settleDrafts, sweepFiles, uploadedFile, useFileStore, whenSafe } from './draft.ts'
+import { byId, draftOf, draftParts, dropFile, fileOf, flushDrafts, IDLE, keepDraft, keepEach, keepFile, loadDrafts, MAX_WAIT, PREFIX, settleDrafts, sweepFiles, uploadedFile, useFileStore, whenSafe } from './draft.ts'
 
 /** a localStorage that counts its writes, and can be made full */
 function storage() {
@@ -153,6 +153,26 @@ test("a tab never brings back a draft another tab sent, and keeps another tab's 
   keepEach('reply', {}, { 'p:shop': reply })
   flushDrafts()
   expect(JSON.parse(ls.getItem(PREFIX + 'p:shop')!)).toEqual({ text: 'their newer words', reply })
+})
+
+test("a paste moved here while another tab added one: both stay (fork #186)", () => {
+  const a = { id: 'a', text: 'A', at: 3 }
+  keepDraft('p:shop', 'text', 'abc')
+  keepDraft('p:shop', 'pastes', [a])
+  flushDrafts()
+  // another tab adds paste b
+  const b = { id: 'b', text: 'B', at: 0 }
+  ls.setItem(PREFIX + 'p:shop', JSON.stringify({ text: 'abc', pastes: [a, b] }))
+  // this tab types before a, which moves it
+  keepDraft('p:shop', 'text', 'xabc')
+  keepDraft('p:shop', 'pastes', [{ ...a, at: 4 }])
+  flushDrafts()
+  expect(JSON.parse(ls.getItem(PREFIX + 'p:shop')!).pastes).toEqual([{ ...a, at: 4 }, b])
+  // what either took out stays out; what this one added comes after theirs
+  expect(byId([a], [], [a, b])).toEqual([b])
+  expect(byId([a, b], [a], [a])).toEqual([a])
+  expect(byId([a], [a, b], [])).toEqual([b])
+  expect(byId([], [], [])).toBeUndefined()
 })
 
 test('a migration storage cut short goes on later, and never brings back a draft sent since', () => {

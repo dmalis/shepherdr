@@ -2,10 +2,11 @@
 // attach sheet). A desktop opens files at once. An iPhone or iPad opens Apple's own menu at once (Photo Library, Take
 // Photo, Choose File): iOS shows it for every picture or file input, so a sheet of ours before it would be a second
 // menu. An Android phone gets a sheet of three big tiles, each straight to its picker: Camera, Photos, Files.
-import { useRef } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { openMenu } from '@client/overlay.tsx'
 import { I, IB } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
+import { draggingFiles } from './paste.ts'
 import './attach.css'
 
 /** iOS and iPadOS (an iPad says it is a Mac, with a touch screen) */
@@ -89,4 +90,79 @@ export function AddSheet({ close, pick }: { close: () => void; pick: (id: string
       ))}
     </div>
   )
+}
+
+/* ---------- a file dragged over the page (fork #186) ---------- */
+
+/** where a dragged file is: over the page ('page'), over this box ('over'), or not dragged (false) */
+export type Drag = false | 'page' | 'over'
+/** a drag that stops sending dragover this long has gone: browsers send one at least every 350 ms (±200) while it
+ *  stays, and its leaving the window (a dragleave to nothing) is the quicker sign */
+export const DRAG_GONE_MS = 600
+export const DRAG_LEFT_MS = 80
+
+type DragEv = Event & { dataTransfer?: DataTransfer | null }
+
+/** Follows a file dragged over the page (`win`): `set` hears 'over' while it is over the box (`inBox`), 'page'
+ *  elsewhere, false once it is dropped, cancelled or gone. Where nothing takes it, the drop does nothing, instead of
+ *  the browser leaving the app to open the file (as Slack and VS Code do). The clock is passed in for tests */
+export function watchFileDrag(
+  win: EventTarget,
+  inBox: (t: EventTarget | null) => boolean,
+  set: (d: Drag) => void,
+  later: (f: () => void, ms: number) => unknown = setTimeout,
+  cancel: (t: unknown) => void = (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+): () => void {
+  let now: Drag = false
+  let timer: unknown = null
+  const put = (d: Drag) => {
+    if (d !== now) set((now = d))
+  }
+  const stop = () => {
+    if (timer !== null) cancel(timer)
+    timer = null
+  }
+  const end = () => {
+    stop()
+    put(false)
+  }
+  const move = (e: DragEv) => {
+    if (!draggingFiles(e.dataTransfer ?? null)) return
+    put(inBox(e.target) ? 'over' : 'page')
+    stop()
+    timer = later(end, DRAG_GONE_MS)
+  }
+  // left for nothing (the window, or a browser that names no element): gone unless a dragover follows at once
+  const leave = (e: DragEv & { relatedTarget?: EventTarget | null }) => {
+    if (e.relatedTarget || now === false) return
+    stop()
+    timer = later(end, DRAG_LEFT_MS)
+  }
+  // nothing under the pointer takes files: say so (no drop), never let the browser open the file in place of the app
+  const none = (e: DragEv) => {
+    if (e.defaultPrevented || !draggingFiles(e.dataTransfer ?? null)) return
+    e.preventDefault()
+    if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+  }
+  const on: [string, EventListener, boolean][] = [
+    ['dragenter', move as EventListener, true],
+    ['dragover', move as EventListener, true],
+    ['dragleave', leave as EventListener, true],
+    ['drop', end, true],
+    ['dragend', end, true],
+    ['dragover', none as EventListener, false],
+    ['drop', none as EventListener, false],
+  ]
+  for (const [t, f, c] of on) win.addEventListener(t, f, c)
+  return () => {
+    stop()
+    for (const [t, f, c] of on) win.removeEventListener(t, f, c)
+  }
+}
+
+/** a message box's part in a file drag: see watchFileDrag */
+export function useFileDrag(box: RefObject<HTMLElement | null>): Drag {
+  const [d, setD] = useState<Drag>(false)
+  useEffect(() => watchFileDrag(window, (t) => !!box.current && t instanceof Node && box.current.contains(t), setD), [box])
+  return d
 }
