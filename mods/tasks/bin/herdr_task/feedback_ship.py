@@ -34,7 +34,6 @@ CLOSER = ("query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){iss
           " ...on Commit{oid}}}}}}}}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 RELEASES = 30        # the newest releases looked through, of the repo the fix is in
-COMPARES = 8         # release tags compared at most in one look, newest first
 TRY_MAX = 200
 FAILED = object()    # GitHub didn't answer: what was known stays
 
@@ -56,22 +55,54 @@ def installed_build():
     return None
 
 
+def carries_file():
+    return os.path.join(os.path.dirname(fbm.STATE), ".feedback-installed.json")
+
+
+def carried(b):
+    """What the install of build `b` said it carries ({issue url: Try it words or None}, and when): kept beside the
+    feedback record, so a problem linked to one of those issues later still finds it; another build's list is none."""
+    try:
+        with open(carries_file()) as f:
+            c = json.load(f)
+    except (OSError, ValueError):
+        return {}, 0
+    if not isinstance(c, dict) or not b or c.get("build") != b or not isinstance(c.get("issues"), dict):
+        return {}, 0
+    return c["issues"], int(c.get("at") or 0)
+
+
+def urls_of(p):
+    """The issues a problem is about: its own, the one whose closing fixed it, the one it came back on."""
+    return [x for x in ((issue_of(p) or (None, None, None))[2], fixed_url(p), (p.get("back") or {}).get("issue")) if x]
+
+
 def shipped_here(p, b):
-    """The evidence its fix is on this machine, for the build installed now (else None)."""
+    """The evidence its fix is on this machine, for the build installed now (else None): its own, or the install's
+    list of what that build carries, naming one of its issues."""
     s = p.get("shipped") if isinstance(p, dict) else None
-    return s if isinstance(s, dict) and b and s.get("build") == b else None
+    if isinstance(s, dict) and b and s.get("build") == b:
+        return s
+    if not isinstance(p, dict) or not b or came_back_on(p, b):
+        return None
+    issues, at = carried(b)
+    hit = next((u for u in urls_of(p) if u in issues), None)
+    return {"build": b, "at": at, "how": "install", **({"try": issues[hit]} if issues[hit] else {})} if hit else None
 
 
 def seen_here(rows):
     """Rows as reads show them: `shipped` only for the build installed now; `here`, this machine's version and build,
     on each row with a fix, a shipped or a tried (the page tells "update to get it" and the person's build by them)."""
     b, v, out = installed_build(), None, []
+    issues = carried(b)[0]
     for r in rows:
-        if not any(r.get(x) for x in ("shipped", "tried")) and not (r.get("outcome") or {}).get("fix"):
+        if not any(r.get(x) for x in ("shipped", "tried")) and not (r.get("outcome") or {}).get("fix") and \
+                not (issues and set(urls_of(r)) & set(issues)):
             out.append(r)
             continue
         v = v or fbm.shepherdr_version()
-        r = {k: x for k, x in r.items() if k != "shipped" or shipped_here(r, b)}
+        s = shipped_here(r, b)
+        r = {**{k: x for k, x in r.items() if k != "shipped"}, **({"shipped": s} if s else {})}
         out.append({**r, "here": {"version": v, "build": b}})
     return out
 
@@ -143,19 +174,34 @@ def releases(repo):
 
 def first_release(repo, sha):
     """The first stable release whose tag has the commit ("3.2.23"), None when none does, FAILED when GitHub didn't
-    say. Newest first, stopping at the first without it: releases come one after another from one line."""
+    say. Releases come one after another from one line, so the ones with it are the newest few: a binary search over
+    the newest RELEASES (about five compares). When even the oldest of those has it, where it first came is beyond
+    them: None, and the row stays "Closed as fixed" rather than name a later release."""
     rs = releases(repo)
     if rs is FAILED:
         return FAILED
-    found = None
-    for v, tag in rs[:COMPARES]:
-        has = contains(repo, tag, sha)
-        if has is FAILED:
+
+    def has(i):
+        return contains(repo, rs[i][1], sha)
+
+    if not rs:
+        return None
+    lo, hi = 0, len(rs) - 1          # newest first: rs[..k] have it, rs[k+1..] don't; find k
+    h = has(lo)
+    if h is FAILED or not h:
+        return FAILED if h is FAILED else None
+    h = has(hi)
+    if h is FAILED:
+        return FAILED
+    if h:
+        return None
+    while hi - lo > 1:               # rs[lo] has it, rs[hi] hasn't
+        mid = (lo + hi) // 2
+        h = has(mid)
+        if h is FAILED:
             return FAILED
-        if not has:
-            break
-        found = v
-    return found
+        lo, hi = (mid, hi) if h else (lo, mid)
+    return rs[lo][0]
 
 
 def build_has(repo, b, sha):
@@ -220,7 +266,7 @@ def keep(key, url, fix, ship=None, b=None):
         o = {k: v for k, v in (p.get("outcome") or {}).items() if k != "fix"}
         p = {**p, "outcome": {**o, **({"fix": fix} if fix else {})}}
         s = p.get("shipped") if isinstance(p.get("shipped"), dict) else None
-        if ship is True and not (s and s.get("build") == b):
+        if ship is True and not (s and s.get("build") == b) and not came_back_on(p, b):
             p["shipped"] = {"build": b, "machine": here_name(), "at": now(), "how": "release",
                             **({"release": fix["release"]} if fix.get("release") else {})}
         elif ship is False and s and s.get("how") == "release":
@@ -256,12 +302,17 @@ def installed_call(args):
         carries[url] = one_line(words, TRY_MAX) or None
     here, gone, at = [], [], now()
     with problems() as ps:
+        tmp = f"{carries_file()}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump({"build": b, "at": at, "issues": carries}, f)
+        os.replace(tmp, carries_file())
         for k, p in ps.items():
             if not isinstance(p, dict):
                 continue
-            urls = [x for x in ((issue_of(p) or (None, None, None))[2], fixed_url(p), (p.get("back") or {}).get("issue")) if x]
-            hit = next((u for u in urls if u in carries), None)
+            hit = next((u for u in urls_of(p) if u in carries), None)
             s = p.get("shipped") if isinstance(p.get("shipped"), dict) else None
+            if hit and came_back_on(p, b):
+                continue
             if hit:
                 new = {"build": b, "machine": here_name(), "at": at, "how": "install", **({"try": carries[hit]} if carries[hit] else {})}
                 if not s or {**s, "at": at} != new:
@@ -284,10 +335,21 @@ def fixed_url(p):
 
 # ---- the person's Works and Still broken ----------------------------------------------------
 
-def tryable(p, b):
+def came_back_on(p, b):
+    """Whether it came back before on this build (an earlier round's Works, Still broken or On this machine was for
+    it): that build isn't shown as fixed again; a newer one may be."""
+    rounds = p.get("before") if isinstance(p.get("before"), list) else []
+    return any(isinstance(r, dict) and any(isinstance(r.get(x), dict) and r[x].get("build") == b and (x == "tried" or b)
+                                           for x in ("tried", "shipped")) for r in rounds)
+
+
+def tryable(p, b, result="works"):
     """Whether the person can say it works now: its fix is on this machine, or GitHub closed it as fixed and this
-    machine's build isn't known (no evidence either way: only their Works)."""
-    return bool(shipped_here(p, b)) or (not b and fixed_issue(p.get("outcome")) is not None)
+    machine's build isn't known (no evidence either way: only their Works). Still broken needs the evidence, since its
+    comment says the fix is installed."""
+    if came_back_on(p, b):
+        return False
+    return bool(shipped_here(p, b)) or (result == "works" and not b and fixed_issue(p.get("outcome")) is not None)
 
 
 def tried_call(args):
@@ -318,7 +380,7 @@ def tried(key, result):
             return {"key": key, "changed": False, "why": "back"}, "It came back already: it waits under Found."
         if t.get("result") == result and t.get("build") == b:
             return {"key": key, "changed": False}, "Already said."
-        if not tryable(p, b) and not (result == "broken" and t.get("result") == "works"):
+        if not tryable(p, b, result) and not (result == "broken" and t.get("result") == "works" and t.get("build")):
             return {"key": key, "changed": False, "why": "not-here"}, "Its fix isn't on this machine yet: nothing to try."
         p = {**p, "tried": {"result": result, "build": b, "at": now()}}
         if result == "works":
@@ -350,13 +412,29 @@ def comment_body(b):
 
 # ---- came back ------------------------------------------------------------------------------
 
+ROUND = ("url", "post", "draft", "approval", "decision", "state", "tried", "shipped")
+
+
+def last_rev(p):
+    """The last draft revision this problem used, in any round: a new draft numbers on from it, so a yes for an older
+    round's revision (a page left open) never matches the new text."""
+    rounds = [p] + [x for x in (p.get("before") if isinstance(p.get("before"), list) else [p.get("before")]) if isinstance(x, dict)]
+    revs = [int((x.get(k) or {}).get("rev") or 0) for x in rounds for k in ("draft", "post", "approval") if isinstance(x.get(k), dict)]
+    return max(revs + [int(p.get("revs") or 0)])
+
+
 def back(p, why, b):
-    """It came back: under Found again, linked to its issue. What was posted stays as history (`before`), so a new
-    draft (a comment on that issue) can be written and posted; shipped and tried stay, for their build."""
+    """It came back: under Found again, linked to its issue. Each earlier round (what was posted, its draft, the
+    person's Works or Still broken, its On this machine) stays as history (`before`, oldest first), so a new round
+    starts fresh: followed again once its draft posts, a new draft numbered on from the last (`revs`). The issue's
+    read (`outcome`, its fix and the build it was compared with) stays, so the same build isn't shown as fixed again."""
     own = issue_of(p)
     url = fixed_url(p) or (own[2] if own else None)
-    before = {k: p[k] for k in ("url", "post", "draft", "approval", "decision", "state") if k in p}
-    out = {k: v for k, v in p.items() if k not in ("url", "post", "draft", "approval", "decision", "until", "was", "decided")}
+    was = [x for x in (p.get("before") if isinstance(p.get("before"), list) else [p["before"]] if isinstance(p.get("before"), dict) else []) if isinstance(x, dict)]
+    before = was + [{k: p[k] for k in ROUND if k in p}]
+    revs = last_rev(p)
+    out = {k: v for k, v in p.items() if k not in ROUND + ("until", "was", "decided", "before")}
+    out["revs"] = revs
     related = [x for x in out.get("related") or [] if isinstance(x, dict) and x.get("url") != url]
     if url:
         m = ISSUE.match(url)

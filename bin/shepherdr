@@ -605,6 +605,16 @@ BUILD_FILE = ".shepherdr-build.json"
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
+def web_commit(src):
+    """The commit the source's built page says it came from (web/build-stamp.ts's stamp in web/dist/index.html), or None."""
+    m = re.search(r'<script[^>]*\bid="shepherdr-build"[^>]*>([^<]*)</script>', (read(os.path.join(src, "web", "dist", "index.html")) or b"").decode("utf-8", "replace"))
+    try:
+        c = str(json.loads(m.group(1)).get("commit") or "") if m else ""
+    except (ValueError, AttributeError):
+        c = ""
+    return c if re.fullmatch(r"[0-9a-f]{7,64}", c) else None
+
+
 def build_of(src):
     """(commit, clean) of the source an install comes from; (None, False) when it can't be known."""
     src = os.path.realpath(src)
@@ -619,7 +629,10 @@ def build_of(src):
         except (OSError, subprocess.SubprocessError):
             st = None
         sha = out[1].strip()
-        return (sha if COMMIT.fullmatch(sha) else None), bool(st and st.returncode == 0 and not st.stdout.strip())
+        # web/dist isn't in git: its page counts only when it was built from this very commit (its stamp says)
+        web = web_commit(src)
+        same = bool(web and len(web) >= 7 and sha.startswith(web))
+        return (sha if COMMIT.fullmatch(sha) else None), bool(st and st.returncode == 0 and not st.stdout.strip() and same)
     f = json_file(os.path.join(src, BUILD_FILE))
     if isinstance(f, dict):
         sha = str(f.get("commit") or "")

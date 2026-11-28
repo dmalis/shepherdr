@@ -168,7 +168,8 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     if (tryable(r)) return (
       <>
         <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'works' && 'going')} onClick={() => void run('works', () => tried(r, 'works'), false)}>{W.works}</Btn>
-        <Btn small disabled={!!busy} className={cx(busy === 'broken' && 'going')} onClick={() => void run('broken', () => tried(r, 'broken'), true)}>{W.broken}</Btn>
+        {/* Still broken's comment says the fix is installed: only with that proof, never on an unknown build */}
+        {r.ship?.here && <Btn small disabled={!!busy} className={cx(busy === 'broken' && 'going')} onClick={() => void run('broken', () => tried(r, 'broken'), true)}>{W.broken}</Btn>}
         {gh}
       </>
     )

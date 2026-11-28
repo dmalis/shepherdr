@@ -1780,6 +1780,24 @@ class InstalledBuild(unittest.TestCase):
         cls.git("init", "-q")
         cls.git("add", "-A")
         cls.git("commit", "-qm", "a release")
+        cls.stamp()
+
+    @classmethod
+    def stamp(cls, commit=None):
+        """The built page's stamp (web/build-stamp.ts) as a build from HEAD (or `commit`) writes it: web/dist isn't in
+        git, so the installer trusts a checkout's commit only when its page says it was built from it."""
+        p = os.path.join(cls.src, "web", "dist", "index.html")
+        with open(p) as f:
+            html = f.read()
+        sid = '<script type="application/json" id="shepherdr-build">'
+        c = commit or cls.git("rev-parse", "HEAD")
+        if sid in html:
+            head, _, rest = html.partition(sid)
+            html = head + sid + json.dumps({"tag": "", "ahead": 0, "commit": c, "repo": ""}) + "</script>" + rest.partition("</script>")[2]
+        else:
+            html = html.replace("</head>", sid + json.dumps({"tag": "", "ahead": 0, "commit": c, "repo": ""}) + "</script></head>", 1)
+        with open(p, "w") as f:
+            f.write(html)
 
     @classmethod
     def tearDownClass(cls):
@@ -1829,6 +1847,18 @@ class InstalledBuild(unittest.TestCase):
         finally:
             self.git("checkout", "--", "templates/worker.md")
 
+    def test_a_page_built_from_another_commit_is_no_build(self):
+        """web/dist isn't in git: a checkout moved on since its page was built would pair the new commit with the old
+        page, so its build isn't known until the page is built again."""
+        sh = installer()
+        self.stamp("0" * 40)
+        try:
+            self.assertEqual(sh.build_of(self.src), (self.git("rev-parse", "HEAD"), False))
+            self.assertNotIn("build", self.install(self.there(sh.pack(self.src)))[1], "nor does its pack carry one")
+        finally:
+            self.stamp()
+        self.assertTrue(sh.build_of(self.src)[1])
+
     def test_a_folder_inside_another_repo_is_no_build_of_its_own(self):
         sh = installer()
         inner = os.path.join(self.src, "templates")
@@ -1843,6 +1873,7 @@ class InstalledBuild(unittest.TestCase):
         with open(os.path.join(self.src, "templates", "worker.md"), "a") as f:
             f.write("a fix\n")
         self.git("commit", "-qam", "a fix")
+        self.stamp()
         try:
             newer = self.git("rev-parse", "HEAD")
             _, rec = self.install(self.there(sh.pack(self.src)), first)
@@ -1855,6 +1886,7 @@ class InstalledBuild(unittest.TestCase):
         finally:
             self.git("checkout", "--", "templates/worker.md")
             self.git("reset", "-q", "--hard", "HEAD~1")
+            self.stamp()
 
     def test_an_installed_folder_sent_on_carries_its_build(self):
         """Serve from: `shepherdr web install-on` packs the installed folder itself; its record's build goes with it,

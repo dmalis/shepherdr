@@ -7,7 +7,7 @@
 // feedback --file --rev), and Check again only reads GitHub. Slice 6: a fix's release and whether this machine has it
 // (herdr-task's read, `ship`), the person's Works and Still broken, and a problem that came back.
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
 import { where } from "./paths.ts";
 import { pluginOn } from "./next.ts";
@@ -259,7 +259,8 @@ export class Feedback {
   changed: () => void = () => {};
 
   constructor(private run: Runner = herdrTask, private file = () => join(process.env.HERDR_TASK_STORE || where().tasks, ".feedback.json"),
-    private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback")) {}
+    private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback"),
+    private installed = () => join(process.env.SHEPHERDR_SHARE || join(import.meta.dir, ".."), "installed.json")) {}
 
   /** read the record when its file changed (and once a minute regardless), until stop() */
   start(every = 3000) {
@@ -277,8 +278,13 @@ export class Feedback {
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
+  /** the record, what the install said it carries beside it, and the install record (slice 6: a new or rolled-back
+   *  build changes what On this machine shows, so its read is fresh within a tick) */
   private stamp() {
-    try { const s = statSync(this.file()); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; }
+    const f = this.file();
+    return [f, join(dirname(f), ".feedback-installed.json"), this.installed()].map((p) => {
+      try { const s = statSync(p); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; }
+    }).join("|");
   }
 
   /** herdr-task's list, read again; one that fails keeps the last, with why */

@@ -38,6 +38,7 @@ test('a build that can’t be known: GitHub’s side, said so, and only the pers
   expect(r).toContain(W.W.unknown)
   expect(r).toContain('>Works<')
   expect(r).not.toContain('On this machine')
+  expect(r).not.toContain(W.W.broken)   // its comment would say the fix is installed: not without the proof
 })
 
 test('Works said today stays under Filed; a day on it folds under Fixed', () => {

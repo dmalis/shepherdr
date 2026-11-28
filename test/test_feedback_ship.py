@@ -105,9 +105,20 @@ class Ship(World):
         s = row["shipped"]
         self.assertEqual((s["build"], s["how"], s["release"], s["machine"]), (BUILD, "release", "3.2.23", "vm-test"))
         self.assertEqual(row["here"], {"version": "3.2.22", "build": BUILD})
-        # newest first, stopping at the first tag without it; a prerelease is never named
-        self.assertEqual(self.compares(), [f"repos/{REPO}/compare/v3.2.24...{FIX}", f"repos/{REPO}/compare/v3.2.23...{FIX}",
-                                           f"repos/{REPO}/compare/v3.2.22...{FIX}", f"repos/{REPO}/compare/{BUILD}...{FIX}"])
+        # a binary search of the stable tags (newest, oldest, then between); a prerelease is never named
+        self.assertEqual(self.compares(), [f"repos/{REPO}/compare/v3.2.24...{FIX}", f"repos/{REPO}/compare/v3.2.21...{FIX}",
+                                           f"repos/{REPO}/compare/v3.2.23...{FIX}", f"repos/{REPO}/compare/v3.2.22...{FIX}",
+                                           f"repos/{REPO}/compare/{BUILD}...{FIX}"])
+
+    def test_the_first_release_with_it_is_found_however_many_have_it(self):
+        self.releases = [f"v3.2.{n}" for n in range(1, 25)]
+        self.has.update({t: ({FIX} if int(t.rsplit(".", 1)[1]) >= 4 else set()) for t in self.releases})
+        self.assertEqual(self.fixed()["outcome"]["fix"]["release"], "3.2.4")
+        self.assertLessEqual(len(self.compares()), 8, "about log2(n) compares, then the build")
+
+    def test_a_fix_older_than_every_release_looked_at_names_none(self):
+        self.has.update({t: {FIX} for t in self.releases})
+        self.assertIsNone(self.fixed()["outcome"]["fix"]["release"], "not a later release than the first with it")
 
     def test_a_closed_issue_with_no_closing_commit_stays_closed_as_fixed(self):
         self.closers = {}
@@ -183,6 +194,21 @@ class Ship(World):
         s = self.listed_by("k1")["shipped"]
         self.assertEqual((s["build"], s["how"], s["try"]), (BUILD, "install", "Reply to a message: its first line shows above"))
 
+    def test_installed_is_kept_for_a_problem_linked_later(self):
+        """The install names an issue no row is on yet; the person follows it afterwards: On this machine all the same,
+        and only for that build."""
+        url2 = f"https://github.com/{REPO}/issues/77"
+        self.closers = {}
+        self.fixed()
+        self.say("--installed", BUILD, "--issues", url2, "--try-it", url2, "Open Settings: the model stays", "--json")
+        self.assertNotIn("shipped", self.listed_by("k1"))
+        self.seed({"k2": {**self.filed(), "id": "k2", "url": url2, "post": {"state": "posted", "rev": 1, "url": url2},
+                          "outcome": {"url": url2}}})
+        s = self.listed_by("k2")["shipped"]
+        self.assertEqual((s["build"], s["how"], s["try"]), (BUILD, "install", "Open Settings: the model stays"))
+        self.install("d" * 40)
+        self.assertNotIn("shipped", self.listed_by("k2"), "another build: the list isn't its")
+
     def test_installed_for_a_build_that_is_not_the_recorded_one_is_ignored(self):
         self.closers = {}
         self.fixed()
@@ -243,12 +269,15 @@ class Ship(World):
         self.assertTrue(json.loads(out)["draft"])
         row = self.listed_by("k1")
         self.assertEqual((row["state"], row["back"]["why"], row["back"]["issue"]), ("found", "broken", URL))
-        self.assertEqual(row["tried"], {**row["tried"], "result": "broken", "build": BUILD})
+        self.assertNotIn("tried", row, "a new round starts fresh")
+        was = row["before"][-1]
+        self.assertEqual(was["tried"], {**was["tried"], "result": "broken", "build": BUILD})
         self.assertIn({"issue": f"{REPO}#42", "url": URL, "by": "came-back"}, row["related"])
         self.assertNotIn("url", row)
-        self.assertEqual(row["before"]["post"]["state"], "posted", "what was posted stays as history")
+        self.assertEqual(was["post"]["state"], "posted", "what was posted stays as history")
         d = row["draft"]
-        self.assertEqual((d["rev"], d["target"]), (1, {"repo": FORK, "action": "comment", "issue": 42}))
+        self.assertEqual(d["target"], {"repo": FORK, "action": "comment", "issue": 42})
+        self.assertGreater(d["rev"], was["post"]["rev"], "numbered on from the earlier round's")
         self.assertIn("This still happens here with the fix installed.", d["body"])
         self.assertIn(f"(build {BUILD[:12]})", d["body"])
         self.assertNotIn("approval", row)
@@ -285,6 +314,49 @@ class Ship(World):
         row = self.listed_by("k1")
         self.assertNotIn("back", row)
         self.assertEqual(row["state"], "filed")
+
+    def test_a_yes_for_an_earlier_round_never_approves_the_new_draft(self):
+        """A page left open on the first draft's sheet: its Post it names that revision, never the new round's."""
+        self.seed({"k1": {**self.filed(), "draft": {"rev": 1, "target": {"repo": FORK, "action": "create"}, "title": "t", "body": "b"}}})
+        self.fixed()
+        self.say("--broken", "--key", "k1", "--json")
+        row = self.listed_by("k1")
+        self.assertEqual(row["draft"]["rev"], 2)
+        code, out = self.say("--key", "k1", "--approve", "1", "--json")
+        self.assertNotIn("approval", self.listed_by("k1"), out)
+
+    def test_a_round_that_came_back_starts_fresh_and_is_followed_again(self):
+        self.fixed()
+        self.say("--works", "--key", "k1", "--json")
+        self.say("The reply bubble doesn't show which message it answers", "--details", "Again.", "--json")
+        import herdr_task.feedback_post as fp
+        from herdr_task.feedback_track import followed
+        row = self.listed_by("k1")
+        self.assertNotIn("tried", row)
+        fp.posted("k1", {"target": {"repo": FORK, "action": "comment", "issue": 42}, "started": None}, URL + "#issuecomment-1")
+        self.track("--key", "k1")
+        row = self.listed_by("k1")
+        self.assertTrue(followed(row), "its issue is followed again")
+        self.assertNotIn("shipped", row, "the build it came back on isn't shown as fixed again")
+        self.assertNotIn("tried", row)
+        # a second time: both earlier rounds stay as history
+        self.say("--works", "--key", "k1", "--json")
+        self.assertEqual(json.loads(self.say("--works", "--key", "k1", "--json")[1])["why"], "not-here")
+        self.install("d" * 40)
+        self.has["d" * 40] = {FIX}
+        self.track()
+        self.assertEqual(self.listed_by("k1")["shipped"]["build"], "d" * 40, "a newer build with the fix: Try it again")
+        self.say("--broken", "--key", "k1", "--json")
+        self.assertEqual(len(self.listed_by("k1")["before"]), 2)
+
+    def test_still_broken_needs_the_fix_on_this_machine(self):
+        """Its comment says the fix is installed: an unknown build gives only Works."""
+        self.install(None)
+        self.fixed()
+        code, out = self.say("--broken", "--key", "k1", "--json")
+        self.assertEqual(json.loads(out)["why"], "not-here")
+        code, out = self.say("--works", "--key", "k1", "--json")
+        self.assertTrue(json.loads(out)["changed"])
 
     def test_posting_the_comment_ends_came_back(self):
         self.fixed()

@@ -77,3 +77,30 @@ test("Works and Still broken run herdr-task's person-only calls; a refusal says 
   expect(await f.act({ do: "broken", key: "a1" })).toEqual({ ok: true, key: "a1", changed: true });
   expect(calls.filter((c) => c[0] === "--key").map((c) => c[2])).toEqual(["--works", "--broken"]);
 });
+
+test("a new install record (a new build, a rollback) makes the list read again within a tick", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const d = mkdtempSync(join(tmpdir(), "feedback-ship-"));
+  writeFileSync(join(d, ".feedback.json"), "{}");
+  writeFileSync(join(d, "installed.json"), JSON.stringify({ version: "3.2.22", build: "b".repeat(40) }));
+  let reads = 0;
+  const run: Runner = async () => { reads++; return { code: 0, stdout: "[]", stderr: "" }; };
+  const f = new Feedback(run, () => join(d, ".feedback.json"), () => ({}), () => true, () => join(d, "installed.json"));
+  try {
+    f.start(20);
+    await Bun.sleep(80);
+    const was = reads;
+    expect(was).toBe(1);
+    writeFileSync(join(d, "installed.json"), JSON.stringify({ version: "3.2.22", build: "c".repeat(40), at: 1 }));
+    await Bun.sleep(80);
+    expect(reads).toBe(was + 1);
+    writeFileSync(join(d, ".feedback-installed.json"), JSON.stringify({ build: "c".repeat(40), issues: {} }));
+    await Bun.sleep(80);
+    expect(reads).toBe(was + 2);
+  } finally {
+    f.stop();
+    rmSync(d, { recursive: true, force: true });
+  }
+});
