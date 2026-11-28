@@ -12,10 +12,14 @@
     "web/plugins/typing/client.tsx",
     "web/plugins/typing/typing.ts",
     "web/plugins/typing/typing.css",
+    "web/plugins/chat/phone-bar.css",
+    "web/demo/box-check.ts",
+    ".github/workflows/check.yml",
     "docs/plugins.md"
   ],
   "tests": [
     "web/plugins/chat/box-label.test.tsx",
+    "web/plugins/chat/phone-bar.test.ts",
     "web/plugins/typing/typing.test.ts",
     "web/src/folder-cut.test.tsx",
     "web/src/where.test.tsx"

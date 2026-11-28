@@ -67,6 +67,9 @@ jobs:
       - name: dictation and the call stay inside the message box, their wave moves, their buttons stay put
         # web/demo/dict-check.ts in the runner's own Chrome with a fake microphone (3.2.3's broken dictation)
         run: bun web/demo/dict-check.ts
+      - name: a phone's message box is two rows, its bar one line (the built demo, 320 and 390 px)
+        # fork #105: web/demo/box-check.ts in the runner's own Chrome
+        run: bun web/demo/box-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.
