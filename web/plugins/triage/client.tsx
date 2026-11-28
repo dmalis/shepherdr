@@ -130,21 +130,26 @@ export function TriageCardView({ c }: { c: TriageCard }) {
   const say = (answer: 'yes' | 'no') => () =>
     attempt({ type: 'triage', do: 'answer', answer, kind: c.kind, hash: c.hash, ...(c.kind === 'draft' ? { key: c.key, copy: !!c.copy, rev: c.rev } : { issue: c.issue }) })
   const start = c.kind === 'start'
+  const comment = c.kind === 'draft' && c.action === 'comment'
   const id = `tri-${c.id.replace(/[^\w-]/g, '-')}`
+  // where Yes sends it, exactly: a new issue, or a comment on which one
+  const where = comment ? `Yes posts it as a comment on ${c.repo}#${c.issue}, as written below.` : `Yes posts it to ${c.repo} as a new issue, as written below.`
+  // too long to carry here whole: its Yes would be for words the card doesn't show, so only No
+  const cut = c.cut ? ' It’s too long to show here whole, so from here it can only be kept private.' : ''
   return (
     <section className="card tri-card" data-card={`triage:${c.id}`} data-ask="" aria-labelledby={`${id}-q`} aria-describedby={`${id}-why`}>
       <span className="t" id={`${id}-q`}>{triageAsk(c)}</span>
       <span className="s" id={`${id}-why`}>
-        {start ? `${c.repo}#${c.issue} is marked ready. It’s someone else’s words, so Triage starts a fix only when you say so.` : `${whyWords(c)} Yes posts it to ${c.repo} as written below.`}
+        {start ? `${c.repo}#${c.issue} is marked ready. It’s someone else’s words, so Triage starts a fix only when you say so.${cut ? ' It’s too long to show here whole, so it can’t be started from here.' : ''}` : `${whyWords(c)} ${cut ? cut.trim() : where}`}
       </span>
-      {/* the exact words, as they would go: what your answer is bound to */}
+      {/* the exact words, as they would go: what your answer is bound to (a comment posts its body only) */}
       <div className="tri-text" role="region" aria-label={start ? 'The issue' : 'What would be posted'} tabIndex={0}>
-        <b>{c.title}</b>
+        {!comment && <b>{c.title}</b>}
         {c.body && <pre>{c.body}</pre>}
       </div>
       <div className="acts">
         <ActBtn acts={acts} id="no" busy="Saving…" run={say('no')}>{start ? 'No' : 'No, keep it private'}</ActBtn>
-        <ActBtn acts={acts} id="yes" kind="pri" busy={start ? 'Saving…' : 'Posting…'} run={say('yes')}>{start ? 'Yes, start a fix' : 'Yes, post it'}</ActBtn>
+        {!c.cut && <ActBtn acts={acts} id="yes" kind="pri" busy="Saving…" run={say('yes')}>{start ? 'Yes, start a fix' : 'Yes, post it'}</ActBtn>}
       </div>
       <ActError acts={acts} />
     </section>

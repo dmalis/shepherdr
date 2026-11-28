@@ -462,10 +462,10 @@ def brief(folder, repo, d=None):
 
 
 def checkout_space(folder, space=None):
-    """The space the repo's Triage schedule runs in: the one named (--space, the service's pick), else the checkout's
+    """The space the repo's Triage schedule runs in: the one named (--space), else the checkout's
     own (launch.space_for_folder: the one space in it), else the space whose folder is closest around it (the deepest:
     a repo's space wins over Everything's home folder, which holds every repo; of several equally close, the first by
-    id, as the service picks: service/triage.ts spaceFor), else the caller's. None at all: Fail, saying what to do,
+    id), else the caller's. The page, the service and a plain terminal all pick it here. None at all: Fail, saying what to do,
     never "Which space?" with no way to answer from the app."""
     from .launch import _inside, core_spaces, default_space, space_for_folder
     if space:

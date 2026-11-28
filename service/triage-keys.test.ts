@@ -2,7 +2,7 @@
 // Reset back to Everywhere's, and only this machine's repos. Made-up folders only.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { setTriage, TRIAGE_DEFAULTS, triageConfig, triageOf, triageValue } from "./triage-keys.ts";
+import { setTriage, TRIAGE_DEFAULTS, triageConfig, triageOf, triageRead, triageValue } from "./triage-keys.ts";
 
 test("each key takes only what herdr-task takes", () => {
   expect(triageValue("level", "score")).toBe("score");
@@ -39,6 +39,16 @@ test("saving: the level only for one repo, only this machine's, and Reset takes 
   expect(() => setTriage(next, "repo:/r", "triage.rules", [])).toThrow();
   expect(() => setTriage(next, "sp1", "triage.fix_from", 4)).toThrow();
   expect(next.repos["/r"].triage).toEqual({ level: "score" });
+});
+
+test("a value already in the file is read as herdr-task reads it (value_of), so the page shows what Triage does", () => {
+  const f = { everywhere: { triage: { ask_merge: "off", fixes_per_day: "5" } }, repos: { "/r": { triage: { level: " Score ", fix_from: "3", ask_merge: "maybe" } } } };
+  expect(triageOf(f, "/r")).toEqual({ level: "score", fix_from: 3, fixes_per_day: 5, ask_merge: false, own: ["level", "fix_from"] });
+  expect(triageRead("fixes_per_day", "11")).toBeUndefined();
+  expect(triageRead("fix_from", true)).toBeUndefined();
+  expect(triageRead("ask_merge", 1)).toBeUndefined(); // herdr-task: a number isn't on or off
+  // the page still saves only strict values
+  expect(() => triageValue("ask_merge", "off")).toThrow();
 });
 
 test("Everywhere's defaults: Off, fix from 4, 3 a day, and Ask me before merging on, the same as herdr-task's", () => {

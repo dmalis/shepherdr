@@ -36,7 +36,7 @@ import { ensureShell, type ShellAt } from "./shells.ts";
 import { Chats } from "./chats.ts";
 import { act, findMachines, hc as hcRun } from "./actions.ts";
 import { feedback } from "./feedback.ts";
-import { answerCard, followLevel, spaceFor, TriageView, triageRun } from "./triage.ts";
+import { answerCard, followLevel, TriageView, triageRun, triageWhy } from "./triage.ts";
 import { analyticsAction, howOf, noteVersion, record as note } from "./analytics.ts";
 import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
@@ -536,7 +536,7 @@ const withTriage = (snap: Snapshot): Snapshot => {
   return pluginOn("triage") && triageView.last ? { ...snap, triage: triageView.last } : snap;
 };
 setInterval(() => void triageView.read(), 120_000);
-const triageSpaces = () => (model.spaces as any[]).map((x) => ({ id: String(x.id), folder: x.folder, machine: x.machine ?? null, repo: spaceRepo(x) }));
+const triageOn = (folder: string) => triageWhy(folder, JSON.parse(triageFolders), triageView.last);
 const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withTriage(withNext(compat.snapshot({
   host: me?.host ?? "this machine", user: me?.name ?? "You", spaces: b.spaces, sections: b.sections, rows: b.rows, artifacts: artifacts.list, automations: b.automations,
   settings: [...settings.sections(webNow ?? ownLink(), b.spaces.map((s: any) => ({ id: s.id, name: s.name, machine: s.machine ?? null, repo: spaceRepo(s) })), b.machines, me?.host ?? "this machine"),
@@ -793,13 +793,20 @@ async function doAction(body: any): Promise<Response> {
       const place = typeof body.place === "string" ? body.place : "all";
       // a repo's (SHEP-335): a space sitting on it goes along, for what a file not moved yet still keeps there
       const sp = place === "all" ? null : (model.spaces as any[]).find((x) => (place.startsWith("repo:") ? spaceRepo(x) === place.slice(5) : x.id === place));
+      // Triage switched on only on a checkout of the repo it files in, as its view knows it: nothing saved (nor the old
+      // posting fenced off) for a plain folder or another repo
+      if (body.key === "triage.level" && place.startsWith("repo:") && body.value != null && body.value !== "off") {
+        const why = triageOn(place.slice(5));
+        if (why) return json({ ok: false, error: why });
+      }
       setConfig(place, body.key, body.value ?? null, sp ? { id: sp.id, name: sp.name, machine: sp.machine ?? null, folder: sp.folder ?? null, repo: spaceRepo(sp) } : null);
       note("settings.changed", { key: body.key, space: place === "all" ? undefined : place });
       model.rebuild();
+      if (body.key === "plugin.triage") void triageView.read(); // on: read now; off: its view and cards gone
       // Settings › Triage (fork #235): a repo's level saved, its schedule follows (made when missing, paused at Off)
       if (body.key === "triage.level" && place.startsWith("repo:")) {
         const folder = place.slice(5);
-        const done = await followLevel(folder, spaceFor(folder, triageSpaces()));
+        const done = await followLevel(folder);
         await triageView.read();
         if (!done.ok) return json({ ok: false, error: done.error });
       }
@@ -818,7 +825,9 @@ async function doAction(body: any): Promise<Response> {
         return json(out);
       }
       if (body.do === "schedule" && typeof body.folder === "string") {
-        const done = await followLevel(body.folder, spaceFor(body.folder, triageSpaces()));
+        const why = triageOn(body.folder);
+        if (why) return json({ ok: false, error: why });
+        const done = await followLevel(body.folder);
         await triageView.read();
         return json(done.ok ? { ok: true } : { ok: false, error: (done.error ?? "").replace(/^Saved, but its/, "Its") });
       }
@@ -863,6 +872,8 @@ async function doAction(body: any): Promise<Response> {
       if (body.op === "run") await tool(["run-now", at.id]);
       else if (body.op === "pause") await tool(["pause", at.id]);
       else if (body.op === "resume") await tool(["resume", at.id]);
+      // Settings › Triage shows the same Pause: read its view again (the snapshot keeps it, fork #235)
+      if (body.op === "pause" || body.op === "resume") void triageView.read();
       else if (body.op === "edit") {
         const agentArgs = body.agent ? scheduleAgentArgs(body.agent) : [];
         if (agentArgs.length && !body.when && !body.what && !body.to) {

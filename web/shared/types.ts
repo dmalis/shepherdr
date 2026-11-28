@@ -1566,13 +1566,17 @@ export interface TriageCard {
   key?: string
   copy?: boolean
   rev?: number
-  /** an outside issue's number */
+  /** an outside issue's number; a draft's: the issue its comment goes on */
   issue?: number
+  /** a draft's: a new issue (create) or a comment on `issue` */
+  action?: 'create' | 'comment'
   /** owner/name on GitHub */
   repo: string
   title: string
   body: string
   hash: string
+  /** the text was too long to carry here whole (its hash isn't what the card shows): No only */
+  cut?: boolean
   at: number
   /** why a draft waits: machine, written (by an agent, by hand), unknown (where its words came from), space (another
    *  space's words), private (the check found something) */

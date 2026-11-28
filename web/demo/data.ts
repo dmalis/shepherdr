@@ -338,7 +338,7 @@ export const triageView: TriageView = {
     '/Users/sam/notes': { repo: null, stopped: null, schedule: null },
   },
   cards: [
-    { id: 'draft:f:t1c2', kind: 'draft', key: 't1c2', copy: false, rev: 2, repo: TRI_REPO, at: NOW - 35 * min, why: 'space', hash: 'a'.repeat(64),
+    { id: 'draft:f:t1c2', kind: 'draft', key: 't1c2', copy: false, rev: 2, repo: TRI_REPO, action: 'create', at: NOW - 35 * min, why: 'space', hash: 'a'.repeat(64),
       title: 'The cart badge keeps the old count after an item is removed',
       body: '## What happened\n\nRemoving an item from the cart leaves the badge in the header at the old count until the page is reloaded.\n\n## Expected\n\nThe badge shows the new count at once.\n\n## Suggested fix\n\nUpdate the badge from the cart’s own change event, not only on page load.' },
     { id: 'start:41', kind: 'start', issue: 41, repo: TRI_REPO, at: NOW - 12 * min, hash: 'b'.repeat(64),

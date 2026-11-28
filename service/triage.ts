@@ -21,6 +21,8 @@ const UPSTREAM = "eliasstravik/shepherdr";
 const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const KEY = /^[0-9A-Za-z_-]{1,80}$/;
 const YES_KEPT = 200;
+/** GitHub's own limits on an issue's title and body: a card carries its text whole up to them */
+const TITLE_MAX = 300, BODY_MAX = 65_536;
 export const PUBLISH_EVERY = 10 * 60_000;
 
 const store = () => process.env.HERDR_TASK_STORE || where().tasks;
@@ -76,10 +78,21 @@ export function yesHash(target: any, title: unknown, body: unknown): string {
 
 /** a draft as it is stored now: this machine's finding (.feedback.json), or Triage's copy of another machine's
  *  (.triage.json copies, keyed "<machine>:<id>") */
-function draftOf(dir: string, key: string, copy: boolean): any {
+function rowOf(dir: string, key: string, copy: boolean): any {
   const rows = copy ? readJson(join(dir, ".triage.json"))?.copies : readJson(join(dir, ".feedback.json"))?.problems;
   const p = rows && typeof rows === "object" ? rows[key] : null;
-  return p && typeof p === "object" && p.draft && typeof p.draft === "object" ? p.draft : null;
+  return p && typeof p === "object" ? p : null;
+}
+function draftOf(dir: string, key: string, copy: boolean): any {
+  const p = rowOf(dir, key, copy);
+  return p?.draft && typeof p.draft === "object" ? p.draft : null;
+}
+
+/** whether an answer row still speaks for its card: its draft is there at that revision (a start: its ask is there).
+ *  Others are retired, and go first when the file is trimmed, so an answer in force (a No above all) stays. */
+function inForce(dir: string, y: any): boolean {
+  if (y.kind === "start") return !!readJson(join(dir, ".triage.json"))?.repos?.[String(y.repo ?? "").toLowerCase()]?.asks?.[String(y.issue)];
+  return draftOf(dir, String(y.key ?? ""), String(y.key ?? "").includes(":"))?.rev === y.rev;
 }
 
 /** one answer row in the app's file, in place of that card's earlier one: owner-only, whole and atomic */
@@ -87,7 +100,13 @@ function keepRow(dir: string, row: Record<string, unknown>, same: (y: any) => bo
   const path = join(dir, ".triage-yes.json");
   const old = readJson(path);
   const rows: any[] = Array.isArray(old?.yes) ? old.yes.filter((y: any) => y && typeof y === "object") : [];
-  const next = [...rows.filter((y) => !same(y)), row].slice(-YES_KEPT);
+  let next = [...rows.filter((y) => !same(y)), row];
+  if (next.length > YES_KEPT) {
+    const live = next.filter((y) => y === row || inForce(dir, y));
+    const room = Math.max(0, YES_KEPT - live.length);
+    next = [...(room ? next.filter((y) => !live.includes(y)).slice(-room) : []), ...live].slice(-YES_KEPT);
+    next.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+  }
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ yes: next }), { mode: 0o600 });
   chmodSync(tmp, 0o600);
@@ -113,6 +132,14 @@ export function keepYes(key: string, rev: number, dir = store(), settings: any =
 
 const COPY_KEY = /^[\w.-]{1,80}:[0-9A-Za-z_-]{1,80}$/;
 export const CHANGED = "The text changed since you read it: read it again.";
+const ANSWERED: Record<string, string> = { yes: "You already said Yes to this text, on another screen.", no: "You already said No to this text, on another screen: it stays private." };
+
+/** the answer already kept for a card's exact text (the newest such row), or null */
+function said(dir: string, match: (y: any) => boolean): "yes" | "no" | null {
+  const all = readJson(join(dir, ".triage-yes.json"))?.yes;
+  const y = (Array.isArray(all) ? all : []).filter((y: any) => y && typeof y === "object" && match(y)).pop();
+  return y ? ((y.answer ?? "yes") === "no" ? "no" : "yes") : null;
+}
 
 /** One card's answer, as the person tapped it on the exact text the card showed (its hash): a held draft (post it, or
  *  keep it private) or an outside issue (start a fix, or not). The text is read again here and hashed as herdr-task
@@ -126,10 +153,19 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
   if (b.kind === "draft") {
     const copy = b.copy === true;
     const key = typeof b.key === "string" && (copy ? COPY_KEY : KEY).test(b.key) ? b.key : null;
-    const dr = key ? draftOf(dir, key, copy) : null;
+    const p = key ? rowOf(dir, key, copy) : null;
+    const dr = p?.draft && typeof p.draft === "object" ? p.draft : null;
     if (!key || !dr) return { ok: false, error: "That finding isn't here any more." };
+    // only a finding that still waits (herdr-task's eligible): not posted or filed, not decided, its copy not done there
+    const post = p.post && typeof p.post === "object" ? p.post : {};
+    if (p.there_done || p.joined || ["filed", "declined"].includes(p.state) || ["posted", "posting", "unsure"].includes(post.state) || ["declined", "following"].includes(p.decision))
+      return { ok: false, error: "That finding doesn't wait for you any more." };
     if (String(dr.target?.repo ?? "").toLowerCase() !== repo.toLowerCase()) return { ok: false, error: "Where it goes changed in Settings: nothing was kept." };
     if (dr.rev !== b.rev || yesHash(dr.target, dr.title, shown(dr.body)) !== b.hash) return { ok: false, error: CHANGED, changed: true };
+    // a card is answered once for its text: the same answer again (another device) changes nothing; the other one,
+    // from a card left open elsewhere, doesn't overturn it (a Not now or Never since takes the earlier one back)
+    const was = said(dir, (y) => y.kind === "draft" && y.key === key && y.rev === dr.rev && y.hash === b.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0));
+    if (was) return was === answer ? { ok: true } : { ok: false, error: ANSWERED[was] };
     keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
     return { ok: true };
   }
@@ -138,7 +174,10 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
     const ask = issue ? readJson(join(dir, ".triage.json"))?.repos?.[repo.toLowerCase()]?.asks?.[String(issue)] : null;
     if (!issue || !ask || typeof ask !== "object") return { ok: false, error: "That issue doesn't wait for you any more." };
     if (yesHash({ repo, action: "start", issue }, ask.title, ask.body) !== b.hash) return { ok: false, error: CHANGED, changed: true };
-    keepRow(dir, { kind: "start", repo, issue, hash: b.hash, at, by: "app", answer }, (y) => y.kind === "start" && y.issue === issue && String(y.repo ?? "").toLowerCase() === repo.toLowerCase());
+    const same = (y: any) => y.kind === "start" && y.issue === issue && String(y.repo ?? "").toLowerCase() === repo.toLowerCase();
+    const was = said(dir, (y) => same(y) && y.hash === b.hash);
+    if (was) return was === answer ? { ok: true } : { ok: false, error: ANSWERED[was] };
+    keepRow(dir, { kind: "start", repo, issue, hash: b.hash, at, by: "app", answer }, same);
     return { ok: true };
   }
   return { ok: false, error: "That card isn't one Shepherdr knows." };
@@ -153,22 +192,33 @@ export class TriageView {
   changed: () => void = () => {};
   constructor(private run: Run = triageRun, private folders: () => string[] = () => [], private on = () => pluginOn("triage")) {}
 
+  private again = false;
+
+  /** a read now; one asked for while another runs (after a call that changed something) follows it, never lost */
   read(): Promise<void> {
-    if (this.reading) return this.reading;
-    this.reading = (async () => {
+    if (!this.on()) {
+      // off: nothing kept and nothing read, and no promise held (switched on again, the next call reads)
+      if (this.last !== null) { this.last = null; this.changed(); }
+      return Promise.resolve();
+    }
+    if (this.reading) { this.again = true; return this.reading; } // its loop reads once more before it settles
+    const go = async () => {
       const before = JSON.stringify(this.last);
       try {
-        if (!this.on()) { this.last = null; return; }
         const r = await this.run(["triage", "view", "--json", ...this.folders().flatMap((f) => ["--folder", f])]);
         let out: any = null;
         try { out = JSON.parse(r.stdout); } catch {}
-        if (r.code === 0 && out && typeof out === "object" && !out.error) this.last = viewOf(out);
+        if (!this.on()) this.last = null;
+        else if (r.code === 0 && out && typeof out === "object" && !out.error) this.last = viewOf(out);
       } finally {
-        this.reading = null;
         if (JSON.stringify(this.last) !== before) this.changed();
       }
-    })();
-    return this.reading;
+    };
+    const p = (async () => {
+      do { this.again = false; await go(); } while (this.again && this.on());
+    })().finally(() => { this.reading = null; });
+    this.reading = p;
+    return p;
   }
 }
 
@@ -178,14 +228,23 @@ const str = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : 
 /** herdr-task's view as the page gets it: only the fields it shows */
 export function viewOf(out: any): TriageViewOf {
   const cards: TriageViewOf["cards"] = [];
+  // the card's Yes is bound to what it shows: the words it carries must hash to the card's hash (else, cut, No only)
   for (const d of Array.isArray(out.drafts) ? out.drafts : []) {
     if (!d || typeof d.key !== "string" || typeof d.hash !== "string") continue;
-    cards.push({ id: `draft:${d.copy ? "c" : "f"}:${d.key}`, kind: "draft", key: d.key, copy: !!d.copy, rev: Number(d.rev) || 0, repo: str(d.target?.repo, 140), title: str(d.title, 300), body: str(d.body, 20_000), hash: d.hash, at: Number(d.at) || 0,
+    const t = d.target && typeof d.target === "object" ? d.target : {};
+    const action = t.action === "comment" ? "comment" : "create";
+    const issue = action === "comment" && Number.isInteger(t.issue) && t.issue > 0 ? t.issue : undefined;
+    if (action === "comment" && !issue) continue; // a comment with nowhere to go: never asked
+    const title = str(d.title, TITLE_MAX), body = str(d.body, BODY_MAX);
+    cards.push({ id: `draft:${d.copy ? "c" : "f"}:${d.key}`, kind: "draft", key: d.key, copy: !!d.copy, rev: Number(d.rev) || 0, repo: str(t.repo, 140), action, ...(issue ? { issue } : {}),
+      title, body, hash: d.hash, ...(yesHash(t, title, body) === d.hash ? {} : { cut: true }), at: Number(d.at) || 0,
       why: str(d.why, 20) || "unknown", ...(Array.isArray(d.found) && d.found.length ? { found: d.found.slice(0, 6).map((x: unknown) => str(x, 80)) } : {}) });
   }
   for (const s of Array.isArray(out.starts) ? out.starts : []) {
     if (!s || !Number.isInteger(s.issue) || typeof s.hash !== "string") continue;
-    cards.push({ id: `start:${s.issue}`, kind: "start", issue: s.issue, repo: str(out.files, 140), title: str(s.title, 300), body: str(s.body, 20_000), hash: s.hash, at: Number(s.at) || 0 });
+    const repo = str(out.files, 140), title = str(s.title, TITLE_MAX), body = str(s.body, BODY_MAX);
+    cards.push({ id: `start:${s.issue}`, kind: "start", issue: s.issue, repo, title, body, hash: s.hash,
+      ...(yesHash({ repo, action: "start", issue: s.issue }, title, body) === s.hash ? {} : { cut: true }), at: Number(s.at) || 0 });
   }
   const repos: TriageViewOf["repos"] = {};
   for (const r of Array.isArray(out.repos) ? out.repos : []) {
@@ -197,18 +256,25 @@ export function viewOf(out: any): TriageViewOf {
   return { destination: typeof out.destination === "string" ? out.destination : null, files: typeof out.files === "string" ? out.files : null, repos, cards: cards.sort((a, b) => a.at - b.at) };
 }
 
-/** the space a repo's Triage schedule runs in, as the service picks it for `triage schedule --space`: of the spaces on
- *  it, one whose folder is the checkout itself, else the first (by id); none: herdr-task finds it (checkout_space) */
-export function spaceFor(folder: string, spaces: { id: string; folder?: string; machine?: string | null; repo?: string | null }[]): string | null {
-  const on = spaces.filter((s) => !s.machine && (s.repo === folder || s.folder === folder)).sort((a, b) => a.id.localeCompare(b.id));
-  return (on.find((s) => s.folder === folder) ?? on[0])?.id ?? null;
+/** why Triage can't be switched on (or its schedule made) for this folder, or null: it must be one of this machine's
+ *  repos the page lists, read by Triage's view, a checkout of the repo findings go to. Checked before anything is
+ *  saved, so a plain folder or another repo never gets a level (which would fence off the old posting for nothing). */
+export function triageWhy(folder: string, folders: string[], view: TriageViewOf | null): string | null {
+  if (!folder.startsWith("/") || !folders.includes(folder)) return "Triage works only on this machine's repos for now.";
+  const r = view?.repos[folder];
+  if (!view || !r) return "Triage is still reading this repo: try again in a moment.";
+  if (!view.destination) return "Findings have nowhere to go yet: set agents.feedback_repo in the settings file.";
+  if (!r.repo) return "This folder has no GitHub remote (origin): Triage works on a GitHub repo.";
+  if (r.repo.toLowerCase() !== view.destination.toLowerCase()) return `Triage files and scores only in ${view.destination} for now, and this repo isn’t it.`;
+  return null;
 }
 
 /** the repo's schedule made to follow its level (`herdr-task triage schedule`): after the person saves the level, and
- *  from the page's Make it when a save couldn't make it. -> {ok} or {ok: false, error} */
-export async function followLevel(folder: string, space: string | null, run: Run = triageRun): Promise<{ ok: boolean; error?: string }> {
+ *  from the page's Make it when a save couldn't make it. Its space is herdr-task's pick (triage.checkout_space), the
+ *  same as a plain terminal's. -> {ok} or {ok: false, error} */
+export async function followLevel(folder: string, run: Run = triageRun): Promise<{ ok: boolean; error?: string }> {
   if (!folder.startsWith("/")) return { ok: false, error: "Triage works only on this machine's repos for now." };
-  const r = await run(["triage", "schedule", "--folder", folder, ...(space ? ["--space", space] : []), "--json"]);
+  const r = await run(["triage", "schedule", "--folder", folder, "--json"]);
   let out: any = null;
   try { out = JSON.parse(r.stdout); } catch {}
   if (r.code !== 0 || !out || out.error) return { ok: false, error: `Saved, but its schedule wasn't made: ${(out?.error || r.stderr.trim().split("\n").pop() || "herdr-task didn't answer").replace(/^herdr-task: /, "")}` };

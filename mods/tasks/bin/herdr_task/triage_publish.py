@@ -360,13 +360,13 @@ def waiting_rows():
         return public.check(text, c.get("deny"), c.get("known"), c.get("redact"))
     for copy, rows in ((False, fbm.problems_read()), (True, (tri.record_read().get("copies") or {}))):
         for key, p in rows.items():
-            if not isinstance(p, dict) or not eligible(p) or p.get("joined"):
-                continue
+            if not isinstance(p, dict) or not eligible(p) or p.get("joined") or p.get("there_done"):
+                continue  # a copy whose finding is done on its own machine asks nothing any more
             dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
             if not dr or (pub and str(dr["target"].get("repo") or "").lower() != pub["repo"].lower()):
                 continue
-            if pub and tri.yes_for(key, p, pub["repo"], "no"):
-                continue  # the person said No to this very text: kept private
+            if pub and (tri.yes_for(key, p, pub["repo"], "no") or tri.yes_for(key, p, pub["repo"])):
+                continue  # answered for this very text: No keeps it private, Yes waits only for the publisher's pace
             if dr.get("by") == "triage" and not copy and pub and own_space(p, pub["space"]) and posts_by_itself(p, dr):
                 continue  # posts by itself: not waiting (one its privacy check holds back waits for the yes)
             body = fpost.shown(dr["body"])

@@ -30,7 +30,23 @@ export function triageValue(key: string, v: unknown): TriageKeys[keyof TriageKey
   throw new Error("That setting can't be changed here.");
 }
 
-const checks = (key: string, v: unknown) => { try { triageValue(key, v); return true; } catch { return false; } };
+/** a value already in the settings file, read as herdr-task reads it (value_of: "Score", "4", "off" for ask_merge...),
+ *  so the page shows what Triage does; undefined: it doesn't check (unset). The page itself saves only strict values. */
+export function triageRead(key: string, v: unknown): TriageKeys[keyof TriageKeys] | undefined {
+  const s = typeof v === "string" ? v.trim().toLowerCase() : v;
+  if (key === "level") return s === "off" || s === "score" ? s : undefined;
+  if (key === "fix_from" || key === "fixes_per_day") {
+    const n = typeof s === "number" ? s : typeof s === "string" && /^[+-]?\d+$/.test(s) ? Number(s) : NaN;
+    const [lo, hi] = key === "fix_from" ? [3, 5] : [1, 10];
+    return Number.isInteger(n) && n >= lo && n <= hi ? n : undefined;
+  }
+  if (key === "ask_merge") {
+    if (typeof v === "boolean") return v;
+    if (["on", "true", "yes", "1"].includes(s as string)) return true;
+    if (["off", "false", "no", "0"].includes(s as string)) return false;
+  }
+  return undefined;
+}
 const layerOf = (x: any) => (x && typeof x === "object" && x.triage && typeof x.triage === "object" ? x.triage : {});
 
 /** One repo's keys (key: its settings.json "repos" key), and which of them it sets itself: herdr-task's keys() */
@@ -39,8 +55,9 @@ export function triageOf(f: any, key: string | null): TriageKeys & { own: string
   const every = layerOf(f?.everywhere);
   const out: any = { ...TRIAGE_DEFAULTS, own: [] as string[] };
   for (const k of TRIAGE_KEYS) {
-    if (k in own && checks(k, own[k])) { out[k] = own[k]; out.own.push(k); }
-    else if (k !== "level" && k in every && checks(k, every[k])) out[k] = every[k];
+    const mine = k in own ? triageRead(k, own[k]) : undefined, all = k !== "level" && k in every ? triageRead(k, every[k]) : undefined;
+    if (mine !== undefined) { out[k] = mine; out.own.push(k); }
+    else if (all !== undefined) out[k] = all;
   }
   return out;
 }

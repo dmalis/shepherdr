@@ -795,8 +795,8 @@ class YesCards(Triaged):
         key = self.hold_one()
         self.answer(key, "yes")
         self.report(caller=OTHER, fix="Show the quote above it, changed after the yes")
-        self.assertEqual([w["key"] for w in tpub.waiting_rows()], [key])
-        self.assertEqual((tpub.publish()["posted"], self.hub.writes()), (0, []))
+        self.assertEqual((tpub.publish()["posted"], self.hub.writes()), (0, []))  # the pass drafts the new text
+        self.assertEqual([w["key"] for w in tpub.waiting_rows()], [key])  # and it asks again
 
     def test_an_outside_issue_waits_for_the_apps_answer_on_its_text(self):
         with tri.record() as d:
@@ -828,6 +828,29 @@ class YesCards(Triaged):
         self.assertNotEqual(code, 0)
         self.assertIn("Settings › Triage", out)
         self.assertIn("outside Shepherdr", out)
+
+    def test_a_yes_waits_for_the_publishers_pace_with_no_card(self):
+        key = self.hold_one()
+        self.answer(key, "yes")
+        self.assertEqual(tpub.waiting_rows(), [])  # answered: not asked again while it waits to post
+
+    def test_a_copy_done_on_its_own_machine_asks_nothing(self):
+        self.hold_one()
+        with tri.record() as d:
+            d.setdefault("copies", {})["vm-b:b1"] = {"id": "vm-b:b1", "machine": "vm-b", "line": "From the other machine", "_copy": True,
+                                                    "there_done": True, "draft": {"rev": 1, "target": {"repo": REPO, "action": "create"},
+                                                                                  "title": "T", "body": "B", "at": 1}}
+        self.assertNotIn("vm-b:b1", [w["key"] for w in tpub.waiting_rows()])
+
+    def test_triage_set_is_never_sent_to_another_machine(self):
+        out = io.StringIO()
+        sent = mock.Mock(return_value=0)
+        with mock.patch.object(sys, "argv", ["herdr-task", "--on", "vm-b", "triage", "set", "level", "score", "--folder", "/r"]), \
+                mock.patch.object(cli, "remote", sent), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = cli.main()
+        self.assertEqual(code, 1)
+        sent.assert_not_called()
+        self.assertIn("on that machine itself", out.getvalue())
 
 
 class CheckoutSpace(Triaged):
