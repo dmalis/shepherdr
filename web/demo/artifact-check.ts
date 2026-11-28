@@ -187,16 +187,25 @@ async function bare(browser: Browser, base: string, look: Look, size: (typeof WI
   try {
     const el = page.locator('iframe.page').first()
     await el.waitFor()
-    // the page's word came: the app's own colour under it
-    await page.waitForFunction(() => { const f = document.querySelector('iframe.page'); return !!f && getComputedStyle(f).backgroundColor !== 'rgb(255, 255, 255)' })
     const frame = (await (await el.elementHandle())!.contentFrame())!
-    await frame.waitForLoadState('load')
-    // a moment on the page first, as a person reads before a tap: a word within a second of a load counts for it
-    await page.waitForTimeout(1500)
-    // a tap on a link to a file of the artifact, as a page offers its diagram or picture
+    // the viewer's look after a load (1.2s after it), done for its nth load: its own mark on the frame, never a guess
+    // of how long a load takes on this runner
+    const looked = (n: number, what: string) => page.waitForFunction((n) => Number(document.querySelector('iframe.page')?.getAttribute('data-looked')) >= n, n, { timeout: 10_000 })
+      .catch(() => { throw new Error(`the viewer never looked at ${what} within 10s`) })
+    // the artifact's own page: shown on the app's own colour, never the notice (on a busy runner the viewer once
+    // missed the page's word and took it for one that can't be shown)
+    await looked(1, 'the artifact\'s own page')
+    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown, on the artifact\'s own page before any tap'
+    const before = await el.evaluate((f) => getComputedStyle(f).backgroundColor)
+    if (before === 'rgb(255, 255, 255)') return `${before} on the artifact's own page before any tap, as if it had no link catcher`
+    const n = Number(await el.getAttribute('data-looked'))
+    // a tap on a link to a file of the artifact, as a page offers its diagram or picture. Its look comes 1.2s after
+    // the page's load, so the picture loads more than a second after the page's word, as the viewer needs to tell it
     await frame.evaluate(() => { const a = document.createElement('a'); a.href = 'pic1.jpg'; a.textContent = 'The picture'; document.body.append(a); a.click() })
-    await page.waitForSelector('iframe.page.bare')
-    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown'
+    // the picture in the frame, and the viewer's look after its load: the frame's white, or the notice
+    await frame.waitForURL(/\/pic1\.jpg$/, { timeout: 10_000 }).catch(() => { throw new Error('the frame never opened the picture within 10s') })
+    await looked(n + 1, 'the picture')
+    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown, on the picture'
     return await el.evaluate((f) => getComputedStyle(f).backgroundColor)
   } finally {
     await ctx.close()

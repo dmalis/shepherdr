@@ -2,7 +2,7 @@
 // Shepherdr keeps and serves it, in a frame that cannot reach the app itself. The pane lists them as picture tiles
 // (search, pinned ones on top); one opens in the pane as the real page it is, with its version, Mark up (the speech
 // bubble) and a menu. The same tile shows a page in a chat and a task's proof on its review card.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PaneFrame } from '@client/App.tsx'
 import { renameDialog } from '@client/list.tsx'
 import { backFromArtifact, definePlugin, getState, notice, openArtifact, openLink, setUI, togglePane, tryAct, useSnap, useUI } from '@client/kernel.ts'
@@ -172,6 +172,16 @@ export function onFrameSaid(d: unknown, here: string, open: (href: string) => vo
   return m.shepherdr === 'page' || m.shepherdr === 'inside' ? m.shepherdr : null
 }
 
+/** What the look after a frame's load finds, from when the page last said it is a page of the artifact (`said`), the
+ *  load (`at`) and the last tap to the artifact's own file (`tapped`, 0 for none): no word within a second of the load
+ *  is a document with no link catcher (bare), and with no tap to the artifact's own file, a page that can't be shown
+ *  here. A tap after this load sends the frame to the next one: on a slow device this look can come after that tap,
+ *  so the tap is kept for the next load's look (else a picture opened just then got "Couldn't show this page"). */
+export function lookAfter(said: number, at: number, tapped: number): { bare: boolean; lost: boolean; keep: boolean } {
+  const far = Math.abs(said - at) > 1000
+  return { bare: far, lost: far && !tapped, keep: tapped > at }
+}
+
 /** what the page says about a tap while marking up (its link catcher): where on the whole page, as fractions */
 export function spotOf(d: unknown): { x: number; y: number } | null {
   const m = d as { shepherdr?: unknown; x?: unknown; y?: unknown } | null
@@ -192,12 +202,16 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   // paints a canvas of its own in Safari, so it gets the white it was made for instead of the app's dark
   const [bare, setBare] = useState(false)
   // when the frame last said it shows a page of the artifact (its catcher says so as the page starts and on its load),
-  // whether a tap sent it to the artifact's own file, and the timer that looks after a load
+  // when a tap last sent it to the artifact's own file (0: none since), and the timer that looks after a load
   const said = useRef(0)
-  const inside = useRef(false)
+  const inside = useRef(0)
   const look = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // how many of the frame's loads that look has been done for (on the frame as data-looked): a check waits on it
+  // instead of guessing how long a load and its look take (web/demo/artifact-check.ts)
+  const loads = useRef(0)
+  const [looked, setLooked] = useState(0)
   useEffect(() => {
-    inside.current = false
+    inside.current = 0
     setLost(false)
     setBare(false)
     return () => { if (look.current) clearTimeout(look.current) }
@@ -207,14 +221,17 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   marking.current = markup
   const tell = () => frame.current?.contentWindow?.postMessage({ shepherdr: 'markup', on: marking.current }, '*')
   useEffect(tell, [markup])
-  // a page can send the person's answer back to its agent: parent.postMessage({ shepherdr: 'answer', text }, '*')
-  useEffect(() => {
+  // a page can send the person's answer back to its agent: parent.postMessage({ shepherdr: 'answer', text }, '*').
+  // Heard from the moment the frame is in the page (a layout effect, in the same step that puts it there): a passive
+  // effect can run after a quick page's words on a busy device, and a page whose word was missed got the notice that
+  // it can't be shown
+  useLayoutEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow) return
       const d = e.data as { shepherdr?: string; text?: unknown } | null
       const what = onFrameSaid(d, location.href, (href) => openLink(href, true), (href) => void window.open(href, '_blank', 'noopener,noreferrer'))
       if (what === 'page') { said.current = Date.now(); setLost(false); setBare(false); tell() }
-      else if (what === 'inside') inside.current = true
+      else if (what === 'inside') inside.current = Date.now()
       const spot = marking.current ? spotOf(d) : null
       if (spot) setPin(spot)
       if (d?.shepherdr !== 'answer' || typeof d.text !== 'string' || !d.text.trim()) return
@@ -228,16 +245,19 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   // artifact's own file, is a page that can't be shown here
   const loaded = () => {
     const at = Date.now()
+    const n = ++loads.current
     if (look.current) clearTimeout(look.current)
     look.current = setTimeout(() => {
-      setBare(Math.abs(said.current - at) > 1000)
-      setLost(Math.abs(said.current - at) > 1000 && !inside.current)
-      inside.current = false
+      const found = lookAfter(said.current, at, inside.current)
+      setBare(found.bare)
+      setLost(found.lost)
+      setLooked(n)
+      if (!found.keep) inside.current = 0
     }, 1200)
   }
   return (
     <div className="pagebox">
-      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className={cx('page', bare && 'bare')} title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" onLoad={loaded} />
+      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className={cx('page', bare && 'bare')} title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" data-looked={looked} onLoad={loaded} />
       {lost && (
         <div className="page-lost empty" role="status">
           <b>Couldn't show this page</b>
