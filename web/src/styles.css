@@ -122,11 +122,11 @@ button.quote{border:0;border-left:2px solid var(--line2);background:none;font:in
 /* The frame fills the whole panel (or the middle, expanded) and the page scrolls inside it to its end: the box around
    it (it holds the mark-up layer) takes the panel's height, and the frame takes the box's (SHEP-340) */
 .pagebox{position:relative;flex:1;display:flex;min-width:0;min-height:0}
-/* Under the page, the app's own page colour (Canvas in the app's scheme), never a fixed white: a page that says it can
+/* Under the page, the app's own page colour (--canvas: true black in Night), never a fixed white: a page that says it can
    be dark (color-scheme: light dark) and paints no background of its own is drawn see-through when the app is dark
    too, and its light words landed on white here. A page in the other scheme gets an opaque canvas of its own from the
    browser (CSS Color Adjust: an embedded document's color-scheme), so a light-only page stays white. */
-.page{display:block;flex:1;width:100%;min-height:320px;border:0;background:Canvas}
+.page{display:block;flex:1;width:100%;min-height:320px;border:0;background:var(--canvas)}
 .scroll:has(>.pagebox){padding:0;display:flex}
 /* a frame that ended on a page it can't show: a calm word over it, and the way back */
 .page-lost{position:absolute;inset:0;align-content:center;background:var(--canvas)}

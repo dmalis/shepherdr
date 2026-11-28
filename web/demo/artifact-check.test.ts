@@ -1,6 +1,6 @@
 // UI polish slice 19: web/demo/artifact-check.ts measures every demo artifact's words in its frame, in each look, on
 // every pull request. These pin what it relies on and what it guards: the frame under the page is the app's own page
-// colour (Canvas), never a fixed white, and the demo's pages still say they can be dark and paint no background of
+// colour (--canvas), never a fixed white, and the demo's pages still say they can be dark and paint no background of
 // their own, the case that showed light words on white. If one moves, the check could pass without measuring it.
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
@@ -11,9 +11,9 @@ const read = (p: string) => readFileSync(new URL(p, root), 'utf8')
 
 test('the frame under an artifact is the app’s own page colour, not a fixed white', () => {
   const rule = /^\.page\{[^}]*\}/m.exec(read('web/src/styles.css'))?.[0] ?? ''
-  expect(rule).toContain('background:Canvas')
+  expect(rule).toContain('background:var(--canvas)')
   expect(rule).not.toMatch(/background:(#fff|white)/)
-  // the app's themes set color-scheme on the root, so Canvas on the frame is the app's dark in Dark and Night
+  // the app's themes set color-scheme on the root: a dark page is see-through over the frame only when the app is dark too
   const ds = read('web/src/ds.css')
   expect(ds).toContain(':root[data-theme="dark"]{color-scheme:dark;')
   expect(ds).toContain(':root[data-theme="night"]{color-scheme:dark;')
