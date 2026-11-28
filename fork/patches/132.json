@@ -1,0 +1,12 @@
+{
+  "issue": 132,
+  "name": "UI: one design document, polished and fast",
+  "files": [
+    "docs/design.md",
+    "fork/specs/ui-polish.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "test/test_design.py"
+  ]
+}

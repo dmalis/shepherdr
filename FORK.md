@@ -219,6 +219,9 @@ author decides what goes into theirs.
     bug: fix it here like any other fix.
   - **All UI work uses the UI skills** (the Skill tool), within Shepherdr's own design system (`web/src/ds.css`) and
     these standard patterns. Every task brief that touches UI says so.
+    - **Read [docs/design.md](docs/design.md) first.** It is the one design document: tokens, sizes, surfaces,
+      colour roles, motion, writing, touch and the performance budgets. A change that breaks one of its rules updates
+      it in the same pull request, and `test/test_design.py`'s counts only go down.
     - Always `frontend-design:frontend-design`.
     - Plus every one that fits the change: `better-ui` (surfaces, radii, shadows, icon states), `better-layout`
       (grouping, responsive, phone), `better-typography`, `better-colors` (tokens, contrast in light, dark and
