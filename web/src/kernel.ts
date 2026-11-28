@@ -446,8 +446,13 @@ export const useChat = (key: string | null | undefined) => useStore((s) => (key 
 let drafts: Record<string, string> = draftParts('text')
 const draftListeners = new Set<() => void>()
 export const getDraft = (key: string): string => drafts[key] ?? ''
-export function setDraft(key: string, text: string) {
-  if ((drafts[key] ?? '') === text) return
+/** told of each edit of a box's words before it shows, with where the caret is after it when known (fork #186: a
+ *  folded paste keeps its place in the words, fold.ts) */
+export const draftEdits = new Set<(key: string, before: string, after: string, caret?: number) => void>()
+export function setDraft(key: string, text: string, caret?: number) {
+  const before = drafts[key] ?? ''
+  if (before === text) return
+  draftEdits.forEach((f) => f(key, before, text, caret))
   drafts = { ...drafts, [key]: text }
   if (!text) delete drafts[key]
   keepDraft(key, 'text', text || undefined)

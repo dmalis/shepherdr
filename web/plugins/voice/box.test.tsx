@@ -104,7 +104,8 @@ test('in a call the box takes no text: nothing is sent, and it goes read-only', 
 test('the round button and Enter send only what is in the box; a suggested reply is its own bubble, sent with a tap', () => {
   const go = chat.slice(chat.indexOf('const go = '), chat.indexOf('const sendSug = '))
   // the box's words and its folded long pastes, nothing else
-  expect(go).toContain('const t = joined(text, pastes.map((p) => p.text))')
+  // fork #186: each paste where it was pasted
+  expect(go).toContain('const t = joined(text, pastes)')
   expect(go).not.toMatch(/sug\.texts/)
   expect(chat).toContain('const filled = !!text.trim() || !!files?.length || !!pastes.length')
   // no greyed suggestion in the box, no Tab chip
@@ -120,8 +121,9 @@ test('the round button and Enter send only what is in the box; a suggested reply
   expect(tap).not.toMatch(/setText|text\b(?!\))/)
   expect(chat).toMatch(/className=\{going \? 'sug go' : 'sug'\}\s*onMouseDown=\{keepFocus\}/)
   const edit = chat.slice(chat.indexOf('const editSug = '), chat.indexOf('const filled'))
-  expect(edit).toContain('setText(t)')
-  expect(edit).toContain('box.focus()')
+  // fork #186: at the caret, the draft kept, as a reply to its message (edit-keeps.test.tsx)
+  expect(edit).toContain('holdSuggestion(key, t, bubbleQuote(chat, sug.id), ref.current, placed.current === key)')
+  expect(edit).not.toContain('setText(t)')
 })
 
 test('the bubbles stay while typing; they hide in a call, while dictating, while the agent replies and while a send is on its way', () => {
@@ -134,7 +136,7 @@ test('the bubbles stay while typing; they hide in a call, while dictating, while
   // what is in the box never hides them
   expect(hidden).not.toMatch(/\btext\b|files/)
   // above the box, not in it; the chat keeps its bottom in view when they come
-  expect(chat).toMatch(/\{sug && <Replies texts=\{sug\.texts\} onSend=\{sendSug\} onEdit=\{editSug\} \/>\}\s*<div\s+className="cbox"/)
+  expect(chat).toMatch(/\{sug && <Replies texts=\{sug\.texts\} onSend=\{sendSug\} onEdit=\{editSug\} \/>\}\s*<div\s+ref=\{cbox\}\s+className=\{cx\('cbox'/)
   expect(chat).toMatch(/\bkeepAtEnd\(sc, box, \(\) => stuck\.current\b/)
 })
 

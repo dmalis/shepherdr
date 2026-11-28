@@ -9,7 +9,8 @@
 
 /** a file in a message box: `lost` when its bytes didn't come back after a reload */
 export type DraftFile = { name: string; path?: string; id?: string; failed?: string; lost?: boolean }
-export type DraftPaste = { id: string; text: string }
+/** `at`: where in the words it was pasted (fork #186); none: after them */
+export type DraftPaste = { id: string; text: string; at?: number }
 export type DraftReply = { id: string; text: string; who?: string; task?: string }
 /** what each # and @ picked points at: kept as mentions.tsx made them */
 export type DraftPicks = { spaces?: unknown[]; tasks?: unknown[] }
