@@ -15,6 +15,7 @@ import type { Host } from "./host.ts";
 import { HOME, appHome, where, writable } from "./paths.ts";
 import { spawn } from "./spawn.ts";
 import { feedback } from "./feedback.ts";
+import { Publisher, triageRun } from "./triage.ts";
 
 const asksDir = () => join(appHome(), "data", "chat-asks", "open");
 
@@ -75,6 +76,13 @@ export class Jobs {
     const track = () => void feedback.track().catch(() => {});
     setTimeout(track, 60_000);
     setInterval(track, 3_600_000);
+    // Triage's publisher (#235): on the serving machine only, every 10 minutes while its plugin is on, and soon after the
+    // person's yes; the other machines' findings as the Feedback page read them
+    const publisher = new Publisher(triageRun, () => Object.fromEntries([...feedback.there.lists].filter(([, l]) => l.rows.length).map(([m, l]) => [m, l.rows])));
+    const publish = (soon = false) => { if (!this.host || this.host.serving()) void publisher.tick(Date.now(), soon).catch(() => {}); };
+    feedback.yesKept = () => publish(true);
+    setTimeout(() => publish(), 90_000);
+    setInterval(() => publish(), 60_000);
   }
 
   private async tick(change = false) {

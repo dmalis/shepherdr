@@ -241,6 +241,16 @@ def settle(j, kind, said, report):
         s.dirty = True
         whys = [tuple(w) for w in seen]
         why, brief = joined(whys)
+        # Triage's schedule (#235): a failed check alerts once and starts no run, its first failure too; a pause, the
+        # plugin or the level switched off meanwhile starts none either
+        from .triage import check_failed_alert, fire_refusal
+        triage_said = fire_refusal(s, a) if isinstance(a.get("triage"), dict) else None
+        if triage_said:
+            a["runs"] = (a.get("runs") or [])[-(RUNS_KEPT - 1):] + [{"at": now(), "why": why, "nothing": "triage", "said": triage_said}]
+            return
+        if kind == "failed" and isinstance(a.get("triage"), dict) and not a.get("check_failing"):
+            a["check_failing"] = {"since": now(), "message": said}
+            check_failed_alert(a, said)
         if kind == "nothing" or (kind == "failed" and a.get("check_failing")):
             rec = {"at": now(), "why": why}
             if kind == "nothing":

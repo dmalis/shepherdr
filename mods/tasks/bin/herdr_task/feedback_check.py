@@ -104,6 +104,9 @@ def shape(args):
             raise Fail("No problem with that key is kept here.")
         if not feedback_on(p.get("space")):
             return {"key": args.key, "shaped": False, "why": "off"}, "Feedback offers are off in its space: nothing kept, nothing checked."
+        if fix:  # where the fix came from (Triage's provenance, #235): the shaping agent's space
+            from .launch import caller_space
+            p = fbm.sourced(p, caller_space(), "fix")
         ps[args.key] = {**p, **({"fix": fix} if fix else {}), **({"search": search} if search else {}),
                         **({"kind": args.kind} if getattr(args, "kind", None) else {})}
         has_search = bool(ps[args.key].get("search"))

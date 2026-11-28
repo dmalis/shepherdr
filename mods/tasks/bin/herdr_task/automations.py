@@ -582,6 +582,11 @@ def fire(s, a, why, brief=None):
     """Adds the automation's task again and starts it (or queues it, as start would). Returns the
     task. A start that fails is the automation's last error, and the task needs the person.
     brief: what set it off (event_brief), added under its prompt."""
+    if isinstance(a.get("triage"), dict):  # Triage's Pause, its plugin and its level hold for Run now too (#235)
+        from .triage import fire_refusal
+        no = fire_refusal(s, a)
+        if no:
+            raise Fail(no)
     prompt = a.get("prompt") or ""
     if brief:
         prompt = f"{prompt.rstrip()}\n\n{brief}" if prompt.strip() else brief

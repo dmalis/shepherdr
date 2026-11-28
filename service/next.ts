@@ -24,6 +24,7 @@ export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault
   { id: "files", name: "Files", offByDefault: true },
   { id: "diff", name: "Diff viewer", offByDefault: true },
   { id: "feedback", name: "Feedback" },
+  { id: "triage", name: "Triage" },
 ];
 
 function file(): any { try { return readSettings(); } catch { return {}; } }

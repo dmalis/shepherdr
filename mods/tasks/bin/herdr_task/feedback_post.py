@@ -349,6 +349,10 @@ def posting_call(args, assistant):
 def file_or_draft(args, key, line, d, agent, space=None):
     """--file: with --rev, the approved draft posted once; without, the draft written (nothing posted), with any open
     issue like it named (advisory: the person decides). -> (data, words)"""
+    from .triage import FENCED, fenced
+    if fenced(feedback_repo(d)):  # Triage is that repo's only publisher (#235, turning it on, step 2)
+        return ({"key": key, "kept": False, "filed": False, "why": "triage"},
+                f"{FENCED}: nothing drafted or posted here. The person's yes is on the Feedback page; Triage posts it. Carry on.")
     if getattr(args, "rev", None) is not None:
         if getattr(args, "dry_run", False):
             raise Fail("--dry-run shows a draft without keeping it; it never goes with --rev, which posts. Nothing posted.")

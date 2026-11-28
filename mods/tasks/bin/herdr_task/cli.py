@@ -532,6 +532,8 @@ def main():
     c.set_defaults(fn=cmd_flags)
     auto_cmd("rm", "remove it")
     auto_cmd("run-now", "add and start its task now")
+    from .triage import add_parser as triage_parser
+    triage_parser(sub)
     ma = sub.add_parser("machines", help="other machines: keep the task tools in step there (sync), and what each machine reaches (reach)").add_subparsers(dest="machines")
     c = ma.add_parser("sync", help="install or update herdr-task, its helpers and the role templates on every connected machine (current ones are skipped)")
     c.add_argument("machine", nargs="*", help="only these machines (default: every connected one)")
