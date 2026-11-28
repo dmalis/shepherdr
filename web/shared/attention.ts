@@ -146,7 +146,7 @@ function noShepherdr(snap: AttentionSnap, place: string): boolean {
   return p.shepherdr === 'stopped' || p.shepherdr === 'none'
 }
 
-const byAge = (a: Action, b: Action) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+export const byAge = (a: Action, b: Action) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 /**
  * Every open action, from the snapshot's facts, at `now` (alerts age by it). Pure: the service works it out once per
@@ -166,10 +166,14 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   // a step only the person's hands can do, on a task's screen (its browser or desktop): its card is that step's
   const hands = new Map<string, string>()
   for (const t of snap.tasks) { const h = snap.screens?.[`task:${t.id}`]?.hands; if (h && !h.settled && open(t)) hands.set(t.id, h.what) }
+  // the need the service makes of that step (service/next.ts enrich): the same one action, its alert kept
+  const handsNeed = new Map<string, Need>()
+  for (const n of needs) if (n.hands && n.task && hands.has(n.task) && !handsNeed.has(n.task)) handsNeed.set(n.task, n)
   for (const [id, what] of hands) {
     const t = tasks.get(id)!
     const stale = staleOf(snap, t.on)
-    add({ id: `hands:${id}`, owner: 'you', kind: 'prompt', what, since: t.needsAt ?? t.at ?? 0, place: t.place, task: id, chat: t.agent?.chat ?? `${id}/worker`, card: `hands:${id}`, ...(stale ? { stale } : {}) })
+    const n = handsNeed.get(id)
+    add({ id: `hands:${id}`, owner: 'you', kind: 'prompt', what, since: t.needsAt ?? t.at ?? 0, place: t.place, task: id, chat: t.agent?.chat ?? `${id}/worker`, card: `hands:${id}`, ...(n ? { need: n } : {}), ...(stale ? { stale } : {}) })
     theirs.add(id)
   }
 
@@ -179,8 +183,9 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
     // its task done or archived: over (one the snapshot doesn't list still waits, as its source says)
     if (t && !open(t)) continue
     if (n.assistantFirst) { if (t && !inferred.has(t.id)) inferred.set(t.id, n); continue }
-    // its agent waiting with no card of its own, while its screen asks for the person's hands: that one wait, once
-    if (n.id === 'attention' && t && hands.has(t.id)) continue
+    // its agent waiting with no card of its own, or the need made of the step, while its screen asks for the person's
+    // hands: that one wait, once
+    if ((n.id === 'attention' || n.hands) && t && hands.has(t.id)) continue
     const queued = !!n.question?.queued
     const place = t?.place ?? n.place
     add({ id: needId(n), owner: 'you', kind: queued ? 'question' : 'prompt', what: needWhat(n), since: n.at, place, ...(t ? { task: t.id } : {}), chat: n.chat,
@@ -259,7 +264,11 @@ export function leadOf(att: Attention, task: string): Action | undefined {
 /** the snapshot with its projection, and each task with its lead action (`task.action`): the service's snapshot as it
  *  is sent, and the demo's */
 export function withAttention<S extends AttentionSnap>(snap: S, now = Date.now()): S & { attention: Attention } {
-  const attention = projectAttention({ ...snap, attention: undefined }, now)
+  return withActions(snap, projectAttention({ ...snap, attention: undefined }, now))
+}
+
+/** the snapshot with these actions, each task with its lead one (the service adds a machine's kept ones first) */
+export function withActions<S extends AttentionSnap>(snap: S, attention: Attention): S & { attention: Attention } {
   const tasks = snap.tasks.map((t) => {
     const a = leadOf(attention, t.id)
     const { action: _old, ...rest } = t

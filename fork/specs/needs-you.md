@@ -90,5 +90,8 @@ Herdr's news to an Assistant: `waiting` for an inferred wait (with its reason an
 - Owner you: typed prompts and cards, a step for the person's hands, Ready for review, a standing hand-up (`herdr-task alert --task`), a space's own Shepherdr asking, and a Shepherdr wait in a space where no Shepherdr chat runs (read fresh: stopped, or none started). A task under Needs you that says nothing of whose it is stays the person's, as before.
 - Owner Shepherdr: herdr-task's inferred waits (`assistantFirst`) and error or limit stops. Quiet: "With Shepherdr · …" on the row, header and stop card, under Working; never counted or pushed.
 - Paused (stopped by the person) has no owner: under Working, never counted.
-- A machine that can't be read keeps its rows, labelled "Can't check <machine> right now", and its actions send nothing new.
+- A machine that can't be read keeps its rows and actions as last read (`service/model.ts` keeps its rows, `service/attention.ts` its actions), labelled "Can't check <machine> right now". They send nothing new. When it is read again, an alert first seen while it was away goes out once; one already sent does not go again.
+- Voice calls say only the person's fresh actions (`service/voice-hear.ts`).
+- Left for part 6a: ids keyed by the source core's identity. Today, moving the serving role to another machine renames that machine's chat and task ids, so its open actions look new once.
+- Left for later: a folded machine header sums its spaces' counts, so a task shared by two of its spaces through `also` counts twice there.
 - Not in part 5: the Ask me after deadline. An inferred wait hands up only by an explicit alert or no Shepherdr running, until parts 6a and 6b persist first-seen times and add the deadline.

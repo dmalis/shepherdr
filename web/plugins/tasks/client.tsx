@@ -683,7 +683,8 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
               {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
-            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
+            {/* its hand-up's words when that is what its row leads with (another of its actions has a row of its own below) */}
+            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
             {o && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
               label={a.what} sub={task.name} onClick={() => { openTask(task.id); if (a.card) setUI({ jump: a.card }) }} />)}
             {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}

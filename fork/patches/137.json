@@ -19,6 +19,8 @@
     "service/push.ts",
     "service/glance.ts",
     "service/voice-tools.ts",
+    "service/voice-hear.ts",
+    "service/model.ts",
     "docs/glance.md"
   ],
   "tests": [
@@ -27,6 +29,8 @@
     "service/push.test.ts",
     "service/glance.test.ts",
     "service/voice-tools.test.ts",
+    "service/voice-hear.test.ts",
+    "service/kept-rows.test.ts",
     "web/shared/view.test.ts",
     "web/shared/where.test.ts",
     "web/src/needs-count.test.tsx"

@@ -195,8 +195,12 @@ test("3.2: a command to allow, a step for the person's hands, a task Stopped: ea
   w.snap.needs = [];
   h.tick();
   expect(h.take()).toEqual([]);
-  // it crashes: Stopped, with why; Stopped by you is the person's own doing and is not news
+  // it crashes: Shepherdr's to handle first (fork Needs you 5/6), not said while its space's Shepherdr runs
   w.snap.tasks[0].stopped = { by: "error", why: "Its agent is no longer running." };
+  h.tick();
+  expect(h.take()).toEqual([]);
+  // with no Shepherdr running there, it is the person's: Stopped, with why; Stopped by you is the person's own doing and is not news
+  w.snap.places.find((p: any) => p.id === "shop").shepherdr = "none";
   h.tick();
   expect(texts(h.take())).toContain('The task "Fix the login" stopped: Its agent is no longer running.');
   h.tick();

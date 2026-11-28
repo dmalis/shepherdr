@@ -7,6 +7,7 @@ import type { Snapshot } from "../web/shared/types.ts";
 import { spaceLabel, tstate } from "../web/shared/view.ts";
 import * as V from "../core/voice.js";
 import { askWords, chatName, screenChat, type Where } from "./voice-tools.ts";
+import { attentionOf, needId } from "../web/shared/attention.ts";
 
 const { replyLine, statusLine, needLine, batchLines } = V as any;
 
@@ -41,17 +42,23 @@ export function needsNow(snap: Snapshot): Map<string, { text: string; chat?: str
     if (key.startsWith("task:")) hands.add(key.slice(5));
     out.set(`hands:${key}`, { text: `${who} needs your hands on its Screen: ${short(sc.hands.what, 200)}` });
   }
+  // fork Needs you 5/6: only what is the person's (web/shared/attention.ts), from a machine read now: a wait Shepherdr
+  // handles first (an inferred wait, an error or limit stop) is not said until it is theirs
+  const mine = attentionOf(snap).actions.filter((a) => a.owner === "you" && !a.stale);
+  const theirNeeds = new Set(mine.filter((a) => a.need).map((a) => needId(a.need!)));
+  const theirStops = new Set(mine.filter((a) => a.kind === "wait" && a.task).map((a) => a.task!));
   const stopped = new Set<string>();
   for (const t of snap.tasks) {
     if (t.archived) continue;
     if (tstate(t) === "ready") out.set(`ready:${t.id}`, { text: `${title(t.id)} is ready for review` });
     // stopped by a crash or a limit (Stopped by you is the person's own doing: not news)
-    else if (tstate(t) === "ask" && t.stopped && t.stopped.by !== "you") {
+    else if (tstate(t) === "ask" && t.stopped && t.stopped.by !== "you" && theirStops.has(t.id)) {
       stopped.add(t.id);
       out.set(`stopped:${t.id}`, { text: `${title(t.id)} stopped${t.stopped.why ? `: ${short(t.stopped.why, 200)}` : t.stopped.by === "limit" ? ": it hit its plan's limit" : ""}` });
     }
   }
   for (const n of snap.needs ?? []) {
+    if (!theirNeeds.has(needId(n))) continue;
     // a wait with no card of a task whose stop or step for the person's hands is said already
     if (n.task && !n.question && !n.secret && (stopped.has(n.task) || hands.has(n.task))) continue;
     if (n.task && snap.tasks.find((t) => t.id === n.task)?.stopped?.by === "you") continue;

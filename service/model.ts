@@ -43,6 +43,9 @@ const TILDE_MADE = "spaces.tilde.made";
 export class Model {
   private lists = new Map<string | null, List[]>();   // machine (null: here) -> its task lists
   private machines: string[] = [];                    // connected other machines
+  /** fork Needs you 5/6: each other machine's tasks as last read, kept while it can't be read: its rows stay, saying
+   *  "Can't check <machine> right now" (web/shared/attention.ts; service/attention.ts keeps their actions) */
+  private lastRows = new Map<string, any[]>();
   private known: { name: string; state: string; why?: string }[] = []; // every other machine, with its state (the sidebar's headers) and herdr-core's why when down
   private timer: ReturnType<typeof setTimeout> | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -341,7 +344,7 @@ export class Model {
 
     let settles = Infinity;
     const prompts = new Map<string, string>();
-    const rows = lists.flatMap((list) => list.tasks.map((task: any) => {
+    const read = lists.flatMap((list) => list.tasks.map((task: any) => {
       if (task.prompt) prompts.set(taskKey(list, task), String(task.prompt));
       const live = this.agentsOf(list, task);
       const helpers = this.helpersOf(list, task, live);
@@ -402,6 +405,11 @@ export class Model {
         logs: (Array.isArray(task.agents) ? task.agents : []).map((a: any) => a.log).filter((x: unknown) => typeof x === "string"),
       };
     }));
+    // fork Needs you 5/6: a machine that can't be read now keeps its last rows; one no longer listed is forgotten
+    for (const m of this.machines) this.lastRows.set(m, read.filter((r) => r.machine === m));
+    for (const m of [...this.lastRows.keys()]) if (!this.known.some((k) => k.name === m)) this.lastRows.delete(m);
+    const away = this.known.filter((k) => k.state !== "connected" && !this.machines.includes(k.name)).flatMap((k) => this.lastRows.get(k.name) ?? []);
+    const rows = away.length ? [...read, ...away] : read;
     this.rows = rows;
     this.prompts = prompts;
     // a task in its grace before Needs you (core GRACE_MS): built again the moment it ends, not up to 10 s later

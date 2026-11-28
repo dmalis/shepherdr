@@ -3,7 +3,8 @@
 // The acceptance cases of fork/specs/needs-you.md's part 5. Made-up data.
 import { expect, test } from "bun:test";
 import { attend } from "./attention.ts";
-import { alertsOf } from "./push.ts";
+import { alertsOf, pushChanges } from "./push.ts";
+import { needsNow } from "./voice-hear.ts";
 import { glanceOf } from "./glance.ts";
 import { attentionOf, projectAttention, yours } from "../web/shared/attention.ts";
 import { waiting } from "../web/shared/alerts.ts";
@@ -21,7 +22,7 @@ const snapOf = (x: any = {}) => ({ name: "", host: "box", user: "", demo: false,
 
 /** what each surface shows for the person, everywhere */
 function surfaces(s: any) {
-  const snap = attend(structuredClone(s), NOW);
+  const snap = attend(structuredClone(s), NOW, new Map());
   const alerts = alertsOf(snap);
   const g = glanceOf(snap, alerts, NOW);
   const groups = nowGroups(snap.tasks);
@@ -122,6 +123,67 @@ test("a machine that can't be read keeps its last row, saying so, and sends noth
   // read again: it alerts as before
   const back = surfaces({ ...s, machines: snapOf().machines });
   expect(back.pushes).toBe(1);
+});
+
+// a machine dropping out takes its terminals with it: its prompts aren't in the snapshot any more, only its kept rows
+const vmTask = () => snapOf({ tasks: [task("vm:SHOP-9", "p:vm:shop", { on: "vm" })],
+  needs: [{ id: "q9", chat: "vm:SHOP-9/worker", place: "p:vm:shop", task: "vm:SHOP-9", at: NOW - 4 * min, question: q("q9") }] });
+const vmOff = (s: any) => ({ ...s, machines: [s.machines[0], { ...s.machines[1], status: "off", unreachableSince: "14:02" }] });
+
+test("a machine dropping out keeps its last read's actions, and coming back sends nothing again", () => {
+  const memo = new Map();
+  const live = vmTask();
+  const p1 = alertsOf(attend(structuredClone(live), NOW, memo));
+  const away = attend(structuredClone({ ...vmOff(live), needs: [] }), NOW + min, memo);
+  expect(yours(away).map((a) => [a.id, a.stale])).toEqual([["need:vm:SHOP-9/worker:q9", "Build box"]]);
+  expect(away.tasks[0].action).toMatchObject({ id: "need:vm:SHOP-9/worker:q9", stale: "Build box" });
+  expect([needsCount(away), waiting(away, NOW).count]).toEqual([1, 1]);
+  const p2 = alertsOf(away);
+  expect(pushChanges(p1, p2, 1)).toEqual([]);
+  const p3 = alertsOf(attend(structuredClone(live), NOW + 2 * min, memo));
+  expect(pushChanges(p2, p3, 1)).toEqual([]);
+  // its task done meanwhile (read again later): the kept one goes with it
+  const done = attend(structuredClone({ ...vmOff(live), needs: [], tasks: [task("vm:SHOP-9", "p:vm:shop", { on: "vm", status: "done", state: "done" })] }), NOW + 3 * min, memo);
+  expect(yours(done)).toEqual([]);
+});
+
+test("a prompt first seen while its machine can't be read goes out once that machine is read", () => {
+  const memo = new Map();
+  const p1 = alertsOf(attend(structuredClone(vmOff(vmTask())), NOW, memo));
+  expect([...p1.values()].filter((a) => !a.muted)).toEqual([]);
+  const p2 = alertsOf(attend(structuredClone(vmTask()), NOW + min, memo));
+  expect(pushChanges(p1, p2, 1).map((a) => a.title)).toEqual(["Task vm:SHOP-9 · Needs you"]);
+  // and only once
+  expect(pushChanges(p2, alertsOf(attend(structuredClone(vmTask()), NOW + 2 * min, memo)), 1)).toEqual([]);
+});
+
+test("a step for the person's hands is one action, with the need the service makes of it", () => {
+  const x = surfaces(snapOf({ tasks: [task("SHOP-10", "p:box:shop")],
+    screens: { "task:SHOP-10": { hands: { what: "Sign in to the store" } } },
+    needs: [{ id: "hands", hands: true, chat: "SHOP-10/worker", task: "SHOP-10", place: "p:box:shop", at: NOW - 5 * min, text: "Sign in to the store" }] }));
+  agree(x, 1);
+  expect(yours(x.snap).map((a) => a.id)).toEqual(["hands:SHOP-10"]);
+  expect([...alertsOf(x.snap).keys()]).toContain("need:SHOP-10/worker:hands");
+});
+
+test("a task Ready for review with a hand-up: two actions, on every list", () => {
+  const x = surfaces(snapOf({ tasks: [task("SHOP-11", "p:box:shop", { status: "ready", state: "ready", needsAt: NOW - 9 * min })],
+    alerts: [{ id: "up11", task: "SHOP-11", chat: "SHOP-11/worker", at: NOW - min, title: "Task SHOP-11 · Look at the logo", what: "Look at the logo", body: "", notify: true, place: "p:box:shop" }] }));
+  expect([x.count, x.items, x.badge, x.glance, x.rows]).toEqual([2, 2, 2, 2, 2]);
+  // its row leads with its review; the hand-up has its own row
+  expect(x.snap.tasks[0].action).toMatchObject({ kind: "review" });
+  expect(moreActions(x.snap, x.snap.tasks[0]).map((a) => a.kind)).toEqual(["alert"]);
+});
+
+test("a voice call says only what is the person's: not a wait Shepherdr handles first", () => {
+  const s = snapOf({ tasks: [task("SHOP-12", "p:box:shop")],
+    needs: [{ id: "attention", chat: "SHOP-12/worker", place: "p:box:shop", task: "SHOP-12", at: NOW - 2 * min, text: "Should it ship?", assistantFirst: true }] });
+  expect([...needsNow(attend(structuredClone(s), NOW, new Map())).keys()]).toEqual([]);
+  const none = { ...s, places: s.places.map((p: any) => (p.id === "p:box:shop" ? { ...p, shepherdr: "none" } : p)) };
+  // with no Shepherdr running in its space, it is the person's at once: said
+  expect(needsNow(attend(structuredClone(none), NOW, new Map())).size).toBe(1);
+  const asked = { ...s, needs: [{ ...s.needs[0], assistantFirst: undefined, id: "q12", question: q("q12", "Ship it?") }] };
+  expect([...needsNow(attend(structuredClone(asked), NOW, new Map())).keys()]).toEqual(["need:SHOP-12/worker#q12"]);
 });
 
 test("the projection is pure and stable: the same facts give the same ids, oldest first", () => {

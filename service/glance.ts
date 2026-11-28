@@ -216,14 +216,16 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
     if (sg.length) it.suggest = sg;
     items.push(it);
   }
-  // a task in Needs you is in no other section
+  // a task in Needs you is in no other section (Working, Done)
   const waiting = waitingTasks(waits);
   const proofIds = new Set<string>((snap.artifacts ?? []).filter((a: any) => a?.proof).map((a: any) => a.id));
   for (const [key, a] of alerts) {
     if (!key.startsWith("ready:")) continue;
+    // fork Needs you 5/6: its review is an action of its own, listed here even while the task also waits on you for
+    // something else (a hand-up, a card): Needs you lists that one, so the counts add up to the badge's
     const t = tasks.get(key.slice(6));
-    if (!t || waiting.has(t.id)) continue;
-    items.push({ key, kind: "ready", type: "task", tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY), task: t.id, ...taskRow(t), ...(t.at ? { at: t.at } : {}), alert: true,
+    if (!t) continue;
+    items.push({ key, kind: "ready", type: "task", tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY), task: t.id, ...taskRow(t), ...(t.at ? { at: t.at } : {}), alert: !a.muted,
       url: a.url ?? urlOf(t.place, t.id), ...(a.accept ? { accept: a.accept } : {}), ...textOf(t.summary ?? a.body), ...trustOf(t, proofIds) });
   }
   const start = today(now);
