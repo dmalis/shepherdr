@@ -97,6 +97,8 @@ class World(unittest.TestCase):
         self.c2 = self.commit("Slice: without its line (#51)")
         self.put("web/x.ts", "x\n")
         self.c3 = self.commit("Shepherdr change, no issue (#52)")
+        self.put("web/y.ts", "y\n")
+        self.c4 = self.commit("Revert D (#54)")
 
     def put(self, path, text):
         full = os.path.join(self.repo, path)
@@ -113,7 +115,8 @@ class World(unittest.TestCase):
         return [{"number": 50, "headRefName": "task/a", "mergeCommit": {"oid": self.c1}, "body": "Part of #12"},
                 {"number": 51, "headRefName": "task/b", "mergeCommit": {"oid": self.c2}, "body": "A slice."},
                 {"number": 52, "headRefName": "task/c", "mergeCommit": {"oid": self.c3}, "body": ""},
-                {"number": 53, "headRefName": "sync/v9.9.9", "mergeCommit": {"oid": self.c3}, "body": ""}]
+                {"number": 53, "headRefName": "sync/v9.9.9", "mergeCommit": {"oid": self.c3}, "body": ""},
+                {"number": 54, "headRefName": "task/d", "mergeCommit": {"oid": self.c4}, "body": "Undo it. Part of #15"}]
 
 
 class IssuePass(World):
@@ -127,13 +130,14 @@ class IssuePass(World):
             issue(13, "Part of #12. A slice, no status line of its own.", ["patch"]),
             issue(14, "Status: carried since `ours-1-1`, not filed yet. What it does: C.",
                   ["patch", "not-filed", "live", "fixed-upstream"]),
-            issue(15, "Status: reverting in #52. What it does: D.", ["patch", "not-filed", "live"]),
+            issue(15, "Status: reverting in #54. What it does: D.", ["patch", "not-filed", "live"]),
+            issue(18, "Status: reverting in #52. What it does: E.", ["patch", "not-filed", "live"]),
             issue(16, "Status: carried since `ours-1-1`.", ["patch", "live"], state="closed"),
             issue(17, "Status: building. Not merged yet.", ["patch"]),
         ]
 
     def pass_(self, gh, dry_run=False):
-        return issues.run(self.repo, self.c3, self.c0, "ours-1-2", "v3.2.21", gh, dry_run=dry_run)
+        return issues.run(self.repo, self.c4, self.c0, "ours-1-2", "v3.2.21", gh, dry_run=dry_run)
 
     def test_one_pass_writes_only_what_changes(self):
         gh = FakeGh(self.issues(), self.prs())
@@ -162,8 +166,10 @@ class IssuePass(World):
         self.assertEqual(body[14], "Status: fixed upstream in `v3.2.21`, then dropped. What it does: C.")
         self.assertEqual((labels[14], gh.issues[14]["state"]), (["fixed-upstream", "patch"], "closed"))
         # reverted: said, labelled, closed
-        self.assertEqual(body[15], "Status: reverted in #52. What it does: D.")
+        self.assertEqual(body[15], "Status: reverted in #54. What it does: D.")
         self.assertEqual((labels[15], gh.issues[15]["state"]), (["patch", "reverted"], "closed"))
+        # a pull request that names no issue never moves one, whatever number its line says
+        self.assertEqual((body[18], gh.issues[18]["state"]), ("Status: reverting in #52. What it does: E.", "open"))
         # a closed issue the install doesn't carry loses live
         self.assertEqual(labels[16], ["patch"])
         # not carried and building: untouched
@@ -173,7 +179,7 @@ class IssuePass(World):
         self.assertEqual(gh.prs[51]["body"], "A slice.\n\nPart of #12\nPart of #13\n")
         self.assertEqual([(x["pr"], x["issues"]) for x in out["linked"]], [(51, [12, 13])])
         self.assertEqual(out["unlinked"], [52])
-        self.assertEqual(sorted(out["written"]), [11, 12, 13, 14, 15, 16])
+        self.assertEqual(sorted(out["written"]), [11, 12, 13, 14, 15, 16, 18])
 
     def test_a_second_pass_writes_nothing(self):
         gh = FakeGh(self.issues(), self.prs())
@@ -187,7 +193,7 @@ class IssuePass(World):
         carried = [issue(n, f"Status: carried since `ours-1-1`, not filed yet (built in #{n}). What: x.",
                          ["patch", "not-filed", "live"]) for n in (10, 11, 12, 13)]
         gh = FakeGh(carried, self.prs())
-        out = issues.run(self.repo, self.c3, self.c2, "ours-1-9", "v3.2.21", gh)
+        out = issues.run(self.repo, self.c4, self.c2, "ours-1-9", "v3.2.21", gh)
         self.assertEqual(gh.writes(), [], out)
 
     def test_a_dry_run_writes_nothing_and_shows_the_lines(self):
@@ -199,6 +205,44 @@ class IssuePass(World):
     def test_a_status_line_in_a_code_block_isnt_one(self):
         self.assertIsNone(issues.status_at("```\nStatus: building\n```\n"))
         self.assertEqual(issues.status_at("```\nStatus: x\n```\n**Status:** y")[1:], ("**Status:** ", "y"))
+
+    def test_a_lead_building_before_parts_keeps_every_part(self):
+        """Review: the upstream link and the other part were wiped with the leading "building"."""
+        text, _ = issues.carried_text("building; #29: proposed upstream as upstream issue 1648; #30: building. "
+                                      "What it does: Adds pause.", "ours-1-2", False, {30: True}, False)
+        self.assertEqual(text, "carried since `ours-1-2`; #29: proposed upstream as upstream issue 1648; "
+                               "#30: not filed yet. What it does: Adds pause.")
+
+    def test_a_status_example_in_an_indented_block_isnt_the_line(self):
+        body = "How to write it:\n\n    Status: building\n\nStatus: carried since `ours-1-1`."
+        self.assertEqual(issues.status_at(body)[1:], ("Status: ", "carried since `ours-1-1`."))
+        self.assertIsNone(issues.status_at("~~~\nStatus: x\n~~~\n"))
+
+    def test_a_fork_only_issue_offers_a_newly_landed_part(self):
+        """Review: a new fix on a fork-only issue still waits for an upstream round, part by part."""
+        edits = issues.plan([issue(20, "Status: carried since `ours-1-1`; #20: fork-only; #30: building.",
+                                   ["patch", "fork-only", "live"])], [], {20}, {20: {30: True}}, "ours-1-2", None)
+        self.assertEqual(issues.status_at(edits[0]["body"])[2],
+                         "carried since `ours-1-1`; #20: fork-only; #30: not filed yet.")
+        self.assertEqual(edits[0]["add"], ["not-filed"])
+
+    def test_a_close_that_didnt_go_in_is_made_by_the_next_pass(self):
+        """Review: the edit went in and the close didn't; the retry must still close."""
+        said = [issue(14, "Status: fixed upstream in `v3.2.21`, then dropped. What it does: C.",
+                      ["patch", "fixed-upstream"]),
+                issue(15, "Status: reverted in #54. What it does: D.", ["patch", "reverted"])]
+        edits = issues.plan(said, [], {10}, {}, "ours-1-2", "v3.2.21")
+        self.assertEqual([(e["number"], e["body"], e["close"]) for e in edits], [(14, None, True), (15, None, True)])
+
+    def test_a_revert_with_a_fix_still_building_doesnt_close(self):
+        edits = issues.plan([issue(15, "Status: #40: reverting in #54; #41: building.", ["patch", "not-filed"])],
+                            [], set(), {15: {54: True}}, "ours-1-2", None)
+        self.assertEqual((issues.status_at(edits[0]["body"])[2], edits[0]["close"]),
+                         ("#40: reverted in #54; #41: building.", False))
+
+    def test_the_fork_checks_workflow_ships_nothing(self):
+        self.assertFalse(issues.ships([".github/workflows/fork-check.yml", "fork/sync/issues.py", "FORK.md"]))
+        self.assertTrue(issues.ships([".github/workflows/check.yml"]))
 
     def test_building_with_words_keeps_its_pull_requests(self):
         text, newly = issues.carried_text('building, ready for merge in "Speed" (#187). The page asks.', "ours-1-2",
@@ -213,6 +257,16 @@ class PartOf(World):
         self.assertEqual(issues.part_of_missing(self.repo, self.c1, self.c2, ""), ["Part of #12", "Part of #13"])
         self.assertEqual(issues.part_of_missing(self.repo, self.c0, self.c2, "part of #13, Part of #12."), [])
         self.assertEqual(issues.part_of_missing(self.repo, self.c2, self.c3, ""), [], "no patch file changed")
+
+    def test_an_instruction_or_an_example_isnt_the_line(self):
+        """Review: "add `Part of #12` before merging" passed the check without linking anything."""
+        for body in ("Instructions say to add `Part of #12` and `Part of #13` before merging.",
+                     "```\nPart of #12\nPart of #13\n```", "Example:\n\n    Part of #12\n    Part of #13"):
+            self.assertEqual(issues.part_of_missing(self.repo, self.c0, self.c2, body),
+                             ["Part of #12", "Part of #13"], body)
+        self.assertEqual(issues.part_of_missing(self.repo, self.c0, self.c2,
+                                                "Slice 6 (Part of #12; upstream checked). Part of #13."), [],
+                         "a link said in a sentence, as real pull requests say it")
 
     def test_a_removed_patch_file_is_owed_too(self):
         os.remove(os.path.join(self.repo, "fork/patches/13.json"))

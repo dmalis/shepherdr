@@ -31,7 +31,12 @@ from . import patches, release, state
 from .release import git, is_ancestor
 
 PART_OF = re.compile(r"\bPart of #(\d+)\b", re.I)
-STATUS = re.compile(r"^(\s*(?:\*\*Status:\*\*|\*\*Status\*\*:|Status:)\s*)(.*)$")
+# a status line: at most three spaces in (four or more is a Markdown code block)
+STATUS = re.compile(r"^( {0,3}(?:[-*] )?(?:\*\*Status:\*\*|\*\*Status\*\*:|Status:)\s*)(.*)$")
+FENCE = re.compile(r"^ {0,3}(```|~~~)")
+INLINE_CODE = re.compile(r"(`+)[^`]*?\1")
+PART = re.compile(r"#\d+(?: \([^()]*\))?: ")           # a fix's own part, on a line with several: "#29: ..."
+CLAUSE_END = re.compile(r"; |\. |\.$")
 CARRIED = re.compile(r"carried since `?ours-[0-9][\w.-]*`?")
 LEAD_BUILDING = re.compile(r"^building\b[.,;:]?\s*", re.I)
 PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?): building\b")
@@ -39,7 +44,9 @@ REVERTING = re.compile(r"\breverting in #(\d+)")
 DEVICE_LINE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?Device check:(?:\*\*)?\s*(.+)$", re.M)
 NOT_SEEN = "not seen on a device yet"
 PATCH_FILE = re.compile(r"^fork/patches/([1-9][0-9]*)\.json$")
-OWN = ("FORK.md", "fork/", ".agents/")     # our own files: a pull request that changes only these ships nothing
+# our own files: a pull request that changes only these ships nothing (the fork check's workflow among them)
+OWN_FILES = ("FORK.md", ".github/workflows/fork-check.yml")
+OWN_DIRS = ("fork/", ".agents/")
 SYNC_BRANCH = "sync/"
 LIST_LIMIT = "500"
 PR_LIMIT = "100"
@@ -51,7 +58,7 @@ def status_at(body):
     """(index of the status line among the body's lines, its prefix, its text), or None when it has none."""
     fenced = False
     for i, line in enumerate(str(body or "").split("\n")):
-        if line.lstrip().startswith("```"):
+        if FENCE.match(line):
             fenced = not fenced
             continue
         m = None if fenced else STATUS.match(line)
@@ -70,8 +77,22 @@ def labels_of(issue):
     return {(x.get("name") if isinstance(x, dict) else str(x)) for x in issue.get("labels") or []}
 
 
+def prose(body):
+    """A Markdown body without its code (fenced blocks, indented blocks, inline code spans): where an example or an
+    instruction ("add `Part of #132`") sits, not a link."""
+    out, fenced = [], False
+    for line in str(body or "").split("\n"):
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced or line.startswith(("    ", "\t")):
+            continue
+        out.append(INLINE_CODE.sub(" ", line))
+    return "\n".join(out)
+
+
 def body_part_of(body):
-    return {int(n) for n in PART_OF.findall(str(body or ""))}
+    return {int(n) for n in PART_OF.findall(prose(body))}
 
 
 def changed_paths(repo, a, b):
@@ -140,29 +161,31 @@ def pr_issues(repo, pr):
 
 
 def ships(paths):
-    """Whether any of the paths is outside our own files (FORK.md, fork/, .agents/)."""
-    return any(not (p == OWN[0] or p.startswith(OWN[1:])) for p in paths)
+    """Whether any of the paths is outside our own files (FORK.md, the fork check's workflow, fork/, .agents/)."""
+    return any(not (p in OWN_FILES or p.startswith(OWN_DIRS)) for p in paths)
 
 
 # --- the plan ---
 
 def carried_text(text, tag, fork_only, landed, device):
-    """A carried issue's status text, moved by this install. `landed`: the pull requests that run now ({number:
-    newly}, newly true when this install brought it)."""
+    """A carried issue's status text, moved by this install. `landed`: the pull requests of this issue that run now
+    ({number: newly}, newly true when this install brought it)."""
     out = text
     newly_landed = False
     if not CARRIED.search(out):
         lead = LEAD_BUILDING.match(out)
-        carried = f"carried since `{tag}`" + ("" if fork_only else ", not filed yet")
+        # each fix's own part says where it stands ("#29: proposed upstream ...; #30: building"): the issue's lead
+        # then only says it is carried. A single fix's lead also says it isn't filed yet, unless it stays ours.
+        parts = bool(PART.search(out))
+        carried = f"carried since `{tag}`" + ("" if fork_only or parts else ", not filed yet")
         if lead:
-            # the whole first clause is the building's ("building, ready for merge in "X" (#187)"): it goes, and the
-            # pull requests it named stay as "(built in #187)"
-            clause, dot, rest = out.partition(". ")
-            if not dot and clause.endswith("."):
-                clause = clause[:-1]
+            # only the leading "building" clause goes ("building, ready for merge in "X" (#187)", up to its first
+            # "; " or ". "), and the pull requests it named stay as "(built in #187)"; every word after it stays
+            end = CLAUSE_END.search(out)
+            clause, rest = (out[:end.start()], out[end.start():]) if end else (out, "")
             prs = list(dict.fromkeys(re.findall(r"#(\d+)", clause)))
             built = f" (built in {', '.join('#' + n for n in prs)})" if prs else ""
-            out = carried + built + (". " + rest if rest else ".")
+            out = carried + built + (rest or ".")
             newly_landed = True
         else:
             out = f"carried since `{tag}`. " + out if out else f"carried since `{tag}`."
@@ -173,7 +196,8 @@ def carried_text(text, tag, fork_only, landed, device):
         if n not in landed:
             return m.group(0)
         newly_landed = newly_landed or landed[n]
-        return f"{m.group(1)}: " + ("installed" if fork_only else "not filed yet")
+        # a fix's own part: it waits for an upstream round like any other, whatever the issue's other parts are
+        return f"{m.group(1)}: not filed yet"
     out = PART_BUILDING.sub(part, out)
     out = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in landed else m.group(0), out)
     if device and newly_landed and NOT_SEEN not in out:
@@ -186,22 +210,32 @@ def not_filed_fits(text):
     return "not filed yet" in text or "reverting" in text
 
 
+def all_undone(text):
+    """An issue the install no longer carries, whose line says each revert landed and no fix of it is still
+    building: every fix on it was undone."""
+    return ("reverted in #" in text and not REVERTING.search(text) and not PART_BUILDING.search(text)
+            and not LEAD_BUILDING.match(text))
+
+
 def plan(issues, closed_live, carried, landed, tag, release_tag):
     """[{number, body (or None), add, remove, close, device}] for each issue that changes, from: the open issues
     ([{number, body, labels}]), the closed issues still labelled live, the issue numbers the install carries,
-    `landed` ({pr number: newly}), the install's tag and the upstream release it holds."""
+    `landed` ({issue: {pr number: newly}}: each issue's own pull requests that run now, by their `Part of #n` or
+    their patch files), the install's tag and the upstream release it holds. A pass that stopped half way (an edit
+    went in, its close didn't) is finished by the next: a close follows the issue's line and labels as they are."""
     out = []
     for issue in sorted(issues, key=lambda i: i.get("number") or 0):
         n, body, labels = issue.get("number"), issue.get("body") or "", labels_of(issue)
         add, remove, close, new_body, device = set(), set(), False, None, None
         st = status_at(body)
+        mine = landed.get(n) or {}
         if n in carried:
             if "live" not in labels:
                 add.add("live")
             if st:
                 i, prefix, text = st
                 dev = DEVICE_LINE.search(body)
-                text2, newly = carried_text(text, tag, "fork-only" in labels, landed, bool(dev))
+                text2, newly = carried_text(text, tag, "fork-only" in labels, mine, bool(dev))
                 if text2 != text:
                     new_body = with_status(body, i, prefix, text2)
                 if dev and newly:
@@ -209,7 +243,7 @@ def plan(issues, closed_live, carried, landed, tag, release_tag):
                     if "device-check" not in labels:
                         add.add("device-check")
                 fits = not_filed_fits(text2)
-                if fits and "not-filed" not in labels and "fork-only" not in labels:
+                if fits and "not-filed" not in labels:
                     add.add("not-filed")
                 elif not fits and "not-filed" in labels:
                     remove.add("not-filed")
@@ -218,22 +252,29 @@ def plan(issues, closed_live, carried, landed, tag, release_tag):
                 remove.add("live")
             if st and "fixed-upstream" in labels:
                 i, prefix, text = st
-                rest = CARRIED.sub("", text, count=1).lstrip(" ,;")
-                rest = re.sub(r"^not filed yet\b[.,;]?\s*", "", rest)
-                text2 = f"fixed upstream in `{release_tag}`, then dropped" + (". " + rest if rest else ".")
-                if release_tag and not text.startswith("fixed upstream in"):
+                if text.startswith("fixed upstream in"):
+                    close = True                    # said already: an earlier pass's close didn't go in
+                    remove |= {"not-filed"} & labels
+                elif release_tag:
+                    rest = CARRIED.sub("", text, count=1).lstrip(" ,;")
+                    rest = re.sub(r"^not filed yet\b[.,;]?\s*", "", rest)
+                    text2 = f"fixed upstream in `{release_tag}`, then dropped" + (". " + rest if rest else ".")
                     new_body = with_status(body, i, prefix, text2)
                     remove |= {"not-filed"} & labels
                     close = True
             elif st and REVERTING.search(st[2]):
                 i, prefix, text = st
-                text2 = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in landed
+                text2 = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in mine
                                       else m.group(0), text)
-                if text2 != text and not REVERTING.search(text2) and "not filed yet" not in text2:
+                if text2 != text:
                     new_body = with_status(body, i, prefix, text2)
-                    add.add("reverted")
-                    remove |= {"not-filed"} & labels
-                    close = True
+                    if all_undone(text2):
+                        add.add("reverted")
+                        remove |= {"not-filed"} & labels
+                        close = True
+            elif st and "reverted" in labels and all_undone(st[2]):
+                close = True                        # said already: an earlier pass's close didn't go in
+                remove |= {"not-filed"} & labels
         if new_body is not None or add or remove or close:
             out.append({"number": n, "body": new_body, "add": sorted(add), "remove": sorted(remove), "close": close,
                         **({"device": device} if device else {})})
@@ -311,10 +352,11 @@ def run(repo, candidate, since, tag, release_tag, gh, dry_run=False, cfg_hostnam
         if str(pr.get("headRefName") or "").startswith(SYNC_BRANCH) or not runs_at(repo, pr, candidate):
             continue
         newly = bool(merged_in(repo, pr, candidate, since))
-        landed[pr["number"]] = newly
+        said, from_files = pr_issues(repo, pr)
+        for n in said | from_files:
+            landed.setdefault(n, {})[pr["number"]] = newly     # a part moves only on its own issue
         if not newly:
             continue
-        said, from_files = pr_issues(repo, pr)
         if from_files - said:
             linked.append({"pr": pr["number"], "issues": sorted(from_files - said), "pr_obj": pr})
         if not said and not from_files:

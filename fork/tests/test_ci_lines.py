@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_guard  # noqa: E402,F401  (first: a throwaway HOME)
 import time  # noqa: E402
 import unittest  # noqa: E402
+from unittest import mock  # noqa: E402
 
 import syncworld  # noqa: E402
 from sync import merged, state  # noqa: E402
@@ -46,6 +47,11 @@ class CiLines(syncworld.World):
             merged.track(st, sha, "3.2.21", tag, run or self.RUN,
                          titles if titles is not None else merged.install_titles(self.wt, sha, since))
             st["ci"][sha]["installed"] = state.stamp(time.time() - ago_s)
+
+    def read(self):
+        """One ci read in this process, its gh the fake (never GitHub's)."""
+        with mock.patch.dict(os.environ, self.env(), clear=True):
+            return merged.ci_read(self.p, self.wt)
 
     def finish_then_ci(self):
         code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
@@ -100,6 +106,39 @@ class CiLines(syncworld.World):
         self.set_gh(checks={a: RUNNING})
         code, out = self.finish_then_ci()
         self.assertEqual((code, out["outcome"]), (1, "wait"), "a check that covers it still runs")
+
+    def test_github_busy_on_an_older_commit_keeps_the_wait(self):
+        """Review: only an older commit's run is active and the install's own hasn't started: still waiting at 31
+        minutes, since its own run waits in line behind the older one."""
+        old, new = self.merges(2)
+        self.install(new, merged.CI_WAIT_S + 60, "ours-3.2.21-1")
+        self.set_gh(checks={old: RUNNING})
+        code, out = self.finish_then_ci()
+        self.assertEqual((code, out["outcome"]), (1, "wait"), out)
+
+    def test_a_run_still_going_is_never_missed(self):
+        (a,) = self.merges(1)
+        self.install(a, merged.CI_MISSED_AFTER_S + 60, "ours-3.2.21-1")
+        self.set_gh(checks={a: RUNNING})
+        self.read()
+        self.assertEqual(self.st()["ci"][a]["verdict"], "pending")
+
+    def test_runs_that_cant_be_read_are_never_missed(self):
+        (a,) = self.merges(1)
+        self.install(a, merged.CI_MISSED_AFTER_S + 60, "ours-3.2.21-1")
+        self.set_gh(checks={a: GREEN}, checks_unread=True)
+        self.read()
+        self.assertEqual(self.st()["ci"][a]["verdict"], "pending")
+
+    def test_a_pass_after_a_missing_verdict_still_moves_the_recovery_point(self):
+        (a,) = self.merges(1)
+        self.install(a, merged.CI_MISSED_AFTER_S + 60, "ours-3.2.21-1")
+        with state.locked(self.p) as st:
+            st["ci"][a].update(verdict="missed", told=True)
+        self.set_gh(checks={a: GREEN})
+        self.read()
+        st = self.st()
+        self.assertEqual((st["ci"][a]["verdict"], (st.get("recovery") or {}).get("tag")), ("green", "ours-3.2.21-1"), st.get("ci"))
 
     def test_past_the_wait_the_words_say_checks_havent_finished_by_title(self):
         (a,) = self.merges(1)

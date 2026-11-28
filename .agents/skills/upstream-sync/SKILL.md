@@ -139,7 +139,8 @@ it found: report that, never a guess at why, and never repair `main` by force.
    its line:
    - **Carried:** each issue in the patch list gets "carried since `<tag>`" at the start of its status line, in
      place of a leading "building". A line that already says "carried since" keeps its tag: it names the install
-     that first carried the fix, so a later install writes nothing there. The rest of the line stays as it is. A
+     that first carried the fix, so a later install writes nothing there (a tag written before this rule names the
+     last install that moved it by hand; it stays too). The rest of the line stays as it is. A
      fix's part "#m: building" becomes "#m: not filed yet" once #m runs, and "reverting in #m" becomes "reverted in
      #m" (upstream-issue skill: "Several fixes on one issue").
    - **Labels follow the install and the line:** `live` on every issue in the patch list, off every other (open or

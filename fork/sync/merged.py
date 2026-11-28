@@ -39,6 +39,7 @@ CI_NAMES = ("check", "fork-check")
 CI_RED = ("failure", "timed_out", "startup_failure", "action_required")
 CI_UNFINISHED = ("cancelled", "skipped", "stale")     # a run that ended without a verdict: an older or newer one counts
 CI_MISSED_AFTER_S = 2 * 3600          # no finished run covers an install this long after it: told as missing
+CI_LATE_S = 24 * 3600                 # a missing verdict is read again this long, so a later pass still counts
 CI_KEEP = 50
 
 
@@ -328,41 +329,71 @@ def age_s(at, now):
         return None
 
 
-def ci_read(p, repo, now=time.time, runs_of=None):
-    """Reads CI for each install of ours whose verdict isn't final yet, records it, and the recovery point. One read
-    of main's runs (one GitHub call) serves every install. Returns {sha: "running" | "pending"} for those still
-    without a verdict ("running": a run that covers it is on its way). A fetch that fails leaves them for later."""
+def late(st, now):
+    """Installs told as missing within CI_LATE_S: read again, so a pass that comes later still moves the recovery
+    point (and a failure that comes later is told)."""
+    ci = st.get("ci") or {}
+    out = []
+    for i in tracked(st):
+        if (ci.get(i["sha"]) or {}).get("verdict") == "missed":
+            age = age_s(i.get("at"), now)
+            if age is not None and age < CI_LATE_S:
+                out.append(i["sha"])
+    return out
+
+
+def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
+    """Reads CI for each install of ours whose verdict isn't final yet (and each missing one of the last day),
+    records it, and the recovery point. One read of main's runs (one GitHub call) serves every install. Returns
+    {sha: "running" | "pending"} for those still without a verdict. "running": a run that covers it is on its way,
+    or GitHub is still running something on main (its own run may wait in line behind it). An install becomes
+    "missed" only once its runs were read, nothing is running, and CI_MISSED_AFTER_S has passed; a fetch or a read
+    that fails leaves them for later."""
     with state.locked(p) as st:
-        todo = [i for i in tracked(st) if i["sha"] in ci_unresolved(st)]
+        unresolved = set(ci_unresolved(st))
+        again = set(late(st, now()))
+        todo = [i for i in tracked(st) if i["sha"] in unresolved | again]
     if not todo:
         return {}
     try:
         tip = release.fetch_main(repo)
     except Refused:
-        return {i["sha"]: "pending" for i in todo}
+        return {i["sha"]: "pending" for i in todo if i["sha"] in unresolved}
+    read = True
     if runs_of is None:
         snap = main_runs()
+        read = snap is not None
         runs_of = (lambda c: None) if snap is None else (lambda c: snap.get(c, []))
+        if busy is None:
+            busy = any(r.get("status") != "completed" for rs in (snap or {}).values() for r in rs)
     seen, left = {}, {}
     for i in todo:
         verdict, names = ci_verdict(repo, i["sha"], tip, runs_of)
         for g in names.values():
             if g.get("state") == "red" and g.get("by"):
                 g["title"] = subject(repo, g["by"])
+        if i["sha"] in again:
+            if verdict != "pending":
+                seen[i["sha"]] = {"verdict": verdict, "names": names, "at": state.stamp(now()), "late": True}
+            continue
         if verdict == "pending":
+            running = bool(busy) or any(g.get("running") for g in names.values())
             age = age_s(i.get("at"), now())
-            if age is not None and age > CI_MISSED_AFTER_S:
+            if read and not running and age is not None and age > CI_MISSED_AFTER_S:
                 verdict = "missed"
             else:
-                left[i["sha"]] = "running" if any(g.get("running") for g in names.values()) else "pending"
+                left[i["sha"]] = "running" if running else "pending"
         seen[i["sha"]] = {"verdict": verdict, "names": names, "version": i.get("version"), "tag": i.get("tag"),
                           "at": state.stamp(now())}
     with state.locked(p) as st:
         ci = st.setdefault("ci", {})
         for sha, v in seen.items():
-            if (ci.get(sha) or {}).get("verdict") in FINAL_VERDICTS:
+            was, is_late = (ci.get(sha) or {}).get("verdict"), v.pop("late", False)
+            if was in FINAL_VERDICTS and not (was == "missed" and is_late):
                 continue                    # another read settled it meanwhile: never back to pending
-            ci[sha] = dict(ci.get(sha) or {}, **v, told=bool((ci.get(sha) or {}).get("told")))
+            # a late verdict on a missing one: told again only when it failed (a pass just moves the recovery point)
+            told = bool((ci.get(sha) or {}).get("told")) and not (was == "missed" and v["verdict"] == "red")
+            ci[sha] = dict(ci.get(sha) or {}, **v, told=told)
         final = [sha for sha, v in ci.items() if v.get("verdict") in FINAL_VERDICTS]
         for sha in final[:-CI_KEEP] if len(final) > CI_KEEP else []:
             ci.pop(sha, None)               # only final ones go: a pending one stays until it is read
@@ -481,7 +512,7 @@ def run_installs(st, run):
 
 
 CI_WAIT_S = 30 * 60      # `ci` waits this long after each install of this run's for CI's verdict...
-CI_BUSY_S = 60 * 60      # ...and this long while GitHub is still running a check that would cover it
+CI_BUSY_S = CI_MISSED_AFTER_S   # ...and this long while GitHub is still running on main (a later read still counts)
 
 
 def with_ci_words(told, outcome, words, back=None):
@@ -516,7 +547,7 @@ def still_running_words(st, shas):
 def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.sleep):
     """`ci`, after finish said next: ci. Reads CI for every install of ours whose verdict isn't final, with the lease
     let go (the next install never waits for it), once a minute. It waits for this run's own installs, each from its
-    own install time: up to CI_WAIT_S, and up to CI_BUSY_S while GitHub still runs a check that would cover it. Then
+    own install time: up to CI_WAIT_S, and up to CI_BUSY_S while GitHub is still running on main. Then
     the run's exact completion command: finish's words, plus a red or missing result not told yet, and one line for
     this run's installs whose checks are still running. A verdict that comes later is left for a later run."""
     with state.locked(p) as st:
