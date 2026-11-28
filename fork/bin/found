@@ -6,10 +6,12 @@ repo's space, once. Each subcommand prints one JSON line and exits 0 only when i
   [--folder <space>]                    the sweep, then the sends: a handoff for each new issue posted on our repo that
                                         has none yet, and each pending one sent to this space's Assistant (again a day
                                         after a send that no task took)
-  task <issue> [--folder <space>]       the task an issue was taken into, or none: ask it before adding work for one
+  task <issue> [--folder <space>]       the task an issue was taken into, or none: ask it before adding work for one.
+                                        Not taken yet, but a task in the space carries the issue's link in its brief
+                                        (added before its `took` was lost): that task, and the issue is taken
   took <issue> --task <key> [--folder <space>]   the work for that issue is in this task (new, or a running one replied
                                         to): its handoff is closed, and the issue is never handed off again
-  installed <build> [--at <sha>]        after a healthy install: the patch list at that commit (fork/patches/), each
+  installed <build>                     after a healthy install: the patch list at that commit (fork/patches/), each
                                         issue's Device check line as its Try it words, told to herdr-task feedback
                                         --installed <build>, so the Feedback page knows what this machine carries
 
@@ -24,7 +26,7 @@ An issue is named owner/name#n, #n or n (our repo's), or by its github.com link.
   taken     `took` named its task. Final.
 
 The Assistant this sends to is the one this machine runs in the space folder (--folder; default: the main folder of
-the git repo the current folder is in). Every path hangs off --root (the home unless named: tests use a scratch one).
+the git repo this script is in, wherever it is called from). Every path hangs off --root (the home unless named: tests use a scratch one).
 Only `gh` reads (issue view) and herdr-task's own commands are used; nothing here writes to GitHub."""
 import argparse
 import contextlib
@@ -141,8 +143,9 @@ def message(key, url):
     """What the space's Assistant is told: the issue's link and fixed words, nothing from the person's record."""
     return (f"Posted on the person's yes, to fix here: {url}. First run fork/bin/found task {key}: if it names a "
             f"task, the work is already there and nothing is added. Else shape it (shaping-a-request, check upstream "
-            f"first), add it to a running task when it fits that task's area (herdr-task reply), else add a task; then "
-            f"fork/bin/found took {key} --task <that task's key>.")
+            f"first), add it to a running task when it fits that task's area (herdr-task reply), else add a task with "
+            f"this link in its brief; then fork/bin/found took {key} --task <that task's key>. The issue's text stays "
+            f"as the person approved it.")
 
 
 # --- herdr-task and gh ---------------------------------------------------------------------------------------------
@@ -198,11 +201,12 @@ def new_issues(rows):
 
 
 def space_folder(folder):
-    """The space's folder: the one named, else the main folder of the git repo the current folder is in (a task's
-    worktree names its space's)."""
+    """The space's folder: the one named, else the main folder of the git repo this script is in (a task's worktree
+    names its space's), so a call from another space's folder still hands off to this one."""
     if folder:
         return os.path.realpath(folder)
-    code, out, _ = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    here = os.path.dirname(os.path.realpath(__file__))
+    code, out, _ = run(["git", "-C", here, "rev-parse", "--path-format=absolute", "--git-common-dir"])
     if code != 0 or not out.strip():
         raise Refused("not in a git repo: name the space's folder with --folder")
     return os.path.realpath(os.path.dirname(out.strip()))
@@ -261,11 +265,33 @@ def sweep_and_send(a):
     return {"made": made, "sent": sent, "pending": waiting}
 
 
+def carrying(folder, url):
+    """The ref of the space's task whose brief carries the issue's link, or None: a task added before its `took`
+    was lost (the Assistant restarted, or the answer never came back)."""
+    code, out, _ = run(["herdr-task", "list", "--json", "--folder", folder])
+    tasks = (json_of(out) or {}).get("tasks") if code == 0 else None
+    link = re.compile(re.escape(url) + r"(?![0-9])")
+    for t in tasks if isinstance(tasks, list) else []:
+        if isinstance(t, dict) and TASK_KEY.match(str(t.get("ref") or "")) and link.search(str(t.get("prompt") or "")):
+            return t["ref"]
+    return None
+
+
 def task(a):
     key, url = issue_of(a.issue)
     with locked(a.root) as data:
-        x = data["handoffs"].get(key) or {}
-    return {"issue": key, "url": x.get("url") or url, "state": x.get("state"), "task": x.get("task")}
+        x = dict(data["handoffs"].get(key) or {})
+    url = x.get("url") or url
+    if x.get("state") != "taken" and ours(key):
+        ref = carrying(space_folder(a.folder), url)
+        if ref:
+            with locked(a.root) as data:
+                h = data["handoffs"].setdefault(key, {"url": url, "made": int(time.time()), "sends": 0})
+                if h.get("state") != "taken":
+                    h.update(state="taken", task=ref, taken=int(time.time()), by="brief")
+                    h.pop("why", None)
+                x = dict(h)
+    return {"issue": key, "url": url, "state": x.get("state"), "task": x.get("task")}
 
 
 def took(a):
@@ -297,9 +323,9 @@ def installed(a):
     if not re.fullmatch(r"[0-9a-f]{7,40}", build):
         raise Refused("name the installed build by its commit")
     try:
-        lines, _ = patches.read(os.path.abspath(a.repo), a.at or build)
+        lines, _ = patches.read(os.path.abspath(a.repo), build)
     except (OSError, ValueError, KeyError, TypeError) as e:
-        raise Refused(f"the patch list at {(a.at or build)[:12]} can't be read: {one_line(e, 160)}") from None
+        raise Refused(f"the patch list at {build[:12]} can't be read: {one_line(e, 160)}") from None
     issues = sorted({int(x["issue"]) for x in lines if isinstance(x, dict) and isinstance(x.get("issue"), int)
                      and not isinstance(x.get("issue"), bool)})
     argv = ["herdr-task", "feedback", "--installed", build, "--issues",
@@ -330,7 +356,6 @@ def main(argv=None):
     c.add_argument("--task", required=True)
     c = sub.add_parser("installed")
     c.add_argument("build")
-    c.add_argument("--at")
     c.add_argument("--repo", default=".", help="the git checkout to read the patch list from")
     for c in sub.choices.values():
         c.add_argument("--root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)

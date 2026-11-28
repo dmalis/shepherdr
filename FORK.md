@@ -199,16 +199,19 @@ author decides what goes into theirs.
   - **The yes is for the exact text.** On the page: File it… shows the draft and where it goes, and Post it is the
     yes. In chat: a question card that shows the draft (`herdr-task feedback --file` writes it), then `--approve <rev>
     --by chat` and `--file --rev <rev>`. The Feedback note (`agents.feedback_note`, Everywhere's, in the person's
-    settings file) says before every post that posting also starts a fix here: "Posting also starts a fix in this
-    repo's space". An Assistant sets it once, with the person's yes, when it is missing.
+    settings file) says before every post what posting starts here: "A new issue posted here also starts a fix in
+    this repo's space" (a comment starts none). An Assistant sets it once, with the person's yes, when it is
+    missing.
   - **Every post becomes work here, once** (`fork/bin/found`). The filing Assistant runs `fork/bin/found` right after
     it files, and every run of the upstream-sync skill does too (its step 7), so a post found later still goes within
     a day. It hands each new issue posted on our repo to this space's Assistant (`herdr-task tell-assistant`), sends
     again until it is taken, and makes nothing for a comment.
   - **On a handoff message** (it names the issue's link): first `fork/bin/found task <issue>`. It names a task: the
     work is there, add nothing. Else shape it (shaping-a-request, check upstream first), add it to a running task
-    when it fits (below) or add a task, then `fork/bin/found took <issue> --task <its key>`. Put the issue in our
-    shape on the way: the labels, why, what it does, acceptance criteria, where it lives (fork-patch skill).
+    when it fits (below) or add a task with the issue's link in its brief, then `fork/bin/found took <issue> --task
+    <its key>`. A task added before a lost `took` is still found by that link; a repeated reply lands in the same
+    running task. The issue's text stays as the person approved it: the why, acceptance criteria and where it lives
+    go in the task's brief, and only its labels go on the issue (fork-patch skill).
   - On a pick or a yes in chat that posted nothing (the person asked for a fix without filing), the usual way: an
     issue here, a task with a brief (shaping-a-request first), an install right after the merge.
     - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until an

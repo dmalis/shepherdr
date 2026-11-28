@@ -46,6 +46,10 @@ if a[:1] == ["tell-assistant"]:
     if os.path.exists(os.path.join(d, "send-lost")):  # it went, but no answer came back in time
         sys.exit(1)
     print("Delivered to " + a[1] + "."); sys.exit(0)
+if a[:3] == ["list", "--json", "--folder"]:
+    log("lists.jsonl", a[3])
+    path = os.path.join(d, "tasks.json")
+    print(open(path).read() if os.path.exists(path) else '{"tasks": []}'); sys.exit(0)
 if a[:2] == ["feedback", "--installed"]:
     log("installed.jsonl", a)
     print(json.dumps({"build": a[2], "issues": a.count("--try-it"), "here": [], "gone": []})); sys.exit(0)
@@ -118,9 +122,9 @@ class Found(tfp.World):
         elif os.path.exists(path):
             os.remove(path)
 
-    def found(self, *argv, folder=True):
+    def found(self, *argv, folder=True, cwd=None):
         r = subprocess.run([sys.executable, FOUND, "--root", self.root, *(["--folder", self.space] if folder else []), *argv],
-                           capture_output=True, text=True, env=self.env, timeout=60)
+                           capture_output=True, text=True, env=self.env, timeout=60, cwd=cwd)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertEqual(r.returncode, 0 if out["ok"] else 1, r.stderr)
         return out
@@ -146,16 +150,33 @@ class Found(tfp.World):
         self.publish()
         return key, out
 
-    def receive(self, running=None):
+    def tasks(self):
+        path = os.path.join(self.fake, "tasks.json")
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return json.load(f)["tasks"]
+
+    def receive(self, running=None, dies=False):
         """This space's Assistant on each message it got, as FORK.md says: `found task` first; none, then the work goes
-        in a task (a new one, or `running` when one fits) and `found took`. -> the work it added, one entry per piece."""
+        in a task (a reply to `running` when one fits, else a new task with the link in its brief) and `found took`.
+        `dies`: it restarts before its `found took`. -> the work it added, one entry per piece."""
         work = []
         for _, text in self.logged("sends.jsonl")[len(getattr(self, "_seen", [])):]:
             key = re.search(r"fork/bin/found task (\S+?):", text).group(1)
+            url = re.search(r"(https://github\.com/\S+?/issues/[0-9]+)", text).group(1)
             if self.found("task", key)["task"]:
                 continue
-            task = running or f"SD-{50 + len(work)}"
+            if running:
+                task = running
+            else:
+                task = f"SD-{50 + len(self.tasks())}"
+                rows = self.tasks() + [{"ref": task, "title": "Reply bubble quote", "prompt": f"Fix {url} (shaped)."}]
+                with open(os.path.join(self.fake, "tasks.json"), "w") as f:
+                    json.dump({"tasks": rows}, f)
             work.append((task, key))
+            if dies:
+                break
             self.assertTrue(self.found("took", key, "--task", task)["ok"])
         self._seen = self.logged("sends.jsonl")
         return work
@@ -259,10 +280,47 @@ class Found(tfp.World):
         self.filed()
         self.flag("send-lost")
         self.found()
-        self.assertEqual(self.receive(running="SD-31"), [("SD-31", f"{OURS}#40")])   # the first message: one reply
         self.flag("send-lost", False)
+        self.assertEqual(self.found()["sent"], [f"{OURS}#40"])    # both messages wait in its chat
+        self.assertEqual(len(self.logged("sends.jsonl")), 2)
+        self.assertEqual(self.receive(running="SD-31"), [("SD-31", f"{OURS}#40")])   # one reply; the second asks first
+        self._age(f"{OURS}#40")
         self.assertEqual(self.found()["sent"], [])   # taken: never sent again
-        self.assertEqual(self.receive(running="SD-31"), [])
+        self.assertEqual(self.tasks(), [])
+
+    def test_a_task_added_before_its_took_was_lost_is_found_by_its_brief(self):
+        self.filed()
+        self.found()
+        self.assertEqual(self.receive(dies=True), [("SD-50", f"{OURS}#40")])     # added, then restarted: no took
+        self.assertEqual(self.record()[f"{OURS}#40"]["state"], "sent")
+        self._age(f"{OURS}#40")
+        self.assertEqual(self.found()["sent"], [f"{OURS}#40"])
+        self.assertEqual(self.receive(), [])                                      # `found task` names SD-50
+        self.assertEqual([t["ref"] for t in self.tasks()], ["SD-50"])
+        h = self.record()[f"{OURS}#40"]
+        self.assertEqual((h["state"], h["task"], h["by"]), ("taken", "SD-50", "brief"))
+        self.assertEqual(self.logged("lists.jsonl")[-1], self.space)
+
+    def test_a_brief_naming_another_issue_is_not_taken_for_it(self):
+        self.filed()
+        self.found()
+        with open(os.path.join(self.fake, "tasks.json"), "w") as f:
+            json.dump({"tasks": [{"ref": "SD-9", "prompt": f"Fix {URL}400 and {URL}4."},
+                                 {"ref": "not a key", "prompt": f"{URL}40"}]}, f)
+        self.assertEqual(self.found("task", f"{OURS}#40")["task"], None)
+        self.assertEqual(self.record()[f"{OURS}#40"]["state"], "sent")
+
+    def test_from_another_folder_it_still_hands_off_to_this_repos_space(self):
+        self.filed()
+        code = subprocess.run(["git", "-C", os.path.dirname(FOUND), "rev-parse", "--path-format=absolute",
+                               "--git-common-dir"], capture_output=True, text=True)
+        if code.returncode:
+            self.skipTest("fork/bin/found isn't in a git checkout here")
+        home = os.path.realpath(os.path.dirname(code.stdout.strip()))
+        self.in_spaces([{"target": "sp-other", "route": "", "folder": self.root, "role": "assistant"},
+                        {"target": "sp-home", "route": "", "folder": home, "role": "assistant"}])
+        self.found(folder=False, cwd=self.root)     # called from another space's folder
+        self.assertEqual([to for to, _ in self.logged("sends.jsonl")], ["sp-home"])
 
     def test_took_closes_it_and_a_second_task_is_refused(self):
         self.filed()
