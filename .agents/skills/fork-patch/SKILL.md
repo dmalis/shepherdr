@@ -104,52 +104,38 @@ so the cost of a patch is how often a release breaks it. Build for that.
   `device-check`).
 - Every fix has its own issue, and merging never closes it. A new fix for a problem an earlier fix covers gets a
   new issue that links the earlier one, even when the earlier one is closed.
-- Before ready, its status line says in plain words what the fix does and how to try it: "building. What it does:
-  <one line>. Try it: <what to open or do, and what you should see>". On an older issue that already holds several
-  fixes, it adds this pull request as "#m: building", with its own what and try-it.
-- The install that makes it live puts "live since `ours-…`" in front of that line (`fork/bin/sync issues`, never by
-  hand; later installs keep that first tag), labels it `live`, and closes the issue, since that
-  pass runs only after a healthy install. An issue with a "Device check" line, or a label that waits (`later`,
-  `pipeline` and the rest in `KEEP_OPEN`, `fork/sync/issues.py`), stays open.
+- Before ready, the issue says in plain words what the fix does and how to try it ("What it does: <one line>. Try
+  it: <what to open or do, and what you should see>"), in its body or a comment. Nothing rewrites it later.
+- The install that makes it live comments "Live since `ours-…` (#m)" on the issue, once per install tag
+  (`fork/bin/sync issues`, never by hand). It closes the issue only when Triage's fix linked to it is live; the
+  person closes the rest. An issue with a "Device check" line gets `device-check` and stays open.
 
 ## 6. The record on GitHub
 
-The open issues labelled `patch` are what we build and what waits on the person; the patch list (`fork/patches/`)
-is what we carry, and its issues are labelled `live`, open or closed.
+The open issues are what we build and what waits on the person; the patch list (`fork/patches/`) is what we carry.
+The full design: fork/specs/issue-loop.md ("Close and tell", "Labels").
 
-**Each issue keeps a short status line,** one of:
-- building;
-- live since `ours-…` (older lines say "carried since"; the pass rewrites them);
-- reverting in #m, then reverted in #m;
-- fixed upstream in `vX.Y.Z`, then dropped.
+**An issue's body stays the person's words** (or its filer's). What became of each fix is said in comments: the
+install's "Live since `ours-…` (#m)", once per issue and install tag, and "Fixed upstream in `vX.Y.Z`; ours was
+dropped" when a release ships it. Upstream links already on an issue stay as history.
 
-After it, in plain words: what the fix does and how to try it. An issue with several fixes lists each pull request on
-its status line, with what became of it ("#29: live; #30: building"). The install moves status lines and labels
-itself and closes what is live (`fork/bin/sync issues`, upstream-sync skill, step 7), writing only what changes;
-"live since" keeps the first install that carried the fix. Upstream links already on an issue stay as history.
-
-**Closing:** once its fix is live and the install is healthy, by that pass. A device check waits for the person
-(`device-check` below); a fix of it still building or reverting keeps it open.
+**Closing:** the install closes an issue as completed only when Triage's fix linked to it merged and is live. It
+reads the issue again just before, and leaves one that was reopened or edited after that merge, or waits on a device
+check. Every other issue is closed by the person (completed, not planned or duplicate: GitHub's own reasons).
 
 **Undoing a fix,** when the person says so: a revert pull request (`Part of #n`) that undoes it and its part of its
 `fork/patches/<n>.json`, keeping every path and test another carried fix still needs. Reopen the issue first if it
-is closed (`gh issue reopen <n> -R dmalis/shepherdr`), and set that fix's part of its status line to "reverting in
-#m". The healthy install that carries the revert makes it "reverted in #m", and once every fix on it was undone,
-labels it `reverted` and closes it.
+is closed (`gh issue reopen <n> -R dmalis/shepherdr`) and say in a comment what is being undone and why.
 
-**Labels:**
-- `patch`: a change we carry.
-- `pipeline`: sync, trial and install.
-- `sync-blocked`: a release waits on a patch.
-- `fixed-upstream`: upstream shipped it.
-- `later`: not now.
+**Labels** (one of each family, at most one flow label; `fork/sync/labels.py` holds the set):
+- Kind: `bug` (something is broken) or `enhancement` (something new).
+- Area: `patch` (Shepherdr's code, a change we carry) or `pipeline` (this fork's own machinery).
+- Score: `score:1` to `score:5`, from Triage only.
+- Flow: `needs-triage` (new, not scored), `ready` (the go: start a fix), `fixing` (a task is on it), `decision`
+  (only the person can settle it), `blocked` (tried and couldn't), `later` (not now). The issue forms set the kind
+  and `needs-triage`; an issue opened another way gets them when it is filed.
 - `device-check`: a live fix only a real device can confirm (an iPhone's home screen, a real keyboard, push on a
   device, haptics), not confirmed by the person yet. The install puts it on, from the issue's "Device check" line,
-  and the issue stays open. It comes off only when they confirm; the next healthy install then closes the issue. If
-  they say it's still wrong, that fix's part of the status line goes back to building, with what they saw, and a
-  fix task starts; the label stays until they confirm the new fix.
-- `live`: installed and running on the person's Shepherdr. The install puts it on every issue its installed patch
-  list (`fork/patches/`) names, and takes it off one whose fix left (upstream-sync skill, step 7). No `live`: not
-  installed yet.
-- `reverted`: the person said undo it, and the revert has merged and installed.
-- `rethink`: the author of one of the person's upstream issues proposed another way (upstream-issue skill).
+  and the issue stays open. It comes off only when they confirm, and then they close it. If they say it's still
+  wrong, a fix task starts with what they saw; the label stays until they confirm the new fix.
+- `sync-blocked`: an upstream release waits on this patch. `fixed-upstream`: upstream shipped it; ours was dropped.

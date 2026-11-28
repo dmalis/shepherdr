@@ -1,0 +1,17 @@
+name: Idea
+description: Something Shepherdr could do, or do better
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Public repo. Leave out names, paths, machine names, emails and anything private.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you need, and why
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work

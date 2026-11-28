@@ -60,9 +60,11 @@ test rules, or the rules for agents' own logins and settings. Its two exceptions
 ## Every piece of work is recorded on GitHub
 
 - Each change the person asks for starts as an issue on dmalis/shepherdr (fork-patch skill, step 1).
-- Each pull request names its issue with `Part of #n`, never `Closes`: an issue closes once its fix is live and the
-  install is healthy (a device check waits for the person), never at merge.
-- Status lines and labels (`patch`, `live`, `device-check` and the rest): fork-patch skill, "The record on GitHub".
+- Each pull request names its issue with `Part of #n`, never `Closes`, and nothing closes at merge. After a healthy
+  install, an issue whose fix it brought gets a "Live since" comment. The install closes only an issue whose linked
+  Triage fix is live (a device check waits for the person); the person closes the rest.
+- Labels (one kind, one area, Triage's score, at most one flow label;
+  [fork/specs/issue-loop.md](fork/specs/issue-loop.md), "Labels") and the record: fork-patch skill, "The record on GitHub".
 - **Check upstream first,** before an issue for a change to Shepherdr and again when its task starts building:
   fork-patch skill, step 1. Then shape it (shaping-a-request) and build it (fork-patch).
 

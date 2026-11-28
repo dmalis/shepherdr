@@ -141,22 +141,19 @@ it found: report that, never a guess at why, and never repair `main` by force.
 ## 7. Finish and report
 
 1. After a healthy install: `fork/bin/sync issues <candidate>`. It reads our open issues and merged pull requests
-   once, works out every issue's status line and labels from the patch list at the candidate, and writes only the
-   issues whose line or labels change. Never edit a status line, a `live` label or a pull request's `Part of #n` by
-   hand: a pass it got wrong is a bug in `fork/sync/issues.py`, fixed there with a test. What it does, so you can read
-   its line:
-   - **Live:** each issue in the patch list gets "live since `<tag>`" at the start of its status line, in place of
-     a leading "building". A line that already says "live since" (or the older "carried since") keeps its tag: it
-     names the install that first carried the fix, so a later install writes nothing there. The rest of the line
-     stays as it is, but for the older words "not filed yet", which go. A fix's part "#m: building" becomes "#m:
-     live" once #m runs, and "reverting in #m" becomes "reverted in #m" (fork-patch skill: "The record on GitHub").
-   - **Closes what is live:** an open issue in the patch list closes, its status line saying since when, once no
-     fix of it is still building or reverting. One with a "Device check:" line that just landed, `device-check` or
-     another waiting label (`KEEP_OPEN` in `fork/sync/issues.py`) stays open.
-   - **Labels follow the install and the line:** `live` on every issue in the patch list, off every other (open or
-     closed). A `fixed-upstream` issue the list no longer has says "fixed upstream in `vX.Y.Z`, then dropped" and
-     closes (a closed one stays closed); one whose last fix was reverted is labelled `reverted` and closes. A
-     rollback changes nothing: this step runs only after a healthy install.
+   once and writes only what is still missing; it never rewrites an issue's body. Never comment "live", close an
+   issue or edit a pull request's `Part of #n` by hand: a pass it got wrong is a bug in `fork/sync/issues.py`, fixed
+   there with a test. What it does, so you can read its line:
+   - **Live:** an open issue whose own pull request this install brought gets one comment, "Live since `<tag>`
+     (#m)", with a hidden mark so the next install doesn't say it again.
+   - **Closes only a linked fix:** an issue closes as completed only when Triage's fix linked to it (`.triage.json`
+     in herdr-task's store) runs at the candidate. It is read again first: one reopened or edited after that merge,
+     or waiting on a device check, is left open (`left` in the line, with why). Nothing closes because the patch list
+     names it; the person closes the rest. `triage_links: "unreadable"`: Triage's record couldn't be read, so
+     nothing closed.
+   - **Fixed upstream:** an open `fixed-upstream` issue the install no longer carries gets "Fixed upstream in
+     `vX.Y.Z`; ours was dropped", once per release, and stays open for the person. A rollback changes nothing:
+     this step runs only after a healthy install.
    - **Which issue a fix is part of:** its pull request's `Part of #n`, else the patch files its merge commit
      changed (`fork/patches/<n>.json`, plus the `umbrella` a patch file names). A pull request whose body lacked the
      line gets it added (`linked` in the step's line). Sync pull requests (`sync/*`) are left out. The fork check
@@ -166,12 +163,12 @@ it found: report that, never a guess at why, and never repair `main` by force.
      each one's check. Put each in `--says`, never calling it fixed: "not seen on a device yet: please check <that
      check>". When `finish` says `again`, keep these lines: the last healthy round's `--says` carries every round's.
      Only the person's confirmation takes `device-check` off; no install does.
-   - **`unlinked` in its line:** a pull request that changes Shepherdr (any file outside `FORK.md`, `fork/` and
-     `.agents/`) and names no issue, in its body or by a patch file. It gets one now (fork-patch skill, step 1),
-     labelled `patch`, with the status line "live since `<tag>`. What it does: … Try it: …" from the pull request,
+   - **`unlinked` in its line:** a pull request that changes Shepherdr (any file outside `FORK.md`, `fork/`,
+     `.agents/` and the issue forms) and names no issue, in its body or by a patch file. It gets one now (fork-patch skill, step 1),
+     labelled `patch`, its body "What it does: … Try it: …" from the pull request,
      and the issue's link commented on the pull request. It stays open until a `fork/patches/<n>.json` names it.
    - **`outcome: wait`:** GitHub refused a read or a write: call it again; it writes only what is still different.
-     `--dry-run` writes nothing and shows each new line (`bodies`), to check a pass before it runs.
+     `--dry-run` writes nothing and shows each comment (`comments`), to check a pass before it runs.
    - **The Feedback page learns what this machine carries:** `fork/bin/found installed <candidate>`. It reads the
      patch list at the candidate, takes each issue's "Device check:" line as its Try it words, and tells herdr-task
      (`herdr-task feedback --installed <candidate> --issues …`), so each problem filed on one of those issues says
