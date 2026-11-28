@@ -139,7 +139,8 @@ const ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/;
 /** what GitHub said of its issue last, for the page: open, closed and why, and a duplicate's canonical issue */
 export function outcomeOf(p: any): FeedbackRow["outcome"] | undefined {
   const o = p?.outcome;
-  if (!o || typeof o !== "object" || (o.state !== "open" && o.state !== "closed")) return undefined;
+  // a read of GitHub names its issue ("repo#n"); an older post's placeholder ({url, state: open}) is no read
+  if (!o || typeof o !== "object" || typeof o.issue !== "string" || (o.state !== "open" && o.state !== "closed")) return undefined;
   const c = o.state === "closed" && o.reason === "duplicate" ? matchOf(o.canonical, false) : null;
   return { state: o.state, ...(o.state === "closed" && REASONS.has(o.reason) ? { reason: o.reason } : {}),
     ...(c ? { canonical: { title: c.title, url: c.url, state: c.state, ...(c.reason ? { reason: c.reason } : {}) } } : {}),

@@ -192,16 +192,19 @@ def match(repo, x):
                if str(x.get("state") or "").upper() == "CLOSED" and str(x.get("stateReason") or "").upper() in REASONS else {})}
 
 
-def canonical(repo, number):
-    """The issue a duplicate points to (GitHub's MarkedAsDuplicateEvent), else None."""
+def canonical(repo, number, failed=None):
+    """The issue a duplicate points to (GitHub's MarkedAsDuplicateEvent), else None; `failed` when GitHub didn't answer."""
     owner, _, name = repo.partition("/")
     r = gh(["api", "graphql", "-f", f"query={CANONICAL}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}"])
     if r.returncode != 0:
-        return None
+        return failed
     try:
         nodes = json.loads(r.stdout)["data"]["repository"]["issue"]["timelineItems"]["nodes"]
+    except (ValueError, KeyError, TypeError):
+        return failed
+    try:
         c = next(n["canonical"] for n in reversed(nodes) if isinstance(n, dict) and isinstance(n.get("canonical"), dict))
-    except (ValueError, KeyError, TypeError, StopIteration):
+    except (TypeError, StopIteration):
         return None
     if not c.get("number") or not c.get("url"):
         return None

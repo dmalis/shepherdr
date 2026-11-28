@@ -22,6 +22,7 @@ import herdr_task.feedback_track as ft  # noqa: E402
 REPO = "acme/shep"
 URL = f"https://github.com/{REPO}/issues/42"
 HOUR = 3600000
+LAST = {"url": URL, "issue": f"{REPO}#42", "title": "Reply bubble", "state": "closed", "reason": "completed", "checked_at": 1}  # a read
 
 
 def gh_issue(n, title, state="OPEN", reason=None, repo=REPO):
@@ -36,6 +37,7 @@ class Tracked(World):
         super().setUp()
         self.issues = {(REPO, 42): gh_issue(42, "Reply bubble hides the message it answers")}
         self.dupe_of = {}
+        self.timeline_down = set()
         self.down = False
         p = mock.patch.object(fb, "run", self.github)
         p.start()
@@ -45,7 +47,7 @@ class Tracked(World):
     def filed(self, **more):
         return {"id": "k1", "line": "The reply bubble doesn't show which message it answers", "state": "filed", "space": "sp1",
                 "at": 1, "url": URL, "decision": "approved", "post": {"state": "posted", "rev": 1, "url": URL},
-                "outcome": {"url": URL, "state": "open", "checked_at": 1}, **more}
+                "outcome": {"url": URL}, **more}
 
     def github(self, args, **_):
         self.gh.append(args)
@@ -58,6 +60,8 @@ class Tracked(World):
         if args[1:3] == ["api", "graphql"]:
             n = int(next(a for a in args if a.startswith("i="))[2:])
             repo = "/".join(next(a for a in args if a.startswith(k + "="))[2:] for k in ("o", "n"))
+            if (repo, n) in self.timeline_down:
+                return subprocess.CompletedProcess(args, 1, "", "error connecting to api.github.com")
             c = self.dupe_of.get((repo, n))
             nodes = [{"canonical": {**c, "repository": {"nameWithOwner": c["url"].split("/")[3] + "/" + c["url"].split("/")[4]}}}] if c else []
             return ok(json.dumps({"data": {"repository": {"issue": {"timelineItems": {"nodes": nodes}}}}}))
@@ -123,7 +127,7 @@ class Tracked(World):
         self.assertEqual(ft.said(self.outcome()), "Closed as a duplicate")
 
     def test_reopened_goes_back_to_open(self):
-        self.seed({"k1": self.filed(outcome={"url": URL, "state": "closed", "reason": "duplicate", "checked_at": 1,
+        self.seed({"k1": self.filed(outcome={"url": URL, "issue": f"{REPO}#42", "state": "closed", "reason": "duplicate", "checked_at": 1,
                                              "canonical": {"repo": REPO, "number": 7, "title": "x", "url": f"https://github.com/{REPO}/issues/7", "state": "open"}})})
         out = self.track()
         o = self.outcome()
@@ -133,12 +137,12 @@ class Tracked(World):
         self.assertTrue(out["tracked"][0]["changed"])
 
     def test_gh_failing_keeps_the_last_outcome(self):
-        self.seed({"k1": self.filed(outcome={"url": URL, "state": "closed", "reason": "completed", "title": "Reply bubble", "checked_at": 1})})
+        self.seed({"k1": self.filed(outcome=LAST)})
         self.down = True
         out = self.track()
         self.assertEqual(out["failed"][0]["key"], "k1")
         p = self.listed_by("k1")
-        self.assertEqual(p["outcome"], {"url": URL, "state": "closed", "reason": "completed", "title": "Reply bubble", "checked_at": 1})
+        self.assertEqual(p["outcome"], LAST)
         self.assertIn("isn't reachable", p["track_error"]["why"])
         # back: the next read answers, and the error goes
         self.down = False
@@ -149,10 +153,48 @@ class Tracked(World):
 
     def test_a_canonical_the_timeline_didnt_name_this_time_stays(self):
         c = {"repo": REPO, "number": 7, "title": "Reply context in chat", "url": f"https://github.com/{REPO}/issues/7", "state": "open"}
-        self.seed({"k1": self.filed(outcome={"url": URL, "state": "closed", "reason": "duplicate", "checked_at": 1, "canonical": c})})
+        self.seed({"k1": self.filed(outcome={**LAST, "reason": "duplicate", "canonical": c})})
         self.close("DUPLICATE")
         self.track()
         self.assertEqual(self.outcome()["canonical"], c)
+
+    def test_a_failed_timeline_further_on_keeps_the_issue_found_before(self):
+        """#42 -> #7 -> #3 found before; #7's timeline doesn't answer this time: #3 stays, not #7."""
+        three = {"repo": REPO, "number": 3, "title": "Quote the answered message", "url": f"https://github.com/{REPO}/issues/3",
+                 "state": "closed", "reason": "completed"}
+        self.seed({"k1": self.filed(outcome={**LAST, "reason": "duplicate", "canonical": three})})
+        self.close("DUPLICATE")
+        self.dupe_of[(REPO, 42)] = gh_issue(7, "Reply context", "CLOSED", "DUPLICATE")
+        self.timeline_down.add((REPO, 7))
+        self.track()
+        self.assertEqual(self.outcome()["canonical"], three)
+        self.assertEqual(ft.said(self.outcome()), "Closed as a duplicate of “Quote the answered message”, which is closed as fixed")
+        # and it answers again: followed on as before
+        self.timeline_down.clear()
+        self.dupe_of[(REPO, 7)] = gh_issue(3, "Quote the answered message", "OPEN")
+        self.track("--key", "k1")
+        self.assertEqual(self.outcome()["canonical"]["state"], "open")
+
+    def test_a_post_says_filed_until_github_is_read(self):
+        """A comment on a closed issue: the post notes only its issue, so nothing says Open on GitHub; it's due at once."""
+        self.issues[(REPO, 42)] = gh_issue(42, "Reply bubble hides the message it answers", "CLOSED", "COMPLETED")
+        comment = f"{URL}#issuecomment-9"
+        self.seed({"k1": self.filed(url=comment, post={"state": "posted", "rev": 1, "url": comment})})
+        self.assertEqual(ft.said(self.outcome()), "Filed")
+        self.assertFalse(ft.observed(self.outcome()))
+        self.track()
+        self.assertEqual(ft.said(self.outcome()), "Closed as fixed")
+        # an older post's placeholder ({url, state: open} and a fresh time) is no read either: due now
+        self.seed({"k1": self.filed(outcome={"url": URL, "state": "open", "checked_at": fb.now()})})
+        self.gh.clear()
+        self.track()
+        self.assertEqual((len(self.views()), self.outcome()["reason"]), (1, "completed"))
+
+    def test_slice_4_s_post_notes_only_its_issue(self):
+        import herdr_task.feedback_post as post
+        src = inspect.getsource(post.posted)
+        self.assertIn('"outcome": {"url": issue}', src)
+        self.assertNotIn('"state": "open"', src)
 
     # ---- what is read, and when ---------------------------------------------------------------
 
@@ -172,6 +214,27 @@ class Tracked(World):
             self.track()
             self.assertEqual(len(self.views()), 1)
 
+    def test_the_hourly_sweep_never_skips_a_due_issue(self):
+        """The service's timer fires an hour after the last sweep began; that sweep's read finished a little later. It is
+        still due then, so an issue is never left two hours."""
+        self.track()
+        read = self.outcome()["checked_at"]
+        for late, due in ((HOUR - 60000, True), (HOUR - ft.SLACK_MS, True), (HOUR - ft.SLACK_MS - 1, False), (HOUR // 2, False)):
+            with mock.patch.object(ft, "now", lambda: read + late):
+                self.gh.clear()
+                self.track()
+                self.assertEqual(len(self.views()), 1 if due else 0, late)
+            self.seed({"k1": self.filed(outcome={**self.outcome(), "checked_at": read})})
+
+    def test_rows_on_one_issue_read_it_once(self):
+        comment = {**self.filed(), "id": "k3", "line": "Another one", "url": f"{URL}#issuecomment-9"}
+        self.seed({"k1": self.filed(), "k3": comment})
+        self.close("COMPLETED")
+        out = self.track()
+        self.assertEqual(len(self.views()), 1)
+        self.assertEqual(sorted(t["key"] for t in out["tracked"]), ["k1", "k3"])
+        self.assertEqual(self.outcome("k3")["reason"], "completed")
+
     def test_a_failed_read_waits_its_hour_too(self):
         self.down = True
         self.track()
@@ -187,7 +250,7 @@ class Tracked(World):
                   "decision": "following", "outcome": {"url": f"https://github.com/{REPO}/issues/19", "issue": f"{REPO}#19",
                                                        "title": "Task search covers linked machines", "state": "open", "checked_at": 1}}
         comment = {**self.filed(), "id": "k3", "line": "Another one", "url": f"https://github.com/{REPO}/issues/42#issuecomment-9",
-                   "outcome": {"url": URL, "state": "open", "checked_at": 1}}
+                   "outcome": {"url": URL}}
         old = {"id": "k4", "line": "An older version's filing", "state": "filed", "space": "sp1", "at": 1, "url": f"https://github.com/{REPO}/issues/5"}
         found = {"id": "k5", "line": "Not filed", "state": "found", "space": "sp1", "at": 1}
         waits = {**self.filed(), "id": "k6", "line": "Waiting", "state": "told", "url": None,
@@ -240,7 +303,7 @@ class Tracked(World):
 
     def test_the_seams_it_relies_on(self):
         """#94, slice 5 relies on these upstream and earlier-slice names: a break shows here at once."""
-        self.assertEqual(list(inspect.signature(fc.canonical).parameters), ["repo", "number"])
+        self.assertEqual(list(inspect.signature(fc.canonical).parameters), ["repo", "number", "failed"])
         self.assertEqual(list(inspect.signature(fc.match).parameters), ["repo", "x"])
         self.assertEqual(list(inspect.signature(fc.gh).parameters), ["args"])
         self.assertEqual(list(inspect.signature(fb.feedback_on).parameters), ["space", "d"])

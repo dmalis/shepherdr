@@ -5,8 +5,10 @@
   says it duplicates (its MarkedAsDuplicateEvent's canonical issue, feedback_check.canonical), followed on to the one
   that isn't a duplicate itself. What it read is kept as the problem's `outcome`: {url, issue, title, state, reason?,
   canonical?, checked_at}. Only GitHub's side changes: the person's decision, and what this machine has, stay as they are.
-- Each problem's issue is read at most once an hour (SPAN_MS), counted from its last read, whether it answered or not;
-  `--key K --track` reads that one now. The service runs it hourly, only while something is followed (service/jobs.ts).
+- Each problem's issue is read about once an hour (SPAN_MS, less SLACK_MS so the service's hourly sweep never skips one),
+  counted from its last read, whether it answered or not; rows on one issue share one read; `--key K --track` reads that
+  one now. The service runs it hourly, only while something is followed (service/jobs.ts). A post notes only its issue
+  (feedback_post.posted): until a read names the issue (`issue`, "repo#n"), the row says Filed and is due at once.
 - gh failing keeps the last outcome and notes why (`track_error`): the page says GitHub isn't reachable there.
 - Nothing is read for a problem whose origin has Feedback offers off, or one the person said works (slice 6's `tried`)."""
 
@@ -18,7 +20,9 @@ from .feedback import feedback_on, one_line, problems, problems_read
 from .feedback_check import canonical, gh, match
 
 SPAN_MS = 3600000          # an issue is read at most once an hour
+SLACK_MS = 300000          # an hourly sweep reads what's due within this: its last read finished a little after its start
 HOPS = 3                   # a duplicate of a duplicate: followed this many steps at most
+FAILED = object()          # a timeline that didn't answer (feedback_check.canonical's `failed`)
 ISSUE = re.compile(r"https://github\.com/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)/issues/(\d+)/?")
 
 
@@ -42,12 +46,19 @@ def followed(p, d=None):
     return filed and p.get("decision") != "declined" and not works and feedback_on(p.get("space"), d)
 
 
+def observed(o):
+    """Whether an outcome is a read of GitHub (it names its issue, "repo#n"): a post only notes its issue's link, and an
+    older post's {url, state: open} placeholder was never read."""
+    return isinstance(o, dict) and bool(o.get("issue")) and o.get("state") in ("open", "closed")
+
+
 def last_read(p):
-    return max(int((p.get("outcome") or {}).get("checked_at") or 0), int((p.get("track_error") or {}).get("at") or 0))
+    o = p.get("outcome") or {}
+    return max(int(o.get("checked_at") or 0) if observed(o) else 0, int((p.get("track_error") or {}).get("at") or 0))
 
 
 def due(p, at=None):
-    return (now() if at is None else at) - last_read(p) >= SPAN_MS
+    return (now() if at is None else at) - last_read(p) >= SPAN_MS - SLACK_MS
 
 
 def track_call(args):
@@ -71,19 +82,23 @@ def track(key=None):
         keys = [key]
     else:
         keys = [k for k, p in ps.items() if followed(p) and due(p)]
-    tracked, failed = [], []
+    tracked, failed, seen = [], [], {}
     for k in keys:
         repo, n, url = issue_of(ps[k])
-        try:
-            out = read(repo, n, url, ps[k].get("outcome") or {})
-        except Fail as e:
-            why = one_line(str(e), 200)
-            keep(k, url, None, why)
-            failed.append({"key": k, "error": why})
-            continue
         was = ps[k].get("outcome") or {}
+        if url not in seen:  # rows on one issue (a filing and a comment on it): one read
+            try:
+                seen[url] = read(repo, n, url, was if observed(was) else {})
+            except Fail as e:
+                seen[url] = one_line(str(e), 200)
+        out = seen[url]
+        if isinstance(out, str):
+            keep(k, url, None, out)
+            failed.append({"key": k, "error": out})
+            continue
         keep(k, url, out, None)
-        tracked.append({"key": k, "changed": said(was) != said(out), **{x: out[x] for x in ("state", "reason", "canonical") if x in out}})
+        tracked.append({"key": k, "changed": said(was if observed(was) else None) != said(out),
+                        **{x: out[x] for x in ("state", "reason", "canonical") if x in out}})
     return {"tracked": tracked, "failed": failed}, words(ps, tracked, failed)
 
 
@@ -100,19 +115,23 @@ def read(repo, n, url, was):
     out = {"url": url, "issue": f"{repo}#{n}", "title": m["title"] or was.get("title") or "", "state": m["state"],
            **({"reason": m["reason"]} if m.get("reason") else {}), "checked_at": now()}
     if m.get("reason") == "duplicate":
-        c, seen = m, {url}
+        c, seen, lost = m, {url}, False
         for _ in range(HOPS):
-            nxt = canonical(c["repo"], c["number"])
+            nxt = canonical(c["repo"], c["number"], FAILED)
+            if nxt is FAILED:
+                lost = True
+                break
             if not nxt or nxt["url"] in seen:
                 break
             seen.add(nxt["url"])
             c = nxt
             if c.get("reason") != "duplicate":
                 break
-        if c is not m:
+        last = was.get("canonical") if was.get("reason") == "duplicate" and isinstance(was.get("canonical"), dict) else None
+        if last and (lost or c is m):
+            out["canonical"] = last  # a timeline didn't answer (or named none) this time: the last issue found stays
+        elif c is not m:
             out["canonical"] = {k: c[k] for k in ("repo", "number", "title", "url", "state", "reason") if k in c}
-        elif isinstance(was.get("canonical"), dict) and was.get("reason") == "duplicate":
-            out["canonical"] = was["canonical"]  # the timeline didn't answer this time: the last one it named stays
     return out
 
 
@@ -132,7 +151,7 @@ def keep(key, url, out, why):
 
 # GitHub's side in words, for the command's answer: web/plugins/feedback/words.ts says the same to the person.
 def said(o):
-    if not o or not o.get("state"):
+    if not o or o.get("state") not in ("open", "closed"):
         return "Filed"
     if o["state"] == "open":
         return "Open on GitHub"
