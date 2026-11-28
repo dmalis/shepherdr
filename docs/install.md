@@ -149,12 +149,14 @@ own herdr-core session; `shepherdr doctor` says when a unit lacks it, and `sheph
 in the settings file names another folder.
 
 Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
-made when its agent starts. Its agent and the task's terminal in the web app get it as `TMPDIR`, `TMP` and `TEMP`, so
-what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust all use `TMPDIR`)
-never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git. Shepherdr deletes it once
-the task is Done and its agents have ended, and at once when the task is removed. The scheduler also removes, when it
-starts and every 10 minutes after, any folder there whose task is Done, is gone, or that no task has recorded for an
-hour, such as one a crash left behind. Helper agents a task's agent starts itself with `hc run` (its reviewer) start in
+made when its agent starts, or when you open the task's terminal first. Its agent and that terminal get it as `TMPDIR`,
+`TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust
+all use `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
+Shepherdr never deletes it while something uses it: the task's agents, their helpers, or its terminal in the web app.
+Otherwise it goes once the task is Done and its agents have ended, and at once when the task is removed. The scheduler
+also looks, when it starts and every 10 minutes after: it removes a Done task's folder once nothing uses it, and any
+other one nothing has used or changed for an hour, such as a removed task's or one a crash left behind (the task's
+next start makes a fresh one). Helper agents a task's agent starts itself with `hc run` (its reviewer) start in
 herdr-core's own environment, so they use the machine's temp folder.
 
 ## Uninstall

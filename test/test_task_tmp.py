@@ -41,11 +41,29 @@ class TaskTmp(unittest.TestCase):
     def setUp(self):
         self.store = tempfile.mkdtemp(prefix="tasktmp-store-")
         self.addCleanup(shutil.rmtree, self.store, True)
-        p = [mock.patch.dict(os.environ, {"HERDR_TASK_STORE": self.store}), mock.patch.object(task_tmp, "STORE", self.store)]
+        # herdr-core, faked: the keys (herdr.task labels) with a live terminal
+        self.live, self.asked = set(), []
+        p = [mock.patch.dict(os.environ, {"HERDR_TASK_STORE": self.store}), mock.patch.object(task_tmp, "STORE", self.store),
+             mock.patch.object(task_tmp, "hc_json", self.hc_json)]
         for x in p:
             x.start()
             self.addCleanup(x.stop)
         self.s = FakeStore()
+
+    def hc_json(self, *args):
+        self.asked.append(args)
+        if args[:2] == ("ls", "--label") and args[2].startswith("herdr.task="):
+            key = args[2].split("=", 1)[1]
+            return {"terminals": [{"address": "t1", "state": "live"}] if key in self.live else []}
+        return None
+
+    def age(self, p, by=2 * task_tmp.STALE_S):
+        old = time.time() - by
+        os.utime(p, (old, old))
+
+    def shell_in(self, p, pid=None):
+        """A web-app shell's mark (service/shells.ts TMP_SHELL), of a live process unless another pid is given."""
+        open(os.path.join(p, f"{task_tmp.SHELL_MARK}{pid or os.getpid()}"), "w").close()
 
     def write_list(self, tasks, slug="home-dev-shop"):
         with open(os.path.join(self.store, slug + ".json"), "w") as f:
@@ -107,27 +125,79 @@ class TaskTmp(unittest.TestCase):
 
     def test_sweep_keeps_what_is_in_use_and_takes_the_rest(self):
         mk = lambda n: task_tmp.ensure(self.s, {"id": n})
-        working, ending, ended, removed = mk(1), mk(2), mk(3), mk(4)
+        working, ending, ended, removed, crashed, idle_ready = mk(1), mk(2), mk(3), mk(4), mk(5), mk(6)
         stray_new = os.path.join(task_tmp.root(), "shop-8-0000")
         stray_old = os.path.join(task_tmp.root(), "shop-9-0000")
         os.makedirs(stray_new)
         os.makedirs(stray_old)
-        old = time.time() - 2 * task_tmp.UNKNOWN_AGE_S
-        os.utime(stray_old, (old, old))
-        os.utime(removed, (old, old))  # a removed task's folder, untouched for over an hour (herdr-task rm takes it at once)
+        # untouched for over an hour: a removed task's (herdr-task rm takes it at once when it can), a stray one, a
+        # running task's whose agent is gone (a crash), and a Ready one whose agent still runs
+        for p in (stray_old, removed, crashed, working, idle_ready):
+            self.age(p)
         other = os.path.join(task_tmp.root(), "Not Ours")
         os.makedirs(other)
         t0 = int(time.time() * 1000)
         self.write_list([{"id": 1, "state": "running", "tmp": working},
                          {"id": 2, "state": "done", "done_at": t0, "tmp": ending},
-                         {"id": 3, "state": "done", "done_at": t0 - 5, "ended_at": t0, "tmp": ended}])
+                         {"id": 3, "state": "done", "done_at": t0 - 5, "ended_at": t0, "tmp": ended},
+                         {"id": 5, "state": "running", "stopped_by": "error", "tmp": crashed},
+                         {"id": 6, "state": "ready", "tmp": idle_ready}])
+        self.live = {"home-dev-shop#1", "home-dev-shop#2", "home-dev-shop#6"}
         # task 4 was removed: no list names it any more
         gone = task_tmp.sweep(force=True)
-        self.assertEqual(sorted(gone), sorted(os.path.basename(p) for p in (ended, removed, stray_old)))
-        for p in (working, ending, stray_new, other):
+        self.assertEqual(sorted(gone), sorted(os.path.basename(p) for p in (ended, removed, stray_old, crashed)))
+        for p in (working, ending, idle_ready, stray_new, other):
             self.assertTrue(os.path.isdir(p), p)
-        for p in (ended, removed, stray_old):
+        for p in (ended, removed, stray_old, crashed):
             self.assertFalse(os.path.lexists(p), p)
+        # herdr-core was asked only about the folders that could go
+        self.assertEqual(sorted(a[2] for a in self.asked), sorted(f"herdr.task=home-dev-shop#{n}" for n in (1, 3, 5, 6)))
+
+    def test_a_folder_in_use_stays_until_nothing_uses_it(self):
+        """A web-app shell or any live terminal of the task (a detached action's caller among them) keeps it; the
+        sweep takes it once they are gone."""
+        t = {"id": 12, "state": "done", "done_at": 1, "ended_at": 2}
+        p = task_tmp.ensure(self.s, t)
+        self.write_list([t])
+        self.shell_in(p)
+        self.assertFalse(task_tmp.remove(self.s, t))
+        self.assertEqual(task_tmp.sweep(force=True), [])
+        self.assertTrue(os.path.isdir(p))
+        self.assertEqual(t["tmp"], p)
+        os.unlink(os.path.join(p, f"{task_tmp.SHELL_MARK}{os.getpid()}"))
+        self.live = {self.s.key(t)}
+        self.assertFalse(task_tmp.remove(self.s, t))
+        self.assertTrue(os.path.isdir(p))
+        self.live = set()
+        self.assertEqual(task_tmp.sweep(force=True), [os.path.basename(p)])
+        self.assertFalse(os.path.lexists(p))
+
+    def test_a_shells_mark_counts_only_while_its_process_runs_since_this_boot(self):
+        p = task_tmp.ensure(self.s, {"id": 13})
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        self.shell_in(p, dead.pid)
+        self.assertEqual(task_tmp.shells_in(p), 0)
+        self.shell_in(p)
+        self.assertEqual(task_tmp.shells_in(p), 1)
+        with mock.patch.object(task_tmp, "_boot_time", lambda: time.time() + 60):  # marked before a reboot: a reused pid
+            self.assertEqual(task_tmp.shells_in(p), 0)
+
+    def test_when_herdr_core_cant_say_the_folder_stays(self):
+        t = {"id": 14}
+        p = task_tmp.ensure(self.s, t)
+        with mock.patch.object(task_tmp, "hc_json", lambda *a: None):
+            self.assertFalse(task_tmp.remove(self.s, t))
+        self.assertTrue(os.path.isdir(p))
+
+    def test_a_start_touches_its_folder_so_the_sweep_leaves_it(self):
+        t = {"id": 15, "state": "running"}
+        p = task_tmp.ensure(self.s, t)
+        self.age(p)
+        self.write_list([t])
+        task_tmp.ensure(self.s, t)  # its agent starts again, not yet listed by herdr-core
+        self.assertEqual(task_tmp.sweep(force=True), [])
+        self.assertTrue(os.path.isdir(p))
 
     def test_sweep_waits_when_a_list_cant_be_read(self):
         p = task_tmp.ensure(self.s, {"id": 5})
@@ -140,12 +210,11 @@ class TaskTmp(unittest.TestCase):
         """The scheduler's first round after it starts sweeps (a crashed task's folder goes), then not again soon."""
         p = task_tmp.ensure(self.s, {"id": 6})
         self.write_list([])
-        old = time.time() - 2 * task_tmp.UNKNOWN_AGE_S
-        os.utime(p, (old, old))
+        self.age(p)
         with mock.patch.object(task_tmp, "_swept", 0.0):
             self.assertEqual(task_tmp.sweep(), [os.path.basename(p)])
             q = task_tmp.ensure(self.s, {"id": 7})
-            os.utime(q, (old, old))
+            self.age(q)
             self.assertEqual(task_tmp.sweep(), [])
             self.assertTrue(os.path.isdir(q))
 
@@ -157,6 +226,23 @@ class TaskTmp(unittest.TestCase):
             tick.end_done(self.s, t, {})
         self.assertFalse(os.path.lexists(p))
         self.assertGreater(t["ended_at"], t["done_at"])
+
+    def test_the_web_apps_terminal_can_have_it_made_before_the_agent_starts(self):
+        """`herdr-task _task-tmp <id>`: what service/shells.ts taskTmp() asks when a task has no folder yet."""
+        repo = tempfile.mkdtemp(prefix="tasktmp-repo-")
+        self.addCleanup(shutil.rmtree, repo, True)
+        env = dict(os.environ, HERDR_TASK_STORE=self.store, HERDR_TASK_SETTINGS=os.path.join(self.store, "settings.json"),
+                   SHEPHERDR_NO_MIGRATE="1", PYTHONDONTWRITEBYTECODE="1")
+        cli = [sys.executable, os.path.join(BIN, "herdr-task")]
+        r = subprocess.run([*cli, "add", "Early terminal", "--folder", repo, "--json"], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run([*cli, "_task-tmp", "1", "--folder", repo], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        p = json.loads(r.stdout)["tmp"]
+        self.assertTrue(os.path.isdir(p))
+        self.assertEqual(os.path.dirname(p), os.path.join(self.store, ".tmp"))
+        lists = [json.load(open(os.path.join(self.store, f))) for f in os.listdir(self.store) if f.endswith(".json")]
+        self.assertEqual([x.get("tmp") for d in lists for x in d.get("tasks") or []], [p])  # recorded on the task
 
 
 class TaskAgentEnv(unittest.TestCase):
@@ -212,8 +298,9 @@ class TaskAgentEnv(unittest.TestCase):
 
 
 class TestRunTemp(unittest.TestCase):
-    """A test run's own temp folder: HOME and TMPDIR inside it, gone at the run's end, and a shep-* folder the run
-    left in the shared temp folder fails it. In this process, its environment and tempfile's cache put back after."""
+    """A test run's own temp folder: HOME and TMPDIR inside it, gone at the run's end (a killed run's at the next
+    start), and a shep-* folder the run left in the shared temp folder fails it, unless another run shared that folder
+    meanwhile. In this process, its environment and tempfile's cache put back after."""
 
     def setUp(self):
         self.shared = tempfile.mkdtemp(prefix="tasktmp-shared-")
@@ -230,14 +317,28 @@ class TestRunTemp(unittest.TestCase):
         fn, *args = self.register.call_args[0]
         exit = mock.Mock()
         with mock.patch.object(home_guard.sys, "stderr", new_callable=io.StringIO) as err:
-            fn(*args, exit=exit)
+            fn(*args, exit=exit, **self.register.call_args[1])
         return exit.call_args_list, err.getvalue()
+
+    def dead_pid(self):
+        p = subprocess.Popen(["true"])
+        p.wait()
+        return p.pid
+
+    def old_run(self, name, by=2 * home_guard.STALE_RUN_S):
+        p = os.path.join(self.shared, name)
+        os.makedirs(os.path.join(p, "tmp", "shep-asks-x"))
+        old = time.time() - by
+        for x in (p, os.path.join(p, "tmp")):
+            os.utime(x, (old, old))
+        return p
 
     def test_the_run_folder_goes_at_the_end(self):
         run = home_guard.start_run()
         self.assertEqual(os.path.dirname(run), self.shared)
-        self.assertTrue(os.path.basename(run).startswith(home_guard.RUN_PREFIX))
+        self.assertTrue(os.path.basename(run).startswith(f"{home_guard.RUN_PREFIX}{os.getpid()}-"))
         self.assertEqual(os.environ["HOME"], os.path.join(run, "home"))
+        self.assertEqual(os.environ[home_guard.RUN_VAR], run)
         for v in ("TMPDIR", "TMP", "TEMP"):
             self.assertEqual(os.environ[v], os.path.join(run, "tmp"))
         made = tempfile.mkdtemp(prefix="shep-asks-")
@@ -245,22 +346,56 @@ class TestRunTemp(unittest.TestCase):
         self.assertEqual(self.end(), ([], ""))
         self.assertEqual(os.listdir(self.shared), [])
 
+    def test_a_home_the_caller_gave_stays_and_the_temp_folder_is_still_the_runs(self):
+        os.environ["HOME"] = given = os.path.join(self.shared, "given-home")
+        run = home_guard.start_run(own_home=False)
+        self.assertEqual(os.environ["HOME"], given)
+        self.assertEqual(os.environ["TMPDIR"], os.path.join(run, "tmp"))
+
     def test_a_folder_left_in_the_shared_temp_folder_fails_the_run(self):
         os.mkdir(os.path.join(self.shared, "shep-was-there"))
         home_guard.start_run()
-        for n in ("shep-diff-x", "shep-run-other", "shep-test-home-other", "not-ours"):
+        for n in ("shep-diff-x", "shep-settings-x", "not-ours"):
             os.mkdir(os.path.join(self.shared, n))
         calls, err = self.end()
         self.assertEqual(calls, [mock.call(1)])
-        self.assertIn("left 1 folder(s)", err)
+        self.assertIn("left 2 folder(s)", err)
         self.assertIn("shep-diff-x", err)
-        for n in ("shep-was-there", "shep-run-other", "shep-test-home-other"):
-            self.assertNotIn(n, err)
+        self.assertIn("shep-settings-x", err)  # a settings test's leak counts too
+        self.assertNotIn("shep-was-there", err)
 
-    def test_bun_and_python_ignore_the_same_run_folders(self):
+    def test_with_another_run_beside_it_a_new_folder_only_warns(self):
+        """Whose it is can't be told: a live run's folder (this process stands in), or an older checkout's run setup."""
+        for beside in (f"shep-run-{os.getppid()}-abc", "shep-test-home-old"):
+            with self.subTest(beside=beside):
+                shared = os.path.join(self.shared, beside.split("-")[2])
+                os.mkdir(shared)
+                tempfile.tempdir = shared
+                home_guard.start_run()
+                os.mkdir(os.path.join(shared, beside))
+                os.mkdir(os.path.join(shared, "shep-asks-m3-x"))
+                calls, err = self.end()
+                self.assertEqual(calls, [])
+                self.assertIn("maybe not this run's", err)
+                self.assertIn("shep-asks-m3-x", err)
+
+    def test_a_killed_runs_folder_goes_when_the_next_run_starts(self):
+        killed = self.old_run(f"shep-run-{self.dead_pid()}-k1")
+        live = self.old_run(f"shep-run-{os.getppid()}-l1")  # its process still runs (a long, quiet run)
+        recent = self.old_run(f"shep-run-{self.dead_pid()}-r1", by=60)  # still changing: another pid namespace's
+        home_guard.start_run()
+        self.assertFalse(os.path.lexists(killed))
+        self.assertTrue(os.path.isdir(live))
+        self.assertTrue(os.path.isdir(recent))
+
+    def test_bun_and_python_tell_old_runs_the_same_way(self):
         with open(os.path.join(ROOT, "test", "preload.ts")) as f:
-            m = re.search(r"export const RUN_FOLDERS = \[RUN_PREFIX, (.*)\];", f.read())
-        self.assertEqual(tuple(json.loads(f"[{m.group(1)}]")), home_guard.RUN_FOLDERS[1:])
+            src = f.read()
+        m = re.search(r"export const OLD_RUN_FOLDERS = \[(.*)\];", src)
+        self.assertEqual(tuple(json.loads(f"[{m.group(1)}]")), home_guard.OLD_RUN_FOLDERS)
+        self.assertIn(f'export const RUN_PREFIX = "{home_guard.RUN_PREFIX}";', src)
+        self.assertIn(f"const STALE_RUN_MS = {home_guard.STALE_RUN_S}_000;", src)
+        self.assertIn(f"process.env.{home_guard.RUN_VAR} = run;", src)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,11 @@ folders, or starts a program with the real HOME (or none, which falls back to it
 import atexit
 import os
 import pwd
+import re
 import shutil
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -75,53 +77,128 @@ def writes_bin(path):
 
 
 # ---- the run's own temp folder (dmalis/shepherdr#216) ------------------------------------------------------------
-# Like pytest's basetemp or Bazel's TEST_TMPDIR: one folder per run, removed at its end. Then the shared temp folder is
-# checked: a shep-* entry the run added there (a test that wrote past TMPDIR) fails it, by name. Entries that were
-# there before, and other runs' own folders (RUN_FOLDERS), never count.
+# Like pytest's basetemp or Bazel's TEST_TMPDIR: one folder per run (shep-run-<pid>-*), removed at its end, and one a
+# killed run left (its process gone, untouched an hour) removed when the next run starts. Then the shared temp folder
+# is checked: a shep-* entry the run added there (a test that wrote past TMPDIR) fails it, by name. When another run
+# shared the temp folder meanwhile (a live shep-run-*, or an older checkout's run, which made OLD_RUN_FOLDERS there),
+# whose entry it is can't be told: the check only warns. test/preload.ts does the same for the Bun tests.
 RUN_PREFIX = "shep-run-"
-# what a run's own setup makes, in any version (test/preload.ts's RUN_FOLDERS): another run's, never a test's leftover
-RUN_FOLDERS = (RUN_PREFIX, "shep-test-home-", "shep-data-", "shep-settings-", "shep-app-", "shep-hc-")
+RUN_VAR = "SHEPHERDR_TEST_RUN"  # set in a run: a program it starts that imports this again keeps the run's folders
+# what only a run's own setup made in the shared temp folder before #216: an older checkout's run is live beside this one
+OLD_RUN_FOLDERS = ("shep-test-home-", "shep-data-", "shep-app-", "shep-hc-")
+STALE_RUN_S = 3600
 TEMP_VARS = ("TMPDIR", "TMP", "TEMP")
+_RUN_NAME = re.compile(r"^shep-run-(\d+)-")
 
 
 def shep_entries(folder):
-    """The shep-* names in a temp folder, other runs' own folders (RUN_FOLDERS) left out."""
+    """The shep-* names in a temp folder, runs' own folders (shep-run-*) left out."""
     try:
-        return {n for n in os.listdir(folder) if n.startswith("shep-") and not n.startswith(RUN_FOLDERS)}
+        return {n for n in os.listdir(folder) if n.startswith("shep-") and not n.startswith(RUN_PREFIX)}
     except OSError:
         return set()
 
 
-def start_run():
-    """Makes this run's folder (HOME and TMPDIR inside it) and removes it when the run ends. Returns it."""
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # someone else's: alive
+        return True
+    return True
+
+
+def _touched(p):
+    """When a run's folder last changed: its tmp/ changes with every folder a test makes there."""
+    return max((os.stat(x).st_mtime for x in (p, os.path.join(p, "tmp")) if os.path.exists(x)), default=0)
+
+
+def other_runs(folder, me):
+    """The other runs whose folders are in `folder` and whose process still runs (or, unnamed, changed lately)."""
+    out = []
+    try:
+        names = [n for n in os.listdir(folder) if n.startswith(RUN_PREFIX)]
+    except OSError:
+        return out
+    for n in names:
+        m = _RUN_NAME.match(n)
+        pid = int(m.group(1)) if m else None
+        if pid == me:
+            continue
+        try:
+            live = _alive(pid) if pid else time.time() - _touched(os.path.join(folder, n)) < STALE_RUN_S
+        except OSError:
+            continue
+        if live:
+            out.append(n)
+    return out
+
+
+def clean_stale_runs(folder, me):
+    """Removes the folders of runs that were killed before their end: their process is gone and they haven't changed
+    for STALE_RUN_S (a live run in another pid namespace, a sandbox's, still changes)."""
+    gone = []
+    try:
+        names = [n for n in os.listdir(folder) if n.startswith(RUN_PREFIX)]
+    except OSError:
+        return gone
+    for n in names:
+        p = os.path.join(folder, n)
+        m = _RUN_NAME.match(n)
+        pid = int(m.group(1)) if m else None
+        try:
+            if pid == me or (pid and _alive(pid)) or time.time() - _touched(p) < STALE_RUN_S or os.path.islink(p):
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(p, ignore_errors=True)
+        gone.append(n)
+    return gone
+
+
+def start_run(own_home=True):
+    """Makes this run's folder (TMPDIR inside it, and HOME when own_home) and removes it when the run ends."""
     shared = tempfile.gettempdir()
+    me = os.getpid()
+    clean_stale_runs(shared, me)
     before = shep_entries(shared)
-    run = tempfile.mkdtemp(prefix=RUN_PREFIX)
+    shared_with = bool(other_runs(shared, me))
+    run = tempfile.mkdtemp(prefix=f"{RUN_PREFIX}{me}-")
     home, tmp = os.path.join(run, "home"), os.path.join(run, "tmp")
     os.mkdir(home, 0o700)
     os.mkdir(tmp, 0o700)
-    os.environ["HOME"] = home
+    if own_home:
+        os.environ["HOME"] = home
     for v in TEMP_VARS:
         os.environ[v] = tmp
+    os.environ[RUN_VAR] = run
     tempfile.tempdir = None  # gettempdir() reads TMPDIR again
-    atexit.register(end_run, run, shared, before, os.getpid())
+    atexit.register(end_run, run, shared, before, me, shared_with=shared_with)
     return run
 
 
-def end_run(run, shared, before, pid, exit=os._exit):
+def end_run(run, shared, before, pid, exit=os._exit, shared_with=False):
     """At the run's end (only in the process that made it): its folder goes, then a shep-* entry it left in the
-    shared temp folder fails the run."""
+    shared temp folder fails the run, or only warns when another run shared that folder meanwhile."""
     if os.getpid() != pid:
         return None
     shutil.rmtree(run, ignore_errors=True)
     left = sorted(shep_entries(shared) - before)
-    if left:
-        sys.stdout.flush()
-        sys.stderr.write(f"\nThis test run left {len(left)} folder(s) in {shared}: {', '.join(left[:10])}"
-                         f"{' …' if len(left) > 10 else ''}. Make them under the run's own TMPDIR, or remove them when "
-                         "the test ends (test/home_guard.py).\n")
+    if not left:
+        return left
+    shared_with = shared_with or bool(other_runs(shared, pid)) or any(n.startswith(OLD_RUN_FOLDERS) for n in left)
+    sys.stdout.flush()
+    names = f"{', '.join(left[:10])}{' …' if len(left) > 10 else ''}"
+    if shared_with:
+        sys.stderr.write(f"\nNew in {shared} during this test run, with another run beside it, so maybe not this "
+                         f"run's: {names} (test/home_guard.py).\n")
         sys.stderr.flush()
-        exit(1)
+        return left
+    sys.stderr.write(f"\nThis test run left {len(left)} folder(s) in {shared}: {names}. Make them under the run's "
+                     "own TMPDIR, or remove them when the test ends (test/home_guard.py).\n")
+    sys.stderr.flush()
+    exit(1)
     return left
 
 
@@ -151,12 +228,11 @@ def _audit(event, args):
 
 for k in DROP:
     os.environ.pop(k, None)
-if os.path.realpath(os.environ.get("HOME") or REAL) == REAL:
-    # dmalis/shepherdr#216: the run's throwaway HOME and its temp folder (TMPDIR, TMP, TEMP) in one folder of its
-    # own, removed when the run ends, so the many folders its tests make never pile up in the shared temp folder
-    # (they once filled a tmpfs's inodes). The programs a test starts inherit both. A run that is killed leaves this
-    # one folder; inside a task it goes with the task's own temp folder.
-    start_run()
+if not os.environ.get(RUN_VAR):
+    # dmalis/shepherdr#216: the run's temp folder (TMPDIR, TMP, TEMP), and its throwaway HOME unless the caller gave
+    # one, in one folder of its own, removed when the run ends, so the many folders its tests make never pile up in
+    # the shared temp folder (they once filled a tmpfs's inodes). The programs a test starts inherit both.
+    start_run(own_home=os.path.realpath(os.environ.get("HOME") or REAL) == REAL)
 # git commits in throwaway repos need a name; the real ~/.gitconfig is out of reach now
 for k, v in (("GIT_AUTHOR_NAME", "Test"), ("GIT_AUTHOR_EMAIL", "test@example.invalid"),
              ("GIT_COMMITTER_NAME", "Test"), ("GIT_COMMITTER_EMAIL", "test@example.invalid")):
