@@ -423,7 +423,7 @@ def posted(key, post, url):
         p = ps.get(key) or {}
         if (p.get("post") or {}).get("started") != post.get("started"):  # another attempt's record: left as it is
             return {"key": key, "filed": True, "url": url}, f"Already filed: {url}."
-        ps[key] = {**{k: v for k, v in p.items() if k != "approval"}, "state": "filed", "at": now(), "url": url,
+        ps[key] = {**{k: v for k, v in p.items() if k not in ("approval", "back")}, "state": "filed", "at": now(), "url": url,
                    "post": {**post, "state": "posted", "url": url},
                    "outcome": {"url": issue}}  # its issue; GitHub's side is read by --track (feedback_track)
     return ({"key": key, "filed": True, "url": url},

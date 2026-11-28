@@ -99,6 +99,8 @@ def track(key=None):
         keep(k, url, out, None)
         tracked.append({"key": k, "changed": said(was if observed(was) else None) != said(out),
                         **{x: out[x] for x in ("state", "reason", "canonical") if x in out}})
+    from .feedback_ship import after
+    after({t["key"] for t in tracked})  # a fix closed as fixed: its release, and whether this machine has it (slice 6)
     return {"tracked": tracked, "failed": failed}, words(ps, tracked, failed)
 
 

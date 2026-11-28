@@ -141,7 +141,7 @@ def person_flags(argv):
         if a == "--":
             return False
         f = a.split("=")[0]
-        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect", "--follow", "--approve")):
+        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect", "--follow", "--approve", "--works", "--broken")):
             return True
     return False
 
@@ -377,6 +377,11 @@ def main():
     g.add_argument("--approve", type=int, metavar="REV", help="the person's yes to draft REV, from the Feedback page's Post it (never an agent); --by chat: an Assistant's record of a yes said to a card that showed it")
     g.add_argument("--reconcile", action="store_true", help="a post whose answer was lost: look for it on GitHub by its hidden marker, read only")
     g.add_argument("--track", action="store_true", help="each filed or followed problem's issue on GitHub, read only: open, closed as fixed, declined there or a duplicate (each at most once an hour; with --key, that one now)")
+    g.add_argument("--works", action="store_true", help="the person's Works, from the Feedback page (never an agent): its fix works on this machine (--key)")
+    g.add_argument("--broken", action="store_true", help="the person's Still broken, from the Feedback page (never an agent): back under Found, a comment on its issue as a draft")
+    g.add_argument("--installed", metavar="BUILD", help="an install's own: the build installed here (ignored unless it's the recorded one) carries --issues")
+    c.add_argument("--issues", nargs="*", metavar="URL", help="--installed: every issue that build fixes (it replaces the last list: one left out loses On this machine)")
+    c.add_argument("--try-it", nargs=2, action="append", metavar=("URL", "WORDS"), help="--installed: what the person does to try that issue's fix, and what they should see")
     c.add_argument("--by", choices=["page", "chat"], help="--approve: where the person said yes (default page)")
     c.add_argument("--rev", type=int, metavar="N", help="--file: post draft N, the one the person said yes to (without it, --file writes the draft and posts nothing)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),

@@ -232,6 +232,8 @@ def add_report(ps, key, report, fix=None, kind=None):
     p.setdefault("at", report["at"])
     if p.get("decision") == "later":  # Not now ends when it happens again (feedback_page.py)
         p = {k: v for k, v in p.items() if k not in ("decision", "until", "was", "decided")}
+    from .feedback_ship import reported_again
+    p = reported_again(p)  # after Works, or with its fix on this machine: it came back (#94, slice 6)
     ps[key] = p
     return p
 
@@ -497,7 +499,8 @@ def problems_read():
 def list_all(args):
     """--list --all: every problem kept, in every space and state, read only."""
     from .output import say
-    rows = [{**p, "id": p.get("id") or key, "key": key} for key, p in problems_read().items()]
+    from .feedback_ship import seen_here
+    rows = seen_here([{**p, "id": p.get("id") or key, "key": key} for key, p in problems_read().items()])
     n = lambda r: r.get("count") or len(r.get("reports") or []) or 1
     return say(args, rows, "\n".join(f"{r['id']}  {r.get('state') or 'found'}  {n(r)} report{'' if n(r) == 1 else 's'}  "
                                      f"{r.get('line') or ''}" for r in rows) or "Nothing kept.")
@@ -519,6 +522,9 @@ def cmd_feedback(args):
         return list_all(args)
     from .feedback_track import track_call
     if track_call(args) is not None:  # --track: each filed or followed issue's state on GitHub, read only (#94, slice 5)
+        return True
+    from .feedback_ship import installed_call, tried_call
+    if installed_call(args) or tried_call(args):  # --installed, --works, --broken (#94, slice 6)
         return True
     addr, k = me()
     labels = k.get("labels") or {}
