@@ -8,7 +8,7 @@ import type { Snapshot } from '@shared/types.ts'
 import { feedbackMachines, snapshot } from '../../demo/data.ts'
 
 const T = await import('@client/toasts.ts')
-const { FeedbackPage, decide, follow, rowKey, whose, writeUpTo } = await import('./rows.tsx')
+const { FeedbackPage, decide, follow, rowKey, tried, whose, writeUpTo } = await import('./rows.tsx')
 const { postIt } = await import('./confirm.tsx')
 const W = await import('./words.ts')
 
@@ -111,6 +111,16 @@ test("a machine without Shepherdr is said once, at the top; nothing more", () =>
   // a machine that's out of reach with no rows to show isn't named
   const quiet = page({ ...snapshot('machines'), feedback: { ...feedbackMachines, rows: feedbackMachines.rows.filter((r) => r.machine !== 'pi') } })
   expect(quiet).not.toContain('pi can&#x27;t be reached')
+})
+
+test("a fix's lines on another machine's row name that machine, and Works goes there (slices 6 and 8)", async () => {
+  const ship = { ship: { release: '3.2.23', here: true as const }, tried: undefined }
+  expect(W.shipWords(ship)!.text).toBe('Fixed in 3.2.23 · On this machine')
+  expect(W.shipWords(ship, 'studio')!.text).toBe('Fixed in 3.2.23 · On studio')
+  expect(W.shipWords({ ship: { release: '3.2.24', update: true } }, 'studio')!.text).toBe('Fixed in 3.2.24: update Shepherdr on studio to get it')
+  answer({ ok: true, key: 'a1f0c2', changed: true })
+  expect(await tried(byId('a1f0c2', 'studio'), 'works')).toBe(true)
+  expect(sent.at(-1)).toEqual({ type: 'feedback', do: 'works', key: 'a1f0c2', machine: 'studio' })
 })
 
 test('the words name no agent role and no key', () => {

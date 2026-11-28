@@ -11,7 +11,7 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, machineLabel, spaceLabel } from '@shared/view.ts'
-import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lockWords, lookUrl, machineWords, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, W, writeUpText } from './words.ts'
+import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lockWords, lookUrl, machineWords, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, unknownOn, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
@@ -109,8 +109,8 @@ function OutcomeView({ o }: { o: NonNullable<FeedbackRow['outcome']> }) {
 /** a fixed row's status (slice 6): Works, On this machine with what to try, or the release that has it; GitHub's side
  *  (OutcomeView) when none of that is known. Try it follows TestFlight's "What to Test" and Linear's release notes:
  *  one plain line of what to do and what to see, under the status */
-function ShipView({ r }: { r: FeedbackRow }) {
-  const w = shipWords(r)
+function ShipView({ r, on = '' }: { r: FeedbackRow; on?: string }) {
+  const w = shipWords(r, on)
   const ask = tryable(r)
   const t = ask ? tryWords(r) : null
   return (
@@ -120,7 +120,7 @@ function ShipView({ r }: { r: FeedbackRow }) {
       ) : r.outcome && <OutcomeView o={r.outcome} />}
       {w && r.outcome?.failed && <p className="fb-note">{W.trackFailed}</p>}
       {t && <p className="fb-try"><span className="fb-k">{W.tryIt}</span> {t}</p>}
-      {ask && r.ship?.unknown && !r.ship.here && <p className="fb-note">{W.unknown}</p>}
+      {ask && r.ship?.unknown && !r.ship.here && <p className="fb-note">{on ? unknownOn(on) : W.unknown}</p>}
     </>
   )
 }
@@ -128,7 +128,7 @@ function ShipView({ r }: { r: FeedbackRow }) {
 /** the person's Works or Still broken (slice 6): kept for the build installed now; Still broken brings it back under
  *  Found with a comment for its issue to file */
 export async function tried(r: FeedbackRow, result: 'works' | 'broken'): Promise<boolean> {
-  const a = await call({ do: result, key: r.id })
+  const a = await call({ do: result, ...whose(r) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -242,7 +242,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
         )}
         {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
-        {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} />}
+        {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} on={on} />}
         {lock && <p className="fb-st fb-lock"><I n={r.readOnly === 'stale' ? 'clock' : 'info'} c="s16" /><span>{lock}</span></p>}
         <div className="fb-acts">{btns()}</div>
       </div>

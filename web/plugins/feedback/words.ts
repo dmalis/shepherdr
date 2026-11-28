@@ -186,15 +186,20 @@ export function outcomeWords(o: Outcome): { icon: 'check' | 'x' | 'clock' | 'cop
 /** a fixed row's status line (slice 6), only from what herdr-task proved: the person's Works first, then its fix on this
  *  machine (this build has the closing commit, or its install said so), then a release with it that this machine is
  *  older than, then the release alone. null: the row says GitHub's side (outcomeWords) instead */
-export function shipWords(r: Pick<FeedbackRow, 'ship' | 'tried'>): { icon: 'check' | 'clock'; fixed: boolean; text: string } | null {
+export function shipWords(r: Pick<FeedbackRow, 'ship' | 'tried'>, machine = ''): { icon: 'check' | 'clock'; fixed: boolean; text: string } | null {
   if (r.tried?.result === 'works') return { icon: 'check', fixed: true, text: W.worked }
   const s = r.ship
   if (!s) return null
-  if (s.here) return { icon: 'check', fixed: true, text: s.release ? `Fixed in ${s.release} · ${W.here}` : W.here }
-  if (s.update && s.release) return { icon: 'clock', fixed: false, text: `Fixed in ${s.release}: update Shepherdr to get it` }
+  // another machine's row (slice 8): its build is that machine's, so it says which
+  const here = machine ? `On ${machine}` : W.here
+  if (s.here) return { icon: 'check', fixed: true, text: s.release ? `Fixed in ${s.release} · ${here}` : here }
+  if (s.update && s.release) return { icon: 'clock', fixed: false, text: `Fixed in ${s.release}: update Shepherdr${machine ? ` on ${machine}` : ''} to get it` }
   if (s.release) return { icon: 'check', fixed: true, text: `Fixed in ${s.release}` }
   return null
 }
+
+/** another machine's row whose build there isn't known (slices 6 and 8) */
+export const unknownOn = (machine: string) => `${machine}’s build isn’t known, so only you can tell whether the fix is there`
 
 /** whether the row asks the person to try it: its fix is here (or this machine's build isn't known), not tried yet */
 export const tryable = (r: Pick<FeedbackRow, 'ship' | 'tried' | 'section'>) =>
