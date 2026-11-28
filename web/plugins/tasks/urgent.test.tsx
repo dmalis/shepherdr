@@ -14,7 +14,7 @@ mock.module('@client/kernel.ts', () => ({ ...kernel, useSnap: () => kernel.getSt
 const { getState, registry, setUI } = kernel
 const { taskRows } = await import('./client.tsx')
 const plugin = (await import('./client.tsx')).default
-const { UrgentMark, UrgentWord, urgentRows } = await import('./urgent.tsx')
+const { UrgentMark, UrgentTag, UrgentWord, urgentRows } = await import('./urgent.tsx')
 const { needsCount } = await import('@shared/view.ts')
 const { NO_FILTER } = await import('@shared/task-filter.ts')
 const { IC } = await import('@client/icons.ts')
@@ -58,12 +58,17 @@ test('a tap sends task-urgent with on, for the task\'s chat', async () => {
   expect(sent).toEqual([{ type: 'task-urgent', chat: 'SHOP-1/worker', on: true }, { type: 'task-urgent', chat: 'SHOP-1/worker', on: false }])
 })
 
-test('the mark: its icon hidden from a screen reader, which hears "Urgent, " first; nothing when not urgent', () => {
+test('the mark: a screen reader hears "Urgent, " first; the row shows the icon with its word (#415); nothing when not urgent', () => {
   const html = renderToStaticMarkup(<span className="l1"><UrgentMark t={{ ...base, urgent: true }} />{base.name}</span>)
-  expect(html).toContain(IC.urgent)
-  expect(html).toContain('aria-hidden="true"')
   expect(text(html)).toBe('Urgent, Fix checkout')
   expect(renderToStaticMarkup(<UrgentMark t={base} />)).toBe('')
+  // the second line: "[!] Urgent ·" seen, not read out twice; the dot only before more words
+  const tag = renderToStaticMarkup(<UrgentTag t={{ ...base, urgent: true }} more />)
+  expect(tag).toStartWith('<span class="urg" aria-hidden="true">')
+  expect(tag).toContain(IC.urgent)
+  expect(text(tag)).toBe('Urgent·')
+  expect(text(renderToStaticMarkup(<UrgentTag t={{ ...base, urgent: true }} more={false} />))).toBe('Urgent')
+  expect(renderToStaticMarkup(<UrgentTag t={base} more />)).toBe('')
   // the header: "Urgent" first, the dot after it not read out
   const head = renderToStaticMarkup(<UrgentWord t={{ ...base, urgent: true }} />)
   expect(head).toContain(IC.urgent)
@@ -96,6 +101,8 @@ test('Tasks: urgent first in Working, each row named "Urgent, <title>"; Needs yo
   const row = html.slice(html.indexOf(`data-task-row="${urgent[0]}"`))
   const button = row.slice(row.indexOf('<button'), row.indexOf('</button>'))
   expect(text(button)).toStartWith(`Urgent, ${snap.tasks.find((t) => t.id === urgent[0])!.name}`)
+  // #415: its second line starts with the word, beside the icon
+  expect(button.slice(button.indexOf('class="l2')).replace(/^[^>]*>/, '')).toStartWith('<span class="urg" aria-hidden="true">')
   // Needs you as the shared list orders it, whatever is urgent
   const needs = group(html, 'Needs you')
   const marked = { ...snap, tasks: snap.tasks.map((t) => (t.id === needs[needs.length - 1] ? { ...t, urgent: true as const } : t)) }

@@ -13,7 +13,8 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { answerOf, batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { answerOf, batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, triageCards, whyWords } = await import('./client.tsx')
+const { TriageSettings } = await import('./settings.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
