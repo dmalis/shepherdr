@@ -3677,9 +3677,11 @@ class ReviewerLine(unittest.TestCase):
     def test_codex_runs_on_its_own_server(self):
         r = self.line("ready")
         self.assertEqual(r["value"]["agent"], "codex")
-        self.assertIn("codex --no-daemon --sandbox read-only --ask-for-approval never", r["value"]["command"])
+        # dmalis/shepherdr#250: read-only but for its task's own temp folder
+        self.assertIn("codex --no-daemon -c 'permissions.shepherdr-reviewer.filesystem={\":root\"=\"read\",", r["value"]["command"])
+        self.assertIn("=\"write\"}' -c 'default_permissions=\"shepherdr-reviewer\"' --ask-for-approval never", r["value"]["command"])
         self.assertIn("(the other CLI); start it as `env ${TMPDIR:+", r["text"])
-        self.assertIn(" codex --no-daemon --sandbox read-only", r["text"])
+        self.assertIn(" codex --no-daemon -c 'permissions.shepherdr-reviewer.", r["text"])
 
     def test_signed_out_codex_never_reviews(self):
         r = self.line("signed-out")

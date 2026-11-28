@@ -22,6 +22,7 @@ from .github import finish, remote_of
 from .guard import guard_argv
 from .browsers import browser_env, browser_line, browser_path, desktop_path
 from . import task_tmp
+from . import review_sandbox
 
 
 # ---- an agent's own herdr-task commands never ask -------------------------------------------
@@ -253,6 +254,8 @@ def helper_hc(words):
     opts, cmd = words[2:i], words[i + 1:]
     if cmd[:2] == ["env", "PATH=@herdr-reviewer"]:
         cmd = cmd[2:]
+    # dmalis/shepherdr#250: a Codex reviewer that may write its task's temp folder is still the read-only reviewer
+    cmd = review_sandbox.as_read_only(cmd)
     j = 0
     while j < len(opts):
         if opts[j] == "--bg":
