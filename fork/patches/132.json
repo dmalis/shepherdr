@@ -6,6 +6,7 @@
     "fork/specs/ui-polish.md",
     "test/test_design.py",
     "web/demo/perf-check.ts",
+    "web/demo/serve.ts",
     "web/src/ds.css",
     "FORK.md"
   ],
