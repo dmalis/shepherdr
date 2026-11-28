@@ -46,6 +46,8 @@ export const W = {
   checkAgain: 'Check again',
   checking: 'Checking…',
   foundIt: 'Found on GitHub: filed',
+  // slice 5: GitHub's side of a filed issue
+  trackFailed: 'GitHub isn’t reachable here: this is the last it showed',
 } as const
 
 /** Not now's menu, in the order Linear's Snooze and iOS Mail's Remind me list theirs */
@@ -136,9 +138,35 @@ export function postWords(r: Pick<FeedbackRow, 'post' | 'approved' | 'url'>): st
   return null
 }
 
-/** a filed row's state, only from what herdr-task knows */
-export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url' | 'following' | 'post' | 'approved'>) =>
-  r.following ? followingWords(r.following.title) : postWords(r) ?? (r.state === 'filing' ? 'Posting' : 'Filed')
+/** a filed row's state, only from what herdr-task knows; once GitHub's side was read (slice 5), its status line says
+ *  that instead of "Filed" */
+export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url' | 'following' | 'post' | 'approved' | 'outcome'>) =>
+  r.following ? followingWords(r.following.title) : postWords(r) ?? (r.state === 'filing' ? 'Posting' : r.outcome ? '' : 'Filed')
+
+type Outcome = NonNullable<FeedbackRow['outcome']>
+type IssueState = Pick<Outcome, 'state' | 'reason'>
+
+/** an issue's state, as GitHub's own close reasons tell it (herdr-task's feedback_track.said says the same) */
+export function issueWords(o: IssueState): string {
+  if (o.state === 'open') return 'Open on GitHub'
+  return o.reason === 'completed' ? 'Closed as fixed' : o.reason === 'not_planned' ? 'Declined there' : o.reason === 'duplicate' ? 'Closed as a duplicate' : 'Closed'
+}
+
+/** a duplicate's canonical issue, after its title */
+const whichWords = (o: IssueState) =>
+  o.state === 'open' ? ', which is open' : o.reason === 'not_planned' ? ', which was declined' : `, which is ${issueWords(o).toLowerCase()}`
+
+/** a filed row's status line (slice 5): GitHub's side of its issue, read by herdr-task --track. A duplicate names the
+ *  issue GitHub says it duplicates, and takes its look from that one: fixed there is fixed. Its icon only repeats the
+ *  words (GitHub's issue states pair a mark with words too); fixed is the one green */
+export function outcomeWords(o: Outcome): { icon: 'check' | 'x' | 'clock' | 'copy'; fixed: boolean; lead: string; link?: { title: string; url: string }; tail?: string } {
+  const c = o.state === 'closed' && o.reason === 'duplicate' ? o.canonical : undefined
+  const end: IssueState = c ?? o
+  const icon = end.state === 'open' ? 'clock' : end.reason === 'not_planned' ? 'x' : end.reason === 'duplicate' ? 'copy' : 'check'
+  const fixed = end.state === 'closed' && end.reason === 'completed'
+  if (c) return { icon, fixed, lead: 'Closed as a duplicate of ', link: { title: c.title, url: c.url }, tail: whichWords(c) }
+  return { icon, fixed, lead: issueWords(o) }
+}
 
 /** a row that follows an issue the check found (Follow this one): nothing was posted */
 export const followingWords = (title: string) => `Following “${title}”`

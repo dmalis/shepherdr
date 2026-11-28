@@ -135,7 +135,7 @@ def said(o):
     if not o or not o.get("state"):
         return "Filed"
     if o["state"] == "open":
-        return "Open"
+        return "Open on GitHub"
     r = o.get("reason")
     if r == "completed":
         return "Closed as fixed"
@@ -143,8 +143,10 @@ def said(o):
         return "Declined there"
     if r == "duplicate":
         c = o.get("canonical")
-        return f"Closed as a duplicate of “{c['title']}”, which {'is open' if c['state'] == 'open' else 'is ' + said(c).lower()}" \
-            if isinstance(c, dict) and c.get("title") else "Closed as a duplicate"
+        if not isinstance(c, dict) or not c.get("title"):
+            return "Closed as a duplicate"
+        which = "is open" if c.get("state") == "open" else "was declined" if c.get("reason") == "not_planned" else "is " + said(c).lower()
+        return f"Closed as a duplicate of “{c['title']}”, which {which}"
     return "Closed"
 
 
