@@ -1,0 +1,32 @@
+/* Tasks' views row (views.tsx, dmalis/shepherdr#151): a segmented control in ds.css's .seg look, the picked segment in
+   the stronger control fill and the ink. It sits under Now and Scheduled, on the list's 8px edge. On a phone it takes the
+   pane's width, its segments sharing it (iOS's segmented control). Nothing here moves: a pick is instant, so the Motion
+   setting and prefers-reduced-motion have nothing to turn off. */
+.vwrap{container-type:inline-size}
+.vrow{display:flex;gap:2px;width:max-content;max-width:calc(100% - 16px);margin:0 8px 8px;padding:2px;border-radius:8px;background:var(--control)}
+.vrow>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px;height:var(--tab);padding:0 10px;border-radius:6px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-weight:500;white-space:nowrap;touch-action:manipulation}
+/* a word gives way before its count and chevron: cut with an ellipsis, never spilling out of its segment */
+.vrow .vl{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.vrow>button[aria-pressed="true"],.vrow>.vmore.on{background:var(--control2);color:var(--fg)}
+/* a quiet count on the picked segment stands on the page's colour, not on the same fill as the segment */
+.vrow>.vmore.on>.cnt{background:var(--canvas)}
+.vrow>.vmore{gap:4px}.vrow>.vmore>.cnt{margin-left:2px}
+.vrow>.vmore>.i{flex:none;color:var(--muted)}
+.app.phone .vrow{width:auto}
+.app.phone .vrow>button{flex:1 1 auto}
+/* narrow (a phone at a big zoom, a thin pane): tighter segments, and the picked view's count goes, as the list's own
+   heading says it (zoom-css scales this query with the app's zoom) */
+@container (max-width:340px){
+  .vrow>button{padding:0 6px;gap:4px}
+  .vrow>.vmore>.cnt{display:none}
+  /* More is its chevron alone (its name stays More views), leaving Needs you its words */
+  .vrow>.vmore:not(.on)>.vl{display:none}
+  /* a view picked there: its name whole, beside "Needs" and its red count */
+  .vrow:has(>.vmore.on) .vy,.vrow>.vmore.on>.i{display:none}
+}
+@media(hover:hover){.vrow>button:not([aria-pressed="true"]):not(.on):hover{color:var(--fg)}}
+@media(pointer:coarse){.vrow>button:active{opacity:.6}}
+
+/* the picker's menu: a radio list, the picked one ticked at its end */
+.vmenu{display:grid;grid-template-columns:minmax(0,1fr);min-width:200px}
+.vmenu .vck{display:grid;place-items:center;width:16px;flex:none;color:var(--fg)}

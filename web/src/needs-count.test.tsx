@@ -166,7 +166,7 @@ test('the Tasks button and the bar: red with what needs you here, a tap lists it
   expect(t).toContain("label={red ? `Tasks, ${needsWords(red)}` : 'Tasks'}")
   expect(t).toContain("onClick={() => (red && listNeeds([at])) || togglePane('tasks')}")
   expect(t).toContain('needs: needsCount, openNeeds: (_, place) => listNeeds([place]) })')
-  expect(t).toContain('{o && chats.map((i) => <AskRow')
+  expect(t).toContain('{isOpen && chats.map((i) => <AskRow')
   const app = src('./App.tsx')
   expect(app).toContain("const red = b.needs?.(snap, at) ?? 0")
   expect(app).toContain('onClick={() => (red && b.openNeeds?.(snap, at)) || setUI(')

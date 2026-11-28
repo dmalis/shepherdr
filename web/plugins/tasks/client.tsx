@@ -34,7 +34,8 @@ import { needsCount } from '@shared/view.ts'
 import { moreActions, needsWords } from '@shared/needs-open.ts'
 import { cantCheck, tierLabel } from '@shared/needs-words.ts'
 import { AskRow, listNeeds, needsAsks } from '@client/needs-count.tsx'
-import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
+import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, GROUPS, groupNarrows, NO_FILTER, pickView, toggle, type GroupKey, type TaskFilter, type View } from '@shared/task-filter.ts'
+import { Views } from './views.tsx'
 
 export { StatusIcon }
 
@@ -643,6 +644,9 @@ function RepoHead({ snap, r }: { snap: Snapshot; r: Repo }) {
   )
 }
 
+/** fork UI 13: a view with nothing in it says so, and offers All */
+const EMPTY_VIEW: Record<View, string> = { needs: 'Nothing needs you', working: 'Nothing working', stopped: 'Nothing stopped', today: 'Nothing done today yet', urgent: 'Nothing urgent' }
+
 function Now({ snap, place }: { snap: Snapshot; place: string }) {
   const ui = useUI()
   const f = ui.tf
@@ -654,16 +658,25 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
   const byId = new Map(filtered.filter((t) => !t.archived).map((t) => [t.id, t]))
   // fork Needs you 5/6: the task's other open actions of yours (a second prompt, a question asked from a card while it
   // works): a row each under Needs you, so the group shows as many as the count counts (web/shared/attention.ts)
-  const queued = [...byId.values()].flatMap((task) => moreActions(snap, task).map((a) => ({ task, a })))
+  // (only in All and Needs you: another view lists tasks by their own state)
+  const queued = !f.view || f.view === 'needs' ? [...byId.values()].flatMap((task) => moreActions(snap, task).map((a) => ({ task, a }))) : []
   const asks = needsAsks(snap, f, place)
-  const groups = nowGroups(filtered, alerts).filter((g) => g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length))
+  // fork UI 13: the Needs you view lists the Needs you group alone (a working task with a question of yours shows by
+  // its question's row); in a view every group starts open, folded apart from the list's own (Done today is a Done)
+  const groups = nowGroups(filtered, alerts).filter((g) => (g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length)) && (f.view !== 'needs' || g.name === 'Needs you'))
   if (!groups.length)
     return snap.tasks.length ? (
       <>
         {top}
-        <Empty title="No tasks match">
-          <Btn onClick={() => setUI({ tf: NO_FILTER })}>Clear filter</Btn>
-        </Empty>
+        {f.view && !filterOn(snap, f, place) ? (
+          <Empty title={EMPTY_VIEW[f.view]}>
+            <Btn onClick={() => setTF((x) => pickView(x, undefined))}>Show all tasks</Btn>
+          </Empty>
+        ) : (
+          <Empty title="No tasks match">
+            <Btn onClick={() => setUI({ tf: NO_FILTER })}>Clear filter</Btn>
+          </Empty>
+        )}
       </>
     ) : (
       <Empty>No tasks yet. Ask in a chat to add one.</Empty>
@@ -674,21 +687,24 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
       {groups.map((g) => {
         // Done and Archived start folded; the others open
         const o = ui.open[g.name] ?? !['Done', 'Archived'].includes(g.name)
+        // fork UI 13: a view's groups start open, and fold apart from the list's own (Done today is a Done)
+        const key = f.view ? `${f.view}:${g.name}` : g.name
+        const isOpen = f.view ? (ui.open[key] ?? true) : o
         const shown = g.name === 'Done' ? g.tasks.slice(0, ui.doneShown) : g.tasks
         const questions = g.name === 'Needs you' ? queued : []
         const chats = g.name === 'Needs you' ? asks : []
         return (
           <div key={g.name} style={{ display: 'contents' }}>
-            <button type="button" className="grp" aria-expanded={o} onClick={() => setUI({ open: { ...ui.open, [g.name]: !o } })}>
+            <button type="button" className="grp" aria-expanded={isOpen} onClick={() => setUI({ open: { ...ui.open, [key]: !isOpen } })}>
               {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
             {/* its hand-up's words when that is what its row leads with (another of its actions has a row of its own below) */}
-            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
-            {o && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
+            {isOpen && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
+            {isOpen && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
               label={a.what} sub={task.name} onClick={() => { openTask(task.id); if (a.card) setUI({ jump: a.card }) }} />)}
-            {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
-            {o && shown.length < g.tasks.length && (
+            {isOpen && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
+            {isOpen && shown.length < g.tasks.length && (
               <button type="button" className="grp" onClick={() => setUI({ doneShown: ui.doneShown + 20 })}>Show more</button>
             )}
           </div>
@@ -732,21 +748,23 @@ function FilterMenu() {
   if (!snap) return null
   const inSpace = !!at && !isEverything(snap, at)
   const machines = new Set(snap.machines.map((m) => m.machine)).size > 1
-  const check = (key: string, label: ReactNode, on: boolean, run: () => void, n?: number) => (
-    <Row key={key} lead={<Tick on={on} />} label={label} value={n ? String(n) : undefined} role="checkbox" aria-checked={on} onClick={run} />
+  const check = (key: string, label: ReactNode, on: boolean, run: () => void, n?: number, sub?: string) => (
+    <Row key={key} lead={<Tick on={on} />} label={label} sub={sub} value={n ? String(n) : undefined} role="checkbox" aria-checked={on} onClick={run} />
   )
   const group = (key: GroupKey, name: string) => {
-    const all = choices(snap, key, f)
-    if (all.length < 2 && !f[key].length) return null
+    // fork UI 13: each choice counts what the list would show with it, in the view you're in
+    const all = choices(snap, key, f, at)
+    if (!groupNarrows(snap, key, f, at)) return null
     const many = (key === 'space' || key === 'repo') && all.length > 8
     const q = qs[key] ?? ''
     const shown = many && q ? all.filter((c) => `${c.label} ${c.machine ?? ''}`.toLowerCase().includes(q.toLowerCase())) : all
-    const find = key === 'space' ? 'Find a space' : 'Find a repo'
+    const find = key === 'space' ? 'Find a space' : 'Find a project'
     return (
       <MenuGroup key={key} cap={name}>
         {many && <input className="inp tfq" name={`${key}-search`} aria-label={find} placeholder={find} value={q} onChange={(e) => setQs({ ...qs, [key]: e.target.value })} />}
         {shown.map((c) => {
-          const where = machines && c.machine ? c.machine : ''
+          // a project names its machine only when another of its name is on one (choices() says when)
+          const where = (key === 'repo' || machines) && c.machine ? c.machine : ''
           const label = where ? <><span className="tft">{c.label}</span><span className="tfw">{where}</span></> : c.label
           return check(c.id, label, f[key].includes(c.id), () => setTF((x) => toggle(x, key, c.id)), c.n)
         })}
@@ -759,18 +777,17 @@ function FilterMenu() {
   return (
     <div className="tfm">
       <div ref={body} className="tfb" onScroll={look} data-up={fade.up || undefined} data-down={fade.down || undefined}>
+        {/* fork UI 13: Project first, then Space (where it was asked), then Machine and State; the quick choices last */}
+        {GROUPS.map((g) => group(g.key, g.name))}
         <MenuGroup>
-          {inSpace && check('here', `${spaceLabel(snap, at)} only`, f.here, () => setTF((x) => ({ ...x, here: !x.here })))}
+          {inSpace && check('here', `${spaceLabel(snap, at)} only`, f.here, () => setTF((x) => ({ ...x, here: !x.here })), undefined, 'Asked there or working in its folder')}
           {check('hideDone', 'Hide done', f.hideDone, () => setTF((x) => ({ ...x, hideDone: !x.hideDone, state: x.hideDone ? x.state : x.state.filter((s) => s !== 'done' && s !== 'archived') })))}
         </MenuGroup>
-        {group('state', 'State')}
-        {group('machine', 'Machine')}
-        {group('space', 'Space')}
-        {group('repo', 'Repo')}
       </div>
       {on && (
         <div className="tff">
-          <Row icon="x" label="Clear filters" value={`${picked} on`} role="menuitem" onClick={() => setUI({ tf: NO_FILTER })} />
+          {/* the view stays: it has its own row, one tap back to All */}
+          <Row icon="x" label="Clear filters" value={`${picked} on`} role="menuitem" onClick={() => setTF((x) => (x.view ? { ...NO_FILTER, view: x.view } : NO_FILTER))} />
         </div>
       )}
     </div>
@@ -836,6 +853,7 @@ function TasksPane() {
           ))}
         </div>
       )}
+      {now && <Views snap={snap} />}
       {now && <Chips snap={snap} />}
       {now ? <Now snap={snap} place={ui.at} /> : <Scheduled place={ui.at} />}
     </PaneFrame>

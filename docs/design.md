@@ -77,8 +77,22 @@ What a row, a card or a header shows. Leave out what doesn't help the person dec
 space's own chat that asks, a queued question. One task can have more than one. The red count is how many there are,
 and pressing it shows exactly those. What is in it, how its items are told apart and in what order is decided by the
 Needs you work (`web/shared/needs-open.ts`, `web/src/needs-count.tsx`); a change elsewhere doesn't count them its own
-way. Target: what blocks an agent (a question, a permission) comes before what waits for a review, and a filter named
-"Needs you" shows the same items as the group.
+way. The Tasks list's **Needs you** view shows the same items as the group and its red count; the filter sheet has no
+Needs you of its own. Target: what blocks an agent (a question, a permission) comes before what waits for a review.
+
+### Views for the day
+
+Tasks › Now has one row above the list for the day's questions (`web/plugins/tasks/views.tsx`): **All**, **Needs
+you**, and a compact picker for **Working**, **Stopped**, **Done today** (finished since this device's midnight) and
+**Urgent**. It is a segmented control: one is always picked, All is one tap back, and the view is kept on this device.
+When it is narrow (a phone at a big zoom), More is its chevron alone and a picked view keeps its name whole beside
+"Needs" and the red count; a word that still can't fit ends in an ellipsis inside its segment. A red count opens what
+it counts whatever view was kept. The filter sheet narrows any view: **Project** first (the repo or folder a task works
+in; the machine is named only when one name is on two), then **Space** (where the task was asked), then Machine and
+State. A choice's count is what the list would show with it, in the view you're in and with the other groups' picks
+(`web/shared/task-filter.ts`): in Needs you, its rows, a space's chat question among them. A choice with none is left
+out unless it is picked, and a group shows when a pick in it would change the list. A view with nothing in it says so
+and offers All.
 
 ## Sizes
 

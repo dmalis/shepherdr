@@ -1,0 +1,20 @@
+{
+  "issue": 151,
+  "name": "Tasks: views for a day of many projects",
+  "files": [
+    "web/shared/task-filter.ts",
+    "web/shared/task-filter.test.ts",
+    "web/plugins/tasks/views.tsx",
+    "web/plugins/tasks/views.css",
+    "web/plugins/tasks/views.test.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/src/needs-count.tsx",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/shared/task-filter.test.ts",
+    "web/plugins/tasks/views.test.tsx",
+    "web/src/needs-count.test.tsx",
+    "web/src/task-filter-kept.test.ts"
+  ]
+}
