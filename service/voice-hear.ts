@@ -4,9 +4,10 @@
 // a step that needs their hands, a task Ready for review, a task Stopped. Updates wait in a queue: the call takes them
 // once the person and the voice are both quiet, several as one (core/voice.js batchLines).
 import type { Snapshot } from "../web/shared/types.ts";
-import { spaceLabel, tstate } from "../web/shared/view.ts";
+import { spaceLabel } from "../web/shared/view.ts";
 import * as V from "../core/voice.js";
 import { askWords, chatName, screenChat, type Where } from "./voice-tools.ts";
+import { attentionOf } from "../web/shared/attention.ts";
 
 const { replyLine, statusLine, needLine, batchLines } = V as any;
 
@@ -29,8 +30,8 @@ const short = (s: unknown, n: number) => String(s ?? "").replace(/\s+/g, " ").tr
 /** Everything that needs the person now, each by a key that lasts as long as it does, with its one line: a need (a
  *  question, a command to allow, a secret, a plain wait), a step for their hands, a task Ready for review or Stopped.
  *  chat: the chat it is in (a followed chat's own wait is said by its status instead). */
-export function needsNow(snap: Snapshot): Map<string, { text: string; chat?: string; secret?: boolean }> {
-  const out = new Map<string, { text: string; chat?: string; secret?: boolean }>();
+export function needsNow(snap: Snapshot): Map<string, { text: string; chat?: string; secret?: boolean; stale?: true }> {
+  const out = new Map<string, { text: string; chat?: string; secret?: boolean; stale?: true }>();
   const title = (id: string) => { const t = snap.tasks.find((x) => x.id === id); return t ? `The task "${short(t.name, 80)}"` : "A task"; };
   // a step only the person can do on an agent's Screen
   const hands = new Set<string>();
@@ -41,22 +42,31 @@ export function needsNow(snap: Snapshot): Map<string, { text: string; chat?: str
     if (key.startsWith("task:")) hands.add(key.slice(5));
     out.set(`hands:${key}`, { text: `${who} needs your hands on its Screen: ${short(sc.hands.what, 200)}` });
   }
+  // fork Needs you 5/6: only what is the person's (web/shared/attention.ts): a wait Shepherdr handles first (an inferred
+  // wait, an error or limit stop) is not said until it is theirs. One kept from a machine that can't be read now is
+  // listed (stale) but not said: it isn't new, and once the machine is back, one said before isn't said again
+  const mine = attentionOf(snap).actions.filter((a) => a.owner === "you");
+  const tasks = new Map(snap.tasks.map((t) => [t.id, t]));
+  const held = (a: { stale?: string }) => (a.stale ? { stale: true as const } : {});
   const stopped = new Set<string>();
-  for (const t of snap.tasks) {
-    if (t.archived) continue;
-    if (tstate(t) === "ready") out.set(`ready:${t.id}`, { text: `${title(t.id)} is ready for review` });
-    // stopped by a crash or a limit (Stopped by you is the person's own doing: not news)
-    else if (tstate(t) === "ask" && t.stopped && t.stopped.by !== "you") {
+  for (const a of mine) {
+    const t = a.task ? tasks.get(a.task) : undefined;
+    if (!t) continue;
+    if (a.kind === "review") out.set(`ready:${t.id}`, { text: `${title(t.id)} is ready for review`, ...held(a) });
+    // stopped by a crash or a limit, with no Shepherdr to handle it (Stopped by you is the person's own doing: not news)
+    else if (a.kind === "wait" && t.stopped && t.stopped.by !== "you") {
       stopped.add(t.id);
-      out.set(`stopped:${t.id}`, { text: `${title(t.id)} stopped${t.stopped.why ? `: ${short(t.stopped.why, 200)}` : t.stopped.by === "limit" ? ": it hit its plan's limit" : ""}` });
+      out.set(`stopped:${t.id}`, { text: `${title(t.id)} stopped${t.stopped.why ? `: ${short(t.stopped.why, 200)}` : t.stopped.by === "limit" ? ": it hit its plan's limit" : ""}`, ...held(a) });
     }
   }
-  for (const n of snap.needs ?? []) {
+  for (const a of mine) {
+    const n = a.need;
+    if (!n) continue;
     // a wait with no card of a task whose stop or step for the person's hands is said already
     if (n.task && !n.question && !n.secret && (stopped.has(n.task) || hands.has(n.task))) continue;
-    if (n.task && snap.tasks.find((t) => t.id === n.task)?.stopped?.by === "you") continue;
+    if (n.task && tasks.get(n.task)?.stopped?.by === "you") continue;
     const who = n.task ? title(n.task) : spaceLabel(snap, n.place) || chatName(snap, n.chat);
-    out.set(`need:${n.chat}#${n.id}`, { text: `${who} ${n.question || n.secret ? askWords(n).split(": it goes in")[0] : `needs the person${n.text ? `: ${short(n.text, 300)}` : ""}`}`, chat: n.chat, secret: !!n.secret });
+    out.set(`need:${n.chat}#${n.id}`, { text: `${who} ${n.question || n.secret ? askWords(n).split(": it goes in")[0] : `needs the person${n.text ? `: ${short(n.text, 300)}` : ""}`}`, chat: n.chat, secret: !!n.secret, ...held(a) });
   }
   return out;
 }
@@ -145,7 +155,7 @@ export function hearing(io: HearIO) {
       const now = needsNow(s);
       for (const k of needs) if (!now.has(k)) needs.delete(k);
       for (const [k, n] of now) {
-        if (needs.has(k)) continue;
+        if (needs.has(k) || n.stale) continue;
         needs.add(k);
         // a followed chat's wait that its status just said (statusLine); a later question of one still waiting is new
         if (n.chat && !n.secret && Date.now() - (toldWait.get(n.chat) ?? 0) < WAIT_TOLD_MS) { toldWait.delete(n.chat); continue; }

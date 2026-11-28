@@ -202,15 +202,19 @@ The plan window with the least left, from Settings › Plans (the serving machin
 ## What it lists: what the app shows
 
 The feed never says more than Shepherdr's own screens, so phone, watch and app agree. Needs you is one rule
-(SHEP-250, `web/shared/needs-you.ts` `needsYou`). One difference from the app: the feed keeps Ready as a section of
-its own, where the app lists "Ready for review" under Needs you.
+(fork Needs you 5/6, `web/shared/attention.ts` `projectAttention`, the design in `fork/specs/needs-you.md`): the
+person's open actions, the same ones the app's counts and the app icon count. One difference from the app: the feed
+keeps Ready as a section of its own, where the app lists "Ready for review" under Needs you.
 
-- Needs you lists only tasks (SHEP-255), oldest first, each once (its oldest card stands for it): a task's agent's
-  card or wait (`type: "need"`), a task whose status says Needs you with no card (`type: "task"`), and a task's
-  agent's own `herdr-task alert` while it stands (`type: "alert"`; a helper labelled `herdr.task` counts as its task's).
-- What is no task's is not in it: a chat's own card, a helper's alert of no task (the VM sign-in helper's), a
-  machine's memory alert, a schedule that failed to start. Their web pushes still go as before; a schedule that failed and
-  a machine out of reach or memory come as `events` (SHEP-447).
+- Needs you lists each of the person's open actions once, oldest first: a task's agent's card or wait (`type:
+  "need"`), a task whose status says Needs you with no card (`type: "task"`), a task's agent's own `herdr-task alert`
+  while it stands (`type: "alert"`; a helper labelled `herdr.task` counts as its task's), and a space's own Shepherdr
+  asking (`type: "need"`, no `task`: its row names the space).
+- A wait the space's Shepherdr handles first (a task gone quiet waiting for a reply, an error or limit stop) is not in
+  it: it shows only on its task, "With Shepherdr · …". Where no Shepherdr chat runs, it is the person's at once.
+- What is no action's is not in it: a helper's alert of no task (the VM sign-in helper's), a machine's memory alert, a
+  schedule that failed to start. Their web pushes still go as before; a schedule that failed and a machine out of reach
+  or memory come as `events` (SHEP-447).
 - A chat's new message is not a task, so it is not in Needs you (SHEP-253): it belongs to Chat. `unread` counts the
   chats with a new message not yet read (no card of their own waiting), for a Chat badge; its web push still goes as
   before.

@@ -111,6 +111,8 @@ export const tasks: Task[] = [
   // #1441: its agent stopped at Claude Code's folder-trust screen
   task('BLOG-12', 'Add an RSS feed', P.blog, 'need', { needsAt: NOW - 3 * min, report: { msg: 'Asks to trust this folder', paused: true } }),
   task('BLOG-11', 'Newsletter signup form', P.blog, 'need', { needsAt: NOW - 12 * min, stopped: { by: 'error', why: 'its session ended' }, report: { msg: 'Adding the form', progress: 45, paused: true } }),
+  // fork Needs you 5/6: one the person stopped: Paused, no one's, under Working
+  task('BLOG-15', 'Tag pages', P.blog, 'need', { needsAt: NOW - 30 * min, stopped: { by: 'you' }, report: { msg: 'Listing the tags', progress: 30, paused: true } }),
   task('SHOP-19', 'Product page reviews', P.shop, 'work', { started: NOW - min, repo: 'branch', worktree: true, branch: 'task/product-page-reviews', base: 'main' }),
   task('BLOG-9', 'Dark mode for code blocks', P.blog, 'queued', { afterTitle: 'Fix typo on the About page', desc: 'Adds a dark theme to the code blocks on the blog', agent: undefined }),
   task('SHOP-13', 'Gift cards at checkout', P.shop, 'todo', { desc: 'Lets shoppers pay with a gift card at checkout', agent: undefined }),
@@ -290,6 +292,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
       { id: 'q-docs', chat: 'DOCS-3/worker', place: P.docs, task: 'DOCS-3', at: NOW - 4 * min, question: docsQ().at(-1)!.question! },
       { id: 'q-spam', chat: 'studio:SITE-5/worker', place: P.studioSite, task: 'studio:SITE-5', at: NOW - 7 * min, question: spamQ().at(-1)!.question! },
       { id: 'q-labels', chat: 'vm:ACME-10/worker', place: P.vmShop, task: 'vm:ACME-10', at: NOW - 2 * min, question: labelsQ().at(-1)!.question! },
+      // fork Needs you 5/6: EV-13 went quiet waiting for a reply: its space's Shepherdr answers first (With Shepherdr)
+      { id: 'attention', chat: 'EV-13/worker', place: EV, task: 'EV-13', at: NOW - 20 * min, text: 'Should locked levels show?', assistantFirst: true },
     ],
     // #1547: each machine's start limits, as the service's Machines section keeps them
     settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' }), limitRows('studio', {})) },

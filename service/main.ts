@@ -61,6 +61,7 @@ import { Machines } from "./machines.ts";
 import { Push, alertsOf, agentAlerts, pushChanges, waitingTags } from "./push.ts";
 import { Inbox } from "./inbox.ts";
 import { waiting } from "../web/shared/alerts.ts";
+import { attend } from "./attention.ts";
 import { GlanceFeed, MAX_CHATS, glanceOf, openUrlOk, saidToPerson } from "./glance.ts";
 import { chatPage } from "./native-chat.ts";
 import { unreadChats } from "../web/shared/needs-you.ts";
@@ -186,7 +187,9 @@ hub.on((e) => {
 let alerted: ReturnType<typeof alertsOf> | null = null;
 // the agents' own alerts ride on the snapshot (the web app's toasts: web/plugins/alerts/toasts.tsx), then push
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
-const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
+// fork Needs you 5/6: every open action, worked out once (service/attention.ts), with the alerts it reads: what the pages,
+// the badge, the glance feed and push all count
+const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); try { attend(snap); } catch (err) { console.error(`attention: ${(err as Error).message}`); } alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
 // what waits on you now, as the last alerts said it: the app icon's count and the tags of the alerts that may stay (the
 // service worker asks after a notification's button did something: GET /api/waiting)
 let waitingNow = { count: 0, tags: [] as string[] };

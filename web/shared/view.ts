@@ -2,7 +2,8 @@
 // machines as headings, groups, spaces), a task's status from its agent's report and the facts Shepherdr knows, its
 // row's words and time, a space's "needs you" count. The app, the alerts and the voice all read it from here.
 import type { Artifact, Automation, Machine, Place, Section, Snapshot, Task } from './types.ts'
-import { taskAlerts } from './needs-you.ts'
+import { yours } from './attention.ts'
+import { tierLabel, NEUTRAL_WORDS } from './needs-words.ts'
 import { afterMergeNote } from './after-merge.ts'
 import { inSlots, type Slotted } from './group-slots.ts'
 import { answeredWords } from './answered.ts'
@@ -174,6 +175,24 @@ export type Tone = 'ask' | 'ready' | 'working' | 'red' | 'mute'
 /** on a branch or worktree: Mark as done merges it, and closing it without merging says so */
 export const onBranch = (t: Task) => t.repo === 'branch' || (t.repo === undefined && !!(t.branch || t.pr))
 
+/** fork Needs you 5/6: stopped by the person: Paused, under Working, never counted (web/shared/attention.ts) */
+export const paused = (t: Task) => tstate(t) === 'ask' && t.stopped?.by === 'you' && t.action?.owner !== 'you'
+
+/** fork Needs you 5/6: its wait is one the space's Shepherdr handles first: quiet, never counted */
+export const withShepherdr = (t: Task) => t.action?.owner === 'shepherdr'
+
+/** fork Needs you 5/6: the group a task is in: Needs you only while an action of yours holds it (a Working task with a
+ *  hand-up standing too); a wait Shepherdr handles and Paused go under Working. A task without its projection
+ *  (no `action` known, an old snapshot) by its status alone. */
+export function taskGroup(t: Task): TaskState {
+  const s = tstate(t)
+  if (s === 'done' || s === 'archived') return s
+  if (t.action?.owner === 'you') return s === 'ready' ? 'ready' : 'ask'
+  if ((s === 'ask' || s === 'ready') && t.action) return 'working'
+  if (s === 'ask' && t.stopped?.by === 'you') return 'working'
+  return s
+}
+
 /** the status word of a task's status line */
 export function statusWord(t: Task): { word: string; tone: Tone } {
   const s = tstate(t)
@@ -181,7 +200,10 @@ export function statusWord(t: Task): { word: string; tone: Tone } {
   if (t.status === 'merging' || t.accepting) return { word: 'Merging', tone: 'working' }
   if (t.checksWait) return { word: t.checksWait.state === 'failed' ? 'A check failed' : 'Waiting for checks', tone: t.checksWait.state === 'failed' ? 'red' : 'mute' }
   if (s === 'ready') return { word: 'Ready for review', tone: 'ready' }
-  if (t.stopped) return t.stopped.by === 'you' ? { word: 'Stopped by you', tone: 'ask' } : { word: 'Stopped', tone: 'red' }
+  // fork Needs you 5/6: stopped by the person is Paused, no one's; a wait Shepherdr handles first is quiet
+  if (paused(t)) return { word: NEUTRAL_WORDS.paused, tone: 'mute' }
+  if (s === 'ask' && withShepherdr(t)) return { word: tierLabel('shepherdr'), tone: 'mute' }
+  if (t.stopped) return { word: 'Stopped', tone: 'red' }
   if (s === 'ask') return { word: 'Needs you', tone: 'ask' }
   if (s === 'working') return { word: t.waitsDesktop ? 'Waiting for the desktop' : 'Working', tone: 'mute' }
   return { word: 'Up next', tone: 'mute' }
@@ -215,7 +237,9 @@ function rowLine(t: Task): string {
   if (s === 'done' || s === 'archived') return doneWords(t)
   if (t.status === 'merging' || t.accepting) return 'Merging…'
   if (s === 'ready') return 'Ready for review'
-  if (t.stopped) return t.stopped.by === 'you' ? 'Stopped by you' : `Stopped${t.stopped.why ? ` · ${t.stopped.why}` : ''}`
+  if (paused(t)) return NEUTRAL_WORDS.paused
+  if (s === 'ask' && withShepherdr(t)) return tierLabel('shepherdr', t.action!.what)
+  if (t.stopped) return `Stopped${t.stopped.why ? ` · ${t.stopped.why}` : ''}`
   if (s === 'ask') return t.report?.msg || (t.blocked === 'prompt' ? 'Waiting at a prompt' : t.blocked === 'permission' ? 'Wants to run a command' : 'Waits for your reply')
   if (t.checksWait) return checksLine(t.checksWait)
   if (s === 'working') {
@@ -310,7 +334,10 @@ export function ringOf(t: Task): Ring {
   const p = t.report?.progress
   const pct = typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : null
   const done = pct === null ? '' : `, ${pct}% done`
-  if (t.stopped) return t.stopped.by === 'you' ? { kind: 'ring', tone: 'ask', pct, mark: 'stop', label: `Stopped by you${done}` } : { kind: 'ring', tone: 'red', pct, mark: 'stop', label: `Stopped${done}` }
+  if (paused(t)) return { kind: 'ring', tone: 'mute', pct, mark: 'stop', label: `${NEUTRAL_WORDS.paused}${done}` }
+  // a wait Shepherdr handles: a still dot, as a pending one, never the tinted ring of Needs you
+  if (s === 'ask' && withShepherdr(t)) return t.stopped ? { kind: 'ring', tone: 'mute', pct, mark: 'stop', label: `${tierLabel('shepherdr', 'Stopped')}${done}` } : { kind: 'pending', tone: 'mute', pct, label: tierLabel('shepherdr') }
+  if (t.stopped) return { kind: 'ring', tone: 'red', pct, mark: 'stop', label: `Stopped${done}` }
   if (s === 'ask') return { kind: 'ring', tone: 'ask', pct, mark: 'tint', label: `Needs you${done}` }
   // its agent idle (live state), no progress to draw: a still dot, the turning ring only for real work (dmalis/shepherdr#48)
   if (s === 'working' && t.agentIdle && pct === null && !t.accepting) return { kind: 'pending', tone: 'working', pct, label: t.agentGone ? 'No agent running' : 'Idle' }
@@ -324,6 +351,7 @@ export function ringOf(t: Task): Ring {
  *  ended. A Working row's time left sits under its status icon instead (leftShort). */
 export function taskWhen(t: Task, now = Date.now()): string {
   const s = tstate(t)
+  if ((s === 'ask' || s === 'ready') && (paused(t) || withShepherdr(t))) return ''
   if (s === 'ask' || s === 'ready') return t.needsAt ? agoShort(t.needsAt, now) : ''
   if (s === 'done') return t.doneAt ? agoShort(t.doneAt, now) : ''
   return ''
@@ -391,10 +419,11 @@ export const spaceOnFolder = (snap: Snapshot, r: Pick<Repo, 'folder' | 'machine'
 /** "Asked in #root": the space that asked for a task, in words */
 export const askedWords = (snap: Snapshot, t: Task) => (t.asked && snap.places.some((p) => p.id === t.asked) ? `Asked in ${spaceLabel(snap, t.asked)}` : '')
 
-/** Tasks › Now, grouped by what each task needs. Done newest first. alerting: the tasks whose agent's alert stands
- *  (taskAlerts), under Needs you while it does, as in the glance feed (needs-you.ts) */
+/** Tasks › Now, grouped by what each task needs. Done newest first. fork Needs you 5/6: Needs you holds the tasks with
+ *  an open action of yours (task.action, web/shared/attention.ts); alerting, as before, also puts a task whose agent's
+ *  alert stands there (a snapshot without the projection) */
 export function nowGroups(tasks: Task[], alerting?: { has(id: string): boolean }): { name: 'Needs you' | 'Working' | 'Up next' | 'Done' | 'Archived'; tasks: Task[] }[] {
-  const st = (t: Task): TaskState => { const s = tstate(t); return alerting?.has(t.id) && (s === 'working' || s === 'next') ? 'ask' : s }
+  const st = (t: Task): TaskState => { const s = taskGroup(t); return alerting?.has(t.id) && (s === 'working' || s === 'next') ? 'ask' : s }
   const by = (s: TaskState[]) => tasks.filter((t) => s.includes(st(t)))
   const newest = (a: Task, b: Task) => (b.doneAt ?? b.at ?? 0) - (a.doneAt ?? a.at ?? 0)
   return [
@@ -406,15 +435,11 @@ export function nowGroups(tasks: Task[], alerting?: { has(id: string): boolean }
   ]
 }
 
-/** How many things in a space need the person: its tasks under Needs you (Ready for review among them), and its own
- *  chat's agent when it asks. No space: everywhere. The same count decides the Tasks button's number. */
+/** How many things in a space need the person: its open actions of yours, each once (web/shared/attention.ts): a card
+ *  or prompt, a review, a hand-up, its own chat's agent asking. No space: everywhere. The same count decides the Tasks
+ *  button's number, the list's and the app badge's. */
 export function needsCount(snap: Snapshot, placeId?: string): number {
-  const all = !placeId || isEverything(snap, placeId)
-  const alerting = taskAlerts(snap)
-  const tasks = snap.tasks.filter((t) => (all || taskInSpace(t, placeId)) && (['ask', 'ready'].includes(tstate(t)) || (alerting.has(t.id) && tstate(t) !== 'done' && tstate(t) !== 'archived'))).length
-  const chats = snap.places.filter((p) => p.needs && (all || p.id === placeId)).length
-  const queued = (snap.needs ?? []).filter((n) => n.question?.queued && (all || (n.task ? !!snap.tasks.find((t) => t.id === n.task && taskInSpace(t, placeId)) : n.place === placeId))).length
-  return tasks + chats + queued
+  return yours(snap, placeId && !isEverything(snap, placeId) ? placeId : undefined).length
 }
 
 /* ---------- schedules and artifacts ---------- */

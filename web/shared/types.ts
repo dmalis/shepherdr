@@ -3,6 +3,7 @@
 import type { BrowserNote } from './browser.ts'
 import type { ChatPatch, SnapPatch } from './patch.ts'
 import type { Stamp } from './build-stamp.ts'
+import type { Attention, TaskAction } from './attention.ts'
 
 /** Status marks: red needs you, green ready, green turning ring merging, amber working, grey ring idle or to do, grey
  * clock queued, grey check done, dashed ring unreachable. */
@@ -57,6 +58,9 @@ export interface Place {
   archived?: boolean
   /** 3.2: its chat's own agent needs the person (it asks, waits at a prompt, or stopped): counts for the space */
   needs?: boolean
+  /** fork Needs you 5/6: its own Shepherdr chat, as its machine says now: running, stopped (its agent ended or back at
+   *  a shell) or none started. A wait it would handle is the person's when it isn't running (web/shared/attention.ts) */
+  shepherdr?: 'running' | 'stopped' | 'none'
   id: string
   /** nobody named it: Herdr names it after its folder (its Rename field starts empty, this name its placeholder) */
   unnamed?: boolean
@@ -322,6 +326,9 @@ export interface AfterMerge {
 }
 
 export interface Task {
+  /** fork Needs you 5/6: its lead open action, whose it is and what about (web/shared/attention.ts withAttention):
+   *  what its row, header and status say. None: nothing waits (working, paused, up next, done) */
+  action?: TaskAction
   /** 3.2, facts the status is worked out from (web/shared/view.ts), never guessed from a screen: */
   /** the agent stopped: by the person (Stop), by an error or a crash, or at its plan's limit; why, in its own words */
   stopped?: { by: 'you' | 'error' | 'limit'; why?: string }
@@ -1475,6 +1482,9 @@ export interface Snapshot {
   asks: Record<string, string>
   /** everything waiting on the human, oldest first, each once: what the Needs you view lists and every count counts */
   needs: Need[]
+  /** fork Needs you 5/6: every open action, whose it is and where it leads (web/shared/attention.ts): every count,
+   *  Needs you list, the badge, the glance feed and which alerts may reach a device read it */
+  attention?: Attention
   settings: SettingSection[]
   /** the web app's plugins left out (switched off in Settings › Plugins): a page started with others reloads */
   off?: string[]

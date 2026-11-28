@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Snapshot, Task } from './types.ts'
+import { withAttention } from './attention.ts'
 import { artifactsIn, doneWords, isEverything, isHomeSpace, tasksIn, etaOf, folderName, folderOf, headerWhere, leftShort, leftWords, listOf, needsCount, placeOf, ringOf, nowGroups, spaceLabel, spaceName, spacesOf, statusWord, headLine, taskLine, taskWhen, tstate } from './view.ts'
 
 const task = (x: Partial<Task>): Task => ({ id: 'T-1', name: 'A task', place: 'shop', status: 'work', state: 'work', on: 'mini', created: '', age: '', ...x })
@@ -14,10 +15,11 @@ test('a status is worked out from facts first, then the agent\'s report', () => 
   expect(tstate(task({ status: 'todo' }))).toBe('next')
 })
 
-test('the words: Ready for review, Stopped in red, Stopped by you, Waiting for the desktop', () => {
+test('the words: Ready for review, Stopped in red, Paused, Waiting for the desktop', () => {
   expect(statusWord(task({ status: 'ready' }))).toEqual({ word: 'Ready for review', tone: 'ready' })
   expect(statusWord(task({ status: 'need', stopped: { by: 'error', why: 'It crashed' } }))).toEqual({ word: 'Stopped', tone: 'red' })
-  expect(statusWord(task({ status: 'need', stopped: { by: 'you' } })).word).toBe('Stopped by you')
+  // fork Needs you 5/6: stopped by the person is Paused, quiet, no one's
+  expect(statusWord(task({ status: 'need', stopped: { by: 'you' } }))).toEqual({ word: 'Paused', tone: 'mute' })
   expect(statusWord(task({ status: 'work', waitsDesktop: true })).word).toBe('Waiting for the desktop')
   expect(statusWord(task({ status: 'merging' })).word).toBe('Merging')
 })
@@ -68,7 +70,7 @@ test('the ring shows the share done in every unfinished state; Ready and Done sh
   expect(r({ status: 'work' })).toMatchObject({ kind: 'ring', tone: 'working', pct: null })
   expect(r({ status: 'need', report: { msg: '', progress: 70, paused: true } })).toMatchObject({ kind: 'ring', tone: 'ask', pct: 70, mark: 'tint' })
   expect(r({ status: 'need', stopped: { by: 'error' }, report: { msg: '', progress: 30 } })).toMatchObject({ kind: 'ring', tone: 'red', pct: 30, mark: 'stop' })
-  expect(r({ status: 'todo', stopped: { by: 'you' }, report: { msg: '', progress: 55 } })).toMatchObject({ kind: 'ring', tone: 'ask', pct: 55, mark: 'stop' })
+  expect(r({ status: 'todo', stopped: { by: 'you' }, report: { msg: '', progress: 55 } })).toMatchObject({ kind: 'ring', tone: 'mute', pct: 55, mark: 'stop', label: 'Paused, 55% done' })
   // up next and scheduled: a solid empty ring (no mark); waiting for Start: dotted
   expect(r({ status: 'queued' })).toMatchObject({ kind: 'ring', tone: 'mute', pct: 0, label: 'Up next' })
   expect(r({ status: 'queued' }).mark).toBeUndefined()
@@ -121,12 +123,17 @@ test('needs you: a space\'s tasks under Needs you and Ready for review, and its 
   const s = snap({
     everything: 'home',
     places: [place('home', 'mini', { home: true }), place('shop', 'mini', { needs: true }), place('blog', 'mini')],
-    tasks: [task({ id: 'a', status: 'need' }), task({ id: 'b', status: 'ready' }), task({ id: 'c', status: 'work' }), task({ id: 'd', status: 'ready', place: 'blog' }), task({ id: 'e', status: 'need', archived: 1 })],
+    tasks: [task({ id: 'a', status: 'need' }), task({ id: 'b', status: 'ready' }), task({ id: 'c', status: 'work' }), task({ id: 'd', status: 'ready', place: 'blog' }), task({ id: 'e', status: 'need', archived: 1 }),
+      // fork Needs you 5/6: a wait its space's Shepherdr handles first, and one the person paused: no one's count
+      task({ id: 'f', status: 'need' }), task({ id: 'g', status: 'need', stopped: { by: 'you' } })],
+    // a's agent waits at a prompt on its own screen (herdr-task's needs: asks); f's went quiet (Shepherdr's first)
+    needs: [{ id: 'attention', chat: 'a/worker', place: 'shop', task: 'a', at: 1 }, { id: 'attention', chat: 'f/worker', place: 'shop', task: 'f', at: 2, assistantFirst: true }],
   })
   expect(needsCount(s, 'shop')).toBe(3)
   expect(needsCount(s, 'blog')).toBe(1)
   expect(needsCount(s, 'home')).toBe(4)
-  expect(nowGroups(s.tasks).map((g) => [g.name, g.tasks.length])).toEqual([['Needs you', 3], ['Working', 1], ['Up next', 0], ['Done', 0], ['Archived', 1]])
+  const groups = nowGroups(withAttention(s).tasks)
+  expect(groups.map((g) => [g.name, g.tasks.map((t) => t.id)])).toEqual([['Needs you', ['a', 'b', 'd']], ['Working', ['c', 'f', 'g']], ['Up next', []], ['Done', []], ['Archived', ['e']]])
 })
 
 test("a space's folder: home as ~, the whole path, another machine named (SHEP-302)", () => {

@@ -36,6 +36,8 @@ test("a space's Tasks and count: what it started and what works in its folder", 
       task({ id: 'b', place: 'shop', asked: 'shop', status: 'ready', work: shop }),
       task({ id: 'c', place: 'blog', status: 'need' }),
     ],
+    // a's and c's agents wait at a prompt on their own screens: the person's (fork Needs you 5/6)
+    needs: ['a', 'c'].map((id) => ({ id: 'attention', chat: `${id}/worker`, place: id === 'a' ? 'root' : 'blog', task: id, at: 1 })),
   })
   expect(tasksIn(s, 'shop').map((t) => t.id)).toEqual(['a', 'b'])
   expect(tasksIn(s, 'root').map((t) => t.id)).toEqual(['a'])

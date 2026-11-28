@@ -10,6 +10,7 @@ import { ACTS, ASK_FIRST, navWords, REPLY_MAX, SETTINGS } from "../core/voice.js
 import { screenParams, screenWords } from "../core/screen.js";
 import { planRows, windowWords, whyWords, healthWords } from "../core/machines.js";
 import { AGENT_USAGE, notRead } from "../core/agent-usage.js";
+import { withAttention, yours } from "../web/shared/attention.ts";
 import { artifactsIn, everything, isEverything, isTilde, listOf, machineLabel, machineWarn, needsCount, nowGroups, onBranch, scheduleLine, schedulesOf, spaceLabel, spacesOf, etaOf, leftWords, statusWord, taskInSpace, taskLine, taskWhen, tstate, unreachable, whereWords } from "../web/shared/view.ts";
 import { slottedSpaces } from "../web/shared/group-slots.ts";
 import { SOURCES, scrub, render, at, search, segments, type SourceArgs } from "./voice-data.ts";
@@ -503,18 +504,20 @@ export function evidenceWords(got: any) {
 /** Everything that waits on the person, as Tasks › Needs you and the chats' own asks show it. */
 function lookNeeds(snap: Snapshot) {
   const rows: string[] = [];
-  const told = new Set<Need>();
-  for (const t of snap.tasks.filter((x) => ["ask", "ready"].includes(tstate(x)))) {
-    const n = snap.needs.find((x) => x.task === t.id && (x.question || x.secret));
-    if (n) told.add(n);
-    for (const x of snap.needs) if (x.task === t.id) told.add(x);
-    rows.push(n ? `${titled(t)} in ${label(snap, t.place)} ${askWords(n)}` : taskSaid(snap, t));
+  // fork Needs you 5/6: the person's open actions, each once, as every count counts them (web/shared/attention.ts)
+  const told = new Set<string>();
+  for (const a of yours(snap)) {
+    const t = a.task ? snap.tasks.find((x) => x.id === a.task) : undefined;
+    const n = a.need?.question || a.need?.secret ? a.need : undefined;
+    if (t) rows.push(n ? `${titled(t)} in ${label(snap, t.place)} ${askWords(n)}` : told.has(t.id) ? `${titled(t)} in ${label(snap, t.place)}: ${cut(a.what, 140)}` : taskSaid(snap, t));
+    else if (a.need) rows.push(`${label(snap, a.place) || "A chat"} ${askWords(a.need)}`);
+    else rows.push(`${label(snap, a.place)} waits for the person in its chat`);
+    if (t) told.add(t.id);
   }
-  for (const n of snap.needs) if (!told.has(n) && !n.task) { told.add(n); rows.push(`${label(snap, n.place) || "A chat"} ${askWords(n)}`); }
+  // a step for the person's hands on a space's own Screen
   for (const p of appSpaces(snap)) {
     const hands = handsOf(snap, `chat:${p.id}`);
     if (hands) rows.push(`${label(snap, p.id)} needs your hands on its Screen: ${cut(hands, 140)}`);
-    else if (p.needs && !snap.needs.some((n) => !n.task && n.place === p.id)) rows.push(`${label(snap, p.id)} waits for the person in its chat`);
   }
   if (!rows.length) return done("Nothing needs the person right now.");
   return done(`${rows.length} ${rows.length === 1 ? "needs" : "need"} the person:\n${list(rows, 10, "things")}`);
@@ -652,7 +655,9 @@ async function lookData(io: VoiceIO, snap: Snapshot, where: Where, id: string, p
 
 /** One tool call from the voice agent: its answer in words, and what to show in the app (open). */
 export async function voiceTool(name: string, params: any, where: Where, io: VoiceIO): Promise<Answer> {
-  const snap = io.snap();
+  // fork Needs you 5/6: what needs the person, as the app counts it (the service's snapshot has it already)
+  const raw = io.snap();
+  const snap = raw && !raw.attention ? withAttention(raw) : raw;
   const p = params && typeof params === "object" ? params : {};
   const id = typeof p.id === "string" ? p.id.slice(0, 200) : typeof p.id === "number" ? String(p.id) : "";
   const query = typeof p.query === "string" ? p.query.slice(0, 200).trim() : "";

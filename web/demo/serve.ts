@@ -10,6 +10,8 @@ import { withLinks } from '../../service/artifact-links.ts'
 import { commandList } from '../../core/slash.js'
 import { artifacts, catalog, chats as seed, config, EV, snapshot } from './data.ts'
 import { demoBuild, demoBuilds } from './builds.ts'
+// fork Needs you 5/6: what needs the person, worked out as the service does (service/attention.ts)
+import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
@@ -46,7 +48,7 @@ function resetDemo() {
 }
 holdRace()
 
-const push = () => socks.forEach((s) => s.send(JSON.stringify({ type: 'snapshot', snapshot: state[s.data.mode] })))
+const push = () => socks.forEach((s) => s.send(JSON.stringify({ type: 'snapshot', snapshot: withAttention(state[s.data.mode]) })))
 /** your reaction toggles, as the real service's: the agent's own stays (the same emoji from both: 'both') */
 function toggled(list: NonNullable<Message['reactions']>, emoji: string): NonNullable<Message['reactions']> {
   const out = list.flatMap((r) => (r.emoji !== emoji ? [r] : r.by === 'both' ? [{ ...r, by: 'them' as const }] : r.by === 'me' ? [] : [r]))
@@ -436,7 +438,7 @@ Bun.serve<Sock['data'], never>({
         return
       }
       socks.add(ws as unknown as Sock)
-      ws.send(JSON.stringify({ type: 'snapshot', snapshot: state[ws.data.mode] }))
+      ws.send(JSON.stringify({ type: 'snapshot', snapshot: withAttention(state[ws.data.mode]) }))
       const build = demoBuild(ws.data.build)
       if (build) ws.send(demoBuilds(build, await Bun.file(join(dist, 'index.html')).text()).served)
     },

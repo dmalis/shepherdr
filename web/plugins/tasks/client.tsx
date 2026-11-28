@@ -31,7 +31,8 @@ import { UrgentMark, UrgentWord, urgentRows } from './urgent.tsx'
 import { urgentFirst } from '@shared/urgent.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
-import { needsWords } from '@shared/needs-open.ts'
+import { moreActions, needsWords } from '@shared/needs-open.ts'
+import { cantCheck, tierLabel } from '@shared/needs-words.ts'
 import { AskRow, listNeeds, needsAsks } from '@client/needs-count.tsx'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, hereOn, NO_FILTER, toggle, type GroupKey, type TaskFilter } from '@shared/task-filter.ts'
 
@@ -414,9 +415,11 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
 export function StoppedCard({ t }: { t: Task }) {
   const acts = useCardActs(`stopped:${t.id}`, `${tstate(t)}|${t.stopped?.why ?? ''}|${t.stopped?.by ?? ''}`)
   if (!t.stopped || t.stopped.by === 'you') return null
+  // fork Needs you 5/6: a stop its space's Shepherdr handles first is quiet: it says whose it is, never red
+  const theirs = t.action?.owner === 'shepherdr'
   return (
     <div className="card" data-card={`stopped:${t.id}`}>
-      <span className="t c-red">Stopped</span>
+      <span className={cx('t', !theirs && 'c-red')}>{theirs ? tierLabel('shepherdr', 'Stopped') : 'Stopped'}</span>
       <TaskAgentSummary t={t} className="s" />
       <span>{t.stopped.why || (t.stopped.by === 'limit' ? "It hit its plan's limit." : 'Its agent is no longer running.')}</span>
       <div className="acts">
@@ -524,6 +527,8 @@ function TaskTop({ task: t }: { task: Task }) {
   return (
     <div className="status">
       {strong ? <b className={w.tone === 'ask' ? 'c-red' : `c-${w.tone}`}>{w.word}</b> : w.word}
+      {/* fork Needs you 5/6: a wait its space's Shepherdr handles says what it is about, quietly */}
+      {t.action?.owner === 'shepherdr' && tstate(t) === 'ask' && t.action.what && <span>· {t.action.what}</span>}
       {left && <span>· {left}</span>}
     </div>
   )
@@ -587,7 +592,8 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
   const cur = useUI((u) => u.task === t.id)
   const down = placeDown(snap, t.place)
   const s = tstate(t)
-  const sub = down ? `Can't reach ${down.name} · last seen ${{ ask: 'asking', working: 'working', ready: 'ready', next: 'waiting', done: 'done', archived: 'done' }[s]}` : taskLine(t)
+  // fork Needs you 5/6: one with an open action keeps its last known row, saying it can't be checked now
+  const sub = down && t.action ? `${cantCheck(down.name)} · ${taskLine(t)}` : down ? `Can't reach ${down.name} · last seen ${{ ask: 'asking', working: 'working', ready: 'ready', next: 'waiting', done: 'done', archived: 'done' }[s]}` : taskLine(t)
   const when = down ? '' : taskWhen(t)
   // a slide to the right replies to it in the space's chat, as to a message (Reply in chat)
   const { on, slide, armed, skip, moving } = useSlide(() => replyToTask(t))
@@ -646,10 +652,9 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
   const alerts = taskAlerts(snap)
   const filtered = filterTasks(snap, f, place)
   const byId = new Map(filtered.filter((t) => !t.archived).map((t) => [t.id, t]))
-  const queued = snap.needs.flatMap((n) => {
-    const task = n.task ? byId.get(n.task) : undefined
-    return n.question?.queued && task ? [{ task, question: n.question }] : []
-  })
+  // fork Needs you 5/6: the task's other open actions of yours (a second prompt, a question asked from a card while it
+  // works): a row each under Needs you, so the group shows as many as the count counts (web/shared/attention.ts)
+  const queued = [...byId.values()].flatMap((task) => moreActions(snap, task).map((a) => ({ task, a })))
   const asks = needsAsks(snap, f, place)
   const groups = nowGroups(filtered, alerts).filter((g) => g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length))
   if (!groups.length)
@@ -678,9 +683,10 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
               {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
-            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
-            {o && questions.map(({ task, question }) => <Row key={question.id} icon="chat"
-              label={question.title} sub={task.name} onClick={() => { openTask(task.id); setUI({ jump: question.id }) }} />)}
+            {/* its hand-up's words when that is what its row leads with (another of its actions has a row of its own below) */}
+            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
+            {o && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
+              label={a.what} sub={task.name} onClick={() => { openTask(task.id); if (a.card) setUI({ jump: a.card }) }} />)}
             {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
             {o && shown.length < g.tasks.length && (
               <button type="button" className="grp" onClick={() => setUI({ doneShown: ui.doneShown + 20 })}>Show more</button>

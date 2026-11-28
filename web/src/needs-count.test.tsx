@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot } from '@shared/types.ts'
 import { isEverything, needsCount, tstate } from '@shared/view.ts'
 import { taskAlerts } from '@shared/needs-you.ts'
+import { attentionOf } from '@shared/attention.ts'
 import { chipsOf, clean, filterTasks, NO_FILTER } from '@shared/task-filter.ts'
 import { needsChats, needsFilter, needsItems, needsWords, oneTarget } from '@shared/needs-open.ts'
 import { EV, snapshot } from '../demo/data.ts'
@@ -48,7 +49,9 @@ test('one thing opens its card, as the app draws it: a question, Ready for revie
   expect(oneTarget(needsItems(s, 'p:mac-mini:docs'))).toEqual({ task: 'DOCS-3', place: 'p:mac-mini:docs', card: 'q-docs' })
   expect(oneTarget(needsItems(s, 'p:mac-mini:notes'))).toEqual({ task: 'NOTES-4', place: 'p:mac-mini:notes', card: 'review:NOTES-4' })
   const cards = needsItems(s).map((i) => i.card)
-  expect(cards).toContain('stopped:BLOG-11')
+  // fork Needs you 5/6: a task stopped on an error is its space's Shepherdr's first: not the person's count, its card says so
+  expect(cards).not.toContain('stopped:BLOG-11')
+  expect(attentionOf(s).actions.find((a) => a.task === 'BLOG-11')).toMatchObject({ owner: 'shepherdr', kind: 'wait', card: 'stopped:BLOG-11' })
   expect(cards).toContain('hands:SHOP-17')
   // a standing alert on a task at work: its alert card
   const alerting = s.tasks.find((t) => taskAlerts(s).has(t.id) && tstate(t) === 'working')
@@ -152,7 +155,8 @@ test("in the list: the space's count, Everything's and a folded machine's are re
   // no count inside a row's own button, and nothing red where nothing needs you
   expect(html).not.toMatch(/class="row[^"]*"[^>]*>(?:(?!<\/button>).)*class="cnt/)
   expect(row('p:vm:root')).not.toContain('cnt')
-  expect(html).toContain('aria-label="Everything: 16 need you"')
+  // fork Needs you 5/6: two tasks stopped on an error and one waiting for a reply are their Shepherdr's first, not counted
+  expect(html).toContain('aria-label="Everything: 13 need you"')
   setUI({ shut: { 'm:studio': true } })
   expect(renderToStaticMarkup(<List snap={demo()} />)).toContain('aria-label="studio: 2 need you"')
 })

@@ -172,7 +172,7 @@ test("only what the app shows: no alert from a finished terminal, a done task, d
   expect(shown([al({ chat: "shep-3-review", task: "HERD-3" })])).toBe(1);
 });
 
-test("only tasks need you: a task's card lists, with a task's alert; an Assistant's card, alert and message are Chat's", () => {
+test("Needs you: a task's card lists, with a task's alert, and the Assistant's own card; its alert and message are Chat's", () => {
   const notifyOff = [{ name: "Notify", level: "sp1", rows: [{ key: "notify", value: "Off" }] }];
   const snap = snapOf({ settings: notifyOff, tasks: [{ id: "HERD-3", name: "Tidy the docs", status: "work", place: "sp1", at: NOW - 7000 }, { id: "HERD-6", name: "Logo", status: "work", place: "sp1", at: NOW - 7000 }],
     needs: [{ id: "q8", chat: "HERD-6/worker", place: "sp1", task: "HERD-6", at: NOW - 100, question: q({ id: "q8" }) }, { id: "q9", chat: "sp1", place: "sp1", at: NOW - 100, question: q({ id: "q9" }) }],
@@ -182,9 +182,11 @@ test("only tasks need you: a task's card lists, with a task's alert; an Assistan
   const need = g.items.find((i) => i.key === "need:HERD-6/worker:q8");
   expect(need).toMatchObject({ kind: "needs", type: "need", task: "HERD-6" });
   expect(need.answer.choices.length).toBe(3);
-  // SHEP-255: the Assistant's question and alert are not here; SHEP-253: its new message is Chat's (unread)
-  expect(g.items.filter((i) => i.kind === "needs").map((i) => i.key).sort()).toEqual(["alert:a1", "need:HERD-6/worker:q8"]);
-  expect(g.counts.needs).toBe(2);
+  // fork Needs you 5/6: the Assistant's own question is the person's too, as in the app's counts and the badge (one
+  // list); its alert is a moment of Chat's (SHEP-255) and its new message Chat's (unread, SHEP-253)
+  expect(g.items.filter((i) => i.kind === "needs").map((i) => i.key).sort()).toEqual(["alert:a1", "need:HERD-6/worker:q8", "need:sp1:q9"]);
+  expect(g.items.find((i) => i.key === "need:sp1:q9")).toMatchObject({ type: "need", space: "Home" });
+  expect(g.counts.needs).toBe(3);
   expect(g.unread).toBe(1);
 });
 
@@ -453,6 +455,21 @@ test("an alert that comes while the phone's page is on screen notifies nothing i
   f.set(doc(withNeed("HERD-3")));
   expect(alertOf(f.docFor(PHONE), K3)).toBe(true);
   for (const s of [phone, mac, plain, again]) await s.cancel();
+});
+
+test("fork Needs you 5/6: one seen on a device stays seen while it is listed but quiet (its machine out of reach)", () => {
+  const looking = new Set<string>();
+  const f = new GlanceFeed(() => NOW, 0);
+  f.looking = (d) => looking.has(d);
+  f.stream(PHONE, true);
+  f.set(doc(snapOf()));
+  looking.add(PHONE);
+  f.set(doc(withNeed("HERD-3")));
+  looking.delete(PHONE);
+  const quiet = doc(withNeed("HERD-3"));
+  f.set({ ...quiet, items: quiet.items.map((i: any) => (i.key === K3 ? { ...i, alert: false } : i)) });
+  f.set(doc(withNeed("HERD-3")));
+  expect(alertOf(f.docFor(PHONE), K3)).toBe(false);
 });
 
 test("the first doc after a start marks nothing seen: what it lists was there before", () => {
