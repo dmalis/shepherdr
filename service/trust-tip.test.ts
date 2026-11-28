@@ -169,7 +169,10 @@ test("its Codex reviewer's screen is its task's repo too", () => {
 test("pins: the trust screen's folder, the reviewer's --add-dir and the worktree layout", () => {
   expect(trustOf(fromScreen(CLAUDE(WT), "Claude Code"))).toMatchObject({ folder: WT });
   const settings = readFileSync(join(ROOT, "mods/tasks/bin/herdr_task/settings.py"), "utf8");
-  expect(settings).toContain(`a += ["--add-dir=" + TEMPLATES]`);
+  // dmalis/shepherdr#212: a reviewer now reads its templates by a read rule with no trust screen; the --add-dir screen
+  // is left only to reviewers started from an older brief, still the templates folder (launch.py accepts both)
+  expect(settings).toContain(`REVIEW_TEMPLATES_READ = "--allowedTools=Read(/" + TEMPLATES`);
+  expect(readFileSync(join(ROOT, "mods/tasks/bin/herdr_task/launch.py"), "utf8")).toContain(`"--add-dir=": re.compile(re.escape(TEMPLATES))`);
   // a task's worktree is a git worktree of its list's folder (the main checkout), under the worktree root
   const launch = readFileSync(join(ROOT, "mods/tasks/bin/herdr_task/launch.py"), "utf8");
   expect(launch).toContain("path = os.path.join(root, os.path.basename(main), ");

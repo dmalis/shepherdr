@@ -13,6 +13,10 @@ right (a throwaway session named on the same command). Protected sessions: the o
 (HERDR_GUARD_SESSION, set at launch), Shepherdr's ("shepherdr") and the Herdr app's ("default"). The person does
 those from their own terminal; nothing inside a task's terminal can say yes for them.
 
+dmalis/shepherdr#212: nor can it press keys in its own reviewer's or helper's screen (`hc keys <task>-review…` on a
+protected session): their trust, sign-in and start screens are the person's to answer (AGENTS.md "Nothing that risks a
+ban").
+
 It's a guard against mistakes, not against an agent set on getting round it (a full path to the real hc does).
 """
 import os
@@ -60,6 +64,16 @@ hc_check() {
         protected "$target" && refuse "\`$me server $sub\` here would $sub the live session \"$target\"" ;;
       esac ;;
     update) refuse "\`$me update\` replaces the herdr-core every live session runs on" ;;
+    keys)
+      # dmalis/shepherdr#212: a worker pressed keys on its reviewer's folder-trust screen
+      case "$sub" in *-review|*-review[0-9]*|*-review-*|*-helper|*-helper[0-9]*|*-helper-*)
+        if protected "$target"; then
+          echo "Shepherdr refused: \`$me keys $sub\` would press keys in your reviewer's or helper's own screen." >&2
+          echo "Its trust, sign-in and start screens are the person's to answer: tell them \"Your reviewer is waiting on a" >&2
+          echo "startup screen; answer it in its terminal\", then wait for it (\`$me wait $sub --timeout 600\`)." >&2
+          exit 77
+        fi ;;
+      esac ;;
     serve|hold)
       protected "$target" && refuse "\`$me $cmd\` here would start a second core on the live session \"$target\"" ;;
   esac

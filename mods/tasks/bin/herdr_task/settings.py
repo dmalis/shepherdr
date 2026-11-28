@@ -667,7 +667,9 @@ def reviewer_command(who, model=None, effort=None, folder=None, fast=None):
         a = ["claude", "--permission-mode", "dontAsk", "--tools=" + REVIEW_TOOLS, "--strict-mcp-config"]
         # #1458: don't-ask mode refuses a Read outside its folder, and its instructions (the brief points it at
         # templates/reviewer.md) are outside it. As one word, as --tools: --add-dir takes a list too.
-        a += ["--add-dir=" + TEMPLATES]
+        # dmalis/shepherdr#212: a documented read rule for that folder instead of --add-dir, whose trust screen ("Is this
+        # a directory you created or one you trust?") held a reviewer nobody watched. Read only, and no trust asked.
+        a += [REVIEW_TEMPLATES_READ]
         a += ["--model", model] if model else []
         a += ["--effort", effort] if effort else []
         if fast is not None:
@@ -681,6 +683,9 @@ def reviewer_command(who, model=None, effort=None, folder=None, fast=None):
 
 
 REVIEW_TOOLS = "Read,Grep,Glob,Bash"
+# Claude Code's permission rule for an absolute path is //path (code.claude.com/docs/en/permissions); don't-ask mode
+# still runs what an allow rule covers.
+REVIEW_TEMPLATES_READ = "--allowedTools=Read(/" + TEMPLATES.rstrip("/") + "/**)"
 # The worker's shell expands it: CLAUDE_CONFIG_DIR=<its folder> when the worker has one, nothing when it hasn't (an empty
 # one would not be ~/.claude).
 CLAUDE_PROFILE = '${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} '

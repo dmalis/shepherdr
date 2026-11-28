@@ -15,7 +15,7 @@ import sys
 import time
 
 from .base import ASK_HOME, ENTRY, Fail, git, hc_json, HOME, now, run, SHARE, WORKTREES
-from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
+from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
 from .templates import instructions
 from .agents import detail, LINE_MAX, live_agents, ROW_MAX, SUMMARY_MAX
 from .github import finish, remote_of
@@ -226,7 +226,9 @@ REVIEWERS = {"codex": (["codex", "--no-daemon", "--sandbox", "read-only", "--ask
              "claude": (["claude", "--permission-mode", "dontAsk", "--tools=" + REVIEW_TOOLS, "--strict-mcp-config"],
                         {"--model": re.compile(r"[\w.:\[\]-]+"), "--effort": re.compile(r"\w+"),
                          # #1458: its templates folder, one word (a brief from before it has none)
-                         "--add-dir=": re.compile(re.escape(TEMPLATES))})}
+                         "--add-dir=": re.compile(re.escape(TEMPLATES)),
+                         # dmalis/shepherdr#212: or a read rule for only that folder, one word
+                         "--allowedTools=": re.compile(re.escape(REVIEW_TEMPLATES_READ.partition("=")[2]))})}
 HELPER = re.compile(r"[\w.-]+-(?:review|helper)(?:-[\w.-]+)?")
 
 

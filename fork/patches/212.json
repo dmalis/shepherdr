@@ -1,0 +1,20 @@
+{
+  "issue": 212,
+  "name": "a reviewer at its start screen waits for the person",
+  "files": [
+    "mods/tasks/bin/herdr_task/reviewer_start.py",
+    "mods/tasks/bin/herdr_task/reviewers.py",
+    "mods/tasks/bin/herdr_task/settings.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/guard.py",
+    "service/trust-tip.test.ts",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::ReviewerAtItsStartScreen",
+    "test/test_herdr_task.py::ReviewerThatNeverAnswers",
+    "test/test_herdr_task.py::CodexBatch278",
+    "test/test_guard.py::Refuses",
+    "service/trust-tip.test.ts"
+  ]
+}

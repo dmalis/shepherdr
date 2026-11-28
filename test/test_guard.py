@@ -109,6 +109,22 @@ class Refuses(Stand):
             with self.subTest(line):
                 self.assertEqual(self.call(line).returncode, 0)
 
+    def test_212_no_keys_in_its_own_reviewers_screen(self):
+        """dmalis/shepherdr#212: a worker answered its reviewer's folder-trust screen with keys; that's the person's."""
+        for line in ("hc keys sd-4-review down enter", "hc keys shop-12-review2 enter", "hc keys csp-4-review-2 enter",
+                     "hc keys demo-1-helper --text y", "HC_SESSION=shepherdr hc keys x-review enter"):
+            with self.subTest(line):
+                r = self.call(line)
+                self.assertEqual(r.returncode, 77)
+                self.assertIn("the person's to answer", r.stderr)
+        self.assertEqual(self.ran(), [])
+        # its own test terminals, a throwaway session's reviewer, and waiting on or reading its reviewer go through
+        for line in ("hc keys t9 enter", "hc keys my-app down", "HC_SESSION=try212 hc keys sd-4-review enter",
+                     "hc wait sd-4-review --timeout 600", "hc read sd-4-review --lines 400", "hc kill sd-4-review"):
+            with self.subTest(line):
+                self.assertEqual(self.call(line).returncode, 0, line)
+        self.assertEqual(len(self.ran()), 6)
+
     def test_nested_guard_and_rc_files_putting_the_real_one_first_again(self):
         # a second launch inside the first (or an rc file prepending the real folder) still finds the real one
         r = self.call(f'PATH="{self.dir}:{self.dir}:$PATH" hc ls')

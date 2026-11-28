@@ -9,6 +9,7 @@ import shutil
 
 from .base import hc_json, now, run, STORE
 from .agents import error_words, parent_of, status_word
+from . import reviewer_start
 from .settings import reviewer_command
 
 STATE = os.path.join(STORE, ".reviewers.json")
@@ -65,6 +66,11 @@ def verdict(k, seen, at, text):
         return "error", error_words([k])
     if (k.get("turn") or 0) > 0 or text is None:
         return None
+    # dmalis/shepherdr#212: its CLI's start screen (trust, hooks, sign-in) is the person's to answer, never a freeze
+    asked = reviewer_start.start_screen(k, text)
+    if asked:
+        seen["screen"], seen["since"] = still(text), at
+        return asked
     born = k.get("created_ms") or seen.setdefault("born", at)
     if not text.strip():
         return ("blank", None) if at - born >= BLANK_MS else None
@@ -72,6 +78,8 @@ def verdict(k, seen, at, text):
     if seen.get("screen") != words:
         seen["screen"], seen["since"] = words, at
         return None
+    if reviewer_start.before_session(k):
+        return ("screen", last_line(text)) if at - seen.get("since", at) >= reviewer_start.START_MS else None
     return ("frozen", last_line(text)) if at - seen.get("since", at) >= FROZEN_MS else None
 
 
@@ -127,6 +135,17 @@ def reviewer_pass(report, read=screen_text):
         if not v:
             continue
         why, words = v
+        if why in reviewer_start.WAITS:
+            # #212: left running for the person; its worker hears once of each
+            if seen.get("asked") != why:
+                parent = parent_of(k)
+                if parent:
+                    from .news import send_or_hold
+                    send_or_hold(parent, reviewer_start.message(k, why, words))
+                seen["asked"] = why
+                report.setdefault("reviewers", []).append({"reviewer": k.get("name") or row["address"], "why": why,
+                                                           "task": (k.get("labels") or {}).get("herdr.task"), "ended": False})
+            continue
         ended = False
         if why != "error":
             from .tick import quiet_hc
