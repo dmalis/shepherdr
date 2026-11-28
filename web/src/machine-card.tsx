@@ -37,9 +37,10 @@ const pctWords = (g: Gauge) => (g.pct === undefined ? '–' : `${Math.round(g.pc
 function Glance({ g, limit }: { g: Gauge; limit?: CardLimit }) {
   return (
     <span className={cx('mc-m', g.level !== 'ok' && g.level)}>
-      <span className="mc-ml">{g.short}</span>
-      <span className="num">{pctWords(g)}</span>
-      {g.level !== 'ok' && <span className="mc-sr">, {LEVEL_WORDS[g.level].toLowerCase()}</span>}
+      {/* said as one phrase ("Memory 44%, new tasks wait."), as the button's description; the two shown parts stay quiet */}
+      <span className="mc-sr">{`${g.short} ${pctWords(g)}${g.level !== 'ok' ? `, ${LEVEL_WORDS[g.level].toLowerCase()}` : ''}. `}</span>
+      <span className="mc-ml" aria-hidden="true">{g.short}</span>
+      <span className="num" aria-hidden="true">{pctWords(g)}</span>
       <LimitBar small pct={g.pct} level={g.level} limit={limitAt(limit)} />
     </span>
   )
@@ -107,14 +108,15 @@ export function MachineCard({ m, serving, role, agents, working, limits, foldabl
         {foldable && <I n="down" c={cx('mc-chev', open && 'up')} />}
       </span>
       <span className="mc-h2">{[role, work].filter(Boolean).join(' · ')}</span>
-      {glance && <span className="mc-ms">{gs.map((g) => <Glance key={g.key} g={g} limit={limitOf(g)} />)}</span>}
+      {glance && <span className="mc-ms" id={`${bodyId}-m`}>{gs.map((g) => <Glance key={g.key} g={g} limit={limitOf(g)} />)}</span>}
     </>
   )
   return (
     <section className={cx('mcard', 'mc', st)} aria-label={m.name}>
       {foldable ? (
-        // its name is the machine and its status; the rest of the header is what it says of it
+        // its name is the machine and its status; its three numbers are its description, said on focus while folded
         <h3 className="mc-hh"><button type="button" className="mc-h" aria-expanded={open} aria-controls={bodyId} aria-labelledby={`${bodyId}-n ${bodyId}-s`}
+          aria-describedby={glance ? `${bodyId}-m` : undefined}
           onClick={() => setOpen(!open)}>{head}</button></h3>
       ) : (
         <h3 className="mc-hh"><div className="mc-h">{head}</div></h3>
@@ -133,12 +135,15 @@ export function MachineCard({ m, serving, role, agents, working, limits, foldabl
             </div>
           ) : (
             <>
-              {gs.some((g) => g.lines.length) && (
+              {/* no amounts yet: its heading still says when it was read, or that it couldn't be */}
+              {(gs.some((g) => g.lines.length) || read) && (
                 <div className="mc-grp">
                   <h4>Health{read && <span>{read}</span>}</h4>
-                  <dl className="mc-facts mc-health">
-                    {gs.filter((g) => g.lines.length).map((g) => <HealthRow key={g.key} g={g} limit={limitOf(g)} />)}
-                  </dl>
+                  {gs.some((g) => g.lines.length) && (
+                    <dl className="mc-facts mc-health">
+                      {gs.filter((g) => g.lines.length).map((g) => <HealthRow key={g.key} g={g} limit={limitOf(g)} />)}
+                    </dl>
+                  )}
                 </div>
               )}
               {s && (

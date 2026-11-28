@@ -55,6 +55,10 @@ test('a disk out of file slots with space free: named, "(files)", and what needs
   const one = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 97, by: 'files', free: 1.7e12, size: 1.78e12 }] } } })
   expect(gauges(one)[2]!.lines).toEqual(['Home 97% (files) · 1.7 TB free'])
   expect(gauges(machine())[2]!.files).toBeUndefined()
+  // two that round alike: the one the reading marks fullest leads; a tmpfs with no size has no "free"
+  const tie = machine({ health: meters(12, 40, 100), stats: { at: NOW, health: { disks: [{ path: 'home', pct: 100, by: 'space', free: 4e9, size: 1e12 }, { path: '/tmp', pct: 100, by: 'files', fullest: true }] } } })
+  expect(gauges(tie)[2]!.lines).toEqual(['/tmp 100% (files)', 'Home 100% · 4 GB free'])
+  expect(attention(tie, here)[0]!.words).toBe("Disk 100% full (/tmp's file slots)")
 })
 
 test('an older probe without bytes still says what it has', () => {

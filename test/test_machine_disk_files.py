@@ -22,6 +22,11 @@ def vfs(size_gb, used_gb, files=0, files_used=0):
                               (size_gb - used_gb) * GB // blk, files, files - files_used, files - files_used, 0, 255))
 
 
+def blocks(total, free, files=0, ffree=0):
+    """a statvfs result in raw 4 KiB blocks, for shares that don't fall on whole GB"""
+    return os.statvfs_result((4096, 4096, total, free, free, files, ffree, ffree, 0, 255))
+
+
 class DiskFileSlots(unittest.TestCase):
     def read(self, home, tmp):
         disks = {machine.HOME: (home, 1), "/tmp": (tmp, 2)}
@@ -43,7 +48,10 @@ class DiskFileSlots(unittest.TestCase):
     def test_sample_alert_and_start_limit_follow_it(self):
         disks = {machine.HOME: vfs(1900, 85, files=10 ** 8, files_used=10 ** 6), "/tmp": vfs(32, 9, files=1000, files_used=1000)}
         with mock.patch.object(machine.os, "statvfs", lambda p: disks[p]), \
-                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p))):
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p))), \
+                mock.patch.object(machine.os, "getloadavg", lambda: (0.0, 0.0, 0.0)), \
+                mock.patch.object(machine, "_memory", lambda: (100, 10)):
+            # this machine's own load and memory stay out of it: only the disk may hold
             h = machine.sample()
         self.assertEqual(h["disk"], 100)
         self.assertGreater(h["disk"], machine.ALERT["disk"])
@@ -64,10 +72,34 @@ class DiskFileSlots(unittest.TestCase):
                 mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=7)):
             self.assertEqual([d["path"] for d in machine._disks()], ["home"])
 
+    def test_a_tmpfs_with_no_size_reads_by_its_files(self):
+        # tmpfs size=0: no byte limit (0 blocks), its own file-slot limit, all taken
+        d = self.read(vfs(1900, 85, files=10 ** 8, files_used=10 ** 6), blocks(0, 0, files=100, ffree=0))
+        self.assertEqual((d["/tmp"]["pct"], d["/tmp"]["by"], d["/tmp"]["files_pct"]), (100, "files", 100))
+        self.assertNotIn("free_gb", d["/tmp"])  # no space to count, so no "0 GB free"
+        self.assertTrue(d["/tmp"]["fullest"])
+
+    def test_the_cause_is_chosen_before_rounding(self):
+        # 99.6% of its space and every file slot: both round to 100, the file slots filled it
+        d = self.read(vfs(100, 10), blocks(1000, 4, files=100, ffree=0))
+        self.assertEqual((d["/tmp"]["pct"], d["/tmp"]["by"]), (100, "files"))
+
+    def test_the_fullest_disk_is_chosen_before_rounding(self):
+        # home 99.6% by space, /tmp 100% by its file slots: both read 100, /tmp is the one that's full
+        disks = {machine.HOME: blocks(1000, 4, files=1000, ffree=990), "/tmp": blocks(1000, 500, files=100, ffree=0)}
+        with mock.patch.object(machine.os, "statvfs", lambda p: disks[p]), \
+                mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=hash(p))), \
+                mock.patch.object(machine.os, "getloadavg", lambda: (0.0, 0.0, 0.0)), \
+                mock.patch.object(machine, "_memory", lambda: (100, 10)):
+            h = machine.sample()
+        self.assertEqual([d["pct"] for d in h["disks"]], [100, 100])
+        self.assertEqual([d["path"] for d in h["disks"] if d.get("fullest")], ["/tmp"])
+        self.assertEqual(machine.hold_reason(h), "disk is 100% full (/tmp's file slots)")
+
     def test_the_real_disks_read(self):
         for d in machine._disks():
             self.assertIn(d["by"], ("space", "files"))
-            self.assertEqual(d["pct"], max(d["space_pct"], d.get("files_pct", 0)))
+            self.assertEqual(d["pct"], max(d.get("space_pct", 0), d.get("files_pct", 0)))
 
 
 if __name__ == "__main__":

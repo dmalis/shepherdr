@@ -275,7 +275,8 @@ def machine_hold():
         why = hold_reason(h, limits)
         if why and why.startswith("disk") and "file slots" not in why:
             # SHEP-275: what fills it, once a look in the background found out.
-            full = max(h.get("disks") or [], key=lambda x: x["pct"], default=None)
+            disks = h.get("disks") or []
+            full = next((x for x in disks if x.get("fullest")), None) or max(disks, key=lambda x: x["pct"], default=None)
             top = disk_top(HOME if full["path"] == "home" else full["path"]) if full else None
             if top:
                 why += f" (biggest: {top})"

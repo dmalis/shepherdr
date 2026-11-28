@@ -62,30 +62,34 @@ test('every enabled start limit is marked on its bar; none when off', () => {
 
 test('a phone: folded to its header, the three numbers still there; a button named by the machine and its status', () => {
   const html = card({ foldable: true, m: { ...vps, system: { ...vps.system!, hc: '0.1.22' } } })
-  expect(html).toContain('<h3 class="mc-hh"><button type="button" class="mc-h" aria-expanded="false" aria-controls="mc-m_vps" aria-labelledby="mc-m_vps-n mc-m_vps-s">')
+  expect(html).toContain('<h3 class="mc-hh"><button type="button" class="mc-h" aria-expanded="false" aria-controls="mc-m_vps" aria-labelledby="mc-m_vps-n mc-m_vps-s" aria-describedby="mc-m_vps-m">')
   expect(html).toContain('<span class="mc-hst" id="mc-m_vps-s">OK</span>')
   expect(html).toContain('<span class="mc-h2">Linked · 3 agents · 2 working</span>')
   const body = html.indexOf('<div class="mc-body" id="mc-m_vps" hidden="">')
   expect(body).toBeGreaterThan(0)
-  const glance = html.indexOf('<span class="mc-ms">')
+  const glance = html.indexOf('<span class="mc-ms" id="mc-m_vps-m">')
   expect(glance).toBeGreaterThan(0)
   expect(glance).toBeLessThan(body)
-  for (const [n, p] of [['CPU', 18], ['Memory', 44], ['Disk', 4]]) expect(html).toContain(`<span class="mc-ml">${n}</span><span class="num">${p}%</span>`)
+  for (const [n, p] of [['CPU', 18], ['Memory', 44], ['Disk', 4]]) expect(html).toContain(`<span class="mc-sr">${n} ${p}%. </span><span class="mc-ml" aria-hidden="true">${n}</span><span class="num" aria-hidden="true">${p}%</span>`)
 })
 
 test('the three numbers at a glance: each start limit on its small bar; amber with words past it (Machine card at a glance)', () => {
   const busy = { ...vps, health: { ...vps.health!, meters: [{ name: 'CPU', pct: 18, detail: '', level: 'ok' as const }, { name: 'Memory', pct: 86, detail: '', level: 'busy' as const }, { name: 'Disk', pct: 100, detail: '', level: 'over' as const }] },
     stats: { at: NOW, health: { ...vps.stats!.health, disks: [{ path: 'home', pct: 4, by: 'space', free: 1.7e12, size: 1.78e12 }, { path: '/tmp', pct: 100, by: 'files', free: 23e9, size: 32e9 }] } } }
   const html = card({ foldable: true, m: busy })
-  const glance = html.slice(html.indexOf('<span class="mc-ms">'), html.indexOf('<div class="mc-body"'))
-  expect(glance).toContain('<span class="mc-m busy"><span class="mc-ml">Memory</span><span class="num">86%</span><span class="mc-sr">, new tasks wait</span><span class="mc-bar sm busy" aria-hidden="true"><i style="--w:86%"></i><b style="--at:80%"></b></span></span>')
-  expect(glance).toContain('<span class="mc-m over"><span class="mc-ml">Disk</span><span class="num">100%</span><span class="mc-sr">, over its alert limit</span>')
-  expect(glance).toContain('<span class="mc-m"><span class="mc-ml">CPU</span><span class="num">18%</span><span class="mc-bar sm" aria-hidden="true"><i style="--w:18%"></i><b style="--at:100%"></b></span></span>')
+  const glance = html.slice(html.indexOf('<span class="mc-ms"'), html.indexOf('<div class="mc-body"'))
+  expect(glance).toContain('<span class="mc-m busy"><span class="mc-sr">Memory 86%, new tasks wait. </span><span class="mc-ml" aria-hidden="true">Memory</span><span class="num" aria-hidden="true">86%</span><span class="mc-bar sm busy" aria-hidden="true"><i style="--w:86%"></i><b style="--at:80%"></b></span></span>')
+  expect(glance).toContain('<span class="mc-m over"><span class="mc-sr">Disk 100%, over its alert limit. </span>')
+  expect(glance).toContain('<span class="mc-m"><span class="mc-sr">CPU 18%. </span><span class="mc-ml" aria-hidden="true">CPU</span><span class="num" aria-hidden="true">18%</span><span class="mc-bar sm" aria-hidden="true"><i style="--w:18%"></i><b style="--at:100%"></b></span></span>')
   // opened: the disk full by its file slots named, and why it needs attention
   expect(html).toContain('<dt>Disk</dt><dd><span>/tmp 100% (files) · 23 GB free</span><span>Home 4% · 1.7 TB free</span><span class="c-over">Over its alert limit</span></dd>')
   expect(html).toContain("Disk 100% full (/tmp&#x27;s file slots)</li>")
   // nothing read yet: no row of dashes
   expect(card({ m: { ...vps, health: undefined, stats: undefined } })).not.toContain('mc-ms')
+  // its first read failed: Health still says so, never only "OK" with nothing under it
+  const failed = card({ m: { ...vps, health: undefined, stats: { at: NOW, error: 'No answer' } }, read: "Couldn't read it now" })
+  expect(failed).toContain("<h4>Health<span>Couldn&#x27;t read it now</span></h4>")
+  expect(failed).not.toContain('mc-health')
 })
 
 test('an unreachable machine: when it was last seen, and its link\'s why', () => {

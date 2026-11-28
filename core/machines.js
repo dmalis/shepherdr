@@ -29,7 +29,7 @@ export function healthMeters(s) {
       detail: `Load ${Number(h.load).toFixed(1)} on ${h.cores} cores` },
     { name: "Memory", pct: h.memory, level: lv(h.memory, hold.start_memory, ALERT.memory), detail: `${gb(h.mem_used)} of ${gb(h.mem_total)}` },
     ...(h.disks?.length ? [{ name: "Disk", pct: h.disk, level: lv(h.disk, hold.start_disk, ALERT.disk),
-      detail: h.disks.map((d) => `${d.path} ${d.pct}%${d.by === "files" ? " (files)" : ""} · ${d.free_gb} GB free`).join(" · ") }] : []),
+      detail: h.disks.map((d) => `${d.path} ${d.pct}%${d.by === "files" ? " (files)" : ""}${typeof d.free_gb === "number" ? ` · ${d.free_gb} GB free` : ""}`).join(" · ") }] : []),
   ];
 }
 

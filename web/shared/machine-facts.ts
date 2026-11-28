@@ -49,7 +49,7 @@ export function compareVersions(a: string, b: string): number {
 
 /** one disk as machine.py reads it: `pct` the fuller of its space and its file slots, `by` which one (an older probe
  *  sends neither `by` nor `files_pct`: space alone) */
-type Disk = { path: string; pct: number; free_gb?: number; free?: number; used?: number; size?: number; by?: 'space' | 'files'; space_pct?: number; files_pct?: number }
+type Disk = { path: string; pct: number; free_gb?: number; free?: number; used?: number; size?: number; by?: 'space' | 'files'; space_pct?: number; files_pct?: number; fullest?: boolean }
 type Raw = { cores?: number; load?: number; mem_total?: number; mem_used?: number; disks?: Disk[] }
 const rawOf = (m: Machine): Raw => (m.stats?.health ?? {}) as Raw
 
@@ -78,7 +78,8 @@ export function gauges(m: Machine): Gauge[] {
   const cpu = meter(/cpu|processor|load/i), mem = meter(/mem/i), disk = meter(/disk/i)
   const cpuLine = typeof raw.load === 'number' && raw.cores ? `${raw.load.toFixed(1)} load · ${raw.cores} ${raw.cores === 1 ? 'core' : 'cores'}` : ''
   const memLine = raw.mem_total ? freeOf(memSize(Math.max(0, raw.mem_total - (raw.mem_used ?? 0))), memSize(raw.mem_total)) : ''
-  const disks = [...(raw.disks ?? [])].sort((a, b) => b.pct - a.pct)
+  // fullest first: the reading marks it by its unrounded share, where two round alike
+  const disks = [...(raw.disks ?? [])].sort((a, b) => b.pct - a.pct || Number(!!b.fullest) - Number(!!a.fullest))
   const named = disks.length > 1 || disks.some((d) => d.by === 'files')
   const diskLine = (d: Disk) => {
     const free = typeof d.free === 'number' ? diskSize(d.free) : typeof d.free_gb === 'number' ? `${d.free_gb} GB` : ''
