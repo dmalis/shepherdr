@@ -43,8 +43,10 @@ CLAUSE_END = re.compile(r"; |\. |\.$")
 # "live since `ours-…`", or the older "carried since `ours-…`, not filed yet": the tag is the first install's
 CARRIED = re.compile(r"(?:carried|live) since (`?ours-[0-9][\w.-]*`?)(?:, not filed yet\b)?")
 LEAD_BUILDING = re.compile(r"^building\b[.,;:]?\s*", re.I)
-PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?): building\b")
-PART_NOT_FILED = re.compile(r"(#\d+(?: \([^()]*\))?): not filed yet\b")
+# a fix's part: "#30: building", "#30 (the spec): building", or a slice's "Slice 3 (what it is, #210): building"
+PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?\)?): building\b")
+ANY_BUILDING = re.compile(r": building\b")
+OLD_NOT_FILED = re.compile(r"([:,]) not filed yet\b")
 # a live fix's issue that stays open: the person hasn't confirmed it on a device, it waits, or it is pipeline work
 KEEP_OPEN = {"device-check", "later", "on-hold", "sync-blocked", "rethink", "fixed-upstream", "pipeline", "handover"}
 REVERTING = re.compile(r"\breverting in #(\d+)")
@@ -205,7 +207,7 @@ def carried_text(text, tag, landed, device):
         newly_landed = newly_landed or landed[n]
         return f"{m.group(1)}: live"
     out = PART_BUILDING.sub(part, out)
-    out = PART_NOT_FILED.sub(lambda m: f"{m.group(1)}: live", out)
+    out = OLD_NOT_FILED.sub(lambda m: ": live" if m.group(1) == ":" else "", out)
     out = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in landed else m.group(0), out)
     if device and newly_landed and NOT_SEEN not in out:
         head, dot, rest = out.partition(". ")
@@ -215,7 +217,7 @@ def carried_text(text, tag, landed, device):
 
 def still_moving(text):
     """A fix of the issue is still building or reverting: it stays open."""
-    return bool(LEAD_BUILDING.match(text) or PART_BUILDING.search(text) or REVERTING.search(text))
+    return bool(LEAD_BUILDING.match(text) or ANY_BUILDING.search(text) or REVERTING.search(text))
 
 
 def close_words(text, tag, n):

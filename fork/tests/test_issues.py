@@ -240,6 +240,14 @@ class IssuePass(World):
         self.assertEqual((edits[0]["add"], edits[0]["remove"], edits[0]["close"]), ([], [], True))
         self.assertEqual(edits[0]["comment"],
                          "Live since `ours-1-1`: closing. The fix stays carried (fork/patches/20.json).")
+        # slices and fixes written in a sentence, as real issues say them (#119, #105)
+        text, _ = issues.carried_text("carried since `ours-1-1`. Slice 1 (the mark, #38): not filed yet. Slice 3 "
+                                      "(first of waits, #210): building. Broke, fixed in #23 (Chat box), not filed "
+                                      "yet; what it does.", "ours-1-2", {210: False}, False)
+        self.assertEqual(text, "live since `ours-1-1`. Slice 1 (the mark, #38): live. Slice 3 (first of waits, "
+                               "#210): live. Broke, fixed in #23 (Chat box); what it does.")
+        self.assertFalse(issues.still_moving(text))
+        self.assertTrue(issues.still_moving("live since `ours-1-1`. Slice 4 (later, #300): building."))
 
     def test_a_live_fix_stays_open_while_it_waits(self):
         """A fix still building, a device check, `later` or pipeline work: the issue stays open."""
