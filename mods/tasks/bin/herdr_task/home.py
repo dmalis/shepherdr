@@ -526,10 +526,16 @@ def home_pass(report, force=False, only=None, to=None):
                     mt = re.match(r'<herdr-news task="([^"]*)" event="([^"]*)"[^>]*>(.*)</herdr-news>$', line)
                     task, event, text = mt.groups() if mt else (None, None, re.sub(r"<[^>]+>", "", line))
                     text = text.split(" · For AGENTS.md:")[0]  # the space's own Assistant decides that
+                    # dmalis/shepherdr "Needs you 6a": a newer line about the same task replaces a queued line about
+                    # its wait (a new question, or the wait over), so a replaced wait never reaches the overview
+                    if task:
+                        outbox[:] = [y for y in outbox if not (y.get("wait") and y.get("of") == [m or "", task])]
                     if x.get("to") and event not in OVERVIEW_OWN_EVENTS:
                         continue  # #1126: its space's own Assistant had it and acts on it
+                    wait = (re.search(r'\bwait="([^"]*)"', line) or [None, None])[1] if mt else None
                     outbox.append({"to": over_to, "line": tagged("herdr-overview", f"{place}: {text}", machine=m or "",
-                                                                               space=space, task=task, event=event), "at": now()})
+                                                                               space=space, task=task, event=event, wait=wait), "at": now(),
+                                   **({"wait": wait, "of": [m or "", task]} if wait else {})})
     # Each line waits for its home's Assistant (as seen this round): one that isn't live yet, or
     # whose machine didn't answer, gets it on a later round.
     homes = {f"home:{k}": to or machines[k].get("assistant") for k in reports if k in machines}

@@ -328,10 +328,29 @@ export interface AfterMerge {
   followUp?: { id: string; title: string; byHand?: boolean }
 }
 
+/** fork "Needs you 6a: wait lifecycle": an inferred wait (a task waiting on its space's Shepherdr first) as herdr-task
+ *  keeps it where it happens (herdr_task/wait_record.py). A new question in the same status is a new one, with a new
+ *  id, generation, first and deadline; a restart keeps all of them. */
+export interface WaitRecord {
+  /** minted where the wait happens, never from a task ref or a machine's alias: its action is wait:<id> */
+  id: string
+  /** the task's waits counted: a new question is a new generation */
+  gen: number
+  kind: 'reply' | 'attention' | 'stopped'
+  /** when Herdr first confirmed it (ms) */
+  first: number
+  /** when it is the person's if it is still open: first + Ask me after (ms) */
+  deadline: number
+}
+
 export interface Task {
   /** fork Needs you 5/6: its lead open action, whose it is and what about (web/shared/attention.ts withAttention):
    *  what its row, header and status say. None: nothing waits (working, paused, up next, done) */
   action?: TaskAction
+  /** fork "Needs you 6a": its open inferred wait as herdr-task keeps it (service/wait-record.ts) */
+  wait?: WaitRecord
+  /** its source keeps wait records and this wait's hasn't landed yet: it stays Shepherdr's, quiet, until it does */
+  waitPending?: true
   /** 3.2, facts the status is worked out from (web/shared/view.ts), never guessed from a screen: */
   /** the agent stopped: by the person (Stop), by an error or a crash, or at its plan's limit; why, in its own words */
   stopped?: { by: 'you' | 'error' | 'limit'; why?: string }

@@ -46,6 +46,9 @@ export class Model {
   /** fork Needs you 5/6: each other machine's tasks as last read, kept while it can't be read: its rows stay, saying
    *  "Can't check <machine> right now" (web/shared/attention.ts; service/attention.ts keeps their actions) */
   private lastRows = new Map<string, any[]>();
+  /** fork "Needs you 6a": connected machines whose task list hasn't been read since they connected (or whose last read
+   *  failed): they read as still connecting, so their last rows stay "Can't check" and send nothing until a read lands */
+  private unread = new Set<string>();
   private known: { name: string; state: string; why?: string }[] = []; // every other machine, with its state (the sidebar's headers) and herdr-core's why when down
   private timer: ReturnType<typeof setTimeout> | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,7 +140,10 @@ export class Model {
     this.readAt = Date.now();
     try {
       const r = await this.hub.call<{ machines: any[] }>("machine.list", {});
+      const was = new Set(this.machines);
       this.machines = r.machines.filter((m) => m.state === "connected").map((m) => m.name);
+      for (const m of this.machines) if (!was.has(m)) this.unread.add(m);
+      for (const m of [...this.unread]) if (!this.machines.includes(m)) this.unread.delete(m);
       // every machine the window's sidebar lists, connected or not (a temporary one aside): an offline one reads "Offline"
       this.known = r.machines.filter((m) => !m.temporary).map((m) => ({ name: m.name, state: String(m.state ?? ""), ...(typeof m.why === "string" && m.why ? { why: m.why } : {}) }));
     } catch {}
@@ -296,7 +302,7 @@ export class Model {
   private async readOnce(m: string | null, retry = true): Promise<void> {
     try {
       const r = await sh(this.hub, READ_CHANGES, changesArgs(this.files.get(m)), m);
-      if (r.code !== 0) return;
+      if (r.code !== 0) { if (m) this.unread.add(m); return; }
       const got = changedLists(r.stdout, this.files.get(m));
       if (got.stale) {
         // it named a task this side doesn't have: read it all again, once
@@ -304,7 +310,8 @@ export class Model {
         if (retry) return this.readOnce(m, false);
       } else this.files.set(m, got.files);
       this.lists.set(m, got.lists.map((d: any) => ({ ...d, machine: m, prefix: d.prefix || autoPrefix(d.folder), tasks: Array.isArray(d.tasks) ? d.tasks : [] })));
-    } catch {}
+      if (m) this.unread.delete(m);
+    } catch { if (m) this.unread.add(m); }
   }
 
   /** A task's agents now: live terminals labelled with its key, on the folder's machine, not shells. */
@@ -371,6 +378,8 @@ export class Model {
         // 3.2: the facts the app works a status out from (service/next.ts enrich), as herdr-task keeps them
         x: { mode: task.mode ?? null, merged: !!task.merged, quiet: task.quiet ?? null, told: task.told ?? null, automation: task.automation ?? null, stopped_by: task.stopped_by ?? null, stopped_why: task.stopped_why ?? null,
           merge_failed: task.merge_failed ?? null, attention_at: task.attention_at ?? null, after: task.after ?? null,
+          // fork "Needs you 6a": its inferred wait as herdr-task keeps it (service/wait-record.ts)
+          wait: task.wait ?? null, keeps_waits: list.wait_records === 1,
           // another folder's or machine's tasks it still waits for, by title (dmalis/shepherdr#54: its Start dialog says so)
           after_ext: Array.isArray(task.after_ext) ? task.after_ext.filter((e: any) => e && e.state !== "done" && e.state !== "gone").map((e: any) => ({ title: String(e.title ?? e.ref ?? "") })) : null,
           closed_unmerged: !!task.closed_unmerged,
@@ -441,6 +450,7 @@ export class Model {
     void this.readGit(spaces);
     // each list's schedules (herdr-task auto), with the folder and machine they belong to
     const automations = lists.flatMap((l: any) => (Array.isArray(l.automations) ? l.automations : []).map((a: any) => ({ ...a, folder: l.folder, machine: l.machine ?? null, list: l.name })));
-    this.onBuild?.({ spaces, sections: bar.sections, rows, machines: this.machines, known: this.known, automations });
+    const known = this.unread.size ? this.known.map((k) => (k.state === "connected" && this.unread.has(k.name) ? { ...k, state: "connecting" } : k)) : this.known;
+    this.onBuild?.({ spaces, sections: bar.sections, rows, machines: this.machines, known, automations });
   }
 }

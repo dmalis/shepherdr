@@ -10,6 +10,7 @@ import { everythingOf, sameFolder } from "../core/spaces.js";
 import { readSettings, repoLayer, REPO_SECTIONS, writeSettings } from "./settings.ts";
 import { repoKey, repoOf } from "../core/host.js";
 import { MUST_FIX, ROUNDS } from "../core/settings.js";
+import { waitOf } from "./wait-record.ts";
 
 /** the plugins: Tasks, Artifacts, Search and Alerts are always on; the rest each have a switch */
 /** offByDefault: off until switched on in Settings › Plugins (kept in everywhere.plugins_on) */
@@ -401,6 +402,8 @@ export function enrich(snap: Snapshot, f: Facts): Snapshot {
       ...(x.told && x.quiet === "told" ? { doneNote: `told you in ${t.place === everything ? "Everything" : `#${places.find((p) => p.id === t.place)?.name ?? "its space"}`}` } : {}),
       ...(x.automation ? { schedule: String(x.automation) } : {}),
       ...(t.status === "need" || t.status === "ready" || stopped ? { needsAt: x.attention_at ?? r.ready_at ?? r.started ?? undefined } : {}),
+      // fork "Needs you 6a": its open inferred wait, kept where it happens (service/wait-record.ts)
+      ...waitOf(x, r.needs, t.status === "need" || !!stopped),
       ...(t.status === "done" && r.ready_at ? { needsAtWas: r.ready_at } : {}),
       ...(x.merge_failed ? { mergeFailed: String(x.merge_failed).slice(0, 200) } : {}),
       // nothing to merge, closed by its Merge setting at ready, or why a Ready one waits for the person (herdr_task/waits.py)

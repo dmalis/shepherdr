@@ -11,10 +11,10 @@ import time
 from contextlib import contextmanager
 
 from .base import guard, hc_json, now, run, STORE
-from .settings import bare
+from .settings import bare, settings_for
 from .agents import (
     agent_log, agent_running, asking, detail, from_person, front, live_agents, log_tail, said, starting, status_word,
-    REASONS, STATUSES, startup_asked,
+    REASONS, STATUSES, startup_asked, turn_began,
 )
 from .sessions import session_of
 from .launch import coordinator_in, core_spaces, everything_of, tilde_of
@@ -22,6 +22,7 @@ from .store import locate, read_list, Store, store_files
 from .output import line, minutes, view
 from .answered import prompt_answered
 from . import urgent
+from . import wait_record
 
 
 # ---- news -----------------------------------------------------------------------------------
@@ -103,6 +104,9 @@ def news_line(s, t, v, event, words=None):
     # The wait's kind (attention, reply, stopped, asks) rides along, so the chat tells the Assistant's from the person's
     # (web/shared/needs-you.ts forAssistant).
     kind = f' needs="{attr(v["needs"])}"' if event in ("waiting", "needs-you", "failed") and v.get("needs") else ""
+    # dmalis/shepherdr "Needs you 6a": the wait it is about, by the id Herdr keeps for it (wait_record.py)
+    w = wait_record.open_wait(t) if event in ("waiting", "failed") else None
+    kind += f' wait="{attr(w["id"])}"' if w and w.get("kind") == v.get("needs") else ""
     # dmalis/shepherdr#119: an urgent task's line says so on its tag (read again when it goes: urgent.first)
     return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}{urgent.attr(t)}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 
@@ -158,22 +162,43 @@ def news_pass(report, folder=None):
     here = core_spaces()
     tilde, every = tilde_of(here), everything_of(here)
     told_in = lambda sp: every if tilde and every and sp == tilde else sp
-    current = {}  # key -> (status, stall mark), to check queued lines against
+    current = {}  # key -> (status, stall mark, open wait), to check queued lines against
+    # dmalis/shepherdr "Needs you 6a": tasks herdr-core couldn't be asked about this pass. Unknown is no news: their
+    # wait records, fields and queued lines stay as they were, and their lines wait for a pass that reads them.
+    unknown = set()
     marks = {}  # dmalis/shepherdr#119: key -> urgent now, for every list this pass reads
     for path in store_files(folder):
         d = read_list(path)
         if not d or not os.path.isdir(d.get("folder") or ""):
             continue
-        active = any(t.get("state") in ("running", "ready") or accept_failed(t) or untold(t) for t in d.get("tasks") or [])
+        # (a wait still open on a task gone since is closed too: wait_record.track)
+        active = any(t.get("state") in ("running", "ready") or accept_failed(t) or untold(t) or wait_record.open_wait(t)
+                     for t in d.get("tasks") or [])
         with Store(locate(d["folder"]), write=active) as s:
             mine = seen.setdefault(s.slug, {})
             # The first look at a list only notes how its tasks are: old news isn't news.
             first = "_init" not in mine
             mine["_init"] = True
+            # the service reads this list's waits by their records (service/wait-record.ts): it keeps them
+            if s.write and s.data.get("wait_records") != 1:
+                s.data["wait_records"] = 1
+                s.dirty = True
             for t in s.data["tasks"]:
                 key = f"{s.slug}#{t['id']}"
+                if t["state"] in ("running", "ready") and hc_json("ls", "--label", f"herdr.task={s.key(t)}") is None:
+                    unknown.add(key)
+                    continue
                 live = [k for k in map(detail, live_agents(s.key(t))) if agent_running(k)] if t["state"] in ("running", "ready") else []
                 v, event, stall = news_state(s, t, live)
+                # dmalis/shepherdr "Needs you 6a": its inferred wait kept here, with its id, generation, first and deadline
+                # (wait_record.py); a new question in the same status is a new wait. Not while herdr-core can't be read.
+                waited = (wait_record.open_wait(t) or {}).get("id")
+                if s.write:
+                    changed, _ = wait_record.track(t, v, live, settings=lambda: settings_for(s, t.get("space")),
+                                                   began=lambda: turn_began(t))
+                    s.dirty = s.dirty or changed
+                wait = (wait_record.open_wait(t) or {}).get("id")
+                regen = bool(waited and wait and waited != wait)
                 # The Tasks panel reads the store, not the log: why its agent waits (its own status
                 # line, its question, its last words), as `list` says it, it shows from here.
                 waits = v["why"] if v.get("needs") in ("reply", "asks") else None
@@ -217,7 +242,7 @@ def news_pass(report, folder=None):
                     else:
                         t.pop("own_work", None)
                     s.dirty = True
-                cur = {"status": v["status"], "why": v.get("why"), "stall": stall[0] if stall else None}
+                cur = {"status": v["status"], "why": v.get("why"), "stall": stall[0] if stall else None, "wait": wait}
                 current[key] = cur
                 marks[key] = urgent.urgent_now(t)
                 prev = mine.get(str(t["id"]))
@@ -252,7 +277,9 @@ def news_pass(report, folder=None):
                 # A record from before #114 has no event: its wait's kind says which it was.
                 was = (prev or {}).get("event") or WAIT_EVENTS.get((prev or {}).get("needs"))
                 handed = v["status"] == "needs" and (prev or {}).get("status") == "needs" and was not in (None, event)
-                if event and ((prev or {}).get("status") != v["status"] or handed) and not t.get("quiet"):
+                # A new question in the same status (a new wait, wait_record.py) is news again.
+                again = regen and event in ("waiting", "failed") and was == event
+                if event and ((prev or {}).get("status") != v["status"] or handed or again) and not t.get("quiet"):
                     words = "its earlier question or wait has cleared" if event == "working-again" and wait_cleared else None
                     lines.append((event, news_line(s, t, v, event, words)))
                 if stall and stall[0] != (prev or {}).get("stall"):
@@ -267,7 +294,8 @@ def news_pass(report, folder=None):
                     outbox[:] = [x for x in outbox if not (x["key"] == key and not APART & {ev, x["event"]}
                                                            and (x["event"] == ev or ev != "stalled"))]
                     outbox.append({"key": key, "space": told_in(bare(t["space"])), "folder": os.path.basename(s.loc["folder"]), "event": ev, "status": v["status"],
-                                   "stall": stall[0] if ev == "stalled" else None, "text": text, "at": now(), "urgent": marks[key]})
+                                   "stall": stall[0] if ev == "stalled" else None, "text": text, "at": now(), "urgent": marks[key],
+                                   **({"wait": wait} if wait and ev in ("waiting", "failed") else {})})
             ids = {str(t["id"]) for t in s.data["tasks"]}
             for k in [k for k in mine if k not in ids and k != "_init"]:
                 mine.pop(k)
@@ -275,12 +303,17 @@ def news_pass(report, folder=None):
     # Still true? A line whose task moved on since (or was removed) goes unsaid.
     def holds(x):
         c = current.get(x["key"])
-        if (folder and c is None) or x["event"] in APART:
+        if (folder and c is None) or x["event"] in APART or x["key"] in unknown:
             return True  # another folder's task: not looked at this time; a failed command's line is news either way
+        # dmalis/shepherdr "Needs you 6a": a line about a wait a newer one replaced, or one that closed, goes unsaid
+        if c and x.get("wait") and c.get("wait") != x["wait"]:
+            return False
         return bool(c) and (c["stall"] == x["stall"] if x["event"] == "stalled" else c["status"] == x["status"])
     outbox[:] = [x for x in outbox if holds(x) and now() - x["at"] < NEWS_KEEP_MS]
     for space in dict.fromkeys(x["space"] for x in outbox):
-        batch = [x for x in outbox if x["space"] == space]
+        batch = [x for x in outbox if x["space"] == space and x["key"] not in unknown]
+        if not batch:
+            continue
         if now() - min(x["at"] for x in batch) < NEWS_SETTLE_MS:
             continue
         to = coordinator_in(space)
