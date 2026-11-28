@@ -148,7 +148,7 @@ demo starts its day over on each page load, so what a part needs is seeded by th
 | Switching into the 404-message chat, desktop at 4× | 401 ms the first time, then 242 and 207 ms | p95 100 ms when warm |
 | Loading straight into that chat | 191 ms to its first message on screen at full speed | measured apart (a first load) |
 | Scrolling that chat end to end, phone | frames p50 17 ms, p95 18 ms; 1 of 479 over 33 ms (52 ms); no long task | p95 33 ms |
-| 300 live updates | handler p95 0.3 ms; handler to the next queued task p50 5.1 ms, p95 7.9 ms (a sign only, see above); about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms: not settled, a trace decides (slice 4) |
+| 300 live updates | handler p95 0.3 ms; handler to the next queued task p50 5.1 ms, p95 7.9 ms (a sign only, see above); about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms: not met. Slice 4's trace of a throwaway service's patches (about 270 a run, full speed, Home open), each update's script from its patch for 100 ms: p50 3.4–3.5 ms, p95 4.9–5.2 ms before and 5.4–5.7 ms after (the same code runs: no chat on screen). It is React drawing the open page again, and garbage collection; a later slice |
 | Memory over those updates | heap 4.1 → 6.0 MB after GC, nodes and listeners flat | no growth after the first minutes: needs a longer run to tell |
 | An idle page with a waiting picture | 60 style recalculations a second, ~455 ms of work per 20 s | none |
 
