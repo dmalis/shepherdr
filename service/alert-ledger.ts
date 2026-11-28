@@ -28,16 +28,22 @@ export const CLOSE_AFTER_MS = 20_000;
 export type Kept = { action?: string; muted?: true; stale?: true; sent?: true; gone?: number };
 /** an action of the person's: what it was, since when this service knows it, and, once gone, since when and how */
 type Rec = { what: string; kind?: string; task?: string; place?: string; chat?: string; card: string | null; seen: number; missing?: number; closed?: number; outcome?: Outcome["outcome"] };
-type File = { v: 1; sent: Record<string, Kept>; actions: Record<string, Rec>; touched: Record<string, number> };
+type File = { v: 1; sent: Record<string, Kept>; actions: Record<string, Rec>; touched: Record<string, number>; alerted?: Record<string, number> };
 
 /** a made alert as push.ts alertsOf has it (only what is kept) */
 type Made = { action?: string; muted?: true; stale?: true; sent?: true };
+
+/** fork Needs you 6b: a wait's action (web/shared/attention.ts `wait:<id>`) */
+const isWait = (action: string) => action.startsWith("wait:");
 
 export class AlertLedger {
   private sent = new Map<string, Kept>();
   private actions = new Map<string, Rec>();
   /** a chat or a task the person acted on, and when (an answer, a message, an accept) */
   private touched = new Map<string, number>();
+  /** fork Needs you 6b: each wait that reached the person, and when: a wait escalates once, so it never alerts again under
+   *  any key (one question's lead task gone, Shepherdr back and then its deadline, a restart) */
+  private alerted = new Map<string, number>();
   /** read from disk: false on the very first run (nothing is new then: what waits was there before) */
   readonly known: boolean;
   /** made once this run: from then on, what is new is new */
@@ -53,6 +59,7 @@ export class AlertLedger {
     for (const [k, v] of Object.entries(f!.sent ?? {})) if (v && typeof v === "object") this.sent.set(k, v);
     for (const [k, v] of Object.entries(f!.actions ?? {})) if (v && typeof v === "object" && typeof v.seen === "number") this.actions.set(k, v);
     for (const [k, v] of Object.entries(f!.touched ?? {})) if (typeof v === "number") this.touched.set(k, v);
+    for (const [k, v] of Object.entries(f!.alerted ?? {})) if (typeof v === "number") this.alerted.set(k, v);
   }
 
   /** the alerts before this snapshot's, as push.ts pushChanges and the bell compare: the ones made last (or kept from
@@ -68,6 +75,8 @@ export class AlertLedger {
       if (a && v.action && a !== v.action) continue;
       out.set(k, v);
     }
+    // a wait that reached the person before, under whatever key: not new
+    for (const [k, m] of now) if (!out.has(k) && m.action && isWait(m.action) && this.alerted.has(m.action)) out.set(k, { action: m.action });
     return out;
   }
 
@@ -79,6 +88,7 @@ export class AlertLedger {
       if (!v.gone) { this.sent.set(k, { ...v, gone: at }); this.dirty = true; }
       else if (this.expired(v)) { this.sent.delete(k); this.dirty = true; }
     }
+    for (const [, a] of now) if (a.action && isWait(a.action) && !a.muted && !a.stale && !this.alerted.has(a.action)) { this.alerted.set(a.action, at); this.dirty = true; }
     for (const [k, a] of now) {
       const v: Kept = { ...(a.action ? { action: a.action } : {}), ...(a.muted ? { muted: true as const } : {}), ...(a.stale ? { stale: true as const } : {}), ...(a.sent ? { sent: true as const } : {}) };
       const was = this.sent.get(k);
@@ -97,7 +107,7 @@ export class AlertLedger {
 
   /** alerts made but not kept (the file couldn't be written): none of them went, so they are new next time */
   unsend(keys: string[]) {
-    for (const k of keys) this.sent.delete(k);
+    for (const k of keys) { const a = this.sent.get(k)?.action; if (a) this.alerted.delete(a); this.sent.delete(k); }
     this.dirty = true;
   }
 
@@ -141,6 +151,7 @@ export class AlertLedger {
     const closed = [...this.actions].filter(([, r]) => r.closed).sort((x, y) => y[1].closed! - x[1].closed!);
     for (const [i, [id, r]] of closed.entries()) if (i >= KEEP_MAX || at - r.closed! > KEEP_MS) { this.actions.delete(id); this.dirty = true; }
     for (const [k, t] of this.touched) if (at - t > KEEP_MS) { this.touched.delete(k); this.dirty = true; }
+    for (const [k, t] of this.alerted) if (at - t > KEEP_MS) { this.alerted.delete(k); this.dirty = true; }
   }
 
   /** how an action ended (GET /api/outcome), from the moment it went: null while it is open, or unknown */
@@ -154,7 +165,7 @@ export class AlertLedger {
   /** written only when something changed. False: it couldn't be; nothing may be sent then (it would go again) */
   save(): boolean {
     if (!this.dirty) return true;
-    const f: File = { v: 1, sent: Object.fromEntries(this.sent), actions: Object.fromEntries(this.actions), touched: Object.fromEntries(this.touched) };
+    const f: File = { v: 1, sent: Object.fromEntries(this.sent), actions: Object.fromEntries(this.actions), touched: Object.fromEntries(this.touched), alerted: Object.fromEntries(this.alerted) };
     try {
       const tmp = `${this.file}.tmp`;
       writeFileSync(tmp, JSON.stringify(f), { mode: 0o600 });

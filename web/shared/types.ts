@@ -341,6 +341,24 @@ export interface WaitRecord {
   first: number
   /** when it is the person's if it is still open: first + Ask me after (ms) */
   deadline: number
+  /** fork "Needs you 6b": Shepherdr handed it up to the person (herdr-task alert --task; herdr_task/hand_up.py) */
+  up?: HandUp
+}
+
+/** fork "Needs you 6b": a hand-up, as herdr-task keeps it on the wait it is about */
+export interface HandUp {
+  /** when it was handed up (ms) */
+  at: number
+  /** the one-line ask */
+  what: string
+  /** a line more, if any */
+  why?: string
+  /** answers its card offers as buttons */
+  choices?: string[]
+  /** the first wait of the question: one question over several tasks is one action, wait:<lead> */
+  lead: string
+  /** taken back (ms): Shepherdr has the answer, or the person picked a choice. Its deadline no longer hands it up */
+  settled?: number
 }
 
 export interface Task {
@@ -350,7 +368,7 @@ export interface Task {
   /** fork "Needs you 6a": its open inferred wait as herdr-task keeps it (service/wait-record.ts) */
   wait?: WaitRecord
   /** its source keeps wait records and this wait's hasn't landed yet: it stays Shepherdr's, quiet, until it does */
-  waitPending?: true
+  waitPending?: true | number
   /** 3.2, facts the status is worked out from (web/shared/view.ts), never guessed from a screen: */
   /** the agent stopped: by the person (Stop), by an error or a crash, or at its plan's limit; why, in its own words */
   stopped?: { by: 'you' | 'error' | 'limit'; why?: string }
@@ -1523,7 +1541,7 @@ export interface Snapshot {
   read?: Record<string, number>
   /** the agents' own alerts (herdr-task alert), one per agent, as the window's toasts say them (service/push.ts
    *  agentAlerts): "HERD-4 · <title>" over its body, its chat, and whether it reaches the person (its space's Notify) */
-  alerts?: { id: string; at: number; title: string; /** its own words, without who sent it (#1561) */ what?: string; body: string; chat?: string; /** the task it is about (SHEP-255): its row shows it; none: no task's, not in Tasks */ task?: string; place?: string; notify: boolean; ended?: true; machine?: string | null; memory?: true; /** #1545: Restart all (the restart-all action) */ restart?: true; /** fork Needs you 3/6: a machine's warning (memory, a restart, a provider cutting off): opt-in on a device */ ops?: true }[]
+  alerts?: { id: string; at: number; title: string; /** its own words, without who sent it (#1561) */ what?: string; body: string; chat?: string; /** the task it is about (SHEP-255): its row shows it; none: no task's, not in Tasks */ task?: string; place?: string; notify: boolean; ended?: true; machine?: string | null; memory?: true; /** #1545: Restart all (the restart-all action) */ restart?: true; /** fork Needs you 3/6: a machine's warning (memory, a restart, a provider cutting off): opt-in on a device */ ops?: true; /** fork Needs you 6b: a hand-up of these waits (herdr-task alert --task): the waits' own action says it, so the alert itself stays out of the lists and the bell */ waits?: string[] }[]
   /** the alerts list (the bell, web/plugins/inbox, fork #37): every push alert of the last 7 days, newest first */
   inbox?: InboxItem[]
   /** the sidebar's sections, as Slack's, each with its spaces in the human's order: the top ones first (Pinned, id
@@ -1826,6 +1844,9 @@ export interface LevelConfig {
   /** fork Needs you 3/6: Space alerts (a space's own "alerts" in the settings file): Muted lets only what needs you
    *  reach a device from it */
   alerts?: 'On' | 'Muted'
+  /** fork Needs you 6b: Ask me after (tasks.ask_after), minutes: how long a wait stays Shepherdr's before it is the
+   *  person's; 0: right away */
+  askAfter?: number
 }
 
 export interface RepoConfig extends LevelConfig {

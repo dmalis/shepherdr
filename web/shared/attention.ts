@@ -13,7 +13,7 @@
 //   waiting for a reply, checks failed, a conflict, review rounds out, an error stop). It shows only on that task.
 // A task stopped by the person (Paused), a working one and one waiting for its checks have no action at all.
 // The source facts are the snapshot's own: no model, no guess (docs/develop.md Rules).
-import type { Need, Snapshot, Task } from './types.ts'
+import type { HandUp, Need, Snapshot, Task } from './types.ts'
 
 export type Alert = NonNullable<Snapshot['alerts']>[number]
 
@@ -49,8 +49,13 @@ export interface Action {
    *  6a", web/shared/types.ts WaitRecord): a wait from a source that keeps none has neither */
   gen?: number
   deadline?: number
-  /** a wait Shepherdr would handle that is yours, and why: no Shepherdr chat runs in its space */
-  up?: 'no-shepherdr'
+  /** a wait Shepherdr would handle that is yours, and why: no Shepherdr chat runs in its space; Shepherdr handed it up
+   *  (herdr-task alert --task); its deadline passed with it still open (Ask me after) (fork "Needs you 6b") */
+  up?: 'no-shepherdr' | 'asked' | 'deadline'
+  /** fork "Needs you 6b": one question over several tasks: every task it holds (task is the first) */
+  tasks?: string[]
+  /** fork "Needs you 6b": the hand-up it is, its words and choices for its card */
+  handUp?: HandUp
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
    *  sends no new alert until it is read again */
   stale?: string
@@ -88,6 +93,8 @@ const taskOfAlert = (snap: Pick<Snapshot, 'tasks'>, a: Alert) => (a.task ? snap.
  */
 export function alertStands(a: Alert | undefined | null, snap: Pick<AttentionSnap, 'tasks' | 'machines'>, now: number): boolean {
   if (!a?.notify || a.ended) return false
+  // fork "Needs you 6b": a hand-up of waits is said by the waits themselves (their record keeps it), never twice
+  if (a.waits?.length) return false
   const at = Number(a.at) || 0
   const task = taskOfAlert(snap, a)
   if (task && (task.archived || task.status === 'done')) return false
@@ -149,6 +156,9 @@ function noShepherdr(snap: AttentionSnap, place: string): boolean {
   if (!p || staleOf(snap, p.machine)) return false
   return p.shepherdr === 'stopped' || p.shepherdr === 'none'
 }
+
+/** fork Needs you 6b: how long a wait whose record hasn't landed yet stays quiet (a tick writes it within seconds) */
+export const PENDING_MAX_MS = 2 * 60_000
 
 export const byAge = (a: Action, b: Action) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
@@ -233,11 +243,28 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
     const since = rec?.first ?? t.needsAt ?? n?.at ?? t.at ?? 0
     const stale = staleOf(snap, t.on)
     const shepherds = !!n || !!t.stopped
-    // its source keeps records and this one's hasn't landed yet (at most a tick): quiet until it has, so the person
-    // is told once, under the id that lasts
-    const up = shepherds && !stale && !(!rec && t.waitPending) && noShepherdr(snap, t.place)
-    add({ id: rec ? `wait:${rec.id}` : `wait:${t.id}:${since}`, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
-      card: t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}), ...(rec ? { gen: rec.gen, deadline: rec.deadline } : {}), ...(up ? { up: 'no-shepherdr' as const } : {}), ...(stale ? { stale } : {}) })
+    // fork "Needs you 6b": it is the person's at once when Shepherdr handed it up (its record keeps the hand-up, until
+    // taken back), when no Shepherdr chat runs in its space, or once its deadline passed with it still open (Ask me
+    // after: fixed when it was first confirmed; a reply, a held send or a busy Shepherdr never moves it). Its source
+    // keeps records and this one's hasn't landed yet (at most a tick): quiet until it has, so the person is told once,
+    // under the id that lasts. A machine that can't be read hands up nothing (its last read stands: service/attention.ts)
+    const ask = rec?.up && !rec.up.settled ? rec.up : undefined
+    const due = !!rec && !rec.up?.settled && now >= rec.deadline
+    // a record that never lands (its scheduler stopped) holds it quiet a moment only: then it is the person's, as one
+    // whose deadline passed (the service wakes for that moment too)
+    // counted from when the service first saw it so (service/attention.ts stamps it), never from the task's own older
+    // times: a wait seen a moment before its record lands is always quiet, then told once under the id that lasts
+    const late = !rec && t.waitPending ? (typeof t.waitPending === 'number' ? t.waitPending : now) + PENDING_MAX_MS : undefined
+    const pending = late !== undefined && now < late
+    const up: Action['up'] = !shepherds || stale || pending ? undefined
+      : ask ? 'asked' : noShepherdr(snap, t.place) ? 'no-shepherdr' : due || late !== undefined ? 'deadline' : undefined
+    // one question over several tasks is one action (its lead wait's id), holding each of them
+    const id = ask ? `wait:${ask.lead}` : rec ? `wait:${rec.id}` : `wait:${t.id}:${since}`
+    const had = out.get(id)
+    if (had) { had.tasks = [...(had.tasks ?? [had.task!]), t.id]; continue }
+    add({ id, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: ask?.what || waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
+      card: ask ? `handup:${ask.lead}` : t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}),
+      ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : late !== undefined ? { deadline: late } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
   }
   return { at: now, actions: [...out.values()].sort(byAge) }
 }
@@ -255,20 +282,32 @@ export function attentionOf(snap: AttentionSnap, now?: number): Attention {
 export function inScope(snap: AttentionSnap, a: Action, placeId?: string): boolean {
   if (!placeId || everythingId(snap) === placeId) return true
   if (a.task) {
-    const t = snap.tasks.find((x) => x.id === a.task)
-    return !!t && (t.place === placeId || !!t.also?.includes(placeId))
+    // fork "Needs you 6b": one question over several tasks is in each of their spaces (and counts once in each)
+    return (a.tasks ?? [a.task]).some((id) => { const t = snap.tasks.find((x) => x.id === id); return !!t && (t.place === placeId || !!t.also?.includes(placeId)) })
   }
   return a.place === placeId
 }
 
-/** the actions that are yours in a space (none: everywhere): what every red count counts, each once, oldest first */
+/** the actions that are yours in a space (none: everywhere): what every red count counts, each once, oldest first.
+ *  One question over several tasks (fork Needs you 6b) is one entry a task it holds (each its own row under Needs you,
+ *  so the list is what the count says), still one action and one alert (service/push.ts reads the actions). */
 export function yours(snap: AttentionSnap, placeId?: string, now?: number): Action[] {
-  return attentionOf(snap, now).actions.filter((a) => a.owner === 'you' && inScope(snap, a, placeId))
+  const out: Action[] = []
+  for (const a of attentionOf(snap, now).actions) {
+    if (a.owner !== 'you') continue
+    // each held task's own entry: its own row, key and link; the need (its push and Glance key) stays the lead's alone
+    for (const one of a.tasks?.length ? a.tasks.map((t): Action => (t === a.task ? a : { ...a, task: t, need: undefined })) : [a])
+      if (inScope(snap, { ...one, tasks: undefined }, placeId)) out.push(one)
+  }
+  return out
 }
+
+/** does this action hold this task: its own, or one question over several tasks that includes it (fork Needs you 6b) */
+export const holds = (a: Pick<Action, 'task' | 'tasks'>, task: string) => a.task === task || !!a.tasks?.includes(task)
 
 /** a task's lead action (what its row and header say): its oldest of yours that holds it, else Shepherdr's wait */
 export function leadOf(att: Attention, task: string): Action | undefined {
-  const mine = att.actions.filter((a) => a.task === task && a.kind !== 'question')
+  const mine = att.actions.filter((a) => holds(a, task) && a.kind !== 'question')
   return mine.find((a) => a.owner === 'you') ?? mine[0]
 }
 

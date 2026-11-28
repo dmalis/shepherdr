@@ -318,7 +318,17 @@ const fiveMachines = (s: Snapshot): Snapshot => ({
   places: [...s.places, { ...s.places.find((p) => p.machine === 'pi')!, id: 'p:laptop:home', chat: 'p:laptop:home', machine: 'laptop' }, { ...s.places.find((p) => p.machine === 'studio' && !p.home)!, id: 'p:laptop:notes', chat: 'p:laptop:notes', machine: 'laptop', name: 'notes' }],
 })
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' = 'normal'): Snapshot {
+// fork Needs you 6b, ?case=handup: one question Shepherdr handed up, holding two tasks, and a wait past its Ask me after
+const LEVELS_UP = { at: NOW - 3 * min, what: 'Choose whether locked levels show', why: 'Both designs are ready and keep the save format.', choices: ['Show them greyed out', 'Hide them'], lead: 'w-ev13' }
+const HANDUP: Record<string, Partial<Task>> = {
+  'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },
+  'EV-14': { status: 'need', state: 'need', needsAt: NOW - 6 * min, agent: { chat: 'EV-14/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Should locked levels count in the cart?' },
+    wait: { id: 'w-ev14', gen: 1, kind: 'reply', first: NOW - 6 * min, deadline: NOW - min, up: LEVELS_UP } },
+  'SHOP-21': { status: 'need', state: 'need', needsAt: NOW - 9 * min, agent: { chat: 'SHOP-21/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Checks fail on the image test' },
+    wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
+}
+
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' = 'normal'): Snapshot {
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))
@@ -355,6 +365,9 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
       const settings = t.agent && chats[t.agent.chat]?.agent
       // dmalis/shepherdr#132 slice 10: ?case=more has a second task in #shop waiting at a prompt, so the two fold into one banner
       if (mode === 'more' && t.id === 'SHOP-21') t = { ...t, blocked: 'prompt' }
+      // fork Needs you 6b: ?case=handup has Shepherdr's hand-up (EV-13, with choices, one question holding EV-14 too) and
+      // a wait whose Ask me after time passed (SHOP-21)
+      if (mode === 'handup' && HANDUP[t.id]) t = { ...t, ...HANDUP[t.id] }
       return t.agent && settings ? { ...t, agent: { ...t.agent, settings } } : t
     }),
     automations: empty ? {} : automations,
@@ -367,6 +380,10 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
       { id: 'q-labels', chat: 'vm:ACME-10/worker', place: P.vmShop, task: 'vm:ACME-10', at: NOW - 2 * min, question: labelsQ().at(-1)!.question! },
       // fork Needs you 5/6: EV-13 went quiet waiting for a reply: its space's Shepherdr answers first (With Shepherdr)
       { id: 'attention', chat: 'EV-13/worker', place: EV, task: 'EV-13', at: NOW - 20 * min, text: 'Should locked levels show?', assistantFirst: true },
+      ...(mode === 'handup' ? [
+        { id: 'attention', chat: 'EV-14/worker', place: EV, task: 'EV-14', at: NOW - 6 * min, text: 'Should locked levels count in the cart?', assistantFirst: true as const },
+        { id: 'attention', chat: 'SHOP-21/worker', place: P.shop, task: 'SHOP-21', at: NOW - 9 * min, text: 'Checks fail on the image test', assistantFirst: true as const },
+      ] : []),
     ],
     // #1547: each machine's start limits, as the service's Machines section keeps them
     settings: [{ name: 'Machines', rows: limitRows('local', {}).concat(limitRows('vm', { start_memory: '70%', start_disk: 'Off' }), limitRows('studio', {})) },

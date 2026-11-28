@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { NotificationsPage } from '@plugins/alerts/page.tsx'
 import { SpaceAlertsRow } from '@plugins/alerts/space.tsx'
+import { AskAfterRow } from '@plugins/alerts/ask-after.tsx'
 import type { Config, LevelConfig, RepoConfig, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, machineLabel, machineWarn, placeOf, spaceLabel, unreachable } from '@shared/view.ts'
 import { copyText } from './copy.ts'
@@ -193,6 +194,8 @@ function TaskRows({ snap, place }: { snap: Snapshot; place: string }) {
         <Seg label="Merge" values={MERGE.map((m) => m[1])} value={MERGE.find((m) => m[0] === lv.merge)?.[1] ?? MERGE[0]![1]} onChange={(v) => void set(place, 'merge', MERGE.find((m) => m[1] === v)![0])} />
       </SRow>
       <SRow label={<>Proof<Own place={place} own={own('proof')} k="proof" /></>}><Tgl label="Proof" on={lv.proof} onChange={(v) => void set(place, 'proof', v)} /></SRow>
+      {/* fork Needs you 6b: a repo's own Ask me after (Everything's is on Settings › Notifications) */}
+      {place.startsWith('repo:') && <AskAfterRow snap={snap} place={place} />}
     </>
   )
 }

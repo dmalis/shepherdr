@@ -5,7 +5,7 @@
 import type { Snapshot, Task } from './types.ts'
 import type { TaskFilter } from './task-filter.ts'
 import { isEverything, spaceLabel, taskInSpace } from './view.ts'
-import { attentionOf, yours, type Action, type Alert } from './attention.ts'
+import { attentionOf, holds, yours, type Action, type Alert } from './attention.ts'
 
 /** one thing that needs you: a task (its pane) or a chat (a space's own agent asking), and the card it shows there */
 export interface NeedItem {
@@ -42,7 +42,7 @@ const inScope = (snap: Snapshot, t: Task, placeId?: string) => !placeId || isEve
 /** the Tasks list's "Needs you" filter: a task with an open action of yours (a queued question among them) in any of
  *  these spaces (Everything: everyone's). The last argument is no longer read (the projection holds the alerts). */
 export function needsTask(snap: Snapshot, t: Task, scopes: string[], _alerting?: Map<string, Alert>): boolean {
-  return attentionOf(snap).actions.some((a) => a.owner === 'you' && a.task === t.id) && scopes.some((p) => inScope(snap, t, p))
+  return attentionOf(snap).actions.some((a) => a.owner === 'you' && holds(a, t.id)) && scopes.some((p) => inScope(snap, t, p))
 }
 
 /** what the chats among these spaces ask themselves (no task), each once: they have no row in Tasks, so the list adds

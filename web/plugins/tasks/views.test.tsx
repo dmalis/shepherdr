@@ -67,7 +67,7 @@ test("Done today rolls over at this device's midnight", () => {
 })
 
 test('Needs you lists exactly what the red count counts, in every demo day and space', () => {
-  for (const mode of ['normal', 'more', 'long', 'one', 'five'] as const) {
+  for (const mode of ['normal', 'more', 'long', 'one', 'five', 'handup'] as const) {
     const s = demo(mode)
     expect([mode, needsRows(s, NO_FILTER, EV)]).toEqual([mode, needsCount(s)])
     for (const p of s.places) expect([p.id, needsRows(s, needsFilter([p.id]), p.id)]).toEqual([p.id, needsCount(s, p.id)])

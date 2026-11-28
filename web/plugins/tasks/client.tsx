@@ -26,6 +26,7 @@ import { replyToTask, SlideActs, SlideHint, useSlide } from '@plugins/chat/slide
 import { archiveTask, swipeActs } from './swipe.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
+import { handUpCards } from '@plugins/alerts/hand-up.tsx'
 import { fromSpace, rowWhere, TaskWhere } from './where.tsx'
 import { shortcutOf, shortcutRow, ShortcutBtn } from './shortcut.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
@@ -485,7 +486,7 @@ function taskCards(snap: Snapshot, thread: Thread): { key: string; at?: number; 
     const alert = taskAlerts(snap).get(t.id)
     // each where it came up among the messages, never held at the end (SHEP-419)
     // a Ready card still waiting goes below what was said after it (#1475)
-    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(t.checksWait ? [{ key: `checks:${t.id}`, at: t.at, after: () => true, node: <ChecksCard t={t} /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(offersAfterMerge(t) ? [{ key: `after-merge:${t.id}`, at: t.doneAt, after: () => true, node: <AfterMergeCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : [])]
+    return [...(reviewing(t) ? [{ key: `review:${t.id}`, at: t.needsAt ?? t.needsAtWas, past: tstate(t) === 'done', after: () => true, node: <ReviewCard t={t} ctx="thread" /> }] : []), ...(t.checksWait ? [{ key: `checks:${t.id}`, at: t.at, after: () => true, node: <ChecksCard t={t} /> }] : []), ...(halted(t) ? [{ key: `stopped:${t.id}`, at: t.needsAt, node: <StoppedCard t={t} /> }] : []), ...(offersAfterMerge(t) ? [{ key: `after-merge:${t.id}`, at: t.doneAt, after: () => true, node: <AfterMergeCard t={t} /> }] : []), ...(alert ? [{ key: `alert:${alert.id}`, at: alert.at, after: () => true, node: <AlertCard a={alert} /> }] : []), ...handUpCards(snap, t)]
   }
   // cards stay in the chat that asked (SHEP-325): a space's Tasks also holds what works in its folder, its chat does not
   const mine = tasksIn(snap, thread.place).filter((t) => isEverything(snap, thread.place) || t.place === thread.place)

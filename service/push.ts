@@ -57,6 +57,20 @@ export function needAlert(snap: any, n: any, whole = false): Out {
   return { title: whole ? title : watchTitle(title), body: whole ? body : excerpt(body, WATCH_BODY), tag: n.task ?? n.chat, topic: "needs", place: n.place, waits: true, url: go, ...acts };
 }
 
+/** fork Needs you 6b: what a handed-up wait's alert says. Shepherdr's hand-up: its one-line ask, and Reply goes to
+ *  Shepherdr's chat, which asked; one question over several tasks names the first, and its body the others. A wait whose
+ *  deadline passed says why it waits, as before. */
+export function handUpWords(snap: any, a: { up?: string; task?: string; tasks?: string[]; place: string; handUp?: { what: string; why?: string } }): Partial<Out> {
+  if (a.up !== "asked" || !a.handUp || !a.task) return {};
+  const chat = snap.places?.find((p: any) => p.id === a.place)?.chat;
+  const end = (s: string) => (/[.?!:]$/.test(s) ? s : `${s}.`);
+  // the others it holds by name, as its card says them (a phone's title has no room for them)
+  const others = (a.tasks ?? []).filter((id) => id !== a.task).map((id) => snap.tasks?.find((t: any) => t.id === id)?.name ?? id);
+  const body = [a.handUp.what, a.handUp.why ?? "", others.length ? `Also holds ${others.join(", ")}` : ""].filter(Boolean);
+  return { title: T.toastTitle(taskWho(snap, a.task), T.NEEDS_YOU), body: body.length > 1 ? body.slice(0, -1).map(end).concat(body.at(-1)!).join(" ") : body[0]!,
+    ...(chat ? { actions: [REPLY], reply: { chat } } : {}) };
+}
+
 export function alertsOf(snap: any, said: (chat: string) => string | undefined = () => undefined): Map<string, Out> {
   const now = new Map<string, Out>();
   // fork Needs you 5/6: what may reach a device is the person's open actions (web/shared/attention.ts), the same ones
@@ -76,14 +90,14 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
     // fork Needs you 3/6: a muted space's (Notify Off) stays in the bell, quiet
     const quiet = snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined });
     // fork Needs you 4/6: its link opens this action's own card (a step for your hands: the hands card)
-    now.set(needKey(n), { ...needAlert(snap, n, true), url: actionUrl(snap, a), action: a.id, ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
+    now.set(needKey(n), { ...needAlert(snap, n, true), ...handUpWords(snap, a), url: actionUrl(snap, a), action: a.id, ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
   }
   // a wait Shepherdr would handle that is the person's (no Shepherdr running in its space) with no need record of its
   // own (a task stopped by an error): as a Needs you alert of its task. (Other alerts come from need records, as before.)
   for (const a of mine) if (a.kind === "wait" && a.up && !a.need && a.task) {
     const quiet = snap.settings && !notifies(snap, { go: { place: a.place }, task: true });
     now.set(a.id, { title: T.toastTitle(taskWho(snap, a.task), T.NEEDS_YOU), body: a.what, tag: a.task, topic: "needs", place: a.place, waits: true, url: actionUrl(snap, a), action: a.id,
-      ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
+      ...handUpWords(snap, a), ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
   }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
   // core/tasks.js readyWait), the same Accept as the Tasks panel's: its review action
@@ -128,7 +142,8 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   const agentAlert = (a: any) => now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
     ...((h) => (h ? { url: actionUrl(snap, h), action: h.id } : {}))(handUps.get(a.id)),
     ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(staleAlerts.has(a.id) || (a.notify && away(a)) ? held : a.notify ? {} : { muted: true as const }) });
-  for (const a of snap.alerts ?? []) agentAlert(a);
+  // fork Needs you 6b: a hand-up of waits is said once, by the waits' own action (above): its label isn't a second one
+  for (const a of snap.alerts ?? []) if (!a.waits?.length) agentAlert(a);
   for (const a of staleAlerts.values()) if (!now.has(`alert:${a.id}`)) agentAlert(a);
   // fork Needs you 3/6: a schedule whose run failed (its row in Schedules says so, as the glance feed's events): the bell only
   // fork Needs you 3/6: a machine that can't be reached or is nearly out of memory: in the bell only (as the glance's events)
@@ -196,7 +211,7 @@ export function schedulesFailed(snap: any): { key: string; title: string; body: 
  * task's agent or an alert about a task always; an Assistant's by its space's Notify). chatOf: a terminal's chat key.
  */
 export function agentAlerts(terminals: Iterable<any>, snap: any, chatOf: (address: string) => string | null, home: string) {
-  const out: { id: string; at: number; title: string; what?: string; body: string; chat?: string; task?: string; place?: string; notify: boolean; ended?: true; machine?: string | null; memory?: true; restart?: true; ops?: true }[] = [];
+  const out: { id: string; at: number; title: string; what?: string; body: string; chat?: string; task?: string; place?: string; notify: boolean; ended?: true; machine?: string | null; memory?: true; restart?: true; ops?: true; waits?: string[] }[] = [];
   const all = [...terminals];
   for (const k of all) {
     let a: any = null;
@@ -217,13 +232,18 @@ export function agentAlerts(terminals: Iterable<any>, snap: any, chatOf: (addres
     const restart = Array.isArray(a.restart) && a.restart.length > 0;
     const who = (of ? taskWho(snap, of.id) : "") || (restart ? String(a.task || "This computer") : k.labels?.["herdr.role"] === "coordinator" || coord ? T.assistantWho(coord?.name) : k.program?.name ?? "Agent");
     const place = of?.place ?? coord?.id;
-    const notify = Boolean(a.about || task || k.labels?.["herdr.task"] || !place || notifies(snap, { go: { place } }));
+    // fork Needs you 6b: an Assistant's own alert about no task stays in the bell (only a hand-up, --task, pings for
+    // it); a task's agent's, one about a task, and any other helper's (a sign-in only the person can do) still reach them
+    const assistant = k.labels?.["herdr.role"] === "coordinator" || !!coord;
+    const notify = Boolean(a.about || task || k.labels?.["herdr.task"] || !assistant);
     // SHEP-246: what the glance feed needs to keep only what is still true: its terminal finished, its machine, and a
     // memory guard's alert (herdr-task tick memory_guard: a machine's state, over once memory is back under)
     const ended = k.state !== undefined && k.state !== "live";
     const machine = String(k.address ?? "").includes("/") ? String(k.address).slice(0, String(k.address).indexOf("/")) : null;
     const memory = a.about && /^Memory at \d+%/.test(String(a.title ?? ""));
-    out.push({ id: String(a.id), at: Number(a.at) || 0, title: T.clip(fitWho(who, String(a.title ?? ""), 60), 60), what: T.clip(String(a.title ?? ""), 120), body: T.clip(String(a.body ?? ""), 300), ...(chat ? { chat } : {}), ...(of ? { task: of.id } : {}), ...(place ? { place } : {}), notify,
+    // fork Needs you 6b: the waits a hand-up is about (their record says it: this label is history only)
+    const waits = Array.isArray(a.waits) ? a.waits.filter((w: unknown): w is string => typeof w === "string" && !!w).slice(0, 20) : [];
+    out.push({ id: String(a.id), at: Number(a.at) || 0, title: T.clip(fitWho(who, String(a.title ?? ""), 60), 60), what: T.clip(String(a.title ?? ""), 120), body: T.clip(String(a.body ?? ""), 300), ...(chat ? { chat } : {}), ...(of ? { task: of.id } : {}), ...(place ? { place } : {}), notify, ...(waits.length ? { waits } : {}),
       ...(ended ? { ended: true as const } : {}), ...(machine ? { machine } : {}), ...(memory ? { memory: true as const } : {}), ...(restart ? { restart: true as const } : {}),
       // fork Needs you 3/6: a machine's warning (memory, a restart), the bell only
       ...(memory || restart ? { ops: true as const } : {}) });

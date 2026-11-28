@@ -354,10 +354,18 @@ def main():
                                     f"(longer than {LINE_MAX} is cut at a word)")
     c.add_argument("--done", type=int, help="how far through the whole task, 0-100 (%%)")
     c.add_argument("--left", help="your best guess of how long is left: 5m, 90s, 1h30m; on every status, the first too (a rough guess beats none)")
-    c = cmd("alert", cmd_alert, "tell the person something that can't wait: a toast and a sound (an Assistant's follow its space's Notify): alert \"Deploy is down\" --body \"why\"", id=False)
-    c.add_argument("title", help="what can't wait, a few words")
+    c = cmd("alert", cmd_alert, "tell the person something that can't wait: a toast and a sound. A task's agent's, or one "
+            "--task names (a hand-up: that task's wait is the person's now), reaches them; any other stays in the bell: "
+            "alert \"Deploy is down\" --body \"why\"", id=False)
+    c.add_argument("title", nargs="?", default="", help="what can't wait, a few words (for a hand-up: the one-line ask)")
     c.add_argument("--body", help="why, a line or two")
-    c.add_argument("--task", help="the task it's about (an Assistant's alert about one of its tasks always reaches the person)")
+    c.add_argument("--task", action="append", help="the task it's about: hands its wait up to the person (repeat it for one "
+                                                   "question that holds several tasks: one card, one alert)")
+    # dmalis/shepherdr "Needs you 6b: hand-up" (herdr_task/hand_up.py)
+    c.add_argument("--wait", action="append", help="with --task: the wait it is about, as its news line gave it (wait=\"…\"; "
+                                  "one per task); a wait over by now sends nothing")
+    c.add_argument("--choice", action="append", help="with --task: an answer its card offers as a button (up to 4, 40 characters each)")
+    c.add_argument("--settled", action="store_true", help="with --task: take the hand-up back (you have the answer)")
     c = cmd("feedback", cmd_feedback, "a problem in Shepherdr itself (not the project's): feedback \"<one line>\" --details \"goal, what "
             "was tried, what went wrong, expected, suggested fix\" returns at once and your Assistant offers the person to file it "
             "on GitHub; an Assistant gets whether to offer, and files it only on the person's yes (--file)", id=False)

@@ -3,13 +3,14 @@ fork/specs/needs-you.md).
 
 An inferred wait is a task waiting on its space's Shepherdr first: it went quiet waiting for a reply, its checks failed
 or it conflicts (attention), it ran out of review rounds, or it stopped on an error. Herdr keeps one record of it on the
-task (`task["wait"]`), written only by news_pass inside the tick lock and the task list's own lock, so changes to a wait
-never race:
+task (`task["wait"]`), written by news_pass inside the tick lock and the task list's own lock (and its hand-up, `up`, by herdr-task alert
+--task in that same lock: hand_up.py), so changes to a wait never race:
 
     {"id": "<16 hex, minted here>", "gen": 3, "kind": "reply" | "attention" | "stopped", "why": "<its words>",
      "mark": "<what makes it this question>", "first": <ms, first confirmed>, "deadline": <ms>,
      "outcome": {"how": "moved-on" | "paused" | "person" | "gone", "at": <ms>},  # once it closed
-     "prev": {"id": "<the wait before>", "how": "replaced" | <its outcome's how>, "at": <ms>}}
+     "prev": {"id": "<the wait before>", "how": "replaced" | <its outcome's how>, "at": <ms>},
+     "up": {...}}  # Shepherdr handed it up to the person (hand_up.py); a new question starts without it
 
 - **id** is minted here, at the source, so it never depends on a task ref or a machine's alias; the service's open
   action is `wait:<id>` (web/shared/attention.ts).
@@ -26,7 +27,7 @@ import secrets
 
 from .base import now
 
-ASK_AFTER_MIN = 5          # "Ask me after"'s default (part 6b adds its row in Settings)
+ASK_AFTER_MIN = 5          # "Ask me after"'s default (its row: Settings › Notifications, and a repo's Tasks page)
 REOPEN_MS = 60_000         # closed this recently and back with the same mark: the same wait (a status flicker), even
                            # past its deadline
 KINDS = ("reply", "attention", "stopped")

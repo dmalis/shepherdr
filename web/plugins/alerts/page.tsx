@@ -5,15 +5,17 @@
 // which keeps every alert, the silent ones too; then this device's check and test alert and the devices that get
 // alerts (web/plugins/inbox/device-check.tsx). A space is muted from its own menu or Settings › Space (space.tsx).
 // The pattern of iOS's and Slack's notification settings: one choice for the device, the channels muted where they are.
-import { notice } from '@client/kernel.ts'
+import { notice, useSnap } from '@client/kernel.ts'
 import { Choice } from '@client/choice.tsx'
 import { Btn, I } from '@client/ui.tsx'
 import { DeviceCheck } from '@plugins/inbox/device-check.tsx'
 import { aboutOf, DEFAULT_LEVEL, OFF, WORDS } from '@shared/reach.ts'
 import { choose, TELL, turnOn, useDeviceAlerts, WHY, type Tell } from './device.ts'
+import { AskAfterRow } from './ask-after.tsx'
 
 export function NotificationsPage() {
   const { now, read } = useDeviceAlerts()
+  const snap = useSnap()
   const run = async (f: () => Promise<string | void>) => {
     try {
       const said = await f()
@@ -42,7 +44,8 @@ export function NotificationsPage() {
         </span>
         <Choice<Tell> label={WORDS.reach} values={TELL} value={tell} onChange={(v) => now && void run(() => choose(v, now))} />
       </div>
-      {/* Needs you 6/6: the "Ask me after" row (tasks.ask_after) goes here, under the device's choice */}
+      {/* Needs you 6/6: the "Ask me after" row (tasks.ask_after), Everything's, under the device's choice */}
+      {snap && <AskAfterRow snap={snap} place="all" />}
       <h3>{WORDS.bell}</h3>
       <p className="hint">{WORDS.bellAbout}</p>
       <DeviceCheck now={now} reread={read} />

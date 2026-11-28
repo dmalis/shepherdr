@@ -11,7 +11,7 @@
 // rows, counts or badges here. Each leaves at the same moment everywhere: answered (its need goes), its alert over (its
 // agent ended, its task done, 15 minutes old while its task does not wait on you, or its machine's memory back).
 import { notifyOf } from './alerts.ts'
-import { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, alertWhat, attentionOf, needCard, taskAlerts, yours, type Action, type Alert } from './attention.ts'
+import { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, alertWhat, attentionOf, holds, needCard, taskAlerts, yours, type Action, type Alert } from './attention.ts'
 import type { Need, Place, Snapshot } from './types.ts'
 
 export { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, alertWhat, needCard, taskAlerts, type Alert }
@@ -47,7 +47,7 @@ export const forAssistant = (needs: string | null | undefined) => needs !== 'ask
  * review, a hand-up, or a wait with no Shepherdr running). A wait Shepherdr handles is not (dmalis/shepherdr#114).
  */
 export function waitsOnPerson(snap: NeedsSnap, task: string, now = Date.now()): boolean {
-  return attentionOf(snap, now).actions.some((a) => a.owner === 'you' && a.task === task && a.kind !== 'question')
+  return attentionOf(snap, now).actions.some((a) => a.owner === 'you' && holds(a, task) && a.kind !== 'question')
 }
 
 /** has the chat something you haven't read ('*': since when read marks are kept, anything older counts as read) */

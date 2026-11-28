@@ -103,7 +103,7 @@ export function startOfDay(now: number): number {
 
 /** the tasks with an open action of yours: the Needs you group's tasks, and a working one with a question of yours
  *  waiting (its question has a row there), as the red count counts them (web/shared/attention.ts) */
-const yourTasks = (snap: Snapshot) => new Set(attentionOf(snap).actions.filter((a) => a.owner === 'you' && a.task).map((a) => a.task!))
+const yourTasks = (snap: Snapshot) => new Set(attentionOf(snap).actions.filter((a) => a.owner === 'you' && a.task).flatMap((a) => a.tasks ?? [a.task!]))
 
 /** does a task belong in a view. now: the clock Done today goes by. */
 export function inView(t: Task, view: View | undefined, now: number, yours: Set<string>): boolean {
