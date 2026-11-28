@@ -37,8 +37,11 @@ SETTINGS_WORDS = ("Record each one without asking (herdr-task feedback \"<one li
 
 def public_terms(text):
     """The words a search may send: no path, address or redaction mark at all (redact() keeps a home path's tail as
-    ~/…, fine in an issue body, never in a search), then search_terms' redacted, telling words."""
-    kept = [w for w in str(text or "").split() if not re.search(r"[/\\~<>@:]", w)]
+    ~/…, fine in an issue body, never in a search), then search_terms' redacted, telling words. Redacted whole first
+    (a "password: x" is seen as one), then a quoted path goes whole, spaces and all, then any word with a path in it."""
+    s = fbm.redact(text or "")
+    s = re.sub(r"[\"'`“‘][^\"'`”’\n]*[/\\][^\"'`”’\n]*[\"'`”’]", " ", s)
+    kept = [w for w in s.split() if not re.search(r"[/\\~<>@:]", w)]
     return search_terms(" ".join(kept))
 
 

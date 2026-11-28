@@ -207,6 +207,13 @@ class Checked(World):
         key = self.report()
         self.shape(key, search="reply bubble /home/localuser/clients/private-project ~/work/acme-site C:\\Users\\x message")
         self.assertEqual(self.searched(), ["reply bubble message"])
+        # a secret is redacted whole before any word is dropped, and a quoted path goes whole, spaces and all
+        for words in ("reply bubble password: example123 message", 'reply bubble "~/work/Private Project" message',
+                      "reply bubble token=example123 message"):
+            self.gh.clear()
+            self.shape(key, search=words)
+            self.assertEqual(self.searched(), ["reply bubble message"], words)
+            self.assertNotIn("example123", json.dumps(self.gh))
 
     def test_a_release_lookup_that_fails_keeps_the_last_answer(self):
         key = self.report()
