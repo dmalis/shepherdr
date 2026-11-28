@@ -52,7 +52,8 @@ function AgentPicker({ title, machine, start, typed, onChange, close, live }: { 
     named.current = true
     const hit = findModel(cat, start.agent, typed)
     const ha = hit && agentOf(cat, hit.agent), hm = ha?.models.find((x) => x.id === hit!.model)
-    if (ha && hm) set(withModel(hit!.agent === start.agent ? start : { agent: ha.id }, ha, hm))
+    // fork #219: another CLI keeps the Compact at picked
+    if (ha && hm) set(withModel(hit!.agent === start.agent ? start : { agent: ha.id, compact: start.compact ?? null }, ha, hm))
     else {
       setField('model')
       setQ(typed)

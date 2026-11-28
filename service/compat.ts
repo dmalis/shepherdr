@@ -320,7 +320,9 @@ export class Compat {
     const f = (this.agents as any).fresh(s.machine ?? null, this.assistantPick?.(s.id) ?? null);
     const kind = f.sel.agent === "codex" ? "codex" : "claude";
     return { key, fresh: true, messages: [], cli: kind, working: false,
-      agent: { kind, words: f.words, speed: f.sel.fast === "ultrafast" ? "ultrafast" : f.sel.fast ? "fast" : "normal", ...(f.sel.perm ? { perm: f.sel.perm } : {}), planned: { ...(f.sel.model ? { model: f.sel.model } : {}), ...(f.label ? { modelLabel: f.label } : {}), ...(f.effort ? { effort: f.effort } : {}) } } } as Chat;
+      agent: { kind, words: f.words, speed: f.sel.fast === "ultrafast" ? "ultrafast" : f.sel.fast ? "fast" : "normal", ...(f.sel.perm ? { perm: f.sel.perm } : {}),
+        // fork #219: the Compact at it will start with, so its picker reopens on it
+        ...(AGc.compactOf(f.sel.compact) ? { compact: AGc.compactOf(f.sel.compact) } : {}), planned: { ...(f.sel.model ? { model: f.sel.model } : {}), ...(f.label ? { modelLabel: f.label } : {}), ...(f.effort ? { effort: f.effort } : {}) } } } as Chat;
   }
   /** What an agent's terminal t runs on now (core/agents.js liveAgent): its arguments, its log's meta, its CLI's own
    *  settings on its machine for the rest. */

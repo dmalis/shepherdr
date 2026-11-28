@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configOf, setConfig } from "./next.ts";
+import { configOf, scheduleAgentArgs, setConfig } from "./next.ts";
 
 // fork #219: Compact at, a field of each role's agent pick (coordinator, worker, reviewer) in the settings file, saved
 // by Settings › Agents and by the older role setter, as herdr-task reads it. No new key; none set: the CLI's own.
@@ -37,6 +37,20 @@ test("Settings › Agents saves it with the rest of the pick, a repo's own too, 
   setConfig("all", "agents.Tasks", { agent: "claude", model: "opus", effort: "high", fast: true, perm: null, compact: null });
   expect("compact" in read().everywhere.worker).toBe(false);
 }));
+
+test("Default on a repo is the CLI's own (0), over Everywhere's size; the window reads it as Default", withFile(() => {
+  writeFileSync(file, JSON.stringify({ everywhere: { worker: { agent: "claude", compact: 300000 } } }));
+  setConfig("repo:/r/shop", "agents.Tasks", { agent: "codex", model: "gpt-6.2-sol", effort: null, fast: false, perm: null, compact: null });
+  expect(read().repos["/r/shop"].worker.compact).toBe(0);
+  expect(config().repos![0].agents.Tasks.compact).toBeUndefined();
+  expect(config().all.agents.Tasks.compact).toBe(300000);
+}));
+
+test("a schedule's agent settings say its Compact at, Default as the CLI's own", () => {
+  expect(scheduleAgentArgs({ agent: "claude", fast: false, compact: 300000 })).toContain("compact=300000");
+  expect(scheduleAgentArgs({ agent: "claude", fast: false, compact: null })).toContain("compact=0");
+  expect(() => scheduleAgentArgs({ agent: "claude", compact: "0x186A0" })).toThrow("Compact at takes a size of 100k tokens or more.");
+});
 
 test("only a size of 100k tokens or more is saved", withFile(() => {
   writeFileSync(file, "{}");

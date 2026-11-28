@@ -73,11 +73,22 @@ test("a row shows every choice but the agent, Speed's Standard and Compact at's 
   expect(agentParts(claude, cat).find((p) => p.f === 'speed')!.value).toBe('Standard')
 })
 
-test('the whole row is one button that says what it holds; the small print stays outside it', () => {
+test('the whole row is one button named by its title, what it holds its description; the small print stays outside it', () => {
   const html = renderToStaticMarkup(createElement(AgentRow, { name: 'Tasks', pick: { ...claude, compact: 300000 }, cat, small: createElement('small', null, 'Set here'), onOpen: () => undefined }))
   expect(html.match(/<button/g)!.length).toBe(1)
-  expect(html).toContain('aria-label="Tasks: Claude Code, Model Opus 5.5, Effort High, Speed Standard, Permissions Default, Compact at 300k. Change"')
-  expect(html).toContain('<span class="agr-n">Tasks</span>')
+  expect(html).not.toContain('aria-label=')
+  const [, by, desc] = /aria-labelledby="([^"]+)" aria-describedby="([^"]+)"/.exec(html)!
+  expect(html).toContain(`<span class="agr-n" id="${by}">Tasks</span>`)
+  const [a, f] = desc.split(' ')
+  expect(html).toContain(`id="${a}" translate="no">Claude Code<`)
+  expect(html).toContain(`<span class="agr-f" id="${f}">`)
+  expect(html).toContain('<span class="agr-k">Compact at<span class="agr-sr">,</span></span>')
+  expect(html).not.toContain('aria-hidden="true"><span class="agr-p"')
   expect(html).toMatch(/<\/button><span class="agr-own"><small>Set here<\/small><\/span>/)
   expect(html).not.toContain('>Change<')
+})
+
+test('Everywhere has no small print: no empty strip under its row', () => {
+  const html = renderToStaticMarkup(createElement(AgentRow, { name: 'Tasks', pick: claude, cat, small: null, onOpen: () => undefined }))
+  expect(html).not.toContain('agr-own')
 })

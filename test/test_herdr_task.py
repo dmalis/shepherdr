@@ -4926,6 +4926,76 @@ class CompactAt(unittest.TestCase):
                                  "--strict-mcp-config --autocompact 30k 'review'"))
             self.assertFalse(own("hc run --bg --name demo-1-review -- codex --no-daemon --sandbox read-only --ask-for-approval never "
                                  "-c model_auto_compact_token_limit=300000;id 'review'"))
+            # canonical ASCII sizes only: no leading zero, no Unicode digits, none past 10M
+            for bad in ("0300000", "300000٠", "٣٠٠٠٠٠", "999999999"):
+                self.assertFalse(own(f"hc run --bg --name demo-1-review -- codex --no-daemon --sandbox read-only "
+                                     f"--ask-for-approval never -c model_auto_compact_token_limit={bad} 'review'"), bad)
+        self.assertIsNone(self.settings.compact_of("٣٠٠٠٠٠"))
+
+    def test_every_reviewer_command_settings_can_make_passes_the_workers_allowlist(self):
+        # each saved choice (Settings › Agents saves fast: false for Standard), built by reviewer_command, then run the
+        # way the brief says: the worker's allowlist takes it, and nothing past those exact switches
+        import itertools
+        from unittest import mock
+        from herdr_task import launch
+        with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": "demo#1"}):
+            own = lambda c: launch.own_command("/x/herdr-task", f"hc run --bg --name demo-1-review -- {c} 'review'", True)  # noqa: E731
+            for who, model, effort, fast, compact in itertools.product(
+                    ("codex", "claude"), (None, "gpt-6.2-sol", "opus"), (None, "high"), (None, False, True, "ultrafast"),
+                    (None, 0, 150000, 300000, 10000000)):
+                cmd = self.settings.reviewer_command(who, model, effort, None, fast, compact)
+                self.assertTrue(own(cmd), cmd)
+            base = "codex --no-daemon --sandbox read-only --ask-for-approval never"
+            for bad in ('-c service_tier="flex"', "-c service_tier=fast", '-c service_tier="fast";id', "-c model_provider=x"):
+                self.assertFalse(own(f"{base} {bad}"), bad)
+            claude = "claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config"
+            for bad in ('--settings {"fastMode":true}', '--settings \'{"fastMode": true, "hooks": {}}\'', "--settings /tmp/s.json"):
+                self.assertFalse(own(f"{claude} {bad}"), bad)
+
+    def test_default_is_the_clis_own_over_a_size_set_above(self):
+        # a repo's Default (0) over Everywhere's size, and a task's own 0 over both
+        with open(self.file, "w") as f:
+            json.dump({"everywhere": {"worker": {"agent": "claude", "compact": 300000}}}, f)
+        t = {"id": 1, "title": "x", "mode": "worktree"}
+        s = Store([t])
+        self.assertEqual(self.settings.worker_pick(s, t)["compact"], 300000)
+        self.settings.set_task(t, "compact", "0")
+        self.assertEqual(t["compact"], 0)
+        self.assertNotIn("--autocompact", self.settings.worker_argv(s, t))
+        self.settings.set_task(t, "compact", "")
+        self.assertNotIn("compact", t)
+        self.assertIn("--autocompact", self.settings.worker_argv(s, t))
+        self.assertEqual(self.settings.compact_own(0), 0)
+        self.assertIsNone(self.settings.compact_own(None))
+
+    def test_said_once_over_extra_flags_and_a_saved_command(self):
+        argv_for = self.settings.argv_for
+        a = argv_for({"agent": "claude", "flags": ["--autocompact=200000", "--verbose"], "compact": 400000})
+        self.assertEqual([x for x in a if "autocompact" in x], ["--autocompact"])
+        self.assertIn("400000", a)
+        self.assertIn("--verbose", a)
+        x = argv_for({"agent": "codex", "flags": ["--config=model_auto_compact_token_limit=200000"], "compact": 300000})
+        self.assertEqual([w for w in x if "model_auto_compact" in w], ["model_auto_compact_token_limit=300000"])
+        # none picked: the person's own flag stays as it is
+        self.assertIn("--autocompact=200000", argv_for({"agent": "claude", "flags": ["--autocompact=200000"]}))
+        # a saved command (a legacy worker.argv) takes it too, its other words kept
+        raw = argv_for({"argv": ["claude", "--verbose", "--autocompact", "200000"], "compact": 300000})
+        self.assertEqual(raw, ["claude", "--verbose", "--autocompact", "300000"])
+
+    def test_a_switch_keeps_the_size_it_ran_with(self):
+        # picked in its chat (switch --argv), then switched to another CLI: the size goes along unless the task has its own
+        from unittest import mock
+        from herdr_task import commands
+        t = {"id": 1, "title": "x", "mode": "worktree", "agents": [
+            {"agent": "claude", "argv": ["claude", "--model", "opus", "--autocompact", "300000"], "at": 5, "address": "a"}]}
+        s = Store([t])
+        with mock.patch.object(commands, "require_task_cli", lambda *a, **k: None), \
+                mock.patch.object(commands, "last_agent", lambda task: task["agents"][-1]):
+            argv = commands.restart_argv(s, t, None, "codex", None)
+            self.assertIn("model_auto_compact_token_limit=300000", argv)
+            self.assertNotIn("--autocompact", argv)
+            t["compact"] = 0
+            self.assertNotIn("model_auto_compact_token_limit=300000", commands.restart_argv(s, t, None, "codex", None))
 
 
 

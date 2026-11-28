@@ -15,7 +15,7 @@ import sys
 import time
 
 from .base import ASK_HOME, ENTRY, Fail, git, hc_json, HOME, now, run, SHARE, WORKTREES
-from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, TASK_TMP, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
+from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, tier_args, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, TASK_TMP, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
 from .templates import instructions
 from .agents import detail, LINE_MAX, live_agents, ROW_MAX, SUMMARY_MAX
 from .github import finish, remote_of
@@ -224,12 +224,17 @@ def tool_name(word, path):
 # A Codex worker's review (#866): its sandbox can't reach hc, so starting, waiting on, reading and
 # ending its reviewer run escalated. Only a read-only reviewer as the brief's Reviewer line gives it,
 # and only its own helpers (<task>-review, -helper) to wait on, read or end.
+# fork #219: its speed exactly as reviewer_command writes it (settings.py tier_args: Standard, Fast, Ultrafast), as a
+# Reviews pick saved in Settings › Agents always says one
+TIERS = {who: "|".join(sorted({re.escape(tier_args(who, f)[1]) for f in (False, True, "ultrafast")})) for who in ("codex", "claude")}
 REVIEWERS = {"codex": (["codex", "--no-daemon", "--sandbox", "read-only", "--ask-for-approval", "never"],
                        {"--disable": re.compile(r"hooks"), "-m": re.compile(r"[\w.:-]+"),
-                        # fork #219: its Compact at (settings.py compact_args)
-                        "-c": re.compile(r'model_reasoning_effort="?\w+"?|model_auto_compact_token_limit=\d{6,8}')}),
+                        # fork #219: its Compact at (settings.py compact_args) and its speed
+                        "-c": re.compile(r'model_reasoning_effort="?\w+"?|model_auto_compact_token_limit=[1-9][0-9]{5,7}|'
+                                         + TIERS["codex"], re.ASCII)}),
              "claude": (["claude", "--permission-mode", "dontAsk", "--tools=" + REVIEW_TOOLS, "--strict-mcp-config"],
-                        {"--model": re.compile(r"[\w.:\[\]-]+"), "--effort": re.compile(r"\w+"), "--autocompact": re.compile(r"\d{6,8}"),
+                        {"--model": re.compile(r"[\w.:\[\]-]+"), "--effort": re.compile(r"\w+"), "--autocompact": re.compile(r"[1-9][0-9]{5,7}", re.ASCII),
+                         "--settings": re.compile(TIERS["claude"]),
                          # #1458: its templates folder, one word (a brief from before it has none)
                          "--add-dir=": re.compile(re.escape(TEMPLATES)),
                          # dmalis/shepherdr#212: or a read rule for only that folder, one word

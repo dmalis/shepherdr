@@ -156,7 +156,7 @@ function Agents({ snap, place, only }: { snap: Snapshot; place: string; only?: R
     const pick = pickFor(snap, place, role)
     // fork #219: one roomy row, the whole row opens its picker (agent-rows.tsx)
     return (
-      <AgentRow key={role} name={name(role)} pick={pick} cat={cat} small={<Own place={place} own={own(`agents.${role}`)} k={`agents.${role}`} />}
+      <AgentRow key={role} name={name(role)} pick={pick} cat={cat} small={place === 'all' ? null : <Own place={place} own={own(`agents.${role}`)} k={`agents.${role}`} />}
         onOpen={() => openPicker({ title, machine, pick, onChange: () => undefined, onClose: (now) => JSON.stringify(now) !== JSON.stringify(pick) && void set(place, `agents.${role}`, now) })} />
     )
   }

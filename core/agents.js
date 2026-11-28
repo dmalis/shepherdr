@@ -39,8 +39,36 @@ const CODEX_MODELS = [
 export const COMPACT_SIZES = [150000, 200000, 300000, 400000, 500000];
 // A compact size as kept: a whole token count Claude Code takes (100k or more), else null (the CLI's own).
 export function compactOf(v) {
-  const n = typeof v === "string" ? Number(v.trim().replace(/k$/i, "000").replace(/m$/i, "000000")) : v;
+  const w = typeof v === "string" ? v.trim().replace(/k$/i, "000").replace(/m$/i, "000000") : null;
+  const n = w === null ? v : /^[0-9]+$/.test(w) ? Number(w) : null;
   return Number.isInteger(n) && n >= 100000 && n <= 10000000 ? n : null;
+}
+const COMPACT_KEY = "model_auto_compact_token_limit=";
+// A Compact at switch in an agent's argv, as [words it takes, its value], else null: --autocompact N, --autocompact=N,
+// -c/--config key=N, --config=key=N.
+function compactAt(argv, i) {
+  const a = argv[i], next = argv[i + 1] ?? "";
+  if (a === "--autocompact") return [2, next];
+  if (a.startsWith("--autocompact=")) return [1, a.slice(14)];
+  if ((a === "-c" || a === "--config") && next.startsWith(COMPACT_KEY)) return [2, next.slice(COMPACT_KEY.length)];
+  for (const f of ["--config=", "-c="]) if (a.startsWith(f + COMPACT_KEY)) return [1, a.slice(f.length + COMPACT_KEY.length)];
+  return null;
+}
+// The size an argv says, in any of its spellings (the last one wins, as the CLI reads it); null: none.
+function argvCompact(argv) {
+  let v = null;
+  for (let i = 0; i < (argv ?? []).length; i++) { const c = compactAt(argv, i); if (c) v = c[1]; }
+  return v;
+}
+// argv without any Compact at switch (one is said after it: never two).
+function withoutCompact(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    const c = compactAt(argv, i);
+    if (c) { i += c[0] - 1; continue; }
+    out.push(argv[i]);
+  }
+  return out;
 }
 // "300k", "1M"; null for the CLI's own.
 export function compactName(v) {
@@ -177,7 +205,7 @@ export function current(kind, argv, meta, dflt) {
   const perm = argv.includes("--dangerously-bypass-approvals-and-sandbox") || sandbox === "danger-full-access" ? "full"
     : argv.includes("--approve-for-me") || argv.includes("--not-so-yolo") ? "approve" : sandbox === "read-only" ? "read-only" : "auto";
   return { agent: "codex", model, label: dflt.models?.find((m) => m.id === model)?.label ?? null, perm: meta.perm ?? perm,
-    effort: meta.effort ?? o.model_reasoning_effort ?? dflt.effort, compact: compactOf(o.model_auto_compact_token_limit),
+    effort: meta.effort ?? o.model_reasoning_effort ?? dflt.effort, compact: compactOf(argvCompact(argv)),
     fast: meta.speed ? speedOf(meta.speed) : tier ? speedOf(tier) : dflt.fast === "ultrafast" ? "ultrafast" : Boolean(dflt.fast), used: meta.used ?? null, window: meta.window ?? null };
 }
 
@@ -379,6 +407,14 @@ function kept(kind, argv) {
   const rest = argv.slice(Math.max(agentAt(argv), 0) + 1);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
+    // fork #219: a Compact at size is said again from the pick; one in a form it doesn't say (auto, a percentage)
+    // stays the person's own, one word
+    const c = compactAt(rest, i);
+    if (c) {
+      i += c[0] - 1;
+      if (!compactOf(c[1]) && c[1]) out.push(kind === "claude" ? `--autocompact=${c[1]}` : `--config=${COMPACT_KEY}${c[1]}`);
+      continue;
+    }
     if (kind === "claude") {
       if (CLAUDE_BARE.has(a)) continue;
       if (CLAUDE_DROP.has(a)) { if (rest[i + 1] && !rest[i + 1].startsWith("-")) i++; continue; }
@@ -455,7 +491,9 @@ export function argvFor(pick, old) {
   // #1219: a mode in the other CLI's words (a switch carries the old agent's) is said in this one's: Claude's full access
   // is Codex's full access, never its sandbox
   if (pick.perm) pick = { ...pick, perm: PERM_ACROSS[pick.agent]?.[pick.perm] ?? pick.perm };
-  const flags = same ? kept(pick.agent, old.argv ?? []) : [];
+  const was = same ? kept(pick.agent, old.argv ?? []) : [];
+  // fork #219: a size picked replaces one the person's own flags said
+  const flags = compactOf(pick.compact) ? withoutCompact(was) : was;
   if (pick.agent === "claude") {
     const a = ["claude", ...flags];
     if (pick.model) a.push("--model", pick.model);
@@ -500,12 +538,13 @@ export function forkArgv(kind, argv, session) {
   argv = argv ?? [];
   // The same model, effort and speed as the original.
   const same = kind === "claude"
-    ? ["--model", "--effort", "--autocompact", "--settings"].flatMap((f) => { const v = flag(argv, f); return v ? [f, v] : []; })
+    ? [...["--model", "--effort", "--settings"].flatMap((f) => { const v = flag(argv, f); return v ? [f, v] : []; }),
+      ...compactArgs("claude", flag(argv, "--autocompact"))]
     : (() => {
       const m = flag(argv, "-m", "--model"), o = overrides(argv);
       return [...(m ? ["-m", m] : []), "--no-daemon",
         ...["model_reasoning_effort", "service_tier"].flatMap((k) => (o[k] ? ["-c", `${k}="${o[k]}"`] : [])),
-        ...compactArgs("codex", o.model_auto_compact_token_limit)];
+        ...compactArgs("codex", argvCompact(argv))];
     })();
   const flags = [...kept(kind, argv), ...same];
   return kind === "claude" ? ["claude", ...flags, "--resume", session, "--fork-session"] : ["codex", "fork", ...flags, session];

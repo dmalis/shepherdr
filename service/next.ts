@@ -229,7 +229,9 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
     if (value !== null && (!p || !/^[\w.-]{1,40}$/.test(p.agent) || [p.model, p.effort, p.perm].some((x) => x != null && !/^[\w.\[\]:/ -]{1,80}$/.test(String(x))))) throw new Error("Not an agent.");
     if (value !== null && (value as any).compact != null && !compactOf((value as any).compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
     const role = ROLE[m[1] as keyof typeof ROLE];
-    if (p) layer[role] = p; else delete layer[role];
+    // fork #219: Default on a repo or a space is the CLI's own (0), not the size Everywhere sets (herdr-task merges a
+    // pick's fields over Everywhere's)
+    if (p) layer[role] = place === "all" || p.compact ? p : { ...p, compact: 0 }; else delete layer[role];
   } else if (key === "review") {
     // on: a second agent reviews (the rounds set before, else one); off: none
     const was = Number(layer.tasks?.review_rounds ?? next.everywhere?.tasks?.review_rounds) || 0;
@@ -349,8 +351,9 @@ function taskPick(task: any, defaults: AgentPick): AgentPick {
     effort: task.effort ?? (same ? defaults.effort : null),
     fast: speed ? (speed === "ultrafast" ? "ultrafast" : speed === "fast" || speed === "on") : same && defaults.fast,
     perm: task.perm ?? task.permission ?? (same ? defaults.perm : null),
-    // fork #219: its own Compact at, else its space's (it goes along to the other CLI, as herdr-task's worker_pick)
-    ...(compactOf(task.compact) ?? defaults.compact ? { compact: compactOf(task.compact) ?? defaults.compact } : {}),
+    // fork #219: its own Compact at (0: the CLI's own), else its space's (it goes along to the other CLI, as
+    // herdr-task's worker_pick)
+    ...(task.compact !== 0 && (compactOf(task.compact) ?? defaults.compact) ? { compact: compactOf(task.compact) ?? defaults.compact } : {}),
   };
 }
 
@@ -510,8 +513,9 @@ export function scheduleOf(id: string): { machine: string | null; folder: string
 export function scheduleAgentArgs(value: any): string[] {
   if (!["claude", "codex"].includes(value?.agent) || [value.model, value.effort, value.perm].some((x) => x != null && (typeof x !== "string" || !/^[\w.\[\]:/-]{1,80}$/.test(x)))) throw new Error("Pick a valid agent, model, effort and permissions.");
   const speed = value.fast === "ultrafast" && value.agent === "codex" ? "ultrafast" : value.fast === true ? "fast" : "regular";
-  // fork #219: its Compact at too ("": Settings' again)
-  return Object.entries({ agent: value.agent, model: value.model ?? "", effort: value.effort ?? "", speed, permission: value.perm ?? "", compact: compactOf(value.compact) ?? "" })
+  // fork #219: its Compact at too (0: the CLI's own, the picker's Default)
+  if (value.compact != null && !compactOf(value.compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
+  return Object.entries({ agent: value.agent, model: value.model ?? "", effort: value.effort ?? "", speed, permission: value.perm ?? "", compact: compactOf(value.compact) ?? 0 })
     .flatMap(([key, v]) => ["--set", `${key}=${v}`]);
 }
 

@@ -18,8 +18,11 @@
 .win .pg .agr-p{display:grid;min-width:0}
 .win .pg .agr-k{color:var(--muted);font-size:var(--sec);line-height:var(--secl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .win .pg .agr-v{display:flex;align-items:center;gap:2px;min-width:0;font-size:var(--ui);line-height:var(--uil);font-weight:500}
-.win .pg .agr-vt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* a long model id (a custom one) wraps in its cell rather than being cut */
+.win .pg .agr-vt{min-width:0;overflow-wrap:anywhere}
 .win .pg .agr-v>.speed-bolts{margin-inline-start:0}
 /* a space's "Set here · Reset" under the parts, on their edge */
 .win .pg .agr-own{display:block;padding:0 16px 12px 60px}
 .win .pg .agr-own>small{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+/* a comma read between a label and its value, not shown */
+.win .pg .agr-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

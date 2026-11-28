@@ -15,6 +15,7 @@ from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, 
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
     require_task_cli, reviewer_pick, task_settings, worker_argv, worktrees_on, setting_sources, SET_BY,
+    argv_compact, argv_for, compact_own,
 )
 from .agents import (
     agent_log, agent_running, background_jobs, busy_again, BY_YOU, NOT_TRUSTED, clear_stopped, job_names, own_jobs, detail, fit, LINE_MAX, live_agents, ready_turns,
@@ -1825,6 +1826,12 @@ def restart_argv(s, t, space, key, argv_json):
         (prev["argv"] if keep else worker_argv(s, t, space))
     if not argv_json:
         require_task_cli(agent_key(argv))
+    # fork #219: a size it compacted at (one picked in its chat, too) goes along when it starts again on new settings,
+    # unless the task has its own (start or edit --compact)
+    if not argv_json and argv is not (prev or {}).get("argv") and compact_own(t.get("compact")) is None:
+        was = argv_compact((prev or {}).get("argv"))
+        if was and argv_compact(argv) != was:
+            argv = argv_for({"argv": argv, "compact": was})
     reviewer_pick(s, t, space)
     return argv
 

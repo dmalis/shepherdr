@@ -196,12 +196,44 @@ def tier_args(agent, fast):
 # switch (core/agents.js compactArgs): Claude Code's --autocompact <tokens>, Codex's -c model_auto_compact_token_limit=<n>.
 # Never its settings files, never a typed /compact. None: the CLI's own (nothing passed).
 def compact_of(v):
-    """A compact size as kept (a whole token count of 100k or more), else None."""
+    """A compact size as kept (a whole token count from 100k to 10M, ASCII digits, 300k and 1m too), else None."""
     if isinstance(v, str):
         w = v.strip().lower()
         w = w[:-1] + "000" if w.endswith("k") else w[:-1] + "000000" if w.endswith("m") else w
-        v = int(w) if w.isdigit() else None
+        v = int(w) if re.fullmatch(r"[0-9]+", w) else None
     return v if isinstance(v, int) and not isinstance(v, bool) and 100000 <= v <= 10000000 else None
+
+
+def compact_own(v):
+    """A layer's or a task's own Compact at: None (none of its own: the one above it), 0 (the CLI's own, whatever is
+    set above: the picker's Default) or a size."""
+    if v is None or isinstance(v, bool) or (isinstance(v, str) and not v.strip()):
+        return None
+    if v == 0 or (isinstance(v, str) and v.strip() == "0"):
+        return 0
+    return compact_of(v)
+
+
+COMPACT_KEY = "model_auto_compact_token_limit="
+
+
+def without_compact(argv):
+    """argv without any Compact at switch, in each spelling: --autocompact N, --autocompact=N, -c/--config key=N,
+    --config=key=N (one is said again after it, so never two)."""
+    out, skip = [], False
+    argv = [str(a) for a in argv or []]
+    for i, a in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+        if a == "--autocompact" or (a in ("-c", "--config") and nxt.startswith(COMPACT_KEY)):
+            skip = True
+            continue
+        if a.startswith("--autocompact=") or a.startswith("--config=" + COMPACT_KEY) or a.startswith("-c=" + COMPACT_KEY):
+            continue
+        out.append(a)
+    return out
 
 
 def compact_args(agent, v):
@@ -218,7 +250,7 @@ def argv_compact(argv):
         name, eq, value = a.partition("=")
         if not eq:
             value = argv[i + 1] if i + 1 < len(argv) else ""
-        if name == "--autocompact" or (name in ("-c", "--config") and value.startswith("model_auto_compact_token_limit=")):
+        if name == "--autocompact" or (name in ("-c", "--config") and value.startswith(COMPACT_KEY)):
             n = compact_of(value.split("=", 1)[1] if value.startswith("model_auto") else value)
             if n:
                 return n
@@ -237,8 +269,13 @@ def argv_for(pick):
     if not pick:
         return None
     extra = [str(x) for x in pick.get("flags") or []]
+    # fork #219: a Compact at said here wins over one in the extra flags (or a saved command): said once
+    if compact_of(pick.get("compact")):
+        extra = without_compact(extra)
     if pick.get("argv"):
         a = [str(x) for x in pick["argv"]]
+        if compact_of(pick.get("compact")):
+            a = without_compact(a) + compact_args(agent_key(a), pick["compact"])
         return a[:1] + extra + a[1:]
     agent = pick.get("agent")
     if agent == "claude":
@@ -336,8 +373,10 @@ def worker_pick(s, task, space=None, agent=None):
     # 3.2: its own speed and permission mode (start or edit --speed / --permission), in its CLI's words
     if task.get("speed") in SPEEDS:
         pick["fast"] = SPEEDS[task["speed"]]
-    if compact_of(task.get("compact")):
-        pick["compact"] = compact_of(task["compact"])
+    # fork #219: its own Compact at: a size, or 0 for the CLI's own over a size Settings set
+    own = compact_own(task.get("compact"))
+    if own is not None:
+        pick["compact"] = own
     if task.get("perm"):
         perm = perm_across(task["perm"], pick.get("agent") or agent_key(pick.get("argv") or ["claude"]))
         if perm:
@@ -490,6 +529,13 @@ def set_task(t, key, value, agent=None):
         if not sets:
             t.pop("set", None)
         return
+    if field in ("compact", "reviewer_compact") and v == "0":
+        # fork #219: the CLI's own, over a size its settings give (the picker's Default)
+        sets.pop(field, None)
+        t[field] = 0
+        if not sets:
+            t.pop("set", None)
+        return
     if not v or v.lower() == "default":
         sets.pop(field, None)
         t.pop(field, None)
@@ -519,9 +565,9 @@ def set_task(t, key, value, agent=None):
             raise Fail("speed is regular, fast or ultrafast.")
         t[field] = SPEED_VALUES[low]
     elif field in ("compact", "reviewer_compact"):
-        # fork #219: a size of 100k tokens or more, as 300000 or 300k
+        # fork #219: a size of 100k tokens or more, as 300000 or 300k; 0 the CLI's own (handled above it)
         if compact_of(low) is None:
-            raise Fail("compact is a size of 100k tokens or more, e.g. 300k (\"\": Settings' again).")
+            raise Fail("compact is a size of 100k tokens or more, e.g. 300k (0: the CLI's own; \"\": Settings' again).")
         sets.pop(field, None)
         t[field] = compact_of(low)
     else:
@@ -787,8 +833,8 @@ def task_settings(s, t, space=None, argv=None, live=False):
                 rv[f] = t[f"reviewer_{f}"]
         if t.get("reviewer_speed") in SPEEDS:
             rv["fast"] = SPEEDS[t["reviewer_speed"]]
-        if compact_of(t.get("reviewer_compact")):
-            rv["compact"] = compact_of(t["reviewer_compact"])
+        if compact_own(t.get("reviewer_compact")) is not None:
+            rv["compact"] = compact_own(t["reviewer_compact"])
         other = {"claude": "codex", "codex": "claude"}.get(agent)
         want = rv.get("agent") or (other if other and shutil.which(other) else agent)
         who, said = want, ""

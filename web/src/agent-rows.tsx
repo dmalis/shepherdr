@@ -2,7 +2,7 @@
 // one unit, what it is, what it is set to and one way to change it, and the whole row is the control. Its agent's logo
 // and name, then each choice as its own label over its value (the picker's own rows, in its order), wrapping onto more
 // lines where the row is narrow. Pressing it opens the same picker as "This chat runs on".
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import type { Catalog } from '@shared/types.ts'
 import { Bolts, pickerRows, pickWords, SPEEDS, type Pick } from './picker.tsx'
 import { I, Logo } from './ui.tsx'
@@ -18,20 +18,22 @@ export function agentParts(pick: Pick, cat?: Catalog): { f: string; label: strin
 export function AgentRow({ name, small, pick, cat, onOpen }: { name: string; small?: ReactNode; pick: Pick; cat?: Catalog; onOpen: () => void }) {
   const w = pickWords(pick, cat)
   const parts = agentParts(pick, cat)
-  const said = [w.agent, ...parts.map((p) => `${p.label} ${p.value}`)].join(', ')
+  // its name is its title, what it is set to its description (docs/design.md: Names for screen readers), each part
+  // read as "Model, Opus 5.5"
+  const id = useId()
   return (
     <div className="srow agr">
-      <button type="button" className="agr-b" aria-label={`${name}: ${said}. Change`} onClick={onOpen}>
+      <button type="button" className="agr-b" aria-labelledby={`${id}n`} aria-describedby={`${id}a ${id}f`} onClick={onOpen}>
         <Logo agent={pick.agent} name={w.agent} />
         <span className="agr-t">
-          <span className="agr-n">{name}</span>
-          <span className="agr-a" translate="no">{w.agent}</span>
+          <span className="agr-n" id={`${id}n`}>{name}</span>
+          <span className="agr-a" id={`${id}a`} translate="no">{w.agent}</span>
         </span>
         <I n="right" c="s16 agr-c" />
-        <span className="agr-f" aria-hidden="true">
+        <span className="agr-f" id={`${id}f`}>
           {parts.map((p) => (
             <span key={p.f} className="agr-p">
-              <span className="agr-k">{p.label}</span>
+              <span className="agr-k">{p.label}<span className="agr-sr">,</span></span>
               <span className="agr-v">
                 <span className="agr-vt" translate={p.f === 'model' ? 'no' : undefined}>{p.f === 'speed' ? SPEEDS[w.speed] : p.value}</span>
                 {p.f === 'speed' && <Bolts speed={w.speed} decorative />}

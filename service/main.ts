@@ -77,7 +77,7 @@ import { existedWords, folders, newSpace, newSpaceInfo } from "./spaces.ts";
 import { kindOf } from "../core/chat-reader.js";
 import * as SL from "../core/slash.js";
 import * as SCORE from "../core/settings.js";
-import { CHOICE_KEY, choiceOf } from "../core/agents.js";
+import { CHOICE_KEY, choiceOf, compactOf } from "../core/agents.js";
 const SC = SCORE as any;
 const { SCAN, scanned, commandList, MENU } = SL as any;
 import * as HCORE from "../core/host.js";
@@ -463,7 +463,12 @@ const withNext = (snap: Snapshot, b: Parameters<NonNullable<typeof model.onBuild
   const bar = model.value("spaces-chat") as any;
   return (shown = enrich(snap, { spaces: b.spaces.map((s: any) => watch.notes.has(s.assistant) ? { ...s, assistantStatus: "stopped" } : s), rows: b.rows, archived: Array.isArray(bar?.archived) ? bar.archived : [], asked, reportOf, config, screens: pluginOn("screens") ? screens.screensOf() : {}, waiting: pluginOn("screens") ? screens.waiting() : [], hostName: hostname().split(".")[0], schedules: pluginOn("schedules") ? b.automations : [] }));
 };
-const pickFrom = (v: any) => (v?.agent ? { agent: String(v.agent), model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" ? "ultrafast" as const : !!v.fast, perm: v.perm ?? null } : null);
+// fork #219: and its Compact at (New space's picker); a size that isn't one is refused
+const pickFrom = (v: any) => {
+  if (v?.compact != null && !compactOf(v.compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
+  return v?.agent ? { agent: String(v.agent), model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" ? "ultrafast" as const : !!v.fast, perm: v.perm ?? null,
+    ...(compactOf(v.compact) ? { compact: compactOf(v.compact) as number } : {}) } : null;
+};
 /** where your own terminal starts: a space's folder, or a task's (its worktree when it has one), on its machine */
 function shellAt(key: string): ShellAt | null {
   if (key.startsWith("sh:task:")) {

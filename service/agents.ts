@@ -182,7 +182,7 @@ export class Agents {
   async freshMenu(machine: string | null, pick: any) {
     const offer = await this.readOffer(machine);
     const sel = (SC as any).freshSel(pick, offer);
-    return { current: { agent: sel.agent, model: sel.model ?? null, effort: sel.effort ?? null, fast: fastOf(sel.fast), perm: sel.perm ?? null }, menus: offer.menus,
+    return { current: { agent: sel.agent, model: sel.model ?? null, effort: sel.effort ?? null, fast: fastOf(sel.fast), perm: sel.perm ?? null, ...(sel.compact ? { compact: sel.compact } : {}) }, menus: offer.menus,
       permDefault: offer.permDefault, picks: this.picks(), offline: machine && !(await this.reachable(machine)) ? machine : null, fresh: true };
   }
 
