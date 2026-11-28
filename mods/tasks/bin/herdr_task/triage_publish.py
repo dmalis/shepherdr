@@ -194,9 +194,10 @@ def post_one(key, copy, pub, ctx):
         # the person's No to this very text keeps it private: it never posts by itself either
         if not yes and (tri.yes_for(key, p, pub["repo"], "no") or not auto_ok(p, dr, pub, ctx)):
             return "waits"
+        dr = {**dr, "body": fpost.fresh(key, dr["body"])}  # a draft from before mark_key: its marker names no machine
         post = {"state": "posting", "rev": dr["rev"], "target": dr["target"], "started": now(),
                 "mark": fpost.mark_of(dr["body"]) or fpost.marker(key, dr["rev"]), "by": "triage"}
-        ps[key] = {**p, "post": post}
+        ps[key] = {**p, "draft": dr, "post": post}
     argv = post_args(dr)
     text = (dr["title"] + "\n" if dr["target"]["action"] == "create" else "") + fpost.shown(dr["body"])
     try:
@@ -273,7 +274,7 @@ def reconcile(key, copy, repo, ctx):
         items = tgh.pages(r.out)
     except ValueError:
         return still_unsure(key, copy, post, "GitHub's answer couldn't be read")
-    hit = next((x for x in items if isinstance(x, dict) and fpost.mark_of(x.get("body")) == mark and x.get("html_url")), None)
+    hit = next((x for x in items if isinstance(x, dict) and fpost.same_mark(fpost.mark_of(x.get("body")), mark, key) and x.get("html_url")), None)
     if hit:
         posted(key, copy, post, str(hit["html_url"]))
         return "posted"

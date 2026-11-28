@@ -277,6 +277,14 @@ EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 HOME_PATH = re.compile(r"(?:/home|/Users)/[^/\s'\"`]+")
 TAILNET = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.ts\.net\b")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+# A task's key (its board's prefix and number, e.g. "AB-12"): it names the person's own boards, so it never goes
+# public. Not a standard's or a model's name of the same shape (UTF-8, SHA-256, ISO-8601, RFC-…, GPT-5, …), nor part
+# of a longer token (CVE-2024-1234, a path, a version, a branch).
+STANDARD_PREFIXES = ("UTF", "UCS", "SHA", "MD", "ISO", "IEC", "RFC", "CVE", "CWE", "GPT", "AES", "RSA", "TLS", "SSL",
+                     "HTTP", "IPV", "PEP", "ECMA", "ES", "IEEE", "WCAG", "COVID", "ARM", "BIP", "EIP", "KB", "CP",
+                     "UTC", "GMT", "ANSI", "ASCII", "CSS", "HTML", "OWASP", "NIST", "FIPS", "PCI", "H", "X", "P")
+TASK_KEY = re.compile(r"(?<![\w./-])(?!(?:" + "|".join(STANDARD_PREFIXES) + r")-)[A-Z][A-Z0-9]{1,9}-\d{1,6}(?![\w-]|\.\w)")
+TASK_KEYS = re.compile(rf"{TASK_KEY.pattern}(?:(?:\s*[,/&]\s*|\s+and\s+){TASK_KEY.pattern})*")
 
 
 def private_words():
@@ -304,7 +312,7 @@ def private_words():
 def redact(text, private=None):
     """Text fit for a public issue: secrets, tokens, credentials in URLs, e-mail addresses, home
     paths (made ~), tailnet names and IP addresses, and the names of this machine and its people
-    gone. private: the words to hide (private_words() when None)."""
+    gone, and a task's key (AB-12) said as "a task". private: the words to hide (private_words() when None)."""
     s = str(text or "")
     s = HOME_PATH.sub("~", s.replace(HOME.rstrip("/") + "/", "~/")) if HOME.rstrip("/") else HOME_PATH.sub("~", s)
     for rx in SECRETS:
@@ -315,6 +323,7 @@ def redact(text, private=None):
     s = EMAIL.sub("<email>", s)
     s = TAILNET.sub("<host>", s)
     s = IPV4.sub("<ip>", s)
+    s = TASK_KEYS.sub(lambda m: "a task" if len(TASK_KEY.findall(m.group(0))) == 1 else "some tasks", s)
     for w in private_words() if private is None else private:
         s = re.sub(rf"(?i)(?<![\w-]){re.escape(w)}(?![\w-])", "<name>", s)
     return s

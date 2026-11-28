@@ -81,7 +81,9 @@ minutes, while something waits. Once Triage is on for a repo, it is that repo's 
   page's Post it today, Triage's card later).
 - **The friction loop's posting, reused** (`feedback_post.py`): the stored draft, its hidden marker, `posting`,
   `posted`, `refused` and `unsure`, reconciled from the repo's own issues. A post is never made twice. A posted create
-  leaves a receipt.
+  leaves a receipt. The marker never names a machine: a copy of another machine's finding writes its key
+  (`<machine>:<id>`) as a hash (`feedback_post.mark_key`); the old form, with the machine's name, is still read when
+  reconciling, and a draft that carries it is rewritten before it posts.
 - **The destination fails closed.** Shepherdr findings go only to an `agents.feedback_repo` set to a valid
   `owner/name` that isn't upstream's (`eliasstravik/shepherdr`). A missing, invalid or upstream value posts nothing,
   and nothing falls back. The level and the destination are read again under the record's lock right before each
@@ -286,6 +288,8 @@ is pass, unsure or hit.
   - `triage.private_words`;
   - what `fork/sync/public.py` refuses: tailnet and `.local` names, IP addresses, installer output and tracebacks.
     It is ported, since herdr-task can't import `fork/`.
+  - a task's key (`AB-12`: a board's prefix and number; not a standard's or model's name such as UTF-8 or GPT-5), which
+    `feedback.redact()` already turns into "a task" (several in a row: "some tasks") in every draft.
 - **Unsure:** a phone-number shape; anything `redact()` would change; a capitalised word that isn't at a sentence's
   start, or a word mixing letters and digits, that appears nowhere in the repo's own text.
 - **Hit or unsure:** the draft waits for the app's yes on its exact text. A no keeps it private.
