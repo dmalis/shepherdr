@@ -125,7 +125,7 @@ class Probe(unittest.TestCase):
         disks = machine._disks()
         self.assertTrue(disks)
         for d in disks:
-            self.assertEqual({"path", "pct", "free_gb", "free", "used", "size"}, set(d))
+            self.assertLessEqual({"path", "pct", "free_gb", "free", "used", "size", "space_pct", "by"}, set(d))
             # df -H's three: blocks kept for the system count in its size, in neither used nor free
             self.assertLessEqual(d["used"] + d["free"], d["size"])
 

@@ -56,9 +56,15 @@ def _memory():
     return total, max(0, total - free) if total else 0
 
 
+def _pct(used, avail):
+    return round(used * 100 / (used + avail)) if used + avail > 0 else 0
+
+
 def _disks():
     """Home and /tmp, once each when they're one disk: % full as df counts it (used over what an
-    ordinary user could have)."""
+    ordinary user could have), of its space or of its file slots (inodes, as df -i), whichever is
+    fuller: a disk with no file slots left takes no new file however much space it has. `by` says
+    which ("space" or "files"); a filesystem that keeps no count of files (0) is read by space."""
     out, seen = [], set()
     for path in (HOME, "/tmp"):
         try:
@@ -72,14 +78,20 @@ def _disks():
         avail = st.f_bavail * st.f_frsize
         if used + avail <= 0:
             continue
-        out.append({"path": "home" if path == HOME else path, "pct": round(used * 100 / (used + avail)),
-                    "free_gb": round(avail / 2 ** 30), "free": avail, "used": used, "size": st.f_blocks * st.f_frsize})
+        space = _pct(used, avail)
+        d = {"path": "home" if path == HOME else path, "pct": space, "free_gb": round(avail / 2 ** 30),
+             "free": avail, "used": used, "size": st.f_blocks * st.f_frsize, "space_pct": space, "by": "space"}
+        if st.f_files > 0:
+            d["files_pct"] = _pct(max(0, st.f_files - st.f_ffree), max(0, st.f_favail))
+            if d["files_pct"] > space:
+                d["pct"], d["by"] = d["files_pct"], "files"
+        out.append(d)
     return out
 
 
 def sample():
     """{at, cores, load, cpu, mem_total, mem_used, memory, disk, disks}: cpu is the 1-minute load
-    over the cores (%), memory in use (%), disk the fullest (%)."""
+    over the cores (%), memory in use (%), disk the fullest (%, of its space or its file slots)."""
     cores = os.cpu_count() or 1
     load = os.getloadavg()[0]
     total, used = _memory()
@@ -143,6 +155,9 @@ def hold_reason(h, limits=None):
     if lim["start_load"] is not None and h["load"] > lim["start_load"] * h["cores"]:
         return "CPU is %d%% busy" % h["cpu"]
     if lim["start_disk"] is not None and h["disk"] > lim["start_disk"]:
+        full = max(h.get("disks") or [], key=lambda d: d["pct"], default={})
+        if full.get("by") == "files":
+            return "disk is %d%% full (%s's file slots)" % (h["disk"], full["path"])
         return "disk is %d%% full" % h["disk"]
     return None
 

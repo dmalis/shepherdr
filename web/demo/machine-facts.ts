@@ -13,6 +13,15 @@ const raw = (x: { cores: number; load: number; mem: number; used: number; disks:
 })
 const hold = { start_load: 1, start_memory: 80, start_disk: 90 }
 
+/** `?case=machines`: vm's /tmp out of file slots with most of its space free, home a quarter full (Machine card: the
+ *  three numbers at a glance, and disk counts file slots) */
+export function outOfFileSlots(f: Facts): Facts {
+  const h = f.stats!.health as ReturnType<typeof raw>
+  const disks = [{ path: 'home', pct: 25, space_pct: 25, files_pct: 3, by: 'space', free_gb: 140, free: 150e9, used: 50e9, size: 200e9 },
+    { path: '/tmp', pct: 100, space_pct: 28, files_pct: 100, by: 'files', free_gb: 21, free: 23e9, used: 9e9, size: 32e9 }]
+  return { ...f, stats: { ...f.stats!, health: { ...h, disk: 100, disks } } }
+}
+
 export function demoFacts(now: number): Record<string, Facts> {
   return {
     'mac-mini': {

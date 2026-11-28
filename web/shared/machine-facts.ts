@@ -27,12 +27,6 @@ function freeOf(free: string, total: string) {
   return fu === tu ? `${fn} of ${tn} ${tu} free` : `${free} free of ${total}`
 }
 
-/** "286 of 494 GB used", "78 GB of 1.8 TB used": the second unit only when the two differ */
-function usedOf(used: string, total: string) {
-  const [un, uu] = used.split(' '), [tn, tu] = total.split(' ')
-  return uu === tu ? `${un} of ${tn} ${tu} used` : `${used} of ${total} used`
-}
-
 /** "2 days", "5 hours", "12 minutes" */
 export function upWords(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60000))
@@ -53,18 +47,27 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-type Disk = { path: string; pct: number; free_gb?: number; free?: number; used?: number; size?: number }
+/** one disk as machine.py reads it: `pct` the fuller of its space and its file slots, `by` which one (an older probe
+ *  sends neither `by` nor `files_pct`: space alone) */
+type Disk = { path: string; pct: number; free_gb?: number; free?: number; used?: number; size?: number; by?: 'space' | 'files'; space_pct?: number; files_pct?: number }
 type Raw = { cores?: number; load?: number; mem_total?: number; mem_used?: number; disks?: Disk[] }
 const rawOf = (m: Machine): Raw => (m.stats?.health ?? {}) as Raw
+
+/** "Home", "/tmp" */
+export const diskName = (d: { path: string }) => (d.path === 'home' ? 'Home' : d.path)
 
 export interface Gauge {
   key: 'cpu' | 'memory' | 'disk'
   name: string
+  /** its name in the card's header, where three sit side by side: CPU, Memory, Disk */
+  short: string
   pct: number | undefined
   /** ok, busy (over its start limit), over (past its alert limit) */
   level: 'ok' | 'busy' | 'over'
-  /** its amounts under the bar, one line per disk */
+  /** its amounts under the bar, one short line each: "8.0 load · 32 cores", "41 of 59 GB free", a line per disk */
   lines: string[]
+  /** the fullest disk, when its file slots (not its space) make it so: "/tmp" */
+  files?: string
 }
 
 /** Processor, Memory and Disk with their amounts: the meters upstream reads (load as a share of the cores, #1092) */
@@ -73,20 +76,22 @@ export function gauges(m: Machine): Gauge[] {
   const raw = rawOf(m)
   const lv = (x: { level?: string } | undefined) => (x?.level === 'over' || x?.level === 'busy' ? x.level : 'ok') as Gauge['level']
   const cpu = meter(/cpu|processor|load/i), mem = meter(/mem/i), disk = meter(/disk/i)
-  const cpuLine = typeof raw.load === 'number' && raw.cores ? `Load ${raw.load.toFixed(1)} on ${raw.cores} ${raw.cores === 1 ? 'core' : 'cores'}` : ''
+  const cpuLine = typeof raw.load === 'number' && raw.cores ? `${raw.load.toFixed(1)} load · ${raw.cores} ${raw.cores === 1 ? 'core' : 'cores'}` : ''
   const memLine = raw.mem_total ? freeOf(memSize(Math.max(0, raw.mem_total - (raw.mem_used ?? 0))), memSize(raw.mem_total)) : ''
   const disks = [...(raw.disks ?? [])].sort((a, b) => b.pct - a.pct)
+  const named = disks.length > 1 || disks.some((d) => d.by === 'files')
   const diskLine = (d: Disk) => {
-    // as df -H and Finder: used of its whole size (blocks kept for the system count in the size, not in either), then free
-    const amount = typeof d.free === 'number' && typeof d.used === 'number' && d.size ? `${usedOf(diskSize(d.used), diskSize(d.size))} · ${diskSize(d.free)} free`
-      : typeof d.free === 'number' && d.size ? freeOf(diskSize(d.free), diskSize(d.size)) : typeof d.free_gb === 'number' ? `${d.free_gb} GB free` : ''
-    // one disk: its amounts; home and /tmp on two disks: each named, the fullest first (the meter shows it)
-    return disks.length > 1 ? `${d.path === 'home' ? 'Home' : d.path} ${d.pct}%${amount ? ` · ${amount}` : ''}` : amount
+    const free = typeof d.free === 'number' ? diskSize(d.free) : typeof d.free_gb === 'number' ? `${d.free_gb} GB` : ''
+    // one disk, full by its space: free of its size (as Finder); else each named with its share, "(files)" when its
+    // file slots fill it first, the fullest first (the meter shows it)
+    if (!named) return typeof d.free === 'number' && d.size ? freeOf(diskSize(d.free), diskSize(d.size)) : free ? `${free} free` : ''
+    return `${diskName(d)} ${d.pct}%${d.by === 'files' ? ' (files)' : ''}${free ? ` · ${free} free` : ''}`
   }
+  const full = disks[0]?.by === 'files' ? diskName(disks[0]) : undefined
   return [
-    { key: 'cpu', name: 'Processor', pct: cpu?.pct, level: lv(cpu), lines: cpuLine ? [cpuLine] : [] },
-    { key: 'memory', name: 'Memory', pct: mem?.pct, level: lv(mem), lines: memLine ? [memLine] : [] },
-    { key: 'disk', name: 'Disk', pct: disk?.pct, level: lv(disk), lines: disks.map(diskLine).filter(Boolean) },
+    { key: 'cpu', name: 'Processor', short: 'CPU', pct: cpu?.pct, level: lv(cpu), lines: cpuLine ? [cpuLine] : [] },
+    { key: 'memory', name: 'Memory', short: 'Memory', pct: mem?.pct, level: lv(mem), lines: memLine ? [memLine] : [] },
+    { key: 'disk', name: 'Disk', short: 'Disk', pct: disk?.pct, level: lv(disk), lines: disks.map(diskLine).filter(Boolean), ...(full ? { files: full } : {}) },
   ]
 }
 
@@ -98,8 +103,9 @@ export const servingOf = (machines: Machine[]) => machines.find((x) => x.here)
 export function attention(m: Machine, serving?: Machine): { id: string; words: string }[] {
   const out: { id: string; words: string }[] = []
   const g = gauges(m)
-  const disk = g.find((x) => x.key === 'disk')?.pct, mem = g.find((x) => x.key === 'memory')?.pct
-  if (typeof disk === 'number' && disk > ALERT) out.push({ id: 'disk', words: `Disk ${Math.round(disk)}% full` })
+  const dg = g.find((x) => x.key === 'disk'), disk = dg?.pct, mem = g.find((x) => x.key === 'memory')?.pct
+  // full by its file slots: which disk, since its space may look fine ("Disk 100% full (/tmp's file slots)")
+  if (typeof disk === 'number' && disk > ALERT) out.push({ id: 'disk', words: `Disk ${Math.round(disk)}% full${dg?.files ? ` (${dg.files}'s file slots)` : ''}` })
   if (typeof mem === 'number' && mem > ALERT) out.push({ id: 'memory', words: `Memory ${Math.round(mem)}% in use` })
   const s = m.system, there = serving && serving.machine !== m.machine ? serving.system : undefined
   if (s?.restart) out.push({ id: 'restart', words: 'Restart needed to finish updates' })

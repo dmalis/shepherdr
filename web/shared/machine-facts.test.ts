@@ -29,20 +29,32 @@ test('sizes as macOS gives them: disks decimal, memory in GB of 2^30 bytes, one 
 
 test('the agent\'s own answer, as the card says it: 78 GB of 1.8 TB used, 1.7 TB free, 33 of 59 GB free, up 2 days', () => {
   const [cpu, mem, disk] = gauges(machine())
-  expect(cpu).toMatchObject({ name: 'Processor', pct: 18, lines: ['Load 5.9 on 32 cores'] })
+  expect(cpu).toMatchObject({ name: 'Processor', pct: 18, lines: ['5.9 load · 32 cores'] })
   expect(mem).toMatchObject({ name: 'Memory', pct: 44, lines: ['33 of 59 GB free'] })
-  expect(disk).toMatchObject({ name: 'Disk', pct: 4, lines: ['78 GB of 1.8 TB used · 1.7 TB free'] })
+  expect(disk).toMatchObject({ name: 'Disk', pct: 4, lines: ['1.7 of 1.8 TB free'] })
   expect(summaryOf(machine(), here, NOW)).toBe('OK · disk 4% · up 2 days')
 })
 
-test('two disks: each named, the fullest first; a different unit each side says both', () => {
+test('two disks: each named with its share and what is free, the fullest first; one disk: free of its size', () => {
   const m = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 4, free: 1.7e12, size: 1.78e12 }, { path: '/tmp', pct: 19, free: 24e9, size: 30e9 }] } } })
-  expect(gauges(m)[2]!.lines).toEqual(['/tmp 19% · 24 of 30 GB free', 'Home 4% · 1.7 of 1.8 TB free'])
+  expect(gauges(m)[2]!.lines).toEqual(['/tmp 19% · 24 GB free', 'Home 4% · 1.7 TB free'])
   const one = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 99, free: 820e6, size: 250e9 }] } } })
   expect(gauges(one)[2]!.lines).toEqual(['820 MB free of 250 GB'])
-  // df -H's three: used of its whole size (blocks kept for the system in neither), then free
   const df = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 58, used: 274e9, free: 207.5e9, size: 494e9 }, { path: '/tmp', pct: 13, used: 4e9, free: 28e9, size: 32e9 }] } } })
-  expect(gauges(df)[2]!.lines).toEqual(['Home 58% · 274 of 494 GB used · 208 GB free', '/tmp 13% · 4 of 32 GB used · 28 GB free'])
+  expect(gauges(df)[2]!.lines).toEqual(['Home 58% · 208 GB free', '/tmp 13% · 28 GB free'])
+})
+
+test('a disk out of file slots with space free: named, "(files)", and what needs attention says so (disk counts file slots)', () => {
+  const m = machine({ health: meters(12, 40, 100), stats: { at: NOW, health: { disks: [{ path: 'home', pct: 4, by: 'space', free: 1.7e12, size: 1.78e12 }, { path: '/tmp', pct: 100, by: 'files', space_pct: 28, files_pct: 100, free: 23e9, size: 32e9 }] } } })
+  const disk = gauges(m)[2]!
+  expect(disk.lines).toEqual(['/tmp 100% (files) · 23 GB free', 'Home 4% · 1.7 TB free'])
+  expect(disk.files).toBe('/tmp')
+  expect(attention(m, here)[0]).toEqual({ id: 'disk', words: "Disk 100% full (/tmp's file slots)" })
+  expect(attentionWords(m, here)).toBe("disk 100% full (/tmp's file slots)")
+  // one disk full by its file slots is named too, never just "1.7 of 1.8 TB free"
+  const one = machine({ stats: { at: NOW, health: { disks: [{ path: 'home', pct: 97, by: 'files', free: 1.7e12, size: 1.78e12 }] } } })
+  expect(gauges(one)[2]!.lines).toEqual(['Home 97% (files) · 1.7 TB free'])
+  expect(gauges(machine())[2]!.files).toBeUndefined()
 })
 
 test('an older probe without bytes still says what it has', () => {
