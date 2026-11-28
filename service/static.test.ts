@@ -114,9 +114,10 @@ describe("a hashed file", () => {
     expect(r.headers.get("content-length")).toBe(String(full.body.length));
     same(r);
   });
-  test("a conditional GET gets the whole file again: no validator is sent, so none is honoured", async () => {
-    const r = await fetch(`http://127.0.0.1:${server.port}/assets/index-abc123.js`, { headers: { "accept-encoding": "br", "if-modified-since": new Date(Date.now() + 60_000).toUTCString(), "if-none-match": "*" }, decompress: false } as RequestInit);
+  test("no validator is sent (no ETag, no Last-Modified), so an If-Modified-Since gets the whole file", async () => {
+    const r = await fetch(`http://127.0.0.1:${server.port}/assets/index-abc123.js`, { headers: { "accept-encoding": "br", "if-modified-since": new Date(Date.now() + 60_000).toUTCString() }, decompress: false } as RequestInit);
     expect(r.status).toBe(200);
+    expect(r.headers.get("etag")).toBeNull();
     expect(r.headers.get("last-modified")).toBeNull();
   });
   test("one that isn't there (a page from an older build) is a 404, not the page marked immutable", async () => {
@@ -150,5 +151,17 @@ describe("the page", () => {
     const empty = mkdtempSync(join(tmpdir(), "shep-static-none-"));
     const r = webFile(empty, "/", "br");
     expect(r.status).toBe(503);
+    expect(r.headers.get("vary")).toBe("Accept-Encoding");
+    expect(r.headers.get("cache-control")).toBe("no-cache");
+  });
+});
+
+describe("the service", () => {
+  test("sends every file that isn't the API through webFile, with the request's Accept-Encoding", () => {
+    // a sync that drops the hookup (or the header) fails here, not only on a phone
+    const main = readFileSync(join(import.meta.dir, "main.ts"), "utf8");
+    expect(main).toContain('import { webFile } from "./static.ts";');
+    expect(main).toContain('webFile(WEB, path, req.headers.get("accept-encoding"))');
+    expect(main).toContain("return file(path, req);");
   });
 });

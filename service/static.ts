@@ -46,7 +46,7 @@ export function webFile(root: string, path: string, accept: string | null): Resp
     if (immutable) return new Response("Not found", { status: 404, headers: { ...base, "cache-control": "no-cache", "content-type": "text/plain;charset=utf-8" } });
     p = join(root, "index.html");
   }
-  if (!isFile(p)) return new Response("The web app isn't built: run bun run build.", { status: 503 });
+  if (!isFile(p)) return new Response("The web app isn't built: run bun run build.", { status: 503, headers: { ...base, "cache-control": "no-cache" } });
   // the type is the file's own, not its compressed copy's, and is set here so a HEAD answer carries it too
   const headers: Record<string, string> = { ...base, "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache", "content-type": Bun.file(p).type };
   // the best coding the browser takes that the build wrote a copy in (a file too small to gain has none)
