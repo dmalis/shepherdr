@@ -93,7 +93,7 @@ def clean_env(env, store=None):
         gd = os.path.realpath(guard_dir(store))
     except OSError:
         gd = None
-    e = {k: v for k, v in env.items() if k != "HERDR_GUARD_SESSION"}
+    e = {k: v for k, v in env.items() if k not in ("HERDR_GUARD_SESSION", "HERDR_GUARD_LIVE", "HERDR_GUARD_ASKED")}
     keep = [d for d in (env.get("PATH") or "").split(":")
             if d and os.path.realpath(d) != gd and not os.path.realpath(d).endswith(os.sep + os.path.join(".guard", "bin"))]
     e["PATH"] = ":".join(keep)

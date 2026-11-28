@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { AGENT_PATH, CLEAN_ENV, cleanCommand } from "./clean-env.js";
+import { AGENT_PATH, CLEAN_ENV, GUARD, cleanCommand } from "./clean-env.js";
 
 // SHEP-86: an Assistant's one-off template command runs under sh -c in the holder's environment. Fake values only.
 const parent = { PATH: process.env.PATH, CLAUDECODE: "1", CLAUDE_PID: "4242", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_SESSION_ID: "fake-session",
@@ -15,8 +15,27 @@ test("an Assistant's command runs without a parent Claude Code session's markers
 });
 
 test("the agent is exec'd once, whether the template's command had exec or not", () => {
-  expect(cleanCommand("claude --model opus")).toBe(`${CLEAN_ENV} ${AGENT_PATH} exec claude --model opus`);
-  expect(cleanCommand("exec claude")).toBe(`${CLEAN_ENV} ${AGENT_PATH} exec claude`);
+  expect(cleanCommand("claude --model opus")).toBe(`${CLEAN_ENV} ${AGENT_PATH} ${GUARD} exec claude --model opus`);
+  expect(cleanCommand("exec claude")).toBe(`${CLEAN_ENV} ${AGENT_PATH} ${GUARD} exec claude`);
+});
+
+// dmalis/shepherdr#247: the Assistant starts with the folder herdr-task names first on its PATH and the session it
+// runs in to protect; a herdr-task that can't say (missing, or too old to know `_guard-dir`) starts it unguarded.
+test("an Assistant starts guarded, and unguarded rather than not at all when herdr-task can't say where", () => {
+  const home = mkdtempSync(`${tmpdir()}/clean-env-`);
+  try {
+    const bin = `${home}/.local/bin`, guard = `${home}/guard`;
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(guard);
+    writeFileSync(`${bin}/fake-agent`, '#!/bin/sh\necho "$PATH|${HERDR_GUARD_LIVE:-none}|${HERDR_GUARD_SESSION:-none}"\n', { mode: 0o755 });
+    const start = () => Bun.spawnSync(["/bin/sh", "-c", cleanCommand("fake-agent")], { env: { HOME: home, PATH: "/usr/bin:/bin", HC_SESSION: "shepherdr" } });
+    writeFileSync(`${bin}/herdr-task`, `#!/bin/sh\n[ "$1" = _guard-dir ] && echo ${guard}\n`, { mode: 0o755 });
+    const [path, live, task] = start().stdout.toString().trim().split("|");
+    expect([path.split(":")[0], live, task]).toEqual([guard, "shepherdr", "none"]);
+    writeFileSync(`${bin}/herdr-task`, "#!/bin/sh\necho 'usage: herdr-task' >&2; exit 2\n", { mode: 0o755 });
+    const r = start();
+    expect([r.exitCode, r.stdout.toString().trim()]).toEqual([0, `/usr/bin:/bin:${bin}:/opt/homebrew/bin:/usr/local/bin|none|none`]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test("a holder started over ssh (PATH only /usr/bin:/bin) still finds an agent in ~/.local/bin (GitHub #839)", () => {

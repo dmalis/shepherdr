@@ -26,6 +26,8 @@ copies.
 
 - Agent account integrations and provider rules are tracked in [Agent accounts and provider rules](agents-and-terms.md).
 - A new feature is a plugin: [Plugins](plugins.md).
+- Every agent Shepherdr starts has the guard first on its PATH (a seatbelt against stopping or replacing the live
+  session by mistake): [The guard](guard.md). A new way to start an agent puts it there too.
 - Behaviour is words, not code. A setting reaches an agent as a line in its brief or its instructions. Shepherdr's
   code never judges work.
 - No model in the status path: a status comes from the agent's report and plain facts (`web/shared/view.ts`).
