@@ -12,8 +12,12 @@ test('the bar stays one line on a phone: no wrap, the model line shrinks, its ef
   const coarse = css.indexOf('@media (pointer: coarse) {')
   expect(coarse).toBeGreaterThan(-1)
   const rules = css.slice(coarse)
-  // one line while the box has room for +, the microphone, send and a readable model line (upstream's wrap below it)
-  expect(rules).toContain('@container (min-width: 216px) {\n    .app .cbox > .cbar:has(> .agent) {\n      flex-wrap: nowrap;\n    }\n    .app .cbox > .cbar > .agent {\n      flex: 0 1 auto;\n    }\n  }')
+  // one line while the box has room for +, send, a readable model line and each more button (48px apiece): the bar's
+  // other buttons are .ib, like + (the microphone, Update <agent>); never while dictating or in a call
+  for (const [w, more] of [[168, '> .ib ~ .ib'], [216, '> .ib ~ .ib ~ .ib'], [264, '> .ib ~ .ib ~ .ib ~ .ib']]) {
+    const not = `:not(:has(> :is(.dsurf, .vin), ${more}))`
+    expect(rules).toContain(`@container (min-width: ${w}px) {\n    .app .cbox > .cbar:has(> .agent)${not} {\n      flex-wrap: nowrap;\n    }\n    .app .cbox > .cbar${not} > .agent {\n      flex: 0 1 auto;\n    }\n  }`)
+  }
   expect(rules).toContain('.app .cbox > .cbar > .agent > .e:not(.pm) {\n    flex: 0 1000 auto;\n  }')
   // zoom-css.ts writes a container query once per zoom step, scaled
   expect(read('web/zoom-css.ts')).toContain('root.walkAtRules(/^(container|media)$/i, (at) => {')
@@ -40,6 +44,12 @@ test('upstream seams: the narrow box it undoes, and the model line that cuts its
   const picker = read('web/src/picker.tsx')
   expect(picker).toContain("export const AGENT_DROPS = ['logo', 'chev', 'perm'] as const")
   expect(picker).toContain('<span className="m">{w.model || w.agent}</span>\n      {w.effort && <span className="e">{w.effort}</span>}')
+  // every button past + in the bar is an .ib: the microphone (dictate.tsx) and Update <agent> (update.tsx)
+  expect(read('web/src/dictate.tsx')).toContain("className={cx('ib vs', a.c)} data-slot=\"mic\"")
+  expect(read('web/plugins/chat/update.tsx')).toContain('<IB icon="reload" className="agent-upd"')
+  expect(read('web/src/ui.tsx')).toContain("className={cx('ib', className)}")
+  // dictation and the call take the bar over with their own surface
+  expect(read('web/src/dictate.css')).toContain('.cbar:has(>.dsurf)>:not(.dsurf,.vs){display:none}')
   // the box: its text row, then its bar, + first and the round button last
   const box = read('web/plugins/chat/client.tsx')
   expect(box).toContain('<div className="cbar">\n        <AddButtons finger={finger} onFiles={(f) => attach(key, key, f)} />\n        <AgentLine')

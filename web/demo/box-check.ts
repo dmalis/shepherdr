@@ -1,9 +1,10 @@
-// Box check (fork #105): on a phone with the keyboard down, the message box is two rows from 320 px: the text, then
-// one bar with + on the left, the model line taking what is left (cut, never wrapped) and send or stop on the right.
-// Opens the built demo in a headless Chrome whose pointer is a finger, at 320 and 390 px, Zoom 100% and 125%, in a
-// space's chat and a task's thread, with a long model line ("Opus 5.5 Xhigh · bypass"), idle (send) and working
-// (stop), with voice off (the box's own send and stop) and on (the microphone and its round button). At Zoom 200% on
-// a 320 px phone one bar can't fit: the bar may wrap there, but send never leaves the box.
+// Box check (fork #105): on a phone with the keyboard down, the message box is two rows: the text, then one bar with
+// + on the left, the model line taking what is left (cut, never wrapped) and send or stop on the right. Opens the
+// built demo in a headless Chrome whose pointer is a finger, at 320 and 390 px and Zoom 100% to 200%, in a space's
+// chat and a task's thread, with a long model line ("Opus 5.5 Xhigh · bypass"), idle (send) and working (stop), with
+// voice off (the box's own send and stop) and on (the microphone and its round button), and with Update <agent>.
+// Wherever the box has room for one bar with a readable model line (phone-bar.css: 168px in the app's own px, 48px
+// more for each button past + and send), the bar is one line; below that it may wrap, but send never leaves the box.
 //
 //   bun run build && bun web/demo/box-check.ts [--shots <dir>]
 //
@@ -32,11 +33,14 @@ async function startDemo() {
 
 /** the long model line the person saw: the effort and a permission mode that isn't the agent's default */
 const LONG = { kind: 'claude', model: 'opus', modelLabel: 'Opus 5.5', effort: 'xhigh', perm: 'bypass' }
+/** one bar's room, in the app's own px (phone-bar.css): + and send alone, then each more button */
+const ONE_BAR = 168
+const PER_BUTTON = 48
 
-type Scene = { width: number; zoom: number; where: 'space' | 'task'; working: boolean; voice: boolean }
+type Scene = { width: number; zoom: number; where: 'space' | 'task'; working: boolean; voice: boolean; update?: boolean }
 
 async function check(browser: Browser, base: string, s: Scene) {
-  const name = `${s.where} ${s.width}px zoom ${s.zoom}% ${s.working ? 'working' : 'idle'}${s.voice ? ' voice' : ''}`
+  const name = `${s.where} ${s.width}px zoom ${s.zoom}% ${s.working ? 'working' : 'idle'}${s.voice ? ' voice' : ''}${s.update ? ' update' : ''}`
   const ctx = await browser.newContext({ viewport: { width: s.width, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 })
   try {
     await ctx.addInitScript((zoom) => localStorage.setItem('shepherdr.prefs', JSON.stringify({ zoom })), s.zoom)
@@ -48,7 +52,7 @@ async function check(browser: Browser, base: string, s: Scene) {
       server.onMessage((m) => {
         if (typeof m !== 'string') return ws.send(m)
         const v = JSON.parse(m) as { type?: string; chat?: { agent?: unknown; working?: boolean; finished?: boolean }; snapshot?: { off?: string[] } }
-        if (v.type === 'chat' && v.chat) Object.assign(v.chat, { agent: LONG, working: s.working, finished: false })
+        if (v.type === 'chat' && v.chat) Object.assign(v.chat, { agent: { ...LONG, ...(s.update ? { update: '9.0.0' } : {}) }, working: s.working, finished: false })
         // the same plugins off as api/me said, or the page reloads to match
         if (v.type === 'snapshot' && v.snapshot && !s.voice) v.snapshot.off = ['voice']
         ws.send(JSON.stringify(v))
@@ -61,6 +65,7 @@ async function check(browser: Browser, base: string, s: Scene) {
     await box.waitFor()
     const round = s.voice ? box.locator('.cbar > .send') : box.locator(`.cbar > .send[aria-label="${s.working ? 'Stop' : 'Send'}"]`)
     await round.waitFor()
+    if (s.update) await box.locator('.cbar > .agent-upd').waitFor()
     await page.waitForFunction(() => document.querySelector('.cbar .agent .m')?.textContent === 'Opus 5.5')
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
     const m = await box.evaluate((el) => {
@@ -68,6 +73,9 @@ async function check(browser: Browser, base: string, s: Scene) {
       const bar = el.querySelector(':scope > .cbar')!
       const kids = [...bar.children].filter((k) => r(k).width > 0 && r(k).height > 0)
       const agent = bar.querySelector(':scope > .agent')!
+      const model = agent.querySelector(':scope > .m')!
+      const send = bar.querySelector(':scope > .send')!
+      const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1
       return {
         box: r(el).height,
         text: r(el.querySelector(':scope > .crow')).height,
@@ -77,23 +85,31 @@ async function check(browser: Browser, base: string, s: Scene) {
         last: kids[kids.length - 1]!.matches('.send'),
         lastRight: r(bar).right - r(kids[kids.length - 1]!).right,
         agentOver: agent.scrollWidth - agent.clientWidth,
-        bar: r(bar).width,
+        // the model's name: on screen, and cut with an ellipsis on one line when it doesn't fit
+        modelWidth: r(model).width,
+        modelCut: getComputedStyle(model).textOverflow === 'ellipsis' && getComputedStyle(model).whiteSpace === 'nowrap',
         // the round button inside the box, never past its edge
-        roundOut: Math.max(r(bar.querySelector(':scope > .send')).right - r(el).right, r(bar.querySelector(':scope > .send')).bottom - r(el).bottom),
-        zoom: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom')) || 1,
+        roundOut: Math.max(r(send).right - r(el).right, r(send).bottom - r(el).bottom),
+        // the box's width in the app's own px (the container queries' unit), and the buttons past + and send
+        room: el.clientWidth / zoom,
+        more: bar.querySelectorAll(':scope > .ib').length - 1,
+        zoom,
       }
     })
     if (shots) await box.screenshot({ path: `${shots}/${name.replace(/[^\w]+/g, '-')}.png` })
     assert.ok(m.roundOut <= 0, `${name}: send/stop sticks out of the box by ${m.roundOut}px`)
     // the model line is cut inside its own width, never pushed out of it
     assert.ok(m.agentOver <= 1, `${name}: the model line overflows by ${m.agentOver}px`)
-    // too narrow for one bar (a 320px phone at Zoom 150% and up): upstream's own rows, nothing cut off
-    if (s.zoom > 125) return name
+    assert.ok(m.modelCut, `${name}: the model's name is not cut with an ellipsis on one line`)
+    // too narrow for one bar with a readable model line: upstream's own rows, nothing cut off
+    if (m.room < ONE_BAR + PER_BUTTON * m.more) return `${name} (${Math.round(m.room)}px: its own rows)`
     // one bar: every visible part of it sits on one line, + first, the round button last at the right edge
     const spread = Math.max(...m.mids) - Math.min(...m.mids)
     assert.ok(spread <= 3 * m.zoom, `${name}: the bar's parts are on more than one line (${m.rows} rows, ${spread.toFixed(1)}px apart)`)
     assert.ok(m.first, `${name}: + is not first in the bar`)
     assert.ok(m.last && m.lastRight <= 8 * m.zoom, `${name}: send/stop is not at the bar's right end`)
+    // the model's name keeps room to be read ("Opus…")
+    assert.ok(m.modelWidth >= 28 * m.zoom, `${name}: the model's name has only ${m.modelWidth.toFixed(1)}px`)
     // two rows: the text row and one bar (the bar's tallest part, its padding)
     assert.ok(m.box - m.text <= 64 * m.zoom, `${name}: the bar is ${m.box - m.text}px tall, more than one row`)
     return name
@@ -105,22 +121,22 @@ async function check(browser: Browser, base: string, s: Scene) {
 const demo = await startDemo()
 const browser = await chromium.launch({ executablePath: chrome() })
 let n = 0
+const run = async (s: Scene) => (console.log(`ok  ${await check(browser, demo.url, s)}`), n++)
 try {
   for (const width of [320, 390])
     for (const zoom of [100, 125])
       for (const where of ['space', 'task'] as const)
         for (const working of [false, true])
-          for (const voice of [false, true]) {
-            if (voice && working) continue
-            console.log(`ok  ${await check(browser, demo.url, { width, zoom, where, working, voice })}`)
-            n++
-          }
-  // the biggest zoom on the narrowest phone, the microphone on: the bar may wrap, but nothing leaves the box
-  for (const where of ['space', 'task'] as const) {
-    console.log(`ok  ${await check(browser, demo.url, { width: 320, zoom: 200, where, working: false, voice: true })}`)
-    n++
-  }
-  console.log(`box check: ${n} scenes, the bar one line in each up to Zoom 125%, nothing cut off at 200%`)
+          for (const voice of [false, true]) if (!(voice && working)) await run({ width, zoom, where, working, voice })
+  // bigger zooms, and the most crowded bar (the microphone and Update <agent>)
+  for (const width of [320, 390])
+    for (const zoom of [150, 175, 200]) {
+      await run({ width, zoom, where: 'space', working: true, voice: false })
+      await run({ width, zoom, where: 'space', working: false, voice: true })
+    }
+  for (const width of [320, 390])
+    for (const zoom of [100, 125]) await run({ width, zoom, where: 'space', working: false, voice: true, update: true })
+  console.log(`box check: ${n} scenes; the bar one line wherever it has room, nothing cut off anywhere`)
 } finally {
   await browser.close()
   demo.server.kill()

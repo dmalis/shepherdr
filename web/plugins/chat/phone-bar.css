@@ -3,16 +3,35 @@
    drops its logo, chevron and permission mode (picker.tsx's fitAgentLine), then its effort gives way before the
    model's name, each cut with an ellipsis. Upstream's narrow box (ds.css, under 336px: a phone under 368px wide, or
    Zoom over 100%) gives the model line a row of its own instead, which pushes send or stop alone onto a third row.
-   That stays only for a box too narrow for one bar with a readable model line (+, the microphone, send and about 60px
-   of model): under 216px, at the app's own Zoom (zoom-css.ts scales the query), e.g. a 320px phone at 150% and up.
-   Only where a finger is the pointer: a desktop window keeps upstream's narrow box. While typing the bar joins the
-   text's row (typing.css). */
+
+   That stays only for a box too narrow for one bar with a readable model line: its side padding (12px), + (44px),
+   send or stop (40px), about 60px of model line and the gaps between them need 168px, and each more button in the bar
+   (the microphone, Update <agent>; .ib like +) 48px more. The queries are in the app's own px: zoom-css.ts scales them
+   with Zoom, so a 320px phone keeps one bar up to Zoom 150% with + and send alone, 125% with the microphone too.
+   Not while dictating or in a call: the bar is its own surface then (dictate.css). Only where a finger is the pointer:
+   a desktop window keeps upstream's narrow box. While typing the bar joins the text's row (typing.css). */
 @media (pointer: coarse) {
-  @container (min-width: 216px) {
-    .app .cbox > .cbar:has(> .agent) {
+  @container (min-width: 168px) {
+    .app .cbox > .cbar:has(> .agent):not(:has(> :is(.dsurf, .vin), > .ib ~ .ib)) {
       flex-wrap: nowrap;
     }
-    .app .cbox > .cbar > .agent {
+    .app .cbox > .cbar:not(:has(> :is(.dsurf, .vin), > .ib ~ .ib)) > .agent {
+      flex: 0 1 auto;
+    }
+  }
+  @container (min-width: 216px) {
+    .app .cbox > .cbar:has(> .agent):not(:has(> :is(.dsurf, .vin), > .ib ~ .ib ~ .ib)) {
+      flex-wrap: nowrap;
+    }
+    .app .cbox > .cbar:not(:has(> :is(.dsurf, .vin), > .ib ~ .ib ~ .ib)) > .agent {
+      flex: 0 1 auto;
+    }
+  }
+  @container (min-width: 264px) {
+    .app .cbox > .cbar:has(> .agent):not(:has(> :is(.dsurf, .vin), > .ib ~ .ib ~ .ib ~ .ib)) {
+      flex-wrap: nowrap;
+    }
+    .app .cbox > .cbar:not(:has(> :is(.dsurf, .vin), > .ib ~ .ib ~ .ib ~ .ib)) > .agent {
       flex: 0 1 auto;
     }
   }
