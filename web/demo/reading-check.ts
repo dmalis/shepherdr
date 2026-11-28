@@ -5,6 +5,7 @@
 //     with the chat's view not moved by it (the same scroll position, the same top) and no long task while scrolling;
 //   - a small scroll toward the newest message, a tap on the chat, focus in the box: all back;
 //   - with text in the box: nothing steps aside;
+//   - one big jump back from the newest message: the chat stays where it went (not pulled back to its end);
 //   - Motion Reduced: the switch is instant (no animation runs);
 // and at a desktop's width with a mouse: nothing changes. A scene reports every break it finds.
 //
@@ -169,6 +170,24 @@ async function check(browser: Browser, base: string, s: Scene) {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await drag(page, -300)
     expect(!(await state(page)).reading, `${name}: with text in the box nothing steps aside`)
+
+    // one big jump back from the newest message (a fling's first step, Page Up): it stays where it went, the chat no
+    // longer pinned to its end, and reads
+    await page.locator('.cbox textarea.cin >> visible=true').first().fill('')
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.evaluate(() => {
+      const sc = [...document.querySelectorAll<HTMLElement>(':is(.chat, .pane) > .scroll')].find((e) => e.getClientRects().length && e.parentElement!.querySelector(':scope > .foot > .cbox'))!
+      sc.scrollTop = sc.scrollHeight
+    })
+    await page.waitForTimeout(400)
+    const jumped = await page.evaluate(() => {
+      const sc = [...document.querySelectorAll<HTMLElement>(':is(.chat, .pane) > .scroll')].find((e) => e.getClientRects().length && e.parentElement!.querySelector(':scope > .foot > .cbox'))!
+      sc.scrollTop -= 900
+      return sc.scrollTop
+    })
+    await page.waitForTimeout(400)
+    const after = await state(page)
+    expect(after.reading && after.top === jumped, `${name}: one big jump back stays where it went and reads (${jumped} -> ${JSON.stringify(after)})`)
 
     const long = await page.evaluate(() => (window as unknown as { __long: number[] }).__long)
     expect(!long.length, `${name}: no long task while scrolling (${long.join(', ')} ms)`)

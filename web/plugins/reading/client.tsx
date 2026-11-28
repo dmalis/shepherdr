@@ -70,9 +70,19 @@ export default definePlugin({
       set(false)
     }
 
+    // Decided once a frame, before it is drawn and after every scroll listener: the chat's own (Messages) must first
+    // see it has left its end, or the room changing under it would pull it back there (stick.ts).
+    let pending: HTMLElement | null = null
     const onScroll = (e: Event) => {
       const el = e.target
-      if (!(el instanceof HTMLElement)) return
+      if (!(el instanceof HTMLElement) || !el.matches('.scroll')) return
+      if (!pending) requestAnimationFrame(decide)
+      pending = el
+    }
+    const decide = () => {
+      const el = pending
+      pending = null
+      if (!el?.isConnected) return
       const foot = footOf(el)
       if (!foot) return
       if (!active()) return back()
