@@ -133,7 +133,7 @@ Every run of a schedule starts an agent. Two options on `herdr-task auto add` or
 - **`--check "<command>"`** (`""` takes it away): when the schedule is due, Shepherdr runs the command first, in the
   folder its runs work in, for at most 120 seconds, as systemd's `ExecCondition=` does. Exit 0: there is work, and the
   run starts with the command's output in its brief. Exit 1 to 125: nothing to do, so no task and no agent start;
-  the run shows as "checked, nothing to do". Anything else (126 or 127, a signal, the time limit) is a failed check,
+  the run shows as "checked, nothing to do". Anything else (126 to 255, so a check that can't read exits 255; a signal; the time limit) is a failed check,
   and it is said, never silent: the first one starts the run anyway with the failure in its brief, and the ones
   after it in a row start nothing and show as the schedule's error until a check works. The command gets
   `HERDR_TASK_SCHEDULE` (its key), `HERDR_TASK_WHY` (what set it off, a line each) and `HERDR_TASK_LAST_RUN` (when its
@@ -143,7 +143,9 @@ Every run of a schedule starts an agent. Two options on `herdr-task auto add` or
   starts a run at once; what sets the schedule off while that run is open (queued or working, waiting on you too) is
   kept, and one run starts when it ends, naming every reason.
 
-`auto show` says "checks first" and "one run at a time", and how many reasons wait. A one-off takes neither.
+`auto show` says "checks first" and "one run at a time", and how many reasons wait. Taking either away (`--check ""`,
+`--no-fold`) keeps what waits: the next round starts it as it would without. A reason that comes while a check runs
+is checked again after it, unless that check started the run. A one-off takes neither.
 
 ## Where they are kept
 

@@ -18,6 +18,7 @@ checked again with the same reasons. Run now goes around both: the person asked 
 
 import datetime
 import os
+import signal
 import subprocess
 import threading
 
@@ -37,7 +38,8 @@ def set_fields(a, args):
         if check.strip():
             a["check"] = check.strip()
         else:
-            for k in ("check", "checking", "check_failing"):
+            # what waits on a check (`checking`) stays: the next round starts it without one (gate)
+            for k in ("check", "check_failing"):
                 a.pop(k, None)
             if (a.get("last_error") or {}).get("kind") == "check":
                 a.pop("last_error")
@@ -46,8 +48,7 @@ def set_fields(a, args):
         if fold:
             a["fold"] = True
         else:
-            a.pop("fold", None)
-            a.pop("folded", None)
+            a.pop("fold", None)  # what was folded stays: the next round starts it (gate)
     if (a.get("check") or a.get("fold")) and (a.get("every") or {}).get("kind") == "once" and not a.get("on"):
         raise Fail("A one-off runs once: --check and --fold are for schedules that repeat or hear events.")
 
@@ -82,12 +83,19 @@ def gate(s, a, whys, report):
     now; keeps the rest on the schedule. Without --check or --fold it fires each, as before."""
     from .automations import auto_ref, fire
     whys = [tuple(w) for w in whys]
+    if a.get("checking") and not a.get("check"):
+        # its check was taken away while reasons waited on it: they go on as if it never had one
+        whys = [tuple(w) for w in a.pop("checking")["whys"]] + whys
+        s.dirty = True
     if a.get("checking"):
         if whys:
             a["checking"]["whys"] = a["checking"]["whys"] + [list(w) for w in whys]
             s.dirty = True
-        job(s, a, report)  # a check this scheduler doesn't run (it re-exec'd): asked again
+        job(s, a, report)  # a check this scheduler doesn't run (it re-exec'd), or reasons it didn't see: asked again
         return
+    if a.get("folded") and not a.get("fold"):
+        whys = [tuple(w) for w in a.pop("folded")["whys"]] + whys  # --no-fold: what was folded goes on now
+        s.dirty = True
     if a.get("fold"):
         if run_open(s, a):
             if whys:
@@ -151,26 +159,49 @@ def start_checks(report, wait=False):
     return threads
 
 
+def busy():
+    """Whether a check of this scheduler runs or settles now (it re-execs only once none does)."""
+    with _lock:
+        return bool(_running)
+
+
+def stop_group(p):
+    """A check past its time: its whole process group (the shell and what it started) stopped, then reaped."""
+    for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(p.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            return p.communicate(timeout=wait)
+        except subprocess.TimeoutExpired:
+            continue
+    return None, None
+
+
 def run_check(j):
     """(kind, words): ("work", its output), ("nothing", its first line) or ("failed", why)."""
     env = {**os.environ, "HERDR_TASK_SCHEDULE": str(j.get("ref") or j["id"]), "HERDR_TASK_WHY": "\n".join(j["why"]),
            "HERDR_TASK_LAST_RUN": str(j.get("last_run") or "")}
     try:
-        r = subprocess.run(["sh", "-c", j["command"]], cwd=j["folder"], env=env, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                           errors="replace", timeout=CHECK_TIMEOUT_S, start_new_session=True)
-    except subprocess.TimeoutExpired:
-        return "failed", f"it took longer than {CHECK_TIMEOUT_S} s"
+        p = subprocess.Popen(["sh", "-c", j["command"]], cwd=j["folder"], env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                             errors="replace", start_new_session=True)
     except OSError as e:
         return "failed", f"it couldn't start ({e.strerror or e})"
-    out = (r.stdout or "").strip()
-    if r.returncode == 0:
+    try:
+        stdout, stderr = p.communicate(timeout=CHECK_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        stop_group(p)
+        return "failed", f"it took longer than {CHECK_TIMEOUT_S} s"
+    out, code = (stdout or "").strip(), p.returncode
+    if code == 0:
         return "work", out[-OUTPUT_KEPT:]
-    if 1 <= r.returncode <= 125:
+    if 1 <= code <= 125:
         return "nothing", (out.splitlines() or [""])[0][:200]
-    last = ((r.stderr or "").strip().splitlines() or [""])[-1][:200]
-    why = ("it couldn't run (126)" if r.returncode == 126 else "its command wasn't found (127)" if r.returncode == 127
-           else f"it was stopped by signal {-r.returncode}" if r.returncode < 0 else f"it exited {r.returncode}")
+    last = ((stderr or "").strip().splitlines() or [""])[-1][:200]
+    why = ("it couldn't run (126)" if code == 126 else "its command wasn't found (127)" if code == 127
+           else f"it was stopped by signal {-code}" if code < 0 else f"it exited {code}")
     return "failed", why + (f": {last}" if last else "")
 
 
@@ -188,16 +219,27 @@ def check_then_run(j, report):
 
 def settle(j, kind, said, report):
     """The check's answer, written to the schedule in its list (a run started, or recorded as checked)."""
-    from .automations import RUNS_KEPT, auto_ref, fire
+    from .automations import RUNS_KEPT, auto_ref, fire, starts_runs
     from .store import Store, locate
     with Store(locate(j["folder"])) as s:
         a = next((x for x in s.data.get("automations") or [] if x.get("id") == j["id"]), None)
-        if not a or not a.get("checking"):
+        if not a or not a.get("checking") or not a.get("check"):
+            return  # gone, or its check was taken away meanwhile: the next round starts what waits without one
+        if a.get("paused") or a.get("space_paused") or not starts_runs(s, a):
+            a.pop("checking")  # paused, or Schedules off (Settings, Plugins): no run, as for a reason heard while off
+            s.dirty = True
             return
-        whys = [tuple(w) for w in a.pop("checking")["whys"]]
+        # only the reasons this check saw: one that came while it ran is checked again in the next round (gate, job)
+        held = a["checking"]["whys"]
+        seen, rest = held[:len(j["why"])], held[len(j["why"]):]
+        if kind == "work" or (kind == "failed" and not a.get("check_failing")):
+            seen, rest = held, []   # a run starts: it covers every reason that waits
+        if rest:
+            a["checking"] = {"since": now(), "whys": rest}
+        else:
+            a.pop("checking")
         s.dirty = True
-        if a.get("paused") or a.get("space_paused") or not a.get("check"):
-            return
+        whys = [tuple(w) for w in seen]
         why, brief = joined(whys)
         if kind == "nothing" or (kind == "failed" and a.get("check_failing")):
             rec = {"at": now(), "why": why}

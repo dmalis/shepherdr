@@ -129,7 +129,7 @@ class WatchCheck(unittest.TestCase):
         before = self.checkpoint()
         open(os.path.join(self.fake, "down"), "w").close()
         code, _, err = self.check()
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 255)
         self.assertIn("error connecting to api.github.com", err)
         self.assertEqual(self.checkpoint(), before)
         os.remove(os.path.join(self.fake, "down"))
@@ -137,6 +137,25 @@ class WatchCheck(unittest.TestCase):
         code, out, _ = self.check()
         self.assertEqual((code, out), (0, ["upstream 501 updated 2026-11-29T09:00:00Z"]))
         self.assertIn(f"since={before}", self.calls()[-2][2])  # read from the last good checkpoint
+
+    def test_the_scheduler_reads_its_answers_as_meant(self):
+        """Through herdr-task's own result handler (schedule_gate.run_check): moved is work, quiet is nothing, and a
+        read that fails is a failed check (never nothing to do, so an outage can't hide a reply)."""
+        sys.path.insert(0, os.path.join(ROOT, "mods", "tasks", "bin"))
+        from herdr_task import schedule_gate
+        from unittest import mock
+        job = {"id": 1, "folder": self.space, "command": CHECK, "why": ["time"]}
+        self.answers("eliasstravik/shepherdr", [])
+        self.answers("dmalis/shepherdr", [])
+        with mock.patch.dict(os.environ, self.env):
+            self.assertEqual(schedule_gate.run_check(job)[0], "nothing")
+            open(os.path.join(self.fake, "down"), "w").close()
+            kind, why = schedule_gate.run_check(job)
+            self.assertEqual(kind, "failed")
+            self.assertIn("it exited 255", why)
+            os.remove(os.path.join(self.fake, "down"))
+            self.answers("eliasstravik/shepherdr", [{"number": 501, "updated_at": "2026-11-29T09:00:00Z"}])
+            self.assertEqual(schedule_gate.run_check(job), ("work", "upstream 501 updated 2026-11-29T09:00:00Z"))
 
     def test_a_run_that_failed_is_found_again(self):
         """Work found, its agent failed (the view didn't move): the next check still finds it."""

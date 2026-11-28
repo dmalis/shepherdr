@@ -10,7 +10,7 @@ It says whether anything the watch looks at moved, from a few light reads, and l
 - our open issues updated since its checkpoint (one gh call): one the view hasn't seen, not opened by a task or the
   pipeline (labels patch, pipeline, handover).
 
-Exit 0 with one line per thing that moved (the agent starts on them), 1 when nothing did, 2 when a read failed (a failed
+Exit 0 with one line per thing that moved (the agent starts on them), 1 when nothing did, 255 when a read failed (a failed
 check: the scheduler says it). It compares with the watch agent's own view, `.private/upstream-watch.json`, which the
 agent writes only after a run that worked, and keeps its own last good checkpoint, `.private/upstream-watch-check.json`
 ({"since": the start of the last check that worked and found nothing}). A check that finds work or fails leaves the
@@ -131,7 +131,7 @@ def main(argv=None, now=None):
         found = moved(view, since, a.repo, fetch=not a.no_fetch)
     except Failed as e:
         print(f"the check couldn't read: {e}", file=sys.stderr)
-        return 2
+        return 255
     if found:
         print("\n".join(found))
         return 0

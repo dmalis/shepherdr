@@ -57,7 +57,7 @@ or config (AGENTS.md).
 |---|---|
 | 0: there is work | The run starts as it would without a check. Its brief gets "The schedule's check found:" and its output (stdout, the last 4000 characters). |
 | 1 to 125: nothing to do | No task, no agent, no news. Its runs record `{at, why, nothing: "check"}` and its first output line. |
-| 126, 127, a signal, the time limit, or it can't start: the check failed | Said, never silent (below). |
+| 126 to 255 (126 and 127: can't run, not found), a signal, the time limit, or it can't start: the check failed | Said, never silent (below). |
 
 126 and 127 (can't run, not found) are failures, not "nothing": under systemd a typo in the path would skip every run
 quietly.
@@ -123,7 +123,7 @@ reusing Scheduled's helpers as class attributes): each acceptance line, `Run now
 ### The watch's check: `fork/bin/watch-check`
 
 Run in the space's folder by the "Watch upstream issues" schedule. Exit 0 with one line per thing that moved, 1 when
-nothing did, 2 on any gh or git error.
+nothing did, 255 on any gh or git error (a failed check: 1 to 125 would read as nothing to do).
 
 It compares with two files in `.private/` (git-ignored, never committed):
 - the watch agent's own view, `.private/upstream-watch.json` (written by the agent only after a run succeeded);
@@ -161,8 +161,9 @@ look at those first, and still end `--nothing` when none of it is news."
   - `finish` gives the completion command at once. The run's installs stay tracked, unresolved.
   - `settle` and `select` (every later run) read main's runs once, without waiting (`merged.ci_read`, one call), when
     an install is unresolved, so the recovery point (the newest install whose CI passed) still moves on.
-  - A red verdict that read finds is marked told without words: the main-red notice told it. A missing verdict (no
-    run covered an install) is still told in the next run's words, as today: no notice covers that.
+  - A red or missing verdict that read finds is told once in that run's finish words, as `ci` told it. Shepherdr's
+    main-red notice may tell a red main first, but the pipeline can't see that it reached anyone (its watch ends after
+    three hours, and GitHub may be down meanwhile), so it never counts as told (review round 1).
   - `fork/bin/sync ci` stays, with `finish --wait-ci` to hand a run to it, for a run that wants the verdict now (the person's ask); no step calls them. The glance (`merged.ci_glance`) never stops a run: a read that fails is left for the next.
   - FORK.md's "Our own merges" step 3 and the upstream-sync skill's step 7 and "CI after the install" say this.
 - **Unchanged:** preflight, baseline, settle, the rehearsal, install, health, rollback, issues, `found installed`,

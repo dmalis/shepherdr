@@ -225,8 +225,8 @@ the open `pipeline` issue.
 **CI after the install.** Nothing waits for it. Shepherdr itself watches main after each merge, and tells this
 space's Assistant once when it goes red, with the failing check, to open a fix task. A later run's `settle` and
 `select` read main's runs once (no waiting) for the installs without a verdict: a pass moves the recovery point
-(the last install CI passed), a red one is marked told without words (Shepherdr's notice told it), and one that
-never ran is told once in that run's `--told` words. Never roll back on red CI. Go back to the recovery point only
+(the last install CI passed), and a red one or one that never ran is told once in that run's `--told` words
+(Shepherdr's notice may have told a red one first: nothing here can see that it did). Never roll back on red CI. Go back to the recovery point only
 when the person asks. Post the words `finish` gives as they are: never add commit hashes, waits or verdicts of
 your own.
 

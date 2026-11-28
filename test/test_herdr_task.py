@@ -15491,6 +15491,62 @@ class ScheduleCheck(unittest.TestCase):
         self.assertIn("schedule_gate.gate(s, a, whys, report)", inspect.getsource(self.au.automations_pass))
         self.assertEqual(list(inspect.signature(self.au.fire).parameters), ["s", "a", "why", "brief"])
         self.assertIn("schedule_gate.start_checks(report, wait=args.once)", inspect.getsource(self.au.cmd_scheduler))
+        self.assertIn("if schedule_gate.busy():\n                continue", inspect.getsource(self.au.cmd_scheduler))  # no re-exec mid-check
+
+    def test_a_reason_that_comes_mid_check_is_checked_on_its_own(self):
+        """The check saw only the first merge: its "nothing" covers that one, and the second is checked after."""
+        self.auto("add", title="Install", prompt="Install it.", on="merged",
+                  check='sleep 2; case "$HERDR_TASK_WHY" in *APP-2*) echo go;; *) exit 1;; esac')
+        self.merge("First", wait=False)
+        running = self.threads
+        self.merge("Second", wait=False)
+        for t in running:
+            t.join()
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.schedule()["runs"][-1]["why"], "merged: APP-1")
+        self.assertEqual([w[0] for w in self.schedule()["checking"]["whys"]], ["merged: APP-2"])
+        self.round()
+        self.assertEqual(len(self.started), 1)
+        self.assertIn('the task "Second" was merged', self.task(self.started[0][0])["prompt"])
+        self.assertIsNone(self.schedule().get("checking"))
+
+    def test_past_its_time_the_whole_check_is_stopped(self):
+        self.mock.patch.object(self.gate, "CHECK_TIMEOUT_S", 1).start()
+        self.addCleanup(self.mock.patch.stopall)
+        pidfile = os.path.join(self.folder, "child.pid")
+        self.assertEqual(self.gate.run_check({"id": 1, "folder": self.folder, "why": [],
+                                              "command": f"sleep 30 & echo $! > {pidfile}; wait"})[0], "failed")
+        with open(pidfile) as f:
+            pid = int(f.read())
+        import time as clock
+        for _ in range(40):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            clock.sleep(0.05)
+        else:
+            self.fail("the check's child still runs")
+
+    def test_schedules_switched_off_mid_check_start_nothing(self):
+        _, at = self.due("sleep 1; echo go")
+        self.round(at, wait=False)
+        self.mock.patch.object(self.au, "plugin_off", lambda name: name == "schedules").start()
+        self.addCleanup(self.mock.patch.stopall)
+        for t in self.threads:
+            t.join()
+        self.assertEqual((self.started, self.schedule().get("checking")), ([], None))
+
+    def test_taking_the_check_away_keeps_what_waits_on_it(self):
+        _, at = self.due("echo go")
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            s.data["automations"][0]["checking"] = {"since": 1, "whys": [["time", None]]}
+            s.dirty = True
+        self.auto("edit", id="1", check="")
+        self.assertTrue(self.schedule().get("checking"))
+        r = self.round(at - 2000)  # not due again: only what waited
+        self.assertEqual((len(self.started), r.get("checks")), (1, None))
+        self.assertIsNone(self.schedule().get("checking"))
 
     # -- helpers for events --
     def merge(self, title, wait=True):
@@ -15557,3 +15613,13 @@ class ScheduleFold(unittest.TestCase):
         self.round()
         self.assertEqual(len(self.started), 2)
         self.assertIn('the task "Third" was merged', self.task(self.started[1][0])["prompt"])
+
+    def test_no_fold_starts_what_was_folded(self):
+        self.auto("add", title="Install", prompt="Install it.", on="merged", fold=True)
+        self.merge("First")
+        self.merge("Second")
+        self.assertEqual(len(self.started), 1)
+        self.auto("edit", id="1", fold=False)
+        self.round()
+        self.assertEqual(len(self.started), 2)
+        self.assertIn('the task "Second" was merged', self.task(self.started[1][0])["prompt"])

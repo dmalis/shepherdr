@@ -859,6 +859,14 @@ def from_events(s, a, feeds):
     return out
 
 
+def starts_runs(s, a):
+    """Whether schedule `a` may start a run now: the Schedules plugin on, and schedules on in its Settings."""
+    if plugin_off("schedules"):
+        return False
+    return settings_for(s, a.get("space"))["automations"].get("enabled", True) if a.get("space") \
+        else settings_for(s)["automations"].get("enabled", True)
+
+
 def automations_pass(s, seen, report, feeds=None):
     """Fires this folder's automations that are due: their time came (once), or an event they hear
     (once per event). feeds: the --from folders' tasks now (feeds_for)."""
@@ -1067,6 +1075,8 @@ def cmd_scheduler(args):
         nap(15, began)  # dmalis/shepherdr#54: less when a task done meanwhile wakes it (start_after.py)
         # Updated, or this machine's data moved since: carry on as the new version, on the new paths.
         if script_hash() != started or (not test and WHERE.migrated != on_layout):
+            if schedule_gate.busy():
+                continue  # dmalis/shepherdr#229: not while a schedule's check runs or settles (its run could start twice)
             fcntl.flock(me, fcntl.LOCK_UN)
             os.execv(sys.executable, [sys.executable, ENTRY, "scheduler"])
 

@@ -418,8 +418,8 @@ class CiAfterInstall(syncworld.World):
 
     def test_by_default_no_run_waits_on_ci(self):
         """#230: finish gives the completion command at once while CI hasn't answered; the install stays tracked, and
-        a later run's glance (settle, select) reads it once: a red one is marked told without words (Shepherdr's
-        main-red notice told it), a missing one is still told in that run's words, and the recovery point moves on."""
+        a later run's glance (settle, select) reads it once, and a red or missing one waits for that run's finish words
+        (nothing here can see that Shepherdr's main-red notice reached anyone)."""
         self.installed(self.main0)
         with mock.patch.object(merged, "ci_read", side_effect=AssertionError("a CI read in finish")):
             out = self.finish(says="The button works")
@@ -432,12 +432,13 @@ class CiAfterInstall(syncworld.World):
 
         def read(p, repo, now=None, runs_of=None):
             with state.locked(p) as st:
-                st["ci"][self.main0].update(verdict="red", names=red)
+                st.setdefault("ci", {})[self.main0] = {"verdict": "red", "names": red, "version": "3.2.21",
+                                                       "tag": "ours-3.2.21-1", "told": False}
             return {}
         with mock.patch.object(merged, "ci_read", side_effect=read):
             merged.ci_glance(self.p, self.wt)
         with state.locked(self.p) as st:
-            self.assertEqual(merged.ci_untold(st, mark=False), [])  # told by the main-red notice, not again by us
+            self.assertEqual([sha for sha, _ in merged.ci_untold(st, mark=False)], [self.main0])  # for finish to say
         with mock.patch.object(merged, "ci_read", side_effect=RuntimeError("GitHub is down")):
             self.assertIsNone(merged.ci_glance(self.p, self.wt))  # never stops the run
 
