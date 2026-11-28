@@ -2,27 +2,34 @@
 // demo in a headless Chrome whose only pointer is a finger, at 390 px, in a space's chat (#shop) and a task's thread
 // (SHOP-15), and in each:
 //   - scrolling back toward older messages: the bottom tabs go, the box folds to one row and the chat gets the room,
-//     with the chat's view not moved by it (the same scroll position, the same top) and no long task while scrolling;
+//     with the chat's view not moved by it (the same scroll position, the same top);
 //   - a small scroll toward the newest message, a tap on the chat, focus in the box: all back;
+//   - the switch is a few layouts, and the slide after it none: counted by Chrome, not timed, so a slow runner can't
+//     fail it and a slide that lays out every frame can't pass;
 //   - with text in the box: nothing steps aside;
 //   - one big jump back from the newest message: the chat stays where it went (not pulled back to its end);
 //   - Motion Reduced: the switch is instant (no animation runs);
 // and at a desktop's width with a mouse: nothing changes. A scene reports every break it finds.
 //
-//   bun run build && bun web/demo/reading-check.ts [--shots <dir>] [--video <dir>]
+//   bun run build && bun web/demo/reading-check.ts [--shots <dir>] [--video <dir>] [--cpu <n>]
 //
-// --shots keeps a picture of each state, light and dark; --video records the 390 px scroll up, down and a tap.
+// --shots keeps a picture of each state, light and dark; --video records the 390 px scroll up, down and a tap;
+// --cpu runs every page n times slower (Chrome's CPU throttling), to see that the counts don't change with speed.
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
-import { chromium, type Browser, type Page } from 'playwright-core'
+import { chromium, type Browser, type CDPSession, type Page } from 'playwright-core'
 import { chrome } from './tap-check.ts'
 
 const arg = (k: string) => (process.argv.includes(k) ? process.argv[process.argv.indexOf(k) + 1]! : '')
 const shots = arg('--shots')
 const video = arg('--video')
+const cpu = Number(arg('--cpu')) || 1
 for (const d of [shots, video]) if (d) mkdirSync(d, { recursive: true })
 
 const TALL = 844
+/** the most layouts a switch's step may take, and its slide after it (see the end of check()) */
+const SWITCH = 6
+const SLIDING = 2
 
 async function startDemo() {
   const probe = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() })
@@ -76,9 +83,41 @@ async function drag(page: Page, dy: number) {
   await page.waitForTimeout(400)
 }
 
+/** the layouts the page has done so far (Chrome's own count: the same on a fast machine and a slow one) */
+async function layouts(cdp: CDPSession) {
+  const { metrics } = await cdp.send('Performance.getMetrics')
+  return metrics.find((m) => m.name === 'LayoutCount')?.value ?? 0
+}
+
+/** What a switch costs, by count: drag steps (as drag()'s) only until the mark flips, then still while the box and
+ *  the tabs slide. `step`: the layouts of the step that flipped it (the switch's own, the box's text refitted, its
+ *  first frame); `slide`: those in the half second after, while they move. A drag's scroll steps lay out nothing
+ *  here, so holding still counts the slide as a drag would. */
+async function slide(page: Page, cdp: CDPSession, dy: number) {
+  let before = await layouts(cdp)
+  for (let moved = 0; Math.abs(moved) < Math.abs(dy); moved += 20) {
+    const flipped = await page.evaluate(async (step) => {
+      const root = document.documentElement
+      const was = root.classList.contains('reading')
+      const sc = [...document.querySelectorAll<HTMLElement>(':is(.chat, .pane) > .scroll')].find((e) => e.getClientRects().length && e.parentElement!.querySelector(':scope > .foot > .cbox'))!
+      sc.scrollTop += step
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+      return root.classList.contains('reading') !== was
+    }, dy < 0 ? -20 : 20)
+    const after = await layouts(cdp)
+    if (flipped) {
+      await page.waitForTimeout(500)
+      return { step: after - before, slide: (await layouts(cdp)) - after }
+    }
+    before = after
+  }
+  return null
+}
+
 async function check(browser: Browser, base: string, s: Scene) {
   const name = `${s.where} ${s.width}px${s.phone ? '' : ' mouse'}${s.dark ? ' dark' : ''}${s.reduced ? ' reduced' : ''}`
   const fails: string[] = []
+  const counts: string[] = []
   const expect = (ok: boolean, what: string) => ok || fails.push(what)
   const ctx = await browser.newContext({
     viewport: { width: s.width, height: s.phone ? TALL : 800 },
@@ -109,6 +148,9 @@ async function check(browser: Browser, base: string, s: Scene) {
       )
     })
     const page = await ctx.newPage()
+    const cdp = await ctx.newCDPSession(page)
+    await cdp.send('Performance.enable')
+    if (cpu > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu })
     page.setDefaultTimeout(8000)
     await page.goto(s.where === 'task' ? `${base}?task=SHOP-15` : `${base}?place=${encodeURIComponent('p:mac-mini:shop')}`)
     await page.locator('.cbox textarea.cin >> visible=true').first().waitFor()
@@ -116,13 +158,6 @@ async function check(browser: Browser, base: string, s: Scene) {
     await page.evaluate(() => document.querySelector<HTMLElement>('.anote button[aria-label="Dismiss"], .anote .x')?.click())
     await page.waitForTimeout(300)
     const shot = async (what: string) => shots && page.screenshot({ path: `${shots}/${`${name} ${what}`.replace(/[^\w]+/g, '-')}.png` })
-    // long tasks while scrolling (none may come from the mark)
-    await page.evaluate(() => {
-      const w = window as unknown as { __long: number[] }
-      w.__long = []
-      new PerformanceObserver((l) => l.getEntries().forEach((e) => w.__long.push(Math.round(e.duration)))).observe({ type: 'longtask' })
-    })
-
     const at = await state(page)
     expect(!at.reading && (at.tabs || !s.phone), `${name}: at the newest message, the tabs are there (${JSON.stringify(at)})`)
     await shot('1 newest')
@@ -131,7 +166,7 @@ async function check(browser: Browser, base: string, s: Scene) {
     const up = await state(page)
     if (!s.phone) {
       expect(!up.reading, `${name}: a mouse window never steps aside`)
-      return { name, fails }
+      return { name, fails, counts }
     }
     expect(up.reading, `${name}: scrolled back 700px, it reads (${JSON.stringify(up)})`)
     expect(!up.tabs, `${name}: the tabs stepped aside`)
@@ -191,9 +226,18 @@ async function check(browser: Browser, base: string, s: Scene) {
     const after = await state(page)
     expect(after.reading && after.top === jumped, `${name}: one big jump back stays where it went and reads (${jumped} -> ${JSON.stringify(after)})`)
 
-    const long = await page.evaluate(() => (window as unknown as { __long: number[] }).__long)
-    expect(!long.length, `${name}: no long task while scrolling (${long.join(', ')} ms)`)
-    return { name, fails }
+    // What a switch costs the main thread, both ways, as counts: its step (today 3 or 4 layouts) and nothing per frame
+    // while the box and the tabs slide (today 1 as the slide ends, 0 with Motion Reduced). A slide drawn with layout
+    // (a margin, height or top that moves, or a script that sizes and measures each frame) lays out every frame,
+    // 13 to 23 times here at normal speed and 10x slower: well past the bar on any runner. Not timed: a long task's
+    // length is the runner's speed (the old "no long task while scrolling" failed at 54 ms on GitHub's shared runners
+    // while the same commit passed, and 6 runs in 10 here at 10x slower).
+    for (const dy of [40, -700]) {
+      const c = await slide(page, cdp, dy)
+      if (c) counts.push(`${dy < 0 ? 'to reading' : 'back'} ${c.step} + slide ${c.slide}`)
+      expect(!!c && c.step <= SWITCH && c.slide <= SLIDING, `${name}: the switch ${dy < 0 ? 'to reading' : 'back'} is at most ${SWITCH} layouts and its slide at most ${SLIDING} (${c ? `${c.step} and ${c.slide}` : 'it never switched'})`)
+    }
+    return { name, fails, counts }
   } finally {
     await ctx.close()
   }
@@ -212,8 +256,8 @@ const browser = await chromium.launch({ executablePath: chrome() })
 let failed = 0
 try {
   // the scenes side by side, each in its own context and page process: the CI job has one time limit for all its steps
-  for (const { name, fails } of await Promise.all(SCENES.map((scene) => check(browser, demo.url, scene)))) {
-    if (!fails.length) console.log(`ok    ${name}`)
+  for (const { name, fails, counts } of await Promise.all(SCENES.map((scene) => check(browser, demo.url, scene)))) {
+    if (!fails.length) console.log(`ok    ${name}${counts.length ? ` (layouts: ${counts.join(', ')})` : ''}`)
     else {
       failed++
       console.log(`FAIL  ${name}`)
