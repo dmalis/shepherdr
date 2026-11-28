@@ -1,0 +1,43 @@
+/* fork #144: reading back through a chat on a phone (html.reading, reading.ts), where a finger is the pointer. The
+   bottom tabs slide down out of sight, as Safari's bottom bar and iOS 26's tab bar do on a scroll; the message box
+   folds to one row (typing.css, the same as while typing) and takes their place above the home indicator. Out of the
+   page's flow at once, so the chat gets the room in one layout; what moves is a transform. A mouse window never
+   matches. */
+@media (pointer: coarse) {
+  .app.phone .bar {
+    transition:
+      transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.2s ease;
+  }
+  .reading .app.phone .bar {
+    position: absolute;
+    inset: auto 0 0;
+    transform: translateY(100%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    /* hidden from VoiceOver once it is out of sight; focus in the box brings it back (client.tsx) */
+    transition:
+      transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.2s ease,
+      visibility 0s linear 0.32s;
+  }
+  /* the tabs' band for the home indicator goes with them: the box keeps clear of it */
+  .reading .app.phone :is(.chat, .pane) > .foot:has(> .cbox) {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  /* suggested replies answer the newest message: they wait until you are back near it */
+  .reading .app.phone .foot > :is(.sugs, .sugfor) {
+    display: none;
+  }
+}
+
+/* Motion Reduced (Settings › General) or the system's reduce-motion: the tabs switch at once */
+:root[data-motion='reduced'] .app.phone .bar {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .app.phone .bar {
+    transition: none;
+  }
+}

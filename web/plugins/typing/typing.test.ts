@@ -191,7 +191,8 @@ test('only where a finger is the pointer, and only with the mark: a desktop wind
   expect(rules.slice(0, open).trim()).toBe('')
   const selectors = [...rules.slice(open + 26).matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => m[1].trim())
   expect(selectors.length).toBeGreaterThan(5)
-  for (const s of selectors) expect(s.startsWith(`.${TYPING} .app`) || s.startsWith(`html.${TYPING} .app`)).toBe(true)
+  // fork #144: the one-row box also answers to the reading mark (a phone, reading back)
+  for (const s of selectors) expect(s.startsWith(`.${TYPING} .app`) || s.startsWith(`html.${TYPING} .app`) || s.startsWith(`:is(.${TYPING}, .reading) .app`)).toBe(true)
 })
 
 test('what steps aside: the tabs, the bands, the folder and the model line, a task line, the notes on top', () => {
@@ -242,7 +243,8 @@ test('upstream seams: the keyboard state, the bar, the header lines, the bands a
 // its model and effort line stepping aside until the keyboard closes, and the suggested replies step aside once you
 // type. Its text area is fitted to its new width each time the mark changes.
 
-const ONE_ROW = '.kb-up .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin)))'
+// fork #144: the same rules answer to the reading mark (the reading plugin)
+const ONE_ROW = ':is(.kb-up, .reading) .app .cbox:has(> .crow + .cbar):not(:has(> .cbar > :is(.dsurf, .vin)))'
 
 test('the message box is one row while typing: + first, then the text, then the rest; the agent line steps aside', () => {
   expect(css).toContain(`${ONE_ROW} {\n    display: flex;\n    flex-wrap: wrap;\n    align-items: flex-end;`)
