@@ -226,9 +226,10 @@ def tool_name(word, path):
 # and only its own helpers (<task>-review, -helper) to wait on, read or end.
 REVIEWERS = {"codex": (["codex", "--no-daemon", "--sandbox", "read-only", "--ask-for-approval", "never"],
                        {"--disable": re.compile(r"hooks"), "-m": re.compile(r"[\w.:-]+"),
-                        "-c": re.compile(r'model_reasoning_effort="?\w+"?')}),
+                        # fork #219: its Compact at (settings.py compact_args)
+                        "-c": re.compile(r'model_reasoning_effort="?\w+"?|model_auto_compact_token_limit=\d{6,8}')}),
              "claude": (["claude", "--permission-mode", "dontAsk", "--tools=" + REVIEW_TOOLS, "--strict-mcp-config"],
-                        {"--model": re.compile(r"[\w.:\[\]-]+"), "--effort": re.compile(r"\w+"),
+                        {"--model": re.compile(r"[\w.:\[\]-]+"), "--effort": re.compile(r"\w+"), "--autocompact": re.compile(r"\d{6,8}"),
                          # #1458: its templates folder, one word (a brief from before it has none)
                          "--add-dir=": re.compile(re.escape(TEMPLATES)),
                          # dmalis/shepherdr#212: or a read rule for only that folder, one word

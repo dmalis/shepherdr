@@ -396,7 +396,7 @@ export class Model {
           // what a Ready task waits on while its checks run, as its row says (dmalis/shepherdr#42)
           // its row's words are its checks' (read a moment apart: a minute's turn may change the time left, never the rest)
           checks_wait: ((cw) => (cw && p.section === "working" && sansLeft(p.why) === sansLeft(cw.line) ? cw : null))(checksWait(task)),
-          pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm } },
+          pick: { agent: task.agent, model: task.model, effort: task.effort, speed: task.speed, perm: task.perm, compact: task.compact } },
         scheduled_for: task.state === "scheduled" ? task.scheduled_for ?? null : null,
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,
         summary: task.summary ?? null, details: task.details ?? null, pr: task.pr ?? task.pr_seen ?? null, prompt: String(task.prompt ?? "").slice(0, 500), why: p.why ?? null,

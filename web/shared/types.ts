@@ -1152,7 +1152,7 @@ export interface Chat {
 
 /** What a chat's agent runs on (SHEP-298: its terminal's arguments and log, never Settings), or, with planned, what its
  *  first message starts it on */
-export interface ChatAgent { kind: string; model?: string; modelLabel?: string; effort?: string; speed?: string; perm?: string; runtime?: AgentRuntime; planned?: PlannedAgent; /** the window's model button: "Opus 5.5 · High" */ words?: string
+export interface ChatAgent { kind: string; model?: string; modelLabel?: string; effort?: string; speed?: string; perm?: string; /** fork #219: the size it compacts at, from its start flags */ compact?: number; runtime?: AgentRuntime; planned?: PlannedAgent; /** the window's model button: "Opus 5.5 · High" */ words?: string
     /** #1222: the extra flags it was started with, one word each ("--advisor=opus") */ flags?: string[]
     /** a newer version of its CLI it can update to (Update <agent>: service/agent-update.ts) */ update?: string }
 
@@ -1301,7 +1301,8 @@ export interface RoleAgent {
   other?: boolean
 }
 /** fast: true (Fast), false (standard) or 'ultrafast' (Codex's Ultrafast tier) */
-export interface AgentPick { agent: string; model?: string | null; effort?: string | null; fast?: boolean | 'ultrafast'; perm?: string | null }
+/** compact (fork #219): the token count its CLI compacts at (Claude Code --autocompact, Codex model_auto_compact_token_limit); none: the CLI's own */
+export interface AgentPick { agent: string; model?: string | null; effort?: string | null; fast?: boolean | 'ultrafast'; perm?: string | null; compact?: number | null }
 
 /** Settings › Agents' model menu, as the window's (mods/chat-models, settings mode; core/agents.js menuFor) */
 export interface ModelMenus {
@@ -1802,6 +1803,8 @@ export interface CatalogModel {
   speeds?: string[]
   efforts?: string[]
   defaultEffort?: string | null
+  /** fork #219: its context window in tokens, where Shepherdr knows it (Compact at offers sizes below it) */
+  window?: number
 }
 
 /** an agent (a harness) herdr-core can run, on one machine */

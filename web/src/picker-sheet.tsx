@@ -8,7 +8,8 @@ import { getState, useChat } from './kernel.ts'
 import { openDialog } from './overlay.tsx'
 import { Btn, I, Logo, Row } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
-import { agentOf, Bolts, choiceList, findModel, modelOf, PickerHead, pickerRows, pickWords, samePick, speedOf, tiersOf, useCatalog, type Field, type LivePick, type Pick } from './picker.tsx'
+import { agentOf, Bolts, choiceList, compactChoices, findModel, modelOf, PickerHead, pickerRows, pickWords, samePick, SPEEDS, speedOf, tiersOf, useCatalog, type Field, type LivePick, type Pick } from './picker.tsx'
+import './picker-compact.css'
 
 
 function AgentPicker({ title, machine, start, typed, onChange, close, live }: { title: string; machine: string; start: Pick; typed?: string; onChange: (p: Pick) => void; close: () => void; live?: LivePick }) {
@@ -78,8 +79,9 @@ function AgentPicker({ title, machine, start, typed, onChange, close, live }: { 
             {r.f === 'agent' ? <Logo agent={p.agent} name={w.agent} /> : <span className="pk-gap" />}
             <span className="n">
               <span className="l2">{r.label}</span>
+              {/* fork #219: Speed says Standard rather than nothing; a faster tier keeps its bolts beside its name */}
               {r.f === 'speed'
-                ? w.speed !== 'regular' && <span className="l1 pk-v"><Bolts speed={w.speed} decorative /></span>
+                ? <span className="l1 pk-v">{SPEEDS[w.speed]}<Bolts speed={w.speed} decorative /></span>
                 : <span className="l1 pk-v">{r.value}</span>}
             </span>
             <I n="right" c="s16" />
@@ -95,6 +97,31 @@ function AgentPicker({ title, machine, start, typed, onChange, close, live }: { 
         </div>
       </div>
     )
+
+  if (field === 'compact') {
+    const items = compactChoices(p, cat)
+    return (
+      <div className="pk">
+        <PickerHead title={`Compact at · ${w.model || w.agent}`} back={() => open('')} close={close} />
+        <div className="list" style={{ minHeight: 0 }}>
+          {items.map((x) => (
+            <Row
+              key={x.id}
+              label={<>{x.label}{x.recommended && <span className="pk-tag">Recommended</span>}</>}
+              sub={x.sub}
+              current={x.on}
+              end={x.on && <I n="check" />}
+              onClick={() => {
+                set(x.pick)
+                open('')
+              }}
+            />
+          ))}
+        </div>
+        <p className="hint">A long session sums up its conversation once it reaches this size, so it keeps going on less. It applies the next time the agent starts.</p>
+      </div>
+    )
+  }
 
   if (field === 'effort' || field === 'speed' || field === 'mode') {
     const c = choiceList(field, p, cat)
@@ -143,7 +170,8 @@ function AgentPicker({ title, machine, start, typed, onChange, close, live }: { 
                 if (x.id !== p.agent) {
                   const first = x.models.find((y) => y.id === x.defaultModel) ?? x.models[0]
                   const eff = first?.efforts ?? x.efforts
-                  set({ agent: x.id, model: first?.id ?? null, effort: p.effort && eff.includes(p.effort) ? p.effort : (first?.defaultEffort ?? x.defaultEffort ?? eff[Math.min(2, eff.length - 1)] ?? null), fast: false, perm: null })
+                  // fork #219: its Compact at goes along (each CLI caps it at its model's window)
+                  set({ agent: x.id, model: first?.id ?? null, effort: p.effort && eff.includes(p.effort) ? p.effort : (first?.defaultEffort ?? x.defaultEffort ?? eff[Math.min(2, eff.length - 1)] ?? null), fast: false, perm: null, compact: p.compact ?? null })
                 }
                 open('model')
               }}

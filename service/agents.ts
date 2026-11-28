@@ -27,14 +27,15 @@ async function run(cmd: string[]) {
   return { code: await p.exited, out, err };
 }
 
-type SettingsPick = { kind: string; model?: string; effort?: string; speed?: string; perm?: string };
+/** compact (fork #219): a size, null for the CLI's own, undefined to keep what it runs with */
+type SettingsPick = { kind: string; model?: string; effort?: string; speed?: string; perm?: string; compact?: number | null };
 type AgentReport = { model?: string; alias?: string; effort?: string; speed?: string; perm?: string };
 type SettingsEvent = Message & { at: number };
 type Phase = "Applying…" | "Restarting…";
 type TaskRoute = { ref: string; folder: string; machine: string | null };
 
 const pickOf = (kind: string, c: any): AgentPick => ({
-  agent: kind, model: rowFor(kind, c), effort: c.effort ?? null, fast: fastOf(c.fast), perm: c.perm ?? null,
+  agent: kind, model: rowFor(kind, c), effort: c.effort ?? null, fast: fastOf(c.fast), perm: c.perm ?? null, compact: c.compact ?? null,
 });
 
 function changesOf(before: AgentPick, after: AgentPick, names: Record<string, string>) {
@@ -44,6 +45,7 @@ function changesOf(before: AgentPick, after: AgentPick, names: Record<string, st
     words.push("Model: " + (names[after.model] || AG.modelName(after.model)));
   if (after.effort && before.effort !== after.effort) words.push("Effort: " + AG.levelName(after.effort));
   if (after.perm && before.perm !== after.perm) words.push("Permissions: " + (AG.menuFor(after.agent, {}).perms.find((p: any) => p.id === after.perm)?.label ?? after.perm));
+  if ((before.compact ?? null) !== (after.compact ?? null)) words.push("Compact at: " + (AG.compactName(after.compact) ?? "Default"));
   if (before.fast !== after.fast) {
     const speed = after.fast === "ultrafast" ? "Ultra-fast" : after.fast ? "Fast" : "Standard";
     words.push(words.length ? "Speed: " + speed : "Switched to " + speed);
@@ -284,9 +286,9 @@ export class Agents {
     const prev = current(kind, argvOf(t), meta, dflt);
     const from = pickOf(kind, prev);
     const to: AgentPick = { agent: pick.kind, model: pick.kind === kind && pick.model === prev.model ? from.model : pick.model ?? null,
-      effort: pick.effort ?? null, fast: speedOf(pick.speed), perm: pick.perm ?? from.perm };
+      effort: pick.effort ?? null, fast: speedOf(pick.speed), perm: pick.perm ?? from.perm, compact: pick.compact !== undefined ? pick.compact : from.compact };
     const same = (a: AgentPick, b: AgentPick) => a.agent === b.agent && (a.model ?? "") === (b.model ?? "") && (a.effort ?? "") === (b.effort ?? "")
-      && (a.fast ?? false) === (b.fast ?? false) && (a.perm ?? "") === (b.perm ?? "");
+      && (a.fast ?? false) === (b.fast ?? false) && (a.perm ?? "") === (b.perm ?? "") && (a.compact ?? null) === (b.compact ?? null);
     if (same(from, to)) return { current: from };
     const nextDefault = pick.kind === kind ? dflt : await this.defaults(pick.kind, machine);
     const names = Object.fromEntries([...menuFor(kind, dflt, from.model).models, ...menuFor(pick.kind, nextDefault, to.model).models].map((m: any) => [m.id, m.name]));
@@ -315,7 +317,10 @@ export class Agents {
     const kind = (fg ? kindOf(t) : null) ?? reader?.kind ?? kindOf(t) ?? "claude";
     // (reader.argv: how an agent that ended ran, from its record: revive())
     const old = { agent: kind, argv: fg?.argv ?? reader?.argv ?? t.argv ?? [], session: sessionOf(kind, reader?.path ?? null) };
-    const built = argvFor({ agent: pick.kind, model: pick.model, effort: pick.effort, fast: speedOf(pick.speed), perm: pick.perm ?? current(kind, old.argv, {}, {}).perm }, old);
+    const was = current(kind, old.argv, {}, {});
+    // fork #219: the size it compacts at stays unless the pick says one (or the CLI's own: null)
+    const built = argvFor({ agent: pick.kind, model: pick.model, effort: pick.effort, fast: speedOf(pick.speed), perm: pick.perm ?? was.perm,
+      compact: pick.compact !== undefined ? pick.compact : was.compact }, old);
     const pane = t.labels?.["herdr.chat"] ?? "";
     const task = t.labels?.["herdr.task"];
     if (task) {

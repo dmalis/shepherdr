@@ -271,6 +271,9 @@ def main():
 
     def pick_opts(c):
         c.add_argument("--speed", help="its agent's service tier: standard, fast or ultrafast, where supported (default: Settings')")
+        # fork #219
+        c.add_argument("--compact", help="the size its agent's conversation compacts at, e.g. 300k (Claude Code's --autocompact, "
+                                         "Codex's model_auto_compact_token_limit; \"\": Settings' again)")
         c.add_argument("--permission", help="its agent's permission mode, in its CLI's words: Claude Code's default, acceptEdits, plan, "
                                             "auto, bypassPermissions; Codex's read-only, auto, approve (Approve for me), full (\"\": Settings' again)")
 

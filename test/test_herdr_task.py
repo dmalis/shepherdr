@@ -4840,6 +4840,95 @@ class ReviewerFlags(unittest.TestCase):
         self.assertNotIn("reviewer_model", t)
 
 
+class CompactAt(unittest.TestCase):
+    """fork #219: Compact at, kept in a role's pick (worker, reviewer) or on a task, said at start with each CLI's own
+    documented switch: Claude Code's --autocompact <tokens>, Codex's -c model_auto_compact_token_limit=<n>. A throwaway
+    settings file; nothing starts an agent."""
+
+    def setUp(self):
+        sys.path.insert(0, BIN)
+        from unittest import mock
+        from herdr_task import settings, takeover
+        self.settings = settings
+        d = tempfile.mkdtemp()
+        import shutil
+        self.addCleanup(shutil.rmtree, d, True)
+        self.file = os.path.join(d, "settings.json")
+        checks = os.path.join(d, "cli-check.json")
+        with open(checks, "w") as f:
+            json.dump({"machines": {"": {"claude": "ready", "codex": "ready"}}}, f)
+        self.write({})
+        for p in (mock.patch.object(settings, "SETTINGS", self.file), mock.patch.object(takeover, "CLI_CHECK", checks),
+                  mock.patch.object(settings.shutil, "which", lambda name: f"/usr/bin/{name}")):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def write(self, everywhere):
+        with open(self.file, "w") as f:
+            json.dump({"everywhere": everywhere}, f)
+
+    def test_each_cli_starts_with_its_own_switch(self):
+        argv_for = self.settings.argv_for
+        self.assertEqual(argv_for({"agent": "claude", "model": "opus", "effort": "high", "compact": 300000})[:7],
+                         ["claude", "--model", "opus", "--effort", "high", "--autocompact", "300000"])
+        self.assertEqual(argv_for({"agent": "codex", "model": "gpt-6.2-sol", "effort": "high", "compact": "300k"}),
+                         ["codex", "--no-daemon", "-m", "gpt-6.2-sol", "-c", 'model_reasoning_effort="high"',
+                          "-c", "model_auto_compact_token_limit=300000", "-c", 'service_tier="default"'])
+        # none, or not a size: the CLI's own, nothing said
+        for v in (None, 5000, "big", True):
+            for agent in ("claude", "codex"):
+                a = " ".join(argv_for({"agent": agent, "compact": v}))
+                self.assertNotIn("autocompact", a)
+                self.assertNotIn("model_auto_compact_token_limit", a)
+        self.assertEqual(self.settings.argv_compact(argv_for({"agent": "codex", "compact": 400000})), 400000)
+        self.assertEqual(self.settings.compact_words(1000000), "1M")
+
+    def test_a_tasks_agent_takes_settings_then_its_own(self):
+        self.write({"worker": {"agent": "claude", "model": "opus", "compact": 300000}})
+        t = {"id": 1, "title": "x", "mode": "worktree"}
+        s = Store([t])
+        self.assertEqual(self.settings.worker_pick(s, t)["compact"], 300000)
+        # another CLI for this task: the size goes along
+        self.assertEqual(self.settings.worker_pick(s, {**t, "agent": "codex"})["compact"], 300000)
+        self.settings.set_task(t, "compact", "400k")
+        self.assertEqual(t["compact"], 400000)
+        self.assertEqual(self.settings.worker_pick(s, t)["compact"], 400000)
+        line = next(x for x in self.settings.task_settings(s, t) if x["label"] == "Agent")
+        self.assertIn("compacts at 400k", line["text"])
+        self.assertEqual(line["value"]["compact"], 400000)
+        self.assertEqual(line["by"], "task")
+        self.settings.set_task(t, "compact", "")
+        self.assertNotIn("compact", t)
+        with self.assertRaises(self.settings.Fail):
+            self.settings.set_task(t, "compact", "10")
+
+    def test_the_reviewer_command_says_it_and_a_worker_may_run_it(self):
+        from unittest import mock
+        from herdr_task import launch
+        self.write({"reviewer": {"agent": "codex", "model": "gpt-6.2-sol", "effort": "high", "compact": 200000}})
+        t = {"id": 1, "title": "x", "mode": "worktree", "set": {"review": "on"}}
+        line = next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"]) if x["label"] == "Reviewer")
+        cmd = line["value"]["command"]
+        self.assertIn("-c model_auto_compact_token_limit=200000", cmd)
+        self.assertEqual(line["value"]["compact"], 200000)
+        # the task's own reviewer size wins
+        self.settings.set_task(t, "reviewer.compact", "150k")
+        line = next(x for x in self.settings.task_settings(Store([t]), t, argv=["claude"]) if x["label"] == "Reviewer")
+        self.assertIn("model_auto_compact_token_limit=150000", line["value"]["command"])
+        claude = self.settings.reviewer_command("claude", "opus", "high", compact=300000)
+        self.assertIn("--autocompact 300000", claude)
+        with mock.patch.dict(os.environ, {"HERDR_BROWSER_TASK": "demo#1"}):
+            own = lambda c: launch.own_command("/x/herdr-task", c, True)  # noqa: E731
+            self.assertTrue(own(f"hc run --bg --name demo-1-review -- {cmd} 'review'"))
+            self.assertTrue(own(f"hc run --bg --name demo-1-review -- {claude} 'review'"))
+            # nothing else rides along on the same switches
+            self.assertFalse(own("hc run --bg --name demo-1-review -- claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash "
+                                 "--strict-mcp-config --autocompact 30k 'review'"))
+            self.assertFalse(own("hc run --bg --name demo-1-review -- codex --no-daemon --sandbox read-only --ask-for-approval never "
+                                 "-c model_auto_compact_token_limit=300000;id 'review'"))
+
+
+
 class MachineHoldFollowsSettings(unittest.TestCase):
     """#768: limits a tick kept in machine-hold.json (--machine/--hold) never shadow Settings >
     Machines saved after them; a newer --hold wins again. Throwaway files; nothing is sampled."""

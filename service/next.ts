@@ -10,6 +10,7 @@ import { everythingOf, sameFolder } from "../core/spaces.js";
 import { readSettings, repoLayer, REPO_SECTIONS, writeSettings } from "./settings.ts";
 import { repoKey, repoOf } from "../core/host.js";
 import { MUST_FIX, ROUNDS } from "../core/settings.js";
+import { compactOf } from "../core/agents.js";
 import { ASK_AFTER_DEFAULT, askAfterOf, isAskAfter } from "../web/shared/ask-after.ts";
 import { waitOf } from "./wait-record.ts";
 
@@ -66,7 +67,9 @@ function setShortcut(next: any, key: string, value: unknown) {
 const ROLE = { Chats: "coordinator", Tasks: "worker", Reviews: "reviewer" } as const;
 const MERGE: Record<string, LevelConfig["merge"]> = { ask: "done", checks: "checks", auto: "now" };
 const MERGE_BACK: Record<LevelConfig["merge"], string> = { done: "ask", checks: "checks", now: "auto" };
-const pickOf = (v: any): AgentPick | null => (v && typeof v === "object" && typeof v.agent === "string" ? { agent: v.agent, model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" ? "ultrafast" : !!v.fast, perm: v.perm ?? null } : null);
+// fork #219: compact, the size its CLI compacts at, only where one is set (none: the CLI's own)
+const pickOf = (v: any): AgentPick | null => (v && typeof v === "object" && typeof v.agent === "string" ? { agent: v.agent, model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" ? "ultrafast" : !!v.fast, perm: v.perm ?? null,
+  ...(compactOf(v.compact) ? { compact: compactOf(v.compact) } : {}) } : null);
 
 /** What an unset role runs: the first installed agent's own defaults; reviews, the other agent where there is one. */
 export type Defaults = { Chats: AgentPick; Tasks: AgentPick; Reviews: AgentPick };
@@ -224,6 +227,7 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
   if (m) {
     const p = value === null ? null : pickOf(value);
     if (value !== null && (!p || !/^[\w.-]{1,40}$/.test(p.agent) || [p.model, p.effort, p.perm].some((x) => x != null && !/^[\w.\[\]:/ -]{1,80}$/.test(String(x))))) throw new Error("Not an agent.");
+    if (value !== null && (value as any).compact != null && !compactOf((value as any).compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
     const role = ROLE[m[1] as keyof typeof ROLE];
     if (p) layer[role] = p; else delete layer[role];
   } else if (key === "review") {
@@ -268,7 +272,7 @@ export function catalogOf(machine: string, choices: any[], installed: Record<str
     return {
       id: c.kind, name: c.name, installed: installed[c.kind] !== false,
       ...(installed[c.kind] === false ? { why: "Not installed" } : {}),
-      models: (c.models ?? []).map((m: any) => ({ id: m.id, name: m.label ?? m.name ?? m.id, speeds: speeds(m), ...(m.aliases ? { aliases: m.aliases } : {}), ...(m.efforts ? { efforts: m.efforts } : {}), ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}) })),
+      models: (c.models ?? []).map((m: any) => ({ id: m.id, name: m.label ?? m.name ?? m.id, speeds: speeds(m), ...(m.aliases ? { aliases: m.aliases } : {}), ...(m.efforts ? { efforts: m.efforts } : {}), ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}), ...(m.window ? { window: m.window } : {}) })),
       efforts,
       perms: (c.perms ?? []).map((p: any) => ({ id: p.id, label: PERM_LABEL[p.id] ?? p.label, about: PERM_ABOUT[c.kind]?.[p.id] ?? "" })),
       permDefault: c.permDefault,
@@ -345,6 +349,8 @@ function taskPick(task: any, defaults: AgentPick): AgentPick {
     effort: task.effort ?? (same ? defaults.effort : null),
     fast: speed ? (speed === "ultrafast" ? "ultrafast" : speed === "fast" || speed === "on") : same && defaults.fast,
     perm: task.perm ?? task.permission ?? (same ? defaults.perm : null),
+    // fork #219: its own Compact at, else its space's (it goes along to the other CLI, as herdr-task's worker_pick)
+    ...(compactOf(task.compact) ?? defaults.compact ? { compact: compactOf(task.compact) ?? defaults.compact } : {}),
   };
 }
 
@@ -504,7 +510,8 @@ export function scheduleOf(id: string): { machine: string | null; folder: string
 export function scheduleAgentArgs(value: any): string[] {
   if (!["claude", "codex"].includes(value?.agent) || [value.model, value.effort, value.perm].some((x) => x != null && (typeof x !== "string" || !/^[\w.\[\]:/-]{1,80}$/.test(x)))) throw new Error("Pick a valid agent, model, effort and permissions.");
   const speed = value.fast === "ultrafast" && value.agent === "codex" ? "ultrafast" : value.fast === true ? "fast" : "regular";
-  return Object.entries({ agent: value.agent, model: value.model ?? "", effort: value.effort ?? "", speed, permission: value.perm ?? "" })
+  // fork #219: its Compact at too ("": Settings' again)
+  return Object.entries({ agent: value.agent, model: value.model ?? "", effort: value.effort ?? "", speed, permission: value.perm ?? "", compact: compactOf(value.compact) ?? "" })
     .flatMap(([key, v]) => ["--set", `${key}=${v}`]);
 }
 

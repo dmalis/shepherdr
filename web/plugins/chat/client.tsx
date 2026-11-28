@@ -1198,8 +1198,9 @@ const speedForAction = (pick: Pick) => pick.fast === 'ultrafast' ? 'ultrafast' :
  *  you confirm; earlier messages stay. */
 export function applyPick(chat: string, was: Pick, now: Pick, names: { agent: string }) {
   const same = (a: Pick, b: Pick) => a.agent === b.agent && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null) && (a.fast ?? false) === (b.fast ?? false) && (a.perm ?? null) === (b.perm ?? null)
+    && (a.compact ?? null) === (b.compact ?? null)
   if (same(was, now)) return
-  const run = () => void tryAct({ type: 'restart', chat, kind: now.agent, model: now.model ?? undefined, effort: now.effort ?? undefined, speed: speedForAction(now), perm: now.perm ?? undefined })
+  const run = () => void tryAct({ type: 'restart', chat, kind: now.agent, model: now.model ?? undefined, effort: now.effort ?? undefined, speed: speedForAction(now), perm: now.perm ?? undefined, compact: now.compact ?? null })
   if (was.agent === now.agent) return run()
   confirm({ title: `Switch to ${names.agent}?`, body: 'This chat starts again on the new agent. Earlier messages stay, above a "New session" line.', ok: 'Switch', run })
 }
@@ -1281,7 +1282,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
       ...(live ? { live: {
         chat: key,
         update: (now: Pick) => act({ type: 'restart', chat: key, kind: now.agent, model: now.model ?? undefined,
-          effort: now.effort ?? undefined, speed: speedForAction(now), perm: now.perm ?? undefined, live: true }),
+          effort: now.effort ?? undefined, speed: speedForAction(now), perm: now.perm ?? undefined, compact: now.compact ?? null, live: true }),
       } } : { onClose: (now: Pick) => applyPick(key, pick, now, { agent: pickWords(now).agent }) }),
     })
   }

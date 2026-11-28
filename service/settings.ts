@@ -11,6 +11,7 @@ import { existsSync, readFileSync, renameSync, statSync, watch, writeFileSync } 
 import { basename, dirname, join } from "node:path";
 import { HOME, settingsFile, where, writableSettings } from "./paths.ts";
 import * as C from "../core/settings.js";
+import { compactOf } from "../core/agents.js";
 import { SH } from "../core/paths.js";
 import * as M from "../core/machines.js";
 import * as HC from "../core/host.js";
@@ -483,7 +484,10 @@ export class Settings {
         // its permission mode, as the window's Permissions pick (one of the CLI's modes; none: the CLI's own default)
         const PERM: Record<string, string[]> = { claude: ["manual", "auto", "acceptEdits", "plan", "bypassPermissions"], codex: ["read-only", "auto", "approve", "full"] };
         if (v.perm != null && !PERM[v.agent].includes(v.perm)) throw new Error("Not one of its permission modes.");
-        v = { agent: v.agent, model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" && v.agent === "codex" ? "ultrafast" : !!v.fast, perm: v.perm ?? null };
+        // fork #219: Compact at, a size of 100k tokens or more (none: the CLI's own)
+        if (v.compact != null && !compactOf(v.compact)) throw new Error("Compact at takes a size of 100k tokens or more.");
+        v = { agent: v.agent, model: v.model ?? null, effort: v.effort ?? null, fast: v.fast === "ultrafast" && v.agent === "codex" ? "ultrafast" : !!v.fast, perm: v.perm ?? null,
+          ...(compactOf(v.compact) ? { compact: compactOf(v.compact) } : {}) };
       }
       put(field, null, v);
     } else if (key === "agents.reactions" || key === "assistant.reactions") {

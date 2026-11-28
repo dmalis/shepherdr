@@ -576,7 +576,7 @@ def cmd_start(args):
         space = bare(args.space) if args.space else (q.get("space") or t.get("space") or space_for_folder(s.loc["folder"], caller_space()) or default_space())
         # 3.2: started on any pick: its model, effort, speed and permission mode are kept on the task (as edit's)
         picked = False
-        for flag in ("model", "effort", "speed", "permission"):
+        for flag in ("model", "effort", "speed", "permission", "compact"):
             if getattr(args, flag, None) is not None:
                 set_task(t, flag, getattr(args, flag))
                 picked = True
@@ -1692,11 +1692,11 @@ def cmd_edit(args):
         if args.prompt_file:
             with open(args.prompt_file) as f:
                 t["prompt"] = f.read()
-        pick = [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")]
+        pick = [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm", "compact")]
         set_opts(t, args, s)
         if args.prompt is not None or args.prompt_file:
             brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: its new brief's rounds
-        if [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")] != pick:
+        if [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm", "compact")] != pick:
             # The next agent started for it runs on the new choice (start_again), a queued one too.
             t["pick_at"] = now()
             q = t.get("queue") or {}
