@@ -43,7 +43,8 @@ const PASTE = Array.from({ length: 40 }, (_, i) => `2026-11-28 09:${String(i).pa
 const TALL = 844
 const KEYBOARD = 336
 
-const { server, url } = await startDemo()
+// a fresh demo for each case: what one case sent never changes what the next one sees
+let server: Awaited<ReturnType<typeof startDemo>>['server'] | null = null
 const browser = await chromium.launch({ executablePath: chrome() })
 let failed = 0
 const say = (name: string, ok: boolean, saw: unknown) => {
@@ -53,6 +54,10 @@ const say = (name: string, ok: boolean, saw: unknown) => {
 
 /** a fresh browser (empty storage), the docs chat open, and every send the page asks the demo for */
 async function open(phone = false) {
+  server?.kill()
+  const demo = await startDemo()
+  server = demo.server
+  const url = demo.url
   const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: TALL }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, colorScheme: dark ? 'dark' : 'light' } : { viewport: { width: 1280, height: 800 }, colorScheme: dark ? 'dark' : 'light' })
   const page = await ctx.newPage()
   const sends: { text: string; reply?: string }[] = []
@@ -221,5 +226,5 @@ const AT = 'Thanks for the list.'.length
 }
 
 await browser.close()
-server.kill()
+server?.kill()
 process.exit(failed)
