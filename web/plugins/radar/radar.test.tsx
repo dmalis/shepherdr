@@ -14,6 +14,8 @@ import { radarCard } from '../../demo/radar.ts'
 import { askCards, at, clock, dayOf, editProject, itemsAt, reset, resume, rowCount, setView, shownDay, useRadar, waiting, type RadarDemo } from './model.ts'
 import { liveOf, RadarRow, radarNeeds } from './row.tsx'
 import { APPROVED, queue, stateWords } from './say.ts'
+import { dayGroup, events, recap, weeks } from './timeline.ts'
+import { Timeline } from './timeline.tsx'
 import { clearPress, press, pressOf, waiting as pressWaits } from '@client/pending.ts'
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
@@ -236,4 +238,123 @@ test('one story for the approval: the card says Yes starts a fix too, and after 
 test('with nothing open and nothing asking, the row is the name alone', () => {
   const r: RadarDemo = { looked: 0, projects: [], items: [] }
   expect(rowCount(r, { cards: new Set(), answers: {} }, Date.now())).toEqual({ n: 0, red: false })
+})
+
+/* ---------- the calm timeline, the default opening ---------- */
+
+const tlOf = (s: Snapshot, project: string | null = null, fresh = false) => {
+  const r = shownDay(radarOf(s)!, { fresh })!
+  const now = Date.now(), live = liveOf(s)
+  const items = itemsAt(r, now, live)
+  return { snap: s, view: { ...useRadarView(), project, item: null }, live, now, items, projects: r.projects }
+}
+const useRadarView = () => {
+  let out: ReturnType<typeof useRadar>['view'] | null = null
+  const Probe = () => ((out = useRadar().view), null)
+  renderToStaticMarkup(<Probe />)
+  return out!
+}
+const lines = (c: ReturnType<typeof tlOf>) => events(c.items, c.projects, c.live, c.now, c.view.project).map((e) => e.words + (e.status ? ` · ${e.status}` : ''))
+
+test('the calm timeline is the opening screen, the prototype’s controls folded, the other three kept to compare', () => {
+  const v = useRadarView()
+  expect(v.opening).toBe('timeline')
+  expect(v.proto).toBe(false)
+  const page = readFileSync(join(import.meta.dir, 'page.tsx'), 'utf8')
+  expect(page).toContain("[['timeline', 'Calm timeline'], ['since', 'Since you last looked'], ['pain', 'Pain map'], ['pulse', 'Project pulse']]")
+  // no tabs on it: the bar is the project filter and Jot something alone
+  expect(page).toContain("const calm = view.opening === 'timeline' && view.tab === 'overview'")
+  expect(page).toContain('? <div className="rd-bar">{filter}{jot}</div>')
+})
+
+test('one short line an event, newest first: what shipped and what’s next are events, what needs you is pinned instead', () => {
+  const c = tlOf(day())
+  const ls = lines(c)
+  expect(ls).toContain('Review stall fixed · holding')
+  expect(ls).toContain('Old-main starts · rising, next up')
+  expect(ls).toContain('Review buttons wrap · reverted')
+  expect(ls).toContain('garden-app paused')
+  expect(ls).toContain('Seed list order · waits for Resume')
+  // the error whose card asks is not an event: it is the pinned line
+  expect(ls.some((l) => l.startsWith('Empty-cart checkout error'))).toBe(false)
+  const es = events(c.items, c.projects, c.live, c.now, null)
+  expect(es.map((e) => e.at)).toEqual([...es.map((e) => e.at)].sort((a, b) => b - a))
+  // every line is short: a few words and a status, never the paragraph (that opens on tap)
+  for (const l of ls) expect(l.length).toBeLessThanOrEqual(48)
+  const html = text(renderToStaticMarkup(<Timeline c={c} onSetup={() => undefined} setupEmpty={() => null} />))
+  expect(html).toContain('shop needs you · Checkout fails on an empty cart')
+  expect(html).toMatch(/This week: 10 fixed · 1 reverted · 1 waits for you Today .* Yesterday .* This week .* Week of \d+ \w+: 3 parked · 1 not doing Earlier/)
+  // the project not set up is offered once, at the end
+  expect(html.trim().endsWith('blog isn’t watched yet · set it up')).toBe(true)
+})
+
+test('after a Yes on its card the pinned line goes, and the item is an event again', () => {
+  const c = tlOf(answered(true))
+  expect(lines(c)).toContain('Empty-cart checkout error · fix being built')
+  expect(text(renderToStaticMarkup(<Timeline c={c} onSetup={() => undefined} setupEmpty={() => null} />))).not.toContain('needs you')
+  expect(lines(tlOf(answered(false)))).toContain('Empty-cart checkout error · not doing')
+})
+
+test('the day groups and the week’s recap read plainly', () => {
+  const now = new Date(2026, 10, 28, 15).getTime(), h = 3600_000
+  expect([now - h, now - 24 * h, now - 3 * 24 * h, now - 8 * 24 * h].map((t) => dayGroup(t, now))).toEqual(['Today', 'Yesterday', 'This week', 'Earlier'])
+  const plain = (s: string) => s.replace(/\u00a0/g, ' ')
+  expect(plain(recap([], 0))).toBe('0 changes')
+  // a number keeps its word on a narrow page
+  expect(recap([], 2)).toBe('2\u00a0wait for you')
+  expect(weeks([], now, 1).map((w) => plain(w.recap))).toEqual(['This week: 1 waits for you'])
+})
+
+test('the empty and paused fixtures read well: set it up, and a paused project’s own lines', () => {
+  const empty = tlOf(day(), null, true)
+  expect(events(empty.items, empty.projects, empty.live, empty.now, null)).toEqual([])
+  const html = renderToStaticMarkup(<Timeline c={empty} onSetup={() => undefined} setupEmpty={(p) => <b>{`set up ${p.name}`}</b>} />)
+  expect(html).toBe('<b>set up blog</b>')
+  const garden = tlOf(day(), 'garden')
+  expect(lines(garden)).toEqual(['garden-app paused', 'Seed list order · waits for Resume', 'Weather reminders · parked'])
+  // one project picked: the project's name leaves the end of each line
+  expect(text(renderToStaticMarkup(<Timeline c={garden} onSetup={() => undefined} setupEmpty={() => null} />))).not.toMatch(/paused garden-app/)
+})
+
+test('each older week has its own recap, and only the first is labelled Earlier', () => {
+  const now = new Date(2026, 10, 28, 15).getTime(), d = 86400_000
+  const e = (id: string, ago: number, count?: 'fixed' | 'parked') => ({ id, at: now - ago * d, project: 'x', icon: 'check' as const, words: id, open: id, count })
+  const ws = weeks([e('a', 0, 'fixed'), e('b', 8, 'parked'), e('c', 9, 'parked'), e('f', 16, 'fixed')], now, 0)
+  expect(ws.map((w) => w.recap.replace(/ /g, ' '))).toEqual(['This week: 1 fixed', 'Week of 15 Nov: 2 parked', 'Week of 8 Nov: 1 fixed'])
+  expect(ws.map((w) => w.days.map((x) => x.day))).toEqual([['Today'], ['Earlier'], [null]])
+})
+
+test('a paused project’s queue waits for Resume; what runs stays still, never a spinner', () => {
+  const s = day()
+  const r = radarOf(s)!
+  const paused = { ...s, radar: { ...r, projects: r.projects.map((p) => (p.id === 'shepherdr' ? { ...p, paused: Date.now() } : p)) } } as Snapshot
+  const ls = lines(tlOf(paused))
+  expect(ls).toContain('Old-main starts · waits for Resume')
+  expect(ls).toContain('Archive asks twice · waits for Resume')
+  expect(ls).toContain('Long chats jump · being fixed')
+  expect(ls.some((l) => l.includes('next up'))).toBe(false)
+  // the shared working ring turns for as long as it shows: the calm feed uses a still mark
+  const c = tlOf(answered(true))
+  expect(events(c.items, c.projects, c.live, c.now, null).filter((e) => e.icon === 'working')).toEqual([])
+})
+
+test('Resume and a card’s answer are events at the time they happened, not when the item was found', () => {
+  const now = Date.now()
+  reset()
+  dayOf(radarOf(day()))
+  resume('garden', now)
+  const i = useRadarDay()!.items.find((x) => x.id === 'r-gdraft')!
+  expect(i.changed).toBe(now)
+  reset()
+  const c = tlOf(answered(true))
+  const yes = events(c.items, c.projects, c.live, c.now, null).find((e) => e.id === 'r-err')!
+  expect(dayGroup(yes.at, c.now)).toBe('Today')
+  expect(yes.at).toBe(c.now)
+})
+
+test('on the calm timeline the Radar row keeps it: the grey count does not jump to the tabbed All items', () => {
+  const row = readFileSync(join(import.meta.dir, 'row.tsx'), 'utf8')
+  expect(row).toContain("onClick={() => (view.opening === 'timeline' ? overview() : openRadar({ tab: 'all', project: null, filter: 'waiting' }))}")
+  // and an item opens beside the timeline from 720 px of page, so a desktop with a pane open keeps the list
+  expect(readFileSync(join(import.meta.dir, 'radar.css'), 'utf8')).toContain('@container (min-width:720px){')
 })
