@@ -40,7 +40,7 @@ test("the app's yes is kept owner-only for the draft's revision and exact text, 
   const dir = store();
   expect(keepYes("a1", 2, dir, SETTINGS, 5)).toBe(true);
   const [y] = yeses(dir);
-  expect(y).toEqual({ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: yesHash({ repo: REPO, action: "create" }, "Reply bubble hides its message", BODY), at: 5, by: "app" });
+  expect(y).toEqual({ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: yesHash({ repo: REPO, action: "create" }, "Reply bubble hides its message", BODY), at: 5, by: "app", from: "card" });
   expect(statSync(join(dir, ".triage-yes.json")).mode & 0o777).toBe(0o600);
   expect(keepYes("a1", 2, dir, SETTINGS, 9)).toBe(true);
   expect(yeses(dir)).toHaveLength(1);
@@ -107,7 +107,7 @@ const HASH = () => yesHash({ repo: REPO, action: "create" }, "Reply bubble hides
 test("a card's Yes or No is kept here only, for the exact text it showed; a changed text keeps nothing and asks again", () => {
   const dir = store();
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 7)).toEqual({ ok: true });
-  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", answer: "no" }]);
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", from: "card", answer: "no" }]);
   expect(statSync(join(dir, ".triage-yes.json")).mode & 0o777).toBe(0o600);
   // the text changed after the card was drawn: the card's hash no longer matches
   const old = store();
@@ -115,6 +115,24 @@ test("a card's Yes or No is kept here only, for the exact text it showed; a chan
   expect(r).toEqual({ ok: false, error: CHANGED, changed: true });
   expect(answerCard({ kind: "draft", key: "a1", rev: 1, hash: HASH(), answer: "yes" }, old, SETTINGS)).toMatchObject({ changed: true });
   expect(() => readFileSync(join(old, ".triage-yes.json"))).toThrow();
+});
+
+test("a held draft's own Yes in the backlog's review says so (it posts at the batch's pace); its card elsewhere doesn't", () => {
+  const dir = store();
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes", from: "backlog" }, dir, SETTINGS, 7)).toEqual({ ok: true });
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", from: "backlog" }]);
+  // the same draft's own card in Needs you, or anything else the page sends: the everyday pace
+  for (const from of [undefined, "card", "batch", 1]) {
+    const d = store();
+    expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes", from }, d, SETTINGS, 7).ok).toBe(true);
+    expect(yeses(d)[0]).toMatchObject({ from: "card" });
+    expect(yeses(d)[0].batch).toBeUndefined();
+  }
+  // a comment has no pace of its own to take: never marked as the backlog's
+  const T = { repo: REPO, action: "comment", issue: 12 };
+  const c = store({ draft: { target: T } });
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: yesHash(T, "Reply bubble hides its message", BODY), answer: "yes", from: "backlog" }, c, SETTINGS).ok).toBe(true);
+  expect(yeses(c)[0]).toMatchObject({ from: "card" });
 });
 
 test("a card's answer is refused when it isn't Triage's to keep", () => {
@@ -198,7 +216,7 @@ test("a card is answered once for its text: the same answer again changes nothin
   // another screen still showed the card: its Yes doesn't overturn the No
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes" }, dir, SETTINGS, 8)).toMatchObject({ ok: false, error: expect.stringContaining("already said No") });
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 9)).toEqual({ ok: true });
-  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", answer: "no" }]);
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", from: "card", answer: "no" }]);
   // a Not now or Never since (unyes) takes the earlier answer back: the card may be answered again
   const p = JSON.parse(readFileSync(join(dir, ".feedback.json"), "utf8"));
   p.problems.a1.unyes = 10;

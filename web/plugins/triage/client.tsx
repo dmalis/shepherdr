@@ -127,10 +127,14 @@ export function whyWords(c: TriageCard): string {
   }
 }
 
-export function TriageCardView({ c }: { c: TriageCard }) {
+/** what a card's Yes or No sends; `backlog`: a held draft in the backlog's review, whose Yes goes with the batch, at the
+ *  batch's pace (still only on its own Yes) */
+export const answerOf = (c: TriageCard, answer: 'yes' | 'no', backlog = false) =>
+  ({ type: 'triage', do: 'answer', answer, kind: c.kind, hash: c.hash, ...(c.kind === 'draft' ? { key: c.key, copy: !!c.copy, rev: c.rev, ...(backlog ? { from: 'backlog' } : {}) } : { issue: c.issue }) })
+
+export function TriageCardView({ c, backlog = false }: { c: TriageCard; backlog?: boolean }) {
   const acts = useCardActs(`triage:${c.id}`, c.hash)
-  const say = (answer: 'yes' | 'no') => () =>
-    attempt({ type: 'triage', do: 'answer', answer, kind: c.kind, hash: c.hash, ...(c.kind === 'draft' ? { key: c.key, copy: !!c.copy, rev: c.rev } : { issue: c.issue }) })
+  const say = (answer: 'yes' | 'no') => () => attempt(answerOf(c, answer, backlog))
   const start = c.kind === 'start'
   const comment = c.kind === 'draft' && c.action === 'comment'
   const id = `tri-${c.id.replace(/[^\w-]/g, '-')}`
@@ -282,7 +286,7 @@ export function TriageDraftsList({ place, close }: { place: string; close: () =>
         </>
       )}
       headId={batch ? 'tri-held-h' : undefined}
-      items={drafts.map((c) => ({ key: c.id, node: <TriageCardView c={c} /> }))}
+      items={drafts.map((c) => ({ key: c.id, node: <TriageCardView c={c} backlog /> }))}
       foot={(b.error || b.stale) && (
         <>
           {b.error && <p className="tri-err" role="alert">{b.error}</p>}

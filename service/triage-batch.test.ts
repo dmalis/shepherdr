@@ -61,7 +61,7 @@ test("one Yes keeps the ticked drafts, each bound to its revision, text and the 
   expect(out).toEqual({ ok: true, kept: 4, changed: 0 });
   const rows = yeses(dir);
   expect(rows.map((y: any) => y.key).sort()).toEqual(["k1", "k3", "k4", "vm-b:c1"]);
-  for (const y of rows) expect(y).toMatchObject({ kind: "draft", repo: REPO, rev: 1, by: "app", batch: c.hash, at: 50 });
+  for (const y of rows) expect(y).toMatchObject({ kind: "draft", repo: REPO, rev: 1, by: "app", from: "batch", batch: c.hash, at: 50 });
   expect(rows.find((y: any) => y.key === "k3").hash).toBe(yesHash(T, "Problem 3", "Body 3"));
   // nothing ticked: nothing kept
   expect(answerBatch({ answer: "yes", hash: c.hash, skip: c.items!.map(itemId) }, v, store(4), SETTINGS).ok).toBe(false);

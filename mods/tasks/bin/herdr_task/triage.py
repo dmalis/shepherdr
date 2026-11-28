@@ -260,14 +260,34 @@ def _said(y, answer):
     return (y.get("answer") or "yes") == answer
 
 
+def _answers(key, rev, h, repo, after=0, answer="yes"):
+    """The app's rows that answer this draft's exact text, made after `after`, oldest first."""
+    return [y for y in yeses() if y.get("kind") == "draft" and y.get("key") == key and y.get("rev") == rev and y.get("hash") == h
+            and str(y.get("repo") or "").lower() == repo.lower() and int(y.get("at") or 0) > int(after or 0) and _said(y, answer)]
+
+
 def has_yes(key, rev, h, repo, after=0, answer="yes", batch=False):
     """The app's yes (or, answer="no", its No: keep it private) for this draft's exact text, made after `after` (ms:
     the row's last Not now or Never, `unyes`, which takes back an earlier yes even once undone or over). A changed
     text has another hash, so it asks again. batch: only a yes given in the backlog's batch (its row names the batch
     card's hash), which posts at the batch's pace and never past the privacy check."""
-    return any(y.get("kind") == "draft" and y.get("key") == key and y.get("rev") == rev and y.get("hash") == h
-               and str(y.get("repo") or "").lower() == repo.lower() and int(y.get("at") or 0) > int(after or 0)
-               and _said(y, answer) and (not batch or bool(y.get("batch"))) for y in yeses())
+    return any(not batch or bool(y.get("batch")) for y in _answers(key, rev, h, repo, after, answer))
+
+
+def yes_from(key, p, repo):
+    """Where the app's yes for the row's draft, as it is now, was given (the service names it, `from`): "batch" (the
+    backlog's one Yes), "backlog" (a held draft's own Yes in the backlog's review: the person meant it to go with the
+    batch, so it takes the batch's pace, past the privacy check as any own Yes), "card" (its own card in Needs you, or
+    the Feedback page's Post it: Triage's everyday pace), or None (no yes). A yes kept before the service named it
+    reads as the backlog's: those were the backlog review's first day."""
+    dr, h = _draft_hash(p)
+    said = _answers(key, dr.get("rev"), h, repo, p.get("unyes") or 0) if dr else []
+    if not said:
+        return None
+    y = said[-1]
+    if y.get("batch"):
+        return "batch"
+    return "backlog" if y.get("from", "backlog") == "backlog" else "card"
 
 
 def _draft_hash(p):

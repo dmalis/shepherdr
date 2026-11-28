@@ -142,7 +142,7 @@ export function keepYes(key: string, rev: number, dir = store(), settings: any =
   const hash = yesHash(dr.target, dr.title, shown(dr.body));
   const old = readJson(join(dir, ".triage-yes.json"));
   if ((Array.isArray(old?.yes) ? old.yes : []).some((y: any) => y?.kind === "draft" && y.key === key && y.rev === rev && y.hash === hash && (y.answer ?? "yes") === "yes")) return true;
-  keepRow(dir, { kind: "draft", repo, key, rev, hash, at, by: "app" }, (y) => y.kind === "draft" && y.key === key);
+  keepRow(dir, { kind: "draft", repo, key, rev, hash, at, by: "app", from: "card" }, (y) => y.kind === "draft" && y.key === key);
   return true;
 }
 
@@ -186,7 +186,10 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
     // since, and its own Yes or No takes the batch's place
     const was = said(dir, (y) => y.kind === "draft" && !y.batch && y.key === key && y.rev === dr.rev && y.hash === b.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0));
     if (was) return was === answer ? { ok: true } : { ok: false, error: ANSWERED[was] };
-    keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
+    // where it was given (herdr-task's yes_from): a held draft's own Yes in the backlog's review goes with the batch, at
+    // its pace (still only on its own Yes, never the batch's); its card anywhere else keeps Triage's everyday pace
+    const from = b.from === "backlog" && dr.target?.action === "create" ? "backlog" : "card";
+    keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", from, ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
     return { ok: true };
   }
   if (b.kind === "start") {
@@ -248,7 +251,7 @@ export function answerBatch(b: any, view: TriageViewOf | null, dir = store(), se
     // answered already for this very text (No on another screen stays No; Yes again changes nothing)
     const was = answers.filter((y) => y.kind === "draft" && y.key === x.key && y.rev === x.rev && y.hash === x.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0)).pop();
     if (was) { if ((was.answer ?? "yes") !== "yes") changed++; continue; }
-    rows.push({ kind: "draft", repo, key: x.key, rev: x.rev, hash: x.hash, at, by: "app", batch: b.hash });
+    rows.push({ kind: "draft", repo, key: x.key, rev: x.rev, hash: x.hash, at, by: "app", from: "batch", batch: b.hash });
   }
   if (rows.length) keepRows(dir, rows, (y, row) => y.kind === "draft" && y.key === row.key);
   return { ok: true, kept: rows.length, changed };
