@@ -14,8 +14,8 @@ Two kinds of line here:
 
 `test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale, endless animations,
 hover outside `@media (hover: hover)`, a monospace stack written out and a z-index layer written as a number may only
-get fewer in stylesheets and inline styles, the grey of second lines passes contrast on its main surfaces, and whatever
-moves stops under each reduced-motion switch alone.
+get fewer in stylesheets and inline styles, the grey of second lines and a control's edge pass contrast on their main
+surfaces, and whatever moves stops under each reduced-motion switch alone.
 
 People keep Shepherdr open all day, on a phone between other things and on a desktop beside their editor. They come
 back to ask four things: what needs me, what is stuck, what just landed, what is going on in this project. The app
@@ -53,6 +53,8 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - with the keyboard alone, and with Motion › Reduced;
   - anything that moves: `bun web/demo/motion-check.ts` (either reduced-motion switch alone stops it);
   - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
+  - a row, a control or a status colour: `bun web/demo/contrast-check.ts` (dim rows, checkboxes, fields and the focus
+    ring measured as painted, and red only under Needs you);
   - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`,
     `slowfiles` (Files loading; #notes is an empty folder, #blog's can't be read); a task or artifact by `?task=<id>`
     or `?artifact=<id>`;
@@ -169,12 +171,15 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 - **Second lines read at 4.5:1.** `--muted` passes on the page, a field, an agent's bubble and your own bubble in every
   theme (`test/test_design.py`). On any other surface or state (a tint, a pressed row, an overlay) measure the pair as
   it is painted.
-- **Dim the mark, not the words.** A row that can't be reached or is switched off dims its icon and says why in words;
-  its text keeps its contrast. Target: today `.row.dim` and `.row.off` dim the whole row (`opacity` takes `--muted` to
-  2.3:1 in light).
+- **Dim the mark, not the words.** A row that can't be reached or is switched off (`.row.dim`, `.row.off`) dims its
+  mark to half and says why in words; its name steps down to `--sub` and its second line stays `--muted`, both over
+  4.5:1. Never `opacity` on a row's words: at .6 it took `--muted` to 2.3:1 in light.
 - **Controls you need to find** have an edge or fill of at least 3:1 against what is around them (WCAG 2.2, non-text
-  contrast). A `--line2` hairline alone is about 1.4:1, so it can't be the only sign of a checkbox or a field
-  (Target).
+  contrast): an unticked checkbox (`.cbx`), a field (`.inp`, and the pickers drawn as one, `.fake`) and a switch that
+  is off (`.tg`) are edged in `--edge`; ticked and on, they are filled with `--fg`. A field takes a `--fg` edge while it
+  has focus. The edge holds on a hovered row and on a pressed switch, which never fades. A `--line2` hairline (about
+  1.4:1) is for surfaces (cards, menus, the message box), never the only sign of a control.
+  `web/demo/contrast-check.ts` measures them as painted in each theme, with the focus ring (`--fg`, 2 px).
 - **Hierarchy by weight and colour before size:** a row is the name (600, `--fg`) over a second line (400,
   `--muted`).
 - **Words:** sentence case, plain verbs, no jargon, nothing the app's own code calls it. The app never says Assistant,
@@ -223,6 +228,9 @@ lighter than the page, but they are roles, not a strict ladder (Night's overlay 
 | Overlay | `--overlay` | Menus, sheets, dialogs, toasts, the quick bar |
 | Scrim | `--scrim` | The shade behind a sheet or dialog |
 
+`--edge` is the one edge for a control (above, Readability): 3.1:1 or more on the page, a field, a raised surface and
+an overlay in every theme, bare or under a hovered row's `--control` (`test/test_design.py`).
+
 - **Overlays** have a 1 px `--line2` inset edge and `--shadow`, which is only a shadow in light; a sheet has its own
   shadow (`sheets.css`).
 - **Fills for controls:** `--control` for a button's or a selected row's fill, `--control2` for a stronger state.
@@ -239,8 +247,11 @@ lighter than the page, but they are roles, not a strict ladder (Night's overlay 
   or words; colour is never the only sign.
 - **Red is Needs you.** In navigation and in lists of work, a red mark or count (`.cnt.needs`, `--needs-fill` with
   `--needs-ink`) means a person has to act; every other count is quiet (`.cnt`). Red keeps its other meanings only
-  where the context says so: a danger row in a menu, an error's words, recording, a deleted line in a diff. Target:
-  today a task's ring is red for a stopped task and failed checks too.
+  where the context says so: a danger row in a menu, an error's words, recording, a deleted line in a diff. A task's
+  ring and status word are red only while it waits on the person (`ringOf()`, `statusWord()` in `web/shared/view.ts`):
+  a stopped task keeps its square, red when it is yours to restart and grey when someone else's action holds it; a
+  failed check its agent is fixing is an amber disc with a cross, as GitHub's failed check, and "A check failed" in
+  amber.
 - **Links** are `--link`, underlined, and only links (`web/src/link-color.test.ts`).
 - **The terminal** is always dark (`--term`), in every theme.
 
@@ -496,6 +507,8 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
 | Do | Don't |
 |---|---|
 | `var(--muted)` for a second line | A hex grey, or `opacity: .6` on text |
+| A dimmed mark and `--sub` words on a row that can't be reached | `opacity` on the whole row |
+| `--edge` round a checkbox or a field | A `--line2` hairline as a control's only edge |
 | `--sec`/`--secl` for small text | `font-size: 13px` beside a token |
 | Red for Needs you | Red for a count of unread things |
 | One primary button per card | Two black buttons side by side |

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Snapshot, Task } from './types.ts'
 import { withAttention } from './attention.ts'
-import { artifactsIn, doneWords, isEverything, isHomeSpace, tasksIn, etaOf, folderName, folderOf, headerWhere, leftShort, leftWords, listOf, needsCount, placeOf, ringOf, nowGroups, spaceLabel, spaceName, spacesOf, statusWord, headLine, taskLine, taskWhen, tstate } from './view.ts'
+import { artifactsIn, doneWords, isEverything, isHomeSpace, tasksIn, etaOf, folderName, folderOf, headerWhere, leftShort, leftWords, listOf, needsCount, placeOf, ringOf, nowGroups, spaceLabel, spaceName, spacesOf, statusWord, headLine, taskGroup, taskLine, taskWhen, tstate } from './view.ts'
 
 const task = (x: Partial<Task>): Task => ({ id: 'T-1', name: 'A task', place: 'shop', status: 'work', state: 'work', on: 'mini', created: '', age: '', ...x })
 
@@ -15,9 +15,32 @@ test('a status is worked out from facts first, then the agent\'s report', () => 
   expect(tstate(task({ status: 'todo' }))).toBe('next')
 })
 
+// UI 11, docs/design.md's Colour: in a list of work red means a person has to act. A ring or a status word is red
+// (`ask`) only for a task in Needs you; a failed check its agent fixes has its own amber mark
+test('red is Needs you: a ring or a word is red only while the task waits on the person', () => {
+  const tasks = [
+    task({ status: 'need' }),
+    task({ status: 'need', stopped: { by: 'error' } }),
+    task({ status: 'need', stopped: { by: 'limit' } }),
+    task({ status: 'need', stopped: { by: 'you' } }),
+    task({ status: 'need', stopped: { by: 'error' }, action: { id: 'a', owner: 'shepherdr', kind: 'prompt', what: '', since: 0 } }),
+    task({ status: 'ready', checksWait: { state: 'failed', line: 'A check failed · back to its agent to fix', next: '', passed: 1, total: 2, runs: [], more: false, auto: true } as Task['checksWait'] }),
+    task({ status: 'ready', checksWait: { state: 'running', line: 'Waiting', next: '', passed: 1, total: 2, runs: [], more: false, auto: true } as Task['checksWait'] }),
+    task({ status: 'work' }), task({ status: 'ready' }), task({ status: 'done' }), task({ status: 'queued' }),
+  ]
+  for (const t of tasks) {
+    const asks = taskGroup(t) === 'ask'
+    expect([t.status, t.stopped?.by, t.checksWait?.state, ringOf(t).tone === 'ask']).toEqual([t.status, t.stopped?.by, t.checksWait?.state, asks])
+    expect(statusWord(t).tone === 'ask').toBe(asks)
+  }
+  const failed = tasks[5]!
+  expect(ringOf(failed)).toMatchObject({ kind: 'fail', tone: 'warn' })
+  expect(statusWord(failed)).toEqual({ word: 'A check failed', tone: 'warn' })
+})
+
 test('the words: Ready for review, Stopped in red, Paused, Waiting for the desktop', () => {
   expect(statusWord(task({ status: 'ready' }))).toEqual({ word: 'Ready for review', tone: 'ready' })
-  expect(statusWord(task({ status: 'need', stopped: { by: 'error', why: 'It crashed' } }))).toEqual({ word: 'Stopped', tone: 'red' })
+  expect(statusWord(task({ status: 'need', stopped: { by: 'error', why: 'It crashed' } }))).toEqual({ word: 'Stopped', tone: 'ask' })
   // fork Needs you 5/6: stopped by the person is Paused, quiet, no one's
   expect(statusWord(task({ status: 'need', stopped: { by: 'you' } }))).toEqual({ word: 'Paused', tone: 'mute' })
   expect(statusWord(task({ status: 'work', waitsDesktop: true })).word).toBe('Waiting for the desktop')
@@ -69,7 +92,7 @@ test('the ring shows the share done in every unfinished state; Ready and Done sh
   expect(r({ status: 'work', report: { msg: '', progress: 40 } })).toMatchObject({ kind: 'ring', tone: 'working', pct: 40 })
   expect(r({ status: 'work' })).toMatchObject({ kind: 'ring', tone: 'working', pct: null })
   expect(r({ status: 'need', report: { msg: '', progress: 70, paused: true } })).toMatchObject({ kind: 'ring', tone: 'ask', pct: 70, mark: 'tint' })
-  expect(r({ status: 'need', stopped: { by: 'error' }, report: { msg: '', progress: 30 } })).toMatchObject({ kind: 'ring', tone: 'red', pct: 30, mark: 'stop' })
+  expect(r({ status: 'need', stopped: { by: 'error' }, report: { msg: '', progress: 30 } })).toMatchObject({ kind: 'ring', tone: 'ask', pct: 30, mark: 'stop' })
   expect(r({ status: 'todo', stopped: { by: 'you' }, report: { msg: '', progress: 55 } })).toMatchObject({ kind: 'ring', tone: 'mute', pct: 55, mark: 'stop', label: 'Paused, 55% done' })
   // up next and scheduled: a solid empty ring (no mark); waiting for Start: dotted
   expect(r({ status: 'queued' })).toMatchObject({ kind: 'ring', tone: 'mute', pct: 0, label: 'Up next' })

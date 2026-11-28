@@ -699,6 +699,23 @@ class Contrast(unittest.TestCase):
                     low.append(f"{name} {surface}: {ratio:.2f}")
         self.assertEqual(low, [])
 
+    def test_a_controls_edge_on_every_surface_it_sits_on(self):
+        # UI 11: a checkbox, a field and a switch that is off are edged in --edge, at 3:1 (WCAG 2.2, non-text contrast)
+        # against the page, a field's own fill, a raised surface and a menu or sheet, bare and under a hovered row, in
+        # each theme
+        low = []
+        for name in ("light", "system-dark", "dark", "night"):
+            t = theme(name)
+            canvas = rgb(t["--canvas"])
+            for surface in ("--canvas", "--well", "--raised", "--overlay"):
+                bare = rgb(t[surface], canvas)
+                # an unticked box on a hovered row sits on the row's --control
+                for where, under in ((surface, bare), (f"{surface} hovered", rgb(t["--control"], bare))):
+                    ratio = contrast(rgb(t["--edge"], under), under)
+                    if ratio < 3:
+                        low.append(f"{name} {where}: {ratio:.2f}")
+        self.assertEqual(low, [])
+
 
 if __name__ == "__main__":
     unittest.main()

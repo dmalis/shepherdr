@@ -170,7 +170,9 @@ export function tstate(t: Task): TaskState {
   return 'next'
 }
 
-export type Tone = 'ask' | 'ready' | 'working' | 'red' | 'mute'
+/** a status's colour (docs/design.md, Colour): `ask` is red, kept for what a person has to act on; `warn` amber, a
+ *  failed check its agent fixes (UI 11) */
+export type Tone = 'ask' | 'ready' | 'working' | 'warn' | 'mute'
 
 /** on a branch or worktree: Mark as done merges it, and closing it without merging says so */
 export const onBranch = (t: Task) => t.repo === 'branch' || (t.repo === undefined && !!(t.branch || t.pr))
@@ -198,16 +200,20 @@ export function statusWord(t: Task): { word: string; tone: Tone } {
   const s = tstate(t)
   if (s === 'done' || s === 'archived') return { word: doneWords(t).split(' · ').slice(0, t.merged ? 1 : 2).join(' · '), tone: 'mute' }
   if (t.status === 'merging' || t.accepting) return { word: 'Merging', tone: 'working' }
-  if (t.checksWait) return { word: t.checksWait.state === 'failed' ? 'A check failed' : 'Waiting for checks', tone: t.checksWait.state === 'failed' ? 'red' : 'mute' }
+  if (t.checksWait) return { word: t.checksWait.state === 'failed' ? 'A check failed' : 'Waiting for checks', tone: t.checksWait.state === 'failed' ? 'warn' : 'mute' }
   if (s === 'ready') return { word: 'Ready for review', tone: 'ready' }
   // fork Needs you 5/6: stopped by the person is Paused, no one's; a wait Shepherdr handles first is quiet
   if (paused(t)) return { word: NEUTRAL_WORDS.paused, tone: 'mute' }
   if (s === 'ask' && withShepherdr(t)) return { word: tierLabel('shepherdr'), tone: 'mute' }
-  if (t.stopped) return { word: 'Stopped', tone: 'red' }
+  if (t.stopped) return { word: 'Stopped', tone: stoppedTone(t) }
   if (s === 'ask') return { word: 'Needs you', tone: 'ask' }
   if (s === 'working') return { word: t.waitsDesktop ? 'Waiting for the desktop' : 'Working', tone: 'mute' }
   return { word: 'Up next', tone: 'mute' }
 }
+
+/** UI 11: red is Needs you (docs/design.md, Colour): a stopped task is red only while it waits on the person, quiet
+ *  while someone else's action holds it */
+const stoppedTone = (t: Task) => (taskGroup(t) === 'ask' ? 'ask' : 'mute')
 
 /** how a finished task ended: "Done and merged · 1 link fixed", "Done · not merged", "Done · nothing to do" */
 export function doneWords(t: Task): string {
@@ -314,12 +320,13 @@ export function leftShort(min: number | null | undefined): string {
  *  left under it). `check`: finished (Ready for review, merging, Done). Otherwise the ring: `pct` its share done
  *  (0-100; null: none reported yet, an alive indeterminate ring while it works), `tone` its colour, `mark` the small
  *  sign that tells states apart without colour (needs you: the ring's inside softly tinted; stopped: a square; not started, waiting for the person's Start: a dotted ring, as
- *  Linear's Backlog; Up next and Scheduled are a plain empty ring, as its Todo). */
+ *  Linear's Backlog; Up next and Scheduled are a plain empty ring, as its Todo). `fail`: a check failed, its agent
+ *  fixing it: an amber disc with a cross, as GitHub's failed check, never Needs you's red (UI 11). */
 export interface Ring {
   /** pending: a still dot, never a turning ring: a ready task waiting on its pull request's checks (dmalis/shepherdr#42),
    *  or its agent idle on a Working task (#48), as GitHub's and Vercel's pending mark */
-  kind: 'check' | 'ring' | 'pending'
-  tone: 'working' | 'ask' | 'red' | 'ready' | 'mute'
+  kind: 'check' | 'ring' | 'pending' | 'fail'
+  tone: 'working' | 'ask' | 'warn' | 'ready' | 'mute'
   pct: number | null
   mark?: 'tint' | 'stop' | 'unstarted'
   /** the words a screen reader says for it */
@@ -329,7 +336,7 @@ export interface Ring {
 export function ringOf(t: Task): Ring {
   const s = tstate(t)
   if (s === 'done' || s === 'archived') return { kind: 'check', tone: 'mute', pct: 100, label: 'Done' }
-  if (t.checksWait) return { kind: 'pending', tone: t.checksWait.state === 'failed' ? 'red' : 'working', pct: null, label: checksLine(t.checksWait) }
+  if (t.checksWait) return t.checksWait.state === 'failed' ? { kind: 'fail', tone: 'warn', pct: null, label: checksLine(t.checksWait) } : { kind: 'pending', tone: 'working', pct: null, label: checksLine(t.checksWait) }
   if (s === 'ready' || t.status === 'merging' || t.accepting) return { kind: 'check', tone: 'ready', pct: 100, label: s === 'ready' ? 'Ready for review' : 'Merging' }
   const p = t.report?.progress
   const pct = typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : null
@@ -337,7 +344,7 @@ export function ringOf(t: Task): Ring {
   if (paused(t)) return { kind: 'ring', tone: 'mute', pct, mark: 'stop', label: `${NEUTRAL_WORDS.paused}${done}` }
   // a wait Shepherdr handles: a still dot, as a pending one, never the tinted ring of Needs you
   if (s === 'ask' && withShepherdr(t)) return t.stopped ? { kind: 'ring', tone: 'mute', pct, mark: 'stop', label: `${tierLabel('shepherdr', 'Stopped')}${done}` } : { kind: 'pending', tone: 'mute', pct, label: tierLabel('shepherdr') }
-  if (t.stopped) return { kind: 'ring', tone: 'red', pct, mark: 'stop', label: `Stopped${done}` }
+  if (t.stopped) return { kind: 'ring', tone: stoppedTone(t), pct, mark: 'stop', label: `Stopped${done}` }
   if (s === 'ask') return { kind: 'ring', tone: 'ask', pct, mark: 'tint', label: `Needs you${done}` }
   // its agent idle (live state), no progress to draw: a still dot, the turning ring only for real work (dmalis/shepherdr#48)
   if (s === 'working' && t.agentIdle && pct === null && !t.accepting) return { kind: 'pending', tone: 'working', pct, label: t.agentGone ? 'No agent running' : 'Idle' }

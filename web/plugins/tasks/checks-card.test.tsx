@@ -25,7 +25,9 @@ test('its row says what it waits for, a still dot, no time left of its own', () 
   expect(etaOf(t)).toBeNull()
   const failed = task(cw({ runs: [{ ...runs[0], state: 'failed' }], back: true }))
   expect(statusWord(failed)).toMatchObject({ word: 'A check failed' })
-  expect(ringOf(failed)).toMatchObject({ kind: 'pending', tone: 'red' })
+  // UI 11: its own mark, amber, never Needs you's red: its agent fixes it
+  expect(ringOf(failed)).toMatchObject({ kind: 'fail', tone: 'warn' })
+  expect(statusWord(failed).tone).toBe('warn')
 })
 
 // with #48's idle marks too (its agent ended, as once it handed in): the checks still say what it waits for

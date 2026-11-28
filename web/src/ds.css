@@ -1,11 +1,11 @@
 /* Shepherdr's design system (3.2): tokens, sizes and classes. Desktop by default, phone under .app.phone. */
-:root{color-scheme:light;--canvas:#fff;--well:#fafafa;--raised:#f5f5f5;--overlay:#fff;--control:rgb(0 0 0/.05);--control2:rgb(0 0 0/.1);--fg:#0a0a0a;--sub:#404040;--muted:#666666;--line:rgb(0 0 0/.08);--line2:rgb(0 0 0/.12);--mine:#e5e5e5;--rx:#fff;--scrim:rgb(0 0 0/.3);--green:#15803d;--blue:#0369a1;--link:#1d4ed8;--amber:#b45309;--red:#dc2626;--needs-fill:#b91c1c;--needs-ink:#fff;--term:#0a0a0a;--shadow:0 8px 28px rgb(0 0 0/.14)}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}}
-:root[data-theme="dark"]{color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}
+:root{color-scheme:light;--canvas:#fff;--well:#fafafa;--raised:#f5f5f5;--overlay:#fff;--control:rgb(0 0 0/.05);--control2:rgb(0 0 0/.1);--fg:#0a0a0a;--sub:#404040;--muted:#666666;--line:rgb(0 0 0/.08);--line2:rgb(0 0 0/.12);--edge:#838383;--mine:#e5e5e5;--rx:#fff;--scrim:rgb(0 0 0/.3);--green:#15803d;--blue:#0369a1;--link:#1d4ed8;--amber:#b45309;--red:#dc2626;--needs-fill:#b91c1c;--needs-ink:#fff;--term:#0a0a0a;--shadow:0 8px 28px rgb(0 0 0/.14)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--edge:#808080;--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}}
+:root[data-theme="dark"]{color-scheme:dark;--canvas:#121212;--well:#0a0a0a;--raised:#1e1e1e;--overlay:#1f1f1f;--control:rgb(255 255 255/.1);--control2:rgb(255 255 255/.16);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.12);--edge:#808080;--mine:rgb(255 255 255/.14);--rx:#262626;--scrim:rgb(0 0 0/.6);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--shadow:0 0 0 0 transparent}
 /* Night (#1505): true black for OLED, picked by hand. Not Dark with the canvas swapped: on #000 nothing sits lower
    than the page, so every layer steps up from it (well, then bubbles and cards, then menus), the hairlines are a
    little stronger to keep layers apart without shadows, and the scrim is darker so a sheet still lifts off the page */
-:root[data-theme="night"]{color-scheme:dark;--canvas:#000;--well:#0a0a0a;--raised:#171717;--overlay:#121212;--control:rgb(255 255 255/.12);--control2:rgb(255 255 255/.18);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.1);--line2:rgb(255 255 255/.16);--mine:rgb(255 255 255/.16);--rx:#1f1f1f;--scrim:rgb(0 0 0/.75);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--term:#0a0a0a;--shadow:0 0 0 0 transparent}
+:root[data-theme="night"]{color-scheme:dark;--canvas:#000;--well:#0a0a0a;--raised:#171717;--overlay:#121212;--control:rgb(255 255 255/.12);--control2:rgb(255 255 255/.18);--fg:#fafafa;--sub:#d4d4d4;--muted:#a3a3a3;--line:rgb(255 255 255/.1);--line2:rgb(255 255 255/.16);--edge:#7e7e7e;--mine:rgb(255 255 255/.16);--rx:#1f1f1f;--scrim:rgb(0 0 0/.75);--green:#4ade80;--blue:#7dd3fc;--link:#8ab4f8;--amber:#fbbf24;--red:#f87171;--needs-fill:#f87171;--needs-ink:#0a0a0a;--term:#0a0a0a;--shadow:0 0 0 0 transparent}
 /* tokens for what was written by hand (#150): the code font, the app's layers by role, durations. Sizes that step
    with the pointer (code, icons) are on .app below. A component's own pieces (1 to 3) order themselves; what sits over
    other parts of the page takes a layer: a dragged row, a resize edge, a floating chip, the menus and sheets, a
@@ -30,7 +30,7 @@ button,[role="tab"],summary,.lk{-webkit-user-select:none;user-select:none;-webki
    Hover is only for a mouse (@media(hover:hover)), so a tap never leaves anything lit. iOS shows :active because
    the app listens for touchstart (kernel.ts) */
 :is(.ib,button.row,.inbx-it,.tbtn,.qbtn,.agent,.tile,.slt,button.fake,.emo button,.toast .ta,.toast .tx,.ncnt,.tab,.seg button,.grp,.pt,.toend):active:not(:disabled,[aria-disabled="true"]){background-image:linear-gradient(var(--press,var(--control2)),var(--press,var(--control2)))}
-:is(.send,.keys button,.fchip button,.tg,.banner>button.n,.thumb,a.pic,a.fchip,.atb,.arm,.rxc):active:not(:disabled,[aria-disabled="true"]){opacity:.6}
+:is(.send,.keys button,.fchip button,.banner>button.n,.thumb,a.pic,a.fchip,.atb,.arm,.rxc):active:not(:disabled,[aria-disabled="true"]){opacity:.6}
 :is(.fold,.hpath,button.ref,.files button,.wtag,.rline,.gstrip .gh):active:not(:disabled,[aria-disabled="true"]){color:var(--fg)}
 p,h2,h3{margin:0}small{font-size:inherit}
 
@@ -90,7 +90,10 @@ html{--cnt-quiet:color-mix(in srgb,var(--fg) 14%,var(--canvas))}
 .pop .fwhere{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;color:var(--sub);font-size:var(--sec);line-height:var(--secl);user-select:text}
 .pop .fwhere .i{flex:none;margin-top:calc((var(--secl) - var(--ic)) / 2);color:var(--muted)}.pop .fwhere .n{flex:1;min-width:0}
 .pop .fwhere .l1{white-space:normal;overflow-wrap:anywhere;color:var(--fg)}.pop .fwhere .l2{white-space:normal;overflow-wrap:anywhere}
-.row.danger{color:var(--red)}.row.off{opacity:.45}.row.dim{opacity:.6}
+/* a row that can't be reached or is switched off (UI 11): its mark dims (a ring's glyph, not its time left; a file's
+   icon past its chevron), its words keep their contrast, the name one step quieter (`--sub`, still over 4.5:1 on
+   every surface); never opacity on the words */
+.row.danger{color:var(--red)}.row:is(.dim,.off){color:var(--sub)}.row:is(.dim,.off)>:first-child:not(.n,.tring,.chev),.row:is(.dim,.off)>.tring:first-child>.i,.row:is(.dim,.off)>.chev:first-child+.i{opacity:.5}
 .row .i:not([class*="c-"]){color:var(--muted)}.row.danger .i{color:inherit}
 .rowx{display:flex;align-items:center;border-radius:8px;min-width:0}.rowx>.row{flex:1}
 .lab{padding:12px 8px 4px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
@@ -111,11 +114,11 @@ html{--cnt-quiet:color-mix(in srgb,var(--fg) 14%,var(--canvas))}
 .seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--control);max-width:100%}
 .seg button{height:var(--tab);padding:0 10px;border-radius:6px;color:var(--muted);font-size:var(--sec);font-weight:500;white-space:nowrap}
 .seg button[aria-pressed="true"]{background:var(--control2);color:var(--fg)}
-.tg{width:var(--tgw);height:var(--tgh);padding:2px;border-radius:calc(var(--tgh)/2);background:var(--control2);flex:none}
+.tg{width:var(--tgw);height:var(--tgh);padding:2px;border-radius:calc(var(--tgh)/2);background:var(--control2);box-shadow:inset 0 0 0 1px var(--edge);flex:none}
 .tg i{display:block;width:calc(var(--tgh) - 4px);height:calc(var(--tgh) - 4px);border-radius:50%;background:var(--sub);transition:transform .2s}
-.tg[aria-checked="true"],.tg.on{background:var(--fg)}.tg[aria-checked="true"] i,.tg.on i{background:var(--canvas);transform:translateX(calc(var(--tgw) - var(--tgh)))}
-.inp{display:block;width:100%;height:var(--field);padding:0 12px;border:0;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line2);font-size:var(--ui)}
-.inp:focus{box-shadow:inset 0 0 0 1px var(--muted)}.inp::placeholder,.cin::placeholder{color:var(--muted)}
+.tg[aria-checked="true"],.tg.on{background:var(--fg);box-shadow:none}.tg[aria-checked="true"] i,.tg.on i{background:var(--canvas);transform:translateX(calc(var(--tgw) - var(--tgh)))}
+.inp{display:block;width:100%;height:var(--field);padding:0 12px;border:0;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--edge);font-size:var(--ui)}
+.inp:focus{box-shadow:inset 0 0 0 1px var(--fg)}.inp::placeholder,.cin::placeholder{color:var(--muted)}
 .logo{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line2);color:var(--sub);font-size:12px;line-height:1;font-weight:600;flex:none}
 .meter{height:4px;border-radius:2px;background:var(--control2)}.meter i{display:block;width:var(--w);height:100%;border-radius:2px;background:var(--fg)}.meter.hot i{background:var(--amber)}
 .num{font-weight:600;font-variant-numeric:tabular-nums}
@@ -357,7 +360,7 @@ button.b{cursor:pointer}
 .dlg h2,.sheet h2{font-size:16px;line-height:24px;font-weight:600}.dlg p{color:var(--muted);font-size:14px;line-height:20px}
 .fld{display:grid;gap:4px;justify-items:start}.fld>span{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}.fld>.inp{justify-self:stretch}
 .nsr{display:grid;margin:-4px -8px 0}
-.fake{display:flex;align-items:center;min-height:var(--field);padding:6px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line2);justify-self:stretch}
+.fake{display:flex;align-items:center;min-height:var(--field);padding:6px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--edge);justify-self:stretch}
 .pk{display:grid;gap:4px}.pk .hd{height:var(--btn);padding:0;margin-bottom:4px}.pk .inp{margin-bottom:4px}
 .pk .list{display:grid;gap:1px;align-content:start;min-height:240px}
 .pk-gap{width:20px;flex:none}.pk-v{color:var(--fg);font-weight:500}
@@ -553,7 +556,7 @@ html,body{height:100%}body{padding:0;overflow:hidden}
 /* a task's status icon (SHEP-321; Working in the app's yellow, Needs you red with its dot, SHEP-351, tasks/client.tsx StatusIcon): the ring filled by the share done, the time left short
    under it, centred on the icon without widening its column (a wider time overflows evenly); one-line rows: beside it */
 .tring{display:inline-flex;flex-direction:column;align-items:center;flex:none;width:var(--ic);color:var(--amber)}
-.tring.t-ask{color:var(--red)}.tring.t-red{color:var(--red)}.tring.t-ready{color:var(--green)}.tring.t-mute{color:var(--muted)}
+.tring.t-ask{color:var(--red)}.tring.t-warn{color:var(--amber)}.tring.t-ready{color:var(--green)}.tring.t-mute{color:var(--muted)}
 .tring .mk{fill:currentColor;stroke:var(--canvas);stroke-width:1.5;paint-order:stroke}
 .tring .tn{opacity:.2}.tring .tk{stroke:var(--canvas);stroke-width:1.75}
 .tring .tl{margin-top:calc((var(--uil) - var(--ic))/2);font-size:12px;line-height:var(--secl);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -682,7 +685,7 @@ textarea.cin{overflow-y:auto}
 .tfw{flex:none;max-width:45%;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 .tfq{width:auto;margin:0 4px 4px;height:var(--btns)}
 .tfnone{padding:6px 8px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
-.cbx{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line2);flex:none}
+.cbx{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--edge);flex:none}
 .cbx.on{background:var(--fg);color:var(--canvas);box-shadow:none}.cbx .i{width:var(--ic-xs);height:var(--ic-xs);stroke-width:2;color:inherit!important}
 .app.tap .cbx{width:20px;height:20px;border-radius:5px}
 .ib .fdot{position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:3px;background:var(--fg);box-shadow:0 0 0 2px var(--canvas)}
@@ -741,7 +744,7 @@ textarea.cin{overflow-y:auto}
 .ksheet section{display:grid;align-content:start;min-width:0}
 .krow{display:flex;align-items:center;gap:8px;min-height:var(--row);padding:0 8px;color:var(--sub)}
 .krow .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.krow.off{opacity:.45}
+.krow.off{color:var(--muted)}
 .app.tap .krow .kcap{display:inline-flex}
 /* Settings › Shortcuts: the keys are a button that listens */
 .kbtn{display:inline-flex;align-items:center;gap:6px;min-width:96px;height:var(--btn);padding:0 8px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line2);justify-content:flex-end}
