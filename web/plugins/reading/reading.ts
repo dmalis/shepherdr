@@ -9,9 +9,10 @@ export const READING = 'reading'
 export const HIDE_PX = 40
 /** scrolled this far toward the newest message in one go: they come back (a small move, as in Safari and X) */
 export const SHOW_PX = 24
-/** still this far from the newest message once the chat has grown by the room it gains: the same line as the
- *  jump-to-newest button (newest.ts's OFF_PX), so its ↓ stays, and the view is never pulled down to the end */
-export const FAR_PX = 240
+/** still this far from the newest message once the chat has grown by the room it gains: the view is never pulled
+ *  down to its end, and getting there takes a deliberate scroll, which brings all back first. A short chat steps
+ *  aside too, as long as it has that much to read back. */
+export const KEEP_PX = 40
 /** at the newest message: everything is back */
 export const END_PX = 2
 
@@ -38,7 +39,7 @@ export function step(s: Reading, y: number, h: number, end: number, may: boolean
   const run = d === 0 ? s.run : d < 0 ? Math.min(s.run, 0) + d : Math.max(s.run, 0) + d
   let on = s.on
   if (!may || end <= END_PX) on = false
-  else if (!on && run <= -HIDE_PX && end - room > FAR_PX) on = true
+  else if (!on && run <= -HIDE_PX && end - room > KEEP_PX) on = true
   else if (on && run >= SHOW_PX) on = false
   // a change starts a new run, so turning back needs the full distance again
   const next = { on, y, h, run: on === s.on ? run : 0 }
@@ -53,7 +54,7 @@ export interface Box {
   extras: boolean
   /** dictating, or in a voice call: the box's bar is that surface */
   voice: boolean
-  /** the chat's newest row is an open question card, waiting for an answer */
+  /** the chat's newest row is a card waiting on you: a question, a review, a secret, a stopped agent */
   ask: boolean
   /** the on-screen keyboard is up (typing.ts) */
   keyboard: boolean
@@ -62,5 +63,5 @@ export interface Box {
 }
 
 /** Whether anything may step aside: never while you are writing or about to (text, a chip, files, dictation, the
- *  keyboard, focus in the box), nor while the newest row is a question waiting on you. */
+ *  keyboard, focus in the box), nor while the newest row is a card waiting on you. */
 export const allowed = (b: Box) => !(b.text || b.extras || b.voice || b.ask || b.keyboard || b.focus)

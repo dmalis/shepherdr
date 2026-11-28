@@ -1,7 +1,7 @@
 // fork #144: when the bottom tabs and the box's second row step aside while reading back, and when they come back.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { END_PX, FAR_PX, HIDE_PX, SHOW_PX, START, allowed, step, type Box, type Reading } from './reading.ts'
+import { END_PX, HIDE_PX, KEEP_PX, SHOW_PX, START, allowed, step, type Box, type Reading } from './reading.ts'
 
 /** a long chat: 5000px of it, at its newest message (scrollTop 4000 of 4000) */
 const H = 5000
@@ -23,13 +23,20 @@ describe('stepping aside while reading back', () => {
     expect(by(far, -HIDE_PX).on).toBe(true)
   })
 
-  test('never near the newest message: the chat, grown by the room it gains, keeps past the jump button line', () => {
-    // 300px from the end, 200px of room: 100px left, inside the line
-    const near = at(MAX - 300 + 100)
-    expect(by(near, -100, true, 200).on).toBe(false)
-    // far enough for the room
-    const far = at(MAX - FAR_PX - 200 - 50 + 100)
-    expect(by(far, -100, true, 200).on).toBe(true)
+  test('never so near the newest message that the room it gains would reach it: the view keeps its place', () => {
+    // 260px from the end, 200px of room: only 60px would be left, KEEP_PX is 40: it steps aside
+    expect(by(at(MAX - 160), -100, true, 200).on).toBe(true)
+    // 230px from the end: 30px would be left
+    expect(by(at(MAX - 130), -100, true, 200).on).toBe(false)
+    expect(KEEP_PX).toBeLessThan(200)
+  })
+
+  test('a short chat steps aside too, read back toward its oldest message', () => {
+    // 320px to read back, 104px of room: scrolling back step by step from its newest message
+    const read = (to: number) => [300, 280, 260, 240, 220, 200, 100, 0].filter((y) => y >= to).reduce((r, y) => step(r, y, 1000, 320 - y, true, 104), { ...START, y: 320, h: 1000 } as Reading)
+    // 120px back: the room would bring the view within 40px of the end
+    expect(read(200).on).toBe(false)
+    expect(read(0).on).toBe(true)
   })
 
   test('scrolling toward the newest message never steps aside', () => {

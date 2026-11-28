@@ -30,7 +30,7 @@ function boxOf(sc: HTMLElement, foot: HTMLElement): Box {
     text: !!cbox?.querySelector<HTMLTextAreaElement>(':scope > .crow > .cin')?.value,
     extras: !!cbox && [...cbox.children].some((c) => !c.matches('.crow, .cbar')),
     voice: !!cbox?.querySelector(':scope > .cbar > :is(.dsurf, .vin)'),
-    ask: !![...sc.querySelectorAll('[data-msg], [data-card]')].at(-1)?.matches('[data-ask], :has([data-ask])'),
+    ask: !![...sc.querySelectorAll('[data-msg], [data-card]')].at(-1)?.matches(':is(.card, [data-ask]), :has(:is(.card, [data-ask]))'),
     keyboard: getState().ui.keyboard,
     focus: !!at && at !== document.body && (foot.contains(at) || !!at.closest('.app .bar')),
   }
@@ -114,9 +114,21 @@ export default definePlugin({
     addEventListener('resize', back)
     COARSE?.addEventListener('change', back)
 
+    // what came meanwhile (a question, a review, a chip, dictation): checked once drawn, all back if it forbids
+    let checking = false
+    const recheck = () => {
+      checking = false
+      const foot = sc?.isConnected ? footOf(sc) : null
+      if (root.classList.contains(READING) && (!foot || !allowed(boxOf(sc!, foot)))) back()
+    }
+
     // the keyboard opening, another chat, pane, task or window: all back at once
     let was = getState().ui
     subscribe(() => {
+      if (root.classList.contains(READING) && !checking) {
+        checking = true
+        requestAnimationFrame(recheck)
+      }
       const u = getState().ui
       if (u === was) return
       const moved = u.keyboard || u.at !== was.at || u.pane !== was.pane || u.task !== was.task || u.drawer !== was.drawer || u.settings !== was.settings || u.phone !== was.phone

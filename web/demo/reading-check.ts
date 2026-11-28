@@ -99,9 +99,10 @@ async function check(browser: Browser, base: string, s: Scene) {
         return sc ? `${sc.scrollTop}@${Math.round(sc.getBoundingClientRect().top)}` : ''
       }
       document.addEventListener('scroll', () => log.push(`scroll ${where()}`), true)
-      // what moves the box or the tabs: the box's slide (an animation) and the tabs' (a transition that lasts)
+      // what moves the box or the tabs: the box's slide (an animation on the foot) and the tabs' (a transition that lasts);
+      // not what fades in inside the foot (upstream's ↓ button)
       const moving = () =>
-        document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.target?.closest?.('.foot, .bar')).length +
+        document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.target?.matches?.('.foot, .bar')).length +
         [...document.querySelectorAll('.app .bar')].filter((b) => parseFloat(getComputedStyle(b).transitionDuration) > 0).length
       addEventListener('DOMContentLoaded', () =>
         new MutationObserver(() => log.push(`${document.documentElement.classList.contains('reading') ? 'on' : 'off'} ${where()} ${moving()}`)).observe(document.documentElement, { attributeFilter: ['class'] }),
@@ -142,6 +143,7 @@ async function check(browser: Browser, base: string, s: Scene) {
     const i = up.log.findIndex((l) => l.startsWith('on '))
     expect(i > 0 && up.log[i]!.split(' ')[1] === up.log[i - 1]!.split(' ')[1], `${name}: the chat's view did not move as it stepped aside (${up.log.join(' | ')})`)
     if (s.reduced) expect(i >= 0 && up.log[i]!.endsWith(' 0'), `${name}: Motion Reduced, nothing animates (${up.log[i]})`)
+    else expect(i >= 0 && !up.log[i]!.endsWith(' 0'), `${name}: the box and the tabs slide (${up.log[i]})`)
     await shot('2 reading')
 
     await drag(page, 40)
