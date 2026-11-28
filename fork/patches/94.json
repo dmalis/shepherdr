@@ -21,6 +21,7 @@
     "web/plugins/feedback/words.ts",
     "web/plugins/feedback/feedback.css",
     "web/demo/data.ts",
+    "web/demo/tap-check.ts",
     "docs/plugins.md"
   ],
   "tests": [
