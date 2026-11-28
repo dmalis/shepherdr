@@ -22,7 +22,9 @@
     "web/plugins/tasks/client.tsx",
     "web/src/icons.ts",
     "web/demo/data.ts",
-    "web/demo/serve.ts"
+    "web/demo/serve.ts",
+    "web/shared/attention.ts",
+    "service/attention.ts"
   ],
   "tests": [
     "test/test_herdr_task.py::Urgent",
@@ -32,6 +34,7 @@
     "web/shared/urgent.test.ts",
     "web/plugins/tasks/urgent.test.tsx",
     "service/urgent.test.ts",
-    "service/voice-data.test.ts"
+    "service/voice-data.test.ts",
+    "service/urgent-waits.test.ts"
   ]
 }

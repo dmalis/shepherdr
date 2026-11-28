@@ -299,6 +299,13 @@ is added `--after` slice 1, and slice 3 `--after` slice 2 as well as after Needs
   (`news_send` can start one again), deduplicated across passes and machines, with race tests, and the dated
   update to docs/agents-and-terms.md, since it is a new kind of message to an agent.
 - **Files and tests:** named once parts 5, 6a and 6b have merged, in their own shapes.
+- **As built:** `web/shared/attention.ts` `inOrder` is the one list's order: oldest first (ties by id), then
+  `web/shared/urgent.ts` `urgentWaitsFirst` moves each action Shepherdr owns on an urgent task (by any task it holds)
+  ahead of the rest, a stable partition. `projectAttention` and `service/attention.ts` `keepLast` (a machine that can't
+  be read keeps its last actions) both end with it. A wait handed up to the person (asked, its deadline passed, no
+  Shepherdr) is the person's and keeps its age order. Every reader of the person's actions (`yours`, push, Glance, the
+  badge, voice, Tasks' Needs you) filters to them, so nothing they see moves. Tests:
+  `service/urgent-waits.test.ts`. The re-telling part is not built.
 
 ### Not in this spec
 

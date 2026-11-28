@@ -2,7 +2,7 @@
 // projectAttention, the one rule) and sends it with the snapshot, each task carrying its lead action. The pages' counts
 // and lists, the app badge, the glance feed and which alerts may reach a device (service/push.ts alertsOf) all read
 // this one result, so they never disagree. The design: fork/specs/needs-you.md.
-import { byAge, projectAttention, withActions, type Action } from "../web/shared/attention.ts";
+import { inOrder, projectAttention, withActions, type Action } from "../web/shared/attention.ts";
 import type { Snapshot } from "../web/shared/types.ts";
 
 /** fork Needs you 6b: when the next wait Shepherdr handles reaches its hand-up deadline (ms), and the machines of the
@@ -99,5 +99,5 @@ export function keepLast(snap: Pick<Snapshot, "tasks" | "places"> & Partial<Pick
   }
   // a machine no longer listed: forgotten
   for (const k of [...memo.keys()]) if (!others.some((m) => m.machine === k)) memo.delete(k);
-  return out === actions ? actions : [...out].sort(byAge);
+  return out === actions ? actions : inOrder(out, snap.tasks ?? []);
 }
