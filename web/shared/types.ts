@@ -4,6 +4,7 @@ import type { BrowserNote } from './browser.ts'
 import type { ChatPatch, SnapPatch } from './patch.ts'
 import type { Stamp } from './build-stamp.ts'
 import type { Attention, TaskAction } from './attention.ts'
+import type { PlainAsk } from './plain-ask.ts'
 
 /** fork Needs you 4/6: an alert sent (service/alert-ledger.ts): its key, the action it is about, its words and link */
 export type AlertEvent = { key: string; action?: string; at: number; title: string; body: string; topic: string; url?: string; place?: string; task?: string; sticky?: true }
@@ -64,6 +65,9 @@ export interface Place {
   /** fork Needs you 5/6: its own Shepherdr chat, as its machine says now: running, stopped (its agent ended or back at
    *  a shell) or none started. A wait it would handle is the person's when it isn't running (web/shared/attention.ts) */
   shepherdr?: 'running' | 'stopped' | 'none'
+  /** fork "Shepherdr's asks in Needs you": its Shepherdr's newest words and what they offer, read once a turn
+   *  (service/plain-ask.ts); web/shared/plain-ask.ts asksYou says when they wait on the person */
+  asks?: PlainAsk
   id: string
   /** nobody named it: Herdr names it after its folder (its Rename field starts empty, this name its placeholder) */
   unnamed?: boolean

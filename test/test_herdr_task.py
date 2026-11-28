@@ -6341,7 +6341,7 @@ class AssistantSettings(unittest.TestCase):
         # nothing differs from Herdr's default: no line says who set it
         self.assertNotIn("; set for", note)
         self.assertNotIn("; your setting", note)
-        self.assertEqual(len(note.split("\n")), 15)  # head, 13 lines (Suggested replies, Urgent tasks: dmalis/shepherdr#119, Repo settings), the Reactions guide
+        self.assertEqual(len(note.split("\n")), 16)  # head, 14 lines (Suggested replies, Urgent tasks: dmalis/shepherdr#119, Asking the person, Repo settings), the Reactions guide
         self.assertIn("- Repo settings: none (every repo has the task lines above)", note)
         self.assertIn("the task lines below are Everywhere's", note)
         self.assertIn("- Suggested replies: on (end each reply with one to three replies", note)
@@ -6376,7 +6376,7 @@ class AssistantSettings(unittest.TestCase):
         labels = self.terminals["t5"]["labels"]
         self.assertEqual(labels["herdr.reactions"], "off")
         self.assertEqual(sorted(self.aset.parse(labels["herdr.settings"])),
-                         sorted(["review", "merge", "proof", "agent", "base", "worktrees", "notes", "setup", "reactions", "suggestions", "feedback", "urgent", "repos"]))
+                         sorted(["review", "merge", "proof", "agent", "base", "worktrees", "notes", "setup", "reactions", "suggestions", "feedback", "urgent", "asking", "repos"]))
         # a space on / (root), its file not moved yet: its task values are the / folder's, not the shop repo's
         self.assistant("t6", "sp2")
         other = self.aset.session_note("t6")
@@ -15665,3 +15665,65 @@ class ScheduleFold(unittest.TestCase):
         self.round()
         self.assertEqual(len(self.started), 2)
         self.assertIn('the task "Second" was merged', self.task(self.started[1][0])["prompt"])
+
+
+class AskingThePerson(unittest.TestCase):
+    """Shepherdr's asks in Needs you (dmalis/shepherdr): every Shepherdr chat's settings note says to wait on the person
+    with its question tool, never only in plain chat words; it never sends a message of its own, a shell in front never (its
+    next start's note says it). Pins the seam: the row rides on assistant_settings.rows, not on templates/assistant.md."""
+
+    setUp = AssistantSettings.setUp
+    write = AssistantSettings.write
+    assistant = AssistantSettings.assistant
+
+    def test_the_row_in_every_chats_settings_note(self):
+        import herdr_task.asking as asking
+        self.assistant()
+        note = self.aset.session_note("t5")
+        self.assertIn(f"\n- Asking the person: {asking.TEXT}\n", note)
+        self.assertIn("asking", self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"]))
+        for words in ("question tool", "AskUserQuestion", "shows under Needs you", "never only in plain chat words",
+                      "reply bubbles don't replace it", "optional choices too", "once everything is done"):
+            self.assertIn(words, asking.TEXT)
+        # upstream's template is left as it is: the words come from our own module
+        with open(os.path.join(BIN, "..", "..", "..", "templates", "assistant.md")) as f:
+            self.assertNotIn("Asking the person", f.read())
+
+    def test_never_a_message_of_its_own_and_a_shell_in_front_never(self):
+        # a chat the app marks stopped can still have its CLI in front, or lose it just before the send: the row alone
+        # sends nothing (its next start's note has it), so it can never reach or start one again
+        self.assistant()
+        self.aset.session_note("t5")
+        told = self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"])
+        before = ",".join(f"{k}:{v}" for k, v in told.items() if k != "asking")  # as the herdr-task before this labelled it
+        self.terminals["t5"]["labels"]["herdr.settings"] = before
+        self.assistant("t6", "sp2", **{"herdr.settings": before})
+        self.terminals["t6"]["foreground"] = {"name": "zsh"}  # its agent ended: a plain shell in front
+        report = {}
+        self.aset.settings_pass(report, {})
+        self.assertEqual(self.sent, [])
+        self.assertNotIn("settings", report)
+        # noted as told, so no pass sends it later
+        self.assertIn("asking", self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"]))
+        self.aset.settings_pass({}, {})
+        self.assertEqual(self.sent, [])
+        # another setting changed: it rides along to the running chat, never to the shell
+        self.terminals["t5"]["labels"]["herdr.settings"] = before
+        self.terminals["t6"]["labels"]["herdr.settings"] = before
+        self.write({"everywhere": {"tasks": {"merge": "auto"}}})
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertIn('name="asking"', sent["t5"])
+        self.assertIn('name="merge"', sent["t5"])
+        self.assertNotIn('name="asking"', sent["t6"])
+        self.assertIn('name="merge"', sent["t6"])
+
+    def test_the_whole_block_to_a_shell_in_front_leaves_it_out(self):
+        self.assistant("t5", "sp1")
+        self.assistant("t6", "sp2")
+        self.terminals["t6"]["foreground"] = {"name": "zsh"}
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertIn("\n- Asking the person: ", sent["t5"])
+        self.assertTrue(sent["t6"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertNotIn("Asking the person", sent["t6"])

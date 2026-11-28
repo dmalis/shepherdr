@@ -11,22 +11,23 @@
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 // `?case=radar` is Radar's clickable prototype: its row, page and fixtures, and its one card in #shop and Needs you (radar.ts).
+// `?case=asks` has #notes' Shepherdr asking in plain words, nothing running there, and the portal space idle with a task up next.
 // `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Chat, Message, Snapshot, Task } from '../shared/types.ts'
 import { withLinks } from '../../service/artifact-links.ts'
 import { commandList } from '../../core/slash.js'
-import { artifacts, catalog, chats as seed, config, EV, foldersOf, newSpaceInfo, snapshot } from './data.ts'
+import { artifacts, catalog, chats as seed, config, EV, foldersOf, newSpaceInfo, NOTES_ASK, NOTES_CHAT, snapshot } from './data.ts'
 import { demoBuild, demoBuilds } from './builds.ts'
 // fork Needs you 5/6: what needs the person, worked out as the service does (service/attention.ts)
 import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' | 'radar'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' | 'radar' | 'asks'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')), drafts: structuredClone(snapshot('drafts')), cards: structuredClone(snapshot('cards')), radar: structuredClone(snapshot('radar')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')), drafts: structuredClone(snapshot('drafts')), cards: structuredClone(snapshot('cards')), radar: structuredClone(snapshot('radar')), asks: structuredClone(snapshot('asks')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -57,7 +58,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage', 'drafts', 'cards', 'radar'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage', 'drafts', 'cards', 'radar', 'asks'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -83,7 +84,12 @@ const chatFor = (s: Sock, key: string): Chat => {
   // a link to the app itself (APP/?artifact=…) gets this page's own address, as `herdr-artifact link` prints it (SHEP-339)
   if (s.data.app) chat = { ...chat, messages: chat.messages.map((m) => (m.text?.includes('APP/') ? { ...m, text: m.text.replaceAll('APP/', s.data.app!) } : m)) }
   // ?case=radar: #shop's payment question was answered (data.ts RADAR_PAID), so Radar's card is #shop's one question
-  if (s.data.mode === 'radar') chat = { ...chat, messages: chat.messages.map((m) => (m.question?.id === 'q-pay' && m.question.sent === undefined ? { ...m, question: { ...m.question, sent: 0, said: m.question.choices[0]?.label } } : m)) }
+  // ?case=asks: #notes' Shepherdr ended its turn on its plain-words ask, before anything you send there
+  if (s.data.mode === 'asks' && key === NOTES_CHAT) {
+    const ask = { id: 'm-notes-ask', who: 'agent' as const, at: Date.now() - 20 * 60_000, text: NOTES_ASK, suggests: ['Yes, fix the prices now', 'Leave it for today'] }
+    chat = { ...chat, messages: [...chat.messages.filter((m) => !m.id.startsWith('n')), ask, ...chat.messages.filter((m) => m.id.startsWith('n'))] }
+  }
+  if (s.data.mode === 'radar') chat ={ ...chat, messages: chat.messages.map((m) => (m.question?.id === 'q-pay' && m.question.sent === undefined ? { ...m, question: { ...m.question, sent: 0, said: m.question.choices[0]?.label } } : m)) }
   return s.data.mode === 'down' ? { ...chat, messages: chat.messages.map(({ suggest, suggests, ...m }) => m) } : chat
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
@@ -217,6 +223,8 @@ function action(a: Record<string, any>): unknown {
     if (a.type === 'held-now') say(h.chat, { who: 'you', text: h.text, cid: h.cid })
     return { ok: true }
   }
+  // ?case=asks: your reply answers #notes' ask, as the service reads it off the log
+  if (a.type === 'send' && a.chat === NOTES_CHAT) { const p = state.asks.places.find((x) => x.id === NOTES_CHAT); if (p?.asks) { delete p.asks; push() } }
   if (a.type === 'send') {
     // as the service gives your message back from the log: its words, then each file under them, a moment later
     const paths: string[] = Array.isArray(a.attachments) ? a.attachments.filter(Boolean) : []
@@ -447,7 +455,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' || c === 'drafts' || c === 'cards' || c === 'radar' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' || c === 'drafts' || c === 'cards' || c === 'radar' || c === 'asks' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)

@@ -16,6 +16,7 @@
 import type { HandUp, Need, Snapshot, Task, TriageCard } from './types.ts'
 import { urgentWaitsFirst } from './urgent.ts'
 import { GROUP_OVER } from './card-group.ts'
+import { asksYou } from './plain-ask.ts'
 
 export type Alert = NonNullable<Snapshot['alerts']>[number]
 
@@ -65,6 +66,9 @@ export interface Action {
    *  post (the batch) */
   drafts?: number
   batch?: number
+  /** fork "Shepherdr's asks in Needs you": a chat's ask read off its plain words (web/shared/plain-ask.ts): what is
+   *  its question */
+  plain?: true
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
    *  sends no new alert until it is read again */
   stale?: string
@@ -88,7 +92,7 @@ export const ALERT_FRESH_MS = 15 * 60_000
 /** a memory guard's alert is over once its machine's memory is back under this (herdr-task tick GUARD_BACK_UNDER) */
 export const MEMORY_BACK_UNDER = 75
 
-type AttentionSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'machines' | 'attention' | 'everything' | 'host' | 'screens' | 'triage'>>
+type AttentionSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'machines' | 'attention' | 'everything' | 'host' | 'screens' | 'triage' | 'last'>>
 
 /** the task a chat belongs to (a task's chats are <task id>/<agent>) */
 const taskOfChat = (snap: Pick<Snapshot, 'tasks'>, chat?: string) =>
@@ -226,9 +230,13 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   }
   // a space's own Shepherdr asking, with no record of its own (its card read off its screen)
   const asking = new Set(needs.filter((n) => !n.task && !n.question?.queued).map((n) => n.chat))
-  for (const p of snap.places)
-    if (p.needs && !asking.has(p.chat))
-      add({ id: `chat:${p.id}`, owner: 'you', kind: 'chat', what: 'Waits for you', since: 0, place: p.id, chat: p.chat, card: null, ...((s) => (s ? { stale: s } : {}))(staleOf(snap, p.machine)) })
+  for (const p of snap.places) {
+    if (asking.has(p.chat)) continue
+    // fork "Shepherdr's asks in Needs you": or it ended its turn asking in plain words, its question unanswered
+    const plain = p.needs ? null : asksYou(p, snap.last)
+    if (p.needs || plain)
+      add({ id: `chat:${p.id}`, owner: 'you', kind: 'chat', what: plain?.what ?? 'Waits for you', since: 0, place: p.id, chat: p.chat, card: null, ...(plain ? { plain: true } : {}), ...((s) => (s ? { stale: s } : {}))(staleOf(snap, p.machine)) })
+  }
   for (const t of snap.tasks) {
     if (!open(t)) continue
     const stale = staleOf(snap, t.on)
