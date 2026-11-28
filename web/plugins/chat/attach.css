@@ -25,4 +25,4 @@
 .cbox.drop{position:relative}
 .cdrop{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border-radius:inherit;background:var(--well);outline:2px dashed var(--muted);outline-offset:-2px;color:var(--sub);font-size:var(--ui);line-height:var(--uil);text-align:center;pointer-events:none}
 .cdrop .i{flex:none;color:inherit}
-.cbox.over>.cdrop{outline-style:solid;outline-color:var(--fg);background:var(--control);color:var(--fg)}
+.cbox.over>.cdrop{outline-style:solid;outline-color:var(--fg);background:var(--raised);color:var(--fg)}
