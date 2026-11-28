@@ -60,6 +60,8 @@ export interface Action {
   handUp?: HandUp
   /** fork #235: the Triage card it is */
   triage?: TriageCard
+  /** fork #235: how many held drafts its one grouped card stands for (triageShown) */
+  drafts?: number
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
    *  sends no new alert until it is read again */
   stale?: string
@@ -278,15 +280,34 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
       ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : late !== undefined ? { deadline: late } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
   }
   // fork #235: Triage's yes cards (a held draft to post, an outside issue to start), each the person's, in its repo's
-  // space's chat (Everything's when that space isn't here); its hash in the id, so a changed text is a new question
+  // space's chat (Everything's when that space isn't here); its hash in the id, so a changed text is a new question.
+  // More drafts than TRIAGE_GROUP_OVER in one space are one action, as their one card (triageShown)
+  const byPlace = new Map<string, TriageCard[]>()
   for (const c of snap.triage?.cards ?? []) {
     const place = triagePlace(snap, c)
-    const p = place ? snap.places.find((x) => x.id === place) : undefined
-    if (!p) continue
-    add({ id: `triage:${c.id}:${c.hash.slice(0, 12)}`, owner: 'you', kind: 'triage', what: triageAsk(c), since: c.at, place: p.id, chat: p.chat, card: `triage:${c.id}`, triage: c })
+    if (place && snap.places.some((x) => x.id === place)) byPlace.set(place, [...(byPlace.get(place) ?? []), c])
+  }
+  for (const [place, cards] of byPlace) {
+    const p = snap.places.find((x) => x.id === place)!
+    const { drafts, single } = triageShown(cards)
+    if (drafts.length)
+      add({ id: `${TRIAGE_DRAFTS}:${p.id}`, owner: 'you', kind: 'triage', what: triageDraftsWords(drafts.length), since: Math.min(...drafts.map((c) => c.at)), place: p.id, chat: p.chat, card: TRIAGE_DRAFTS, drafts: drafts.length })
+    for (const c of single) add({ id: `triage:${c.id}:${c.hash.slice(0, 12)}`, owner: 'you', kind: 'triage', what: triageAsk(c), since: c.at, place: p.id, chat: p.chat, card: `triage:${c.id}`, triage: c })
   }
   return { at: now, actions: inOrder([...out.values()], snap.tasks) }
 }
+
+/** more held drafts than this in one space show as one card that opens their list, as GitHub and Slack group a run of
+ *  notifications into one; start cards (an outside issue to fix) always stay single */
+export const TRIAGE_GROUP_OVER = 3
+/** the one card of a space's grouped drafts: its data-card (and its action's id, with the space after it) */
+export const TRIAGE_DRAFTS = 'triage:drafts'
+/** one space's Triage cards as they show: its drafts grouped (none: each single), the rest single, oldest first */
+export function triageShown<C extends Pick<TriageCard, 'kind'>>(cards: C[]): { drafts: C[]; single: C[] } {
+  const drafts = cards.filter((c) => c.kind === 'draft')
+  return drafts.length > TRIAGE_GROUP_OVER ? { drafts, single: cards.filter((c) => c.kind !== 'draft') } : { drafts: [], single: cards }
+}
+export const triageDraftsWords = (n: number) => (n === 1 ? '1 finding waits to be posted to GitHub' : `${n} findings wait to be posted to GitHub`)
 
 /** a Triage card's question, in a few words */
 export const triageAsk = (c: TriageCard) => (c.kind === 'start' ? 'Start a fix for this?' : 'Post this to GitHub?')

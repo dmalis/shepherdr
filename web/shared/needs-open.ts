@@ -24,7 +24,9 @@ function itemOf(snap: Snapshot, a: Action): NeedItem {
   const t = a.task ? snap.tasks.find((x) => x.id === a.task) : undefined
   return { ...(a.task ? { task: a.task } : {}), place: t?.place ?? a.place, card: a.card, ...(!a.task && a.kind === 'question' ? { title: a.what } : {}),
     // fork #235: a Triage card's row says its question, then what it is about
-    ...(a.kind === 'triage' && a.triage ? { title: a.what, sub: a.triage.title } : {}) }
+    ...(a.kind === 'triage' && a.triage ? { title: a.what, sub: a.triage.title } : {}),
+    // a space's grouped drafts: one row, which opens their one card
+    ...(a.kind === 'triage' && a.drafts ? { title: a.what, sub: 'Each waits for your yes or no' } : {}) }
 }
 
 /** what needsCount(snap, placeId) counts, one item each, oldest first */

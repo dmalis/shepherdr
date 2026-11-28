@@ -357,6 +357,15 @@ function triageDay(s: Snapshot): Snapshot {
   }
 }
 
+// ?case=drafts: Triage's day with a backlog, 150 held drafts in #shop (more than 3 are one card) beside its start card
+const DRAFT_TOPICS = ['The cart badge keeps the old count', 'Checkout loses the chosen delivery slot', 'The size picker resets on back', 'Search shows sold-out items first', 'The wishlist heart flickers on scroll']
+export const backlog: TriageView['cards'] = Array.from({ length: 150 }, (_, i) => ({
+  id: `draft:f:b${i + 1}`, kind: 'draft' as const, key: `b${i + 1}`, copy: false, rev: 1, repo: TRI_REPO, action: 'create' as const, at: NOW - (5 * 24 * 60 - i * 40) * min, why: 'space', hash: (i + 1).toString(16).padStart(64, 'd'),
+  title: `${DRAFT_TOPICS[i % DRAFT_TOPICS.length]} (${i + 1})`,
+  body: '## What happened\n\nFound while working in another space.\n\n## Expected\n\nIt keeps what the person chose.',
+}))
+const draftsDay = (s: Snapshot): Snapshot => ({ ...s, triage: { ...s.triage!, cards: [...backlog, ...s.triage!.cards.filter((c) => c.kind === 'start')] } })
+
 const HANDUP: Record<string, Partial<Task>> = {
   'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },
   'EV-14': { status: 'need', state: 'need', needsAt: NOW - 6 * min, agent: { chat: 'EV-14/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Should locked levels count in the cart?' },
@@ -365,8 +374,9 @@ const HANDUP: Record<string, Partial<Task>> = {
     wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
 }
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' = 'normal'): Snapshot {
   if (mode === 'triage') return triageDay(snapshot('normal'))
+  if (mode === 'drafts') return draftsDay(snapshot('triage'))
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))

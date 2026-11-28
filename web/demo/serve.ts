@@ -6,6 +6,7 @@
 // `?case=post` gives the Feedback page a draft (File it…) and each step of a post after the yes (#94, slice 4).
 // `?case=handup` has Shepherdr's hand-up (with choices, one question over two tasks) and a wait past Ask me after (6b).
 // `?case=triage` switches Triage on for shop: its schedule, Settings › Triage and two yes cards in #shop's chat (fork #235).
+// `?case=drafts` holds 150 drafts for you in #shop: one card says how many and opens their list (fork #235).
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 // `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
@@ -21,9 +22,9 @@ import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')), drafts: structuredClone(snapshot('drafts')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -54,7 +55,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage', 'drafts'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -412,7 +413,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' || c === 'drafts' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)

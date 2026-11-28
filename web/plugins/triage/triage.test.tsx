@@ -13,7 +13,7 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { TriageCardView, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
@@ -132,4 +132,61 @@ test('a card shows the exact words, why they wait, and Yes / No; the start card 
   expect(cut).toContain('can only be kept private')
   expect(cut).not.toContain('Yes, post it')
   expect(cut).toContain('No, keep it private')
+})
+
+// "Triage: one card, not 150": more than 3 drafts in a space are one card in its chat and one row under Needs you; it
+// opens their list, each draft its own card answered as before; start cards stay single; 3 or fewer stay single too
+const shopOf = (snap: Snapshot) => snap.places.find((p) => p.id === snap.triage!.repos[SHOP]!.schedule!.space)!.id
+const withDrafts = (snap: Snapshot, n: number): Snapshot => {
+  const [draft, start] = snap.triage!.cards
+  const drafts = Array.from({ length: n }, (_, i) => ({ ...draft!, id: `draft:f:x${i}`, key: `x${i}`, hash: String(i).padStart(64, 'e'), title: `Finding ${i}`, at: draft!.at + i }))
+  return { ...snap, triage: { ...snap.triage!, cards: [...drafts, start!] } }
+}
+
+test('150 drafts are one card and one Needs you row; the start card stays single', () => {
+  const snap = withDrafts(snapshot('triage') as Snapshot, 150)
+  const shop = shopOf(snap)
+  const cards = triageCards(snap, { place: shop })
+  expect(cards.map((c) => c.key)).toEqual(['triage:drafts', 'triage:start:41'])
+  const one = text(renderToStaticMarkup(<>{cards[0]!.node}</>))
+  expect(one).toContain('150 findings wait to be posted to GitHub')
+  expect(one).toContain('Show them')
+  expect(one).not.toContain('Finding 0')
+  // Needs you: one row for the drafts, opening their card, and the start card's own; the count is 2, not 151
+  const s2 = { ...snap, attention: projectAttention(snap, Date.now()) }
+  const acts = s2.attention.actions.filter((a) => a.kind === 'triage')
+  expect(acts.map((a) => [a.id, a.card, a.drafts ?? null])).toEqual([[`triage:drafts:${shop}`, 'triage:drafts', 150], [expect.stringContaining('triage:start:41:'), 'triage:start:41', null]])
+  expect(needsCount(s2, shop)).toBe(needsItems(s2, shop).length)
+  expect(needsChats(s2, [shop]).filter((i) => i.card?.startsWith('triage:')).map((r) => r.title)).toEqual(['150 findings wait to be posted to GitHub', 'Start a fix for this?'])
+  // the start card is exactly as before
+  expect(renderToStaticMarkup(<>{cards[1]!.node}</>)).toBe(renderToStaticMarkup(<TriageCardView c={snap.triage!.cards.at(-1)!} />))
+})
+
+test('the list behind the one card shows each draft as its own card, oldest first, answered as before', () => {
+  const snap = withDrafts(snapshot('triage') as Snapshot, 150)
+  Object.assign(getState(), { snap })
+  const shop = shopOf(snap)
+  const html = renderToStaticMarkup(<TriageDraftsList place={shop} close={() => {}} />)
+  // every draft's own card, the same markup as a single one (its Yes / No, its hash), and no start card
+  expect(html.match(/data-card="triage:draft:/g)!.length).toBe(150)
+  expect(html).toContain(renderToStaticMarkup(<TriageCardView c={snap.triage!.cards[0]!} />))
+  expect(html.indexOf('Finding 0')).toBeLessThan(html.indexOf('Finding 1<'))
+  expect(html).not.toContain('triage:start:41')
+  // all answered while it is open: it says so, and only Close is left
+  Object.assign(getState(), { snap: withDrafts(snapshot('triage') as Snapshot, 0) })
+  expect(text(renderToStaticMarkup(<TriageDraftsList place={shop} close={() => {}} />))).toContain('Nothing waits to be posted')
+  expect(renderToStaticMarkup(<TriageDraftsCard place={shop} n={4} />)).toContain('4 findings wait to be posted to GitHub')
+})
+
+test('2 drafts stay 2 cards, and 3; a 4th makes them one', () => {
+  const base = snapshot('triage') as Snapshot
+  const shop = shopOf(base)
+  for (const [n, keys] of [[2, ['triage:draft:f:x0', 'triage:draft:f:x1', 'triage:start:41']], [3, ['triage:draft:f:x0', 'triage:draft:f:x1', 'triage:draft:f:x2', 'triage:start:41']], [4, ['triage:drafts', 'triage:start:41']]] as const) {
+    const snap = withDrafts(base, n)
+    expect(triageCards(snap, { place: shop }).map((c) => c.key)).toEqual([...keys])
+    expect(projectAttention(snap, Date.now()).actions.filter((a) => a.kind === 'triage').map((a) => a.card)).toEqual([...keys])
+  }
+  // the demo's backlog day: 150 drafts and the start card in #shop
+  const day = snapshot('drafts') as Snapshot
+  expect(triageCards(day, { place: shopOf(day) }).map((c) => c.key)).toEqual(['triage:drafts', 'triage:start:41'])
 })
