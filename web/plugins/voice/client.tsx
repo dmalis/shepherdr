@@ -11,12 +11,17 @@ import type { Sample } from '@client/meter.ts'
 import { boxPart } from '@client/commands.ts'
 import { definePlugin, getState, go, launchHref, notice, openArtifact, openSettings, openTask, setUI, tryAct, useStore, useUI, type Thread } from '@client/kernel.ts'
 import { closeTop as closeLayer } from '@client/overlay.tsx'
+import { later } from '@client/later.tsx'
 import { isEverything, placeOf, taskOf } from '@shared/view.ts'
 import { callPhase, callSample, muteCall, sendWhere, startCall, stopCall, type Nav, type NavAck } from './call.ts'
 import { wantsCall, withoutVoice } from './launch.ts'
 import { CallMarkView } from './mark.tsx'
-import { resetScreen, screenAction, type Head } from './screen.ts'
+import type { Head } from './screen.ts'
 import { NAME as VOICE_PAGE, needsKey, openVoiceSettings, VoiceSettings } from './settings.tsx'
+
+/** fork #163: what a call reads of the page (screen.ts) comes after the first screen, or when it first looks. The call
+ *  itself (call.ts) is here from the start: its audio is made inside the tap that starts it */
+const screenPart = later(() => import('./screen.ts'), 'voice')
 
 /** what this page shows, told to the call as it changes: its "here" and "this task" */
 function whereNow() {
@@ -62,7 +67,7 @@ export async function voiceNav(nav: Nav): Promise<NavAck> {
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const no = (why: string): NavAck => ({ ok: false, why, where: whereNow() })
   const check = (ok: boolean, why: string): NavAck => (ok ? { ok: true, where: whereNow() } : no(why))
-  if (nav.kind === 'screen') return { ...(await screenAction(nav, screenHead, { back: () => (history.length > 1 ? (history.back(), 'Went back one step') : closeTop()), closeTop })), where: whereNow() }
+  if (nav.kind === 'screen') return { ...(await (await screenPart.load()).screenAction(nav, screenHead, { back: () => (history.length > 1 ? (history.back(), 'Went back one step') : closeTop()), closeTop })), where: whereNow() }
   if (nav.kind === 'call') return { ok: true, where: whereNow() }
   if (nav.kind === 'space' || (nav.kind === 'chat' && str(nav.chat).startsWith('p:'))) {
     const id = str(nav.place) || snap.places.find((p) => p.chat === str(nav.chat))?.id || ''
@@ -142,7 +147,7 @@ export function toggleCall(resume: string | null = null) {
     later(7800, () => void tryAct({ type: 'answer', chat: 'SHOP-14/worker', question: 'q-pay', choice: 0, byVoice: true }))
     return
   }
-  resetScreen()
+  screenPart()?.resetScreen()
   const fail = (m: string) => {
     endCall()
     // no key yet: straight to Settings › Voice, where it is added, instead of only a notice

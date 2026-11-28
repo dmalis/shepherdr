@@ -195,7 +195,7 @@ export function Term({ stream, fill, onEnd }: { stream: string; fill?: boolean; 
       if (!wasVisible) reopen()
       else land()
     }
-    void Promise.all([import('@xterm/xterm'), import('@xterm/addon-unicode11')]).then(([{ Terminal }, { Unicode11Addon }]) => {
+    void Promise.all([import('./xterm.ts'), import('@xterm/addon-unicode11')]).then(([{ Terminal }, { Unicode11Addon }]) => {
       if (gone || !host.current) return
       term = xt.current = new Terminal({ cols: 80, rows: 24, scrollback: 2000, disableStdin: true, cursorBlink: true, fontFamily: MONO, fontSize: 13, lineHeight: LINE, allowProposedApi: true, theme: { background: '#0a0a0a', foreground: '#d4d4d4', cursor: '#d4d4d4', selectionBackground: 'rgb(255 255 255 / 0.25)' } })
       for (const final of ['h', 'l']) {

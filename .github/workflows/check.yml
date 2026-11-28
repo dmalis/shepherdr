@@ -61,6 +61,9 @@ jobs:
           bunx tsc --noEmit -p .
           bun test service core web
           bun run build
+      - name: the first screen's script stays under its budget, sent compressed (docs/design.md, Performance)
+        # fork #163: web/first-screen.ts counts the page's module script and what it imports, not what comes later
+        run: bun web/first-screen.ts
       - name: every tappable thing is big enough for a finger (the built demo, phone and tablet widths)
         # SHEP-317: web/demo/tap-check.ts in the runner's own Chrome; it names what's under the minimum
         run: bun web/demo/tap-check.ts

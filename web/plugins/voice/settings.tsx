@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { act, openSettings, tryAct, useStore } from '@client/kernel.ts'
 import { confirm, openForm } from '@client/overlay.tsx'
 import { Btn, I } from '@client/ui.tsx'
-import { SRow } from '@client/settings.tsx'
+import { SRow } from '@client/settings-rows.tsx'
 
 export const NAME = 'Voice'
 export const KEY = 'ELEVENLABS_API_KEY'

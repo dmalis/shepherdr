@@ -4,7 +4,7 @@
 // same choice in its settings. The words are web/shared/reach.ts's.
 import { tryAct, type MenuRow } from '@client/kernel.ts'
 import { Choice } from '@client/choice.tsx'
-import { Own } from '@client/settings.tsx'
+import { Own } from '@client/settings-rows.tsx'
 import { SPACE_ALERTS, spaceAlertsOf, WORDS, type SpaceAlerts } from '@shared/reach.ts'
 import type { Place, Snapshot } from '@shared/types.ts'
 

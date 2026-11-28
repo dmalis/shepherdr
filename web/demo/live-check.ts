@@ -116,13 +116,23 @@ check(h.length === 1 && /tasks? shown$|^No tasks match$/.test(h[0]!), `a filter'
 // a first load whose /api/me never answers and whose link is refused: never a blank page, and one link at a time
 const cold = await ctx.newPage()
 let opened = 0
+let open = 0
+let most = 0
 await cold.route(/api\/me/, () => {})
-await cold.routeWebSocket(/api\/ws/, (ws) => (opened++, ws.close()))
+await cold.routeWebSocket(/api\/ws/, (ws) => {
+  opened++
+  most = Math.max(most, ++open)
+  ws.onClose(() => open--)
+  ws.close()
+})
 await cold.goto(`${base}?place=p:mac-mini:shop`)
 await cold.waitForTimeout(1500)
 cold.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))).catch(() => {})
 await cold.getByText("Can't reach Shepherdr").first().waitFor({ timeout: 15_000 }).then(() => check(true, 'a first load that hangs says it can\'t reach Shepherdr'), () => check(false, 'a first load that hangs says it can\'t reach Shepherdr'))
-check(opened <= 4, `its tries to link stay few (${opened})`)
+// fork #163: the link opens with the page, not after api/me gives up (3 s), so the backoff's first tries (at once, half
+// a second, a second) come before it says so; the pace after them is the same
+check(opened <= 8, `its tries to link stay few (${opened})`)
+check(most === 1, `one link at a time (${most} at once)`)
 
 await browser.close()
 console.log(failures ? `${failures} failed` : 'all passed')

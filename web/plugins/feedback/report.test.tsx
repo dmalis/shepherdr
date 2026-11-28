@@ -73,7 +73,7 @@ test("Report opens the Feedback page, its box holding the action's label and did
   K.setUI({ at: s.everything })
   const t = await fails({ type: 'accept', task: 'SHOP-12' })
   sent.length = 0
-  t.act!.run()
+  await t.act!.run()
   expect(K.getState().ui.page).toBe('feedback')
   const html = page(s)
   const box = html.slice(html.indexOf('<textarea'), html.indexOf('</textarea>'))
@@ -124,7 +124,7 @@ test('a report the person has added to stays in the box; the next Report says so
   expect(prefillBox(R.prefillOf('Start'), 'Start', s.everything!)).toBeNull()
   const words = "Start didn't work: twice now"
   typed(words)
-  ;(await fails({ type: 'stop', chat: s.places[0].chat })).act!.run()
+  await (await fails({ type: 'stop', chat: s.places[0].chat })).act!.run()
   expect(K.getState().ui.page).toBe('feedback')
   const h = page(s)
   expect(h.slice(h.indexOf('<textarea'), h.indexOf('</textarea>')).endsWith('>Start didn&#x27;t work: twice now')).toBe(true)
@@ -153,7 +153,7 @@ test('the space is the one it acted in as it failed, wherever the person is when
   K.setUI({ at: s.everything })
   const t = await fails({ type: 'rename', id: shop.id, name: 'store' })
   K.setUI({ at: s.places.find((p) => p.id !== shop.id && p.id !== s.everything)!.id })
-  t.act!.run()
+  await t.act!.run()
   expect(page(s)).toContain(`“Rename” · From #${shop.name}`)
 })
 
@@ -165,7 +165,7 @@ test("the task menu's Mark as done is named so; a failed Start's dialog closes s
   expect(R.labelOf({ type: 'stop-job', chat: s.places[0].chat, job: 'j1' })).toBe('Stop')
   O.openDialog(() => null, { label: 'Start a task' })
   expect(O.anyOpen()).toBe(true)
-  ;(await fails({ type: 'task-start', chat: 'SHOP-12/worker' })).act!.run()
+  await (await fails({ type: 'task-start', chat: 'SHOP-12/worker' })).act!.run()
   expect(O.anyOpen()).toBe(false)
   expect(K.getState().ui.page).toBe('feedback')
 })

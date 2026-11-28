@@ -216,7 +216,8 @@ test('pin: the bell sits in the list’s top row, and the check on Settings › 
   const root = join(import.meta.dir, '../../')
   expect(readFileSync(join(root, 'src/list.tsx'), 'utf8')).toContain('registry.sideHead.map(')
   const settings = readFileSync(join(root, 'src/settings.tsx'), 'utf8')
-  expect(settings).toContain("['General', 'gear'], ['Notifications', 'bell']")
+  // fork #163: the page names live in settings-rows.tsx, so the window can come later
+  expect(readFileSync(join(root, 'src/settings-rows.tsx'), 'utf8')).toContain("['General', 'gear'], ['Notifications', 'bell']")
   // fork Needs you 3/6: the page is the alerts plugin's, ending on the device check
   expect(settings).toContain('const Notifications = NotificationsPage')
   expect(readFileSync(join(root, 'plugins/alerts/page.tsx'), 'utf8')).toMatch(/{WORDS\.reach}[\s\S]*Ask me after[\s\S]*\{WORDS\.bell\}[\s\S]*<DeviceCheck now=\{now\} reread=\{read\} \/>/)

@@ -8,7 +8,8 @@ import { getState, notice } from '@client/kernel.ts'
 import { closeAll } from '@client/overlay.tsx'
 import type { ToastOpts } from '@client/toasts.ts'
 import type { Snapshot } from '@shared/types.ts'
-import { openFeedback, prefillBox } from './rows.tsx'
+import { laterFailed } from '@client/later.tsx'
+import { openFeedback, page } from './page.ts'
 import { reportWaiting } from './words.ts'
 
 type Act = { type: string } & Record<string, unknown>
@@ -90,10 +91,13 @@ export function reportAct(a: Act): ToastOpts['act'] | undefined {
 }
 
 /** the Feedback page, its box holding the action's words, for the person to add to and send. A dialog still open over
- *  the page (a Start that failed keeps its own) closes first, so the box can take the keys */
-export function openReport(label: string, place: string) {
+ *  the page (a Start that failed keeps its own) closes first, so the box can take the keys. fork #163: the box is
+ *  filled once the page's code is here (page.ts), then the page opens */
+export function openReport(label: string, place: string): Promise<void> {
   closeAll()
-  const waiting = prefillBox(prefillOf(label), label, place)
-  openFeedback()
-  if (waiting) notice(reportWaiting(waiting))
+  return page.load().then((m) => {
+    const waiting = m.prefillBox(prefillOf(label), label, place)
+    openFeedback()
+    if (waiting) notice(reportWaiting(waiting))
+  }, laterFailed)
 }

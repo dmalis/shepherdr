@@ -8,7 +8,7 @@ import { definePlugin, getState, go, openArtifact, openSettings, registry, setUI
 import { available, focusTask, keysOf, recents, runCommand, used } from '@client/commands.ts'
 import { fuzzy } from '@client/keys.ts'
 import { Kbd } from '@client/kbd.tsx'
-import { ALL } from '@client/settings.tsx'
+import { ALL } from '@client/settings-rows.tsx'
 import { spaceRows } from '@client/list.tsx'
 import { I, Row } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
