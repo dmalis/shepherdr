@@ -13,6 +13,10 @@ right (a throwaway session named on the same command). Protected sessions: the o
 (HERDR_GUARD_SESSION, set at launch), Shepherdr's ("shepherdr") and the Herdr app's ("default"). The person does
 those from their own terminal; nothing inside a task's terminal can say yes for them.
 
+dmalis/shepherdr#212: nor can it press keys in a reviewer's or helper's screen (`hc keys` on a terminal labelled
+herdr.role=reviewer or helper, by name or t-id, on a protected session; the real hc's `get` says): their trust, sign-in and start screens are the person's to answer (AGENTS.md "Nothing that risks a
+ban").
+
 It's a guard against mistakes, not against an agent set on getting round it (a full path to the real hc does).
 """
 import os
@@ -60,6 +64,16 @@ hc_check() {
         protected "$target" && refuse "\`$me server $sub\` here would $sub the live session \"$target\"" ;;
       esac ;;
     update) refuse "\`$me update\` replaces the herdr-core every live session runs on" ;;
+    keys)
+      # dmalis/shepherdr#212: a worker pressed keys on its reviewer's folder-trust screen. Known by its role label,
+      # whichever address names it (its name or its t-id).
+      if protected "$target" && [ -n "$sub" ] && [ -n "$real" ] &&
+         "$real" get "$sub" </dev/null 2>/dev/null | grep -Eq '"herdr\.role": ?"(reviewer|helper)"'; then
+        echo "Shepherdr refused: \`$me keys $sub\` would press keys in your reviewer's or helper's own screen." >&2
+        echo "Its trust, sign-in and start screens are the person's to answer: tell them \"Your reviewer is waiting on a" >&2
+        echo "startup screen; answer it in its terminal\", then wait for it (\`$me wait $sub --timeout 600\`)." >&2
+        exit 77
+      fi ;;
     serve|hold)
       protected "$target" && refuse "\`$me $cmd\` here would start a second core on the live session \"$target\"" ;;
   esac
@@ -113,14 +127,7 @@ shepherdr_check() {
   return 0
 }
 
-case "$me" in
-  hc|herdr-core) hc_check "$@" ;;
-  systemctl) systemctl_check "$@" ;;
-  pkill|killall) kill_check "$@" ;;
-  shepherdr) shepherdr_check "$@" ;;
-esac
-
-# the real one: the first of that name on PATH that isn't in this folder
+# the real one: the first of that name on PATH that isn't in this folder (found first: a check may ask it)
 real=
 rest=$PATH
 while [ -n "$rest" ]; do
@@ -130,6 +137,14 @@ while [ -n "$rest" ]; do
   [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
   if [ -f "$d/$me" ] && [ -x "$d/$me" ]; then real=$d/$me; break; fi
 done
+
+case "$me" in
+  hc|herdr-core) hc_check "$@" ;;
+  systemctl) systemctl_check "$@" ;;
+  pkill|killall) kill_check "$@" ;;
+  shepherdr) shepherdr_check "$@" ;;
+esac
+
 [ -n "$real" ] || { echo "$me: command not found" >&2; exit 127; }
 exec "$real" "$@"
 '''

@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -9595,7 +9596,8 @@ class CodexBatch278(unittest.TestCase):
         self.patch(self.settings.shutil, "which", lambda name: f"/usr/bin/{name}")
         self.assertEqual(self.settings.reviewer_command("claude"),
                          'env ${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config '
-                         '--add-dir=' + self.settings.TEMPLATES)
+                         # dmalis/shepherdr#212: a read rule for its templates folder, not --add-dir
+                         + shlex.quote(self.settings.REVIEW_TEMPLATES_READ))
 
     # ---- #1131 #1181 -----------------------------------------------------------------------------
     def test_a_claude_reviewer_gets_the_workers_profile_never_plan_mode(self):
@@ -9612,8 +9614,9 @@ class CodexBatch278(unittest.TestCase):
             self.assertEqual(out.splitlines()[0], want, out)
             self.assertIn("arg=--tools=Read,Grep,Glob,Bash", out)
             self.assertEqual(out.splitlines()[-1], "arg=review it")
-            # #1458: it can read its own instructions (templates/reviewer.md), outside the task's folder
-            self.assertIn("arg=--add-dir=" + self.settings.TEMPLATES, out)
+            # #1458: it can read its own instructions (templates/reviewer.md), outside the task's folder; #212: by a
+            # read rule, the one word kept whole
+            self.assertIn("arg=" + self.settings.REVIEW_TEMPLATES_READ, out)
 
     def test_a_codex_worker_s_review_run_is_still_its_own(self):
         bin_dir = self.nvm()
@@ -13192,8 +13195,9 @@ class ReviewerThatNeverAnswers(unittest.TestCase):
         self.assertIn("codex --no-daemon", self.sent[0][1])
 
     def test_one_frozen_on_its_first_turn_is_ended_but_one_at_work_is_not(self):
-        self.reviewer("t5")
-        self.reviewer("t6")
+        # dmalis/shepherdr#212: at work, as herdr-core reports it (one with no status hasn't begun its session)
+        self.reviewer("t5", status={"app": "codex", "state": "working"})
+        self.reviewer("t6", status={"app": "codex", "state": "working"})
         for i in range(12):
             # a timer ticking is no change; files read are
             self.screens["t5"] = f"› review it\n\n• Working ({i}m {i * 7}s • esc to interrupt)\n\n  100% context left"
@@ -13238,6 +13242,169 @@ class ReviewerThatNeverAnswers(unittest.TestCase):
         for words in (templates.WORKER_MD, installed):
             self.assertIn(templates.NOROUND_RULE, words)
         self.assertIn(templates.WORKER_MD_BEFORE_NOROUND, templates.OLD_WORKERS)
+
+
+# dmalis/shepherdr#212: the screens two reviewers of one task really stopped on (Codex 0.172.0, Claude Code 2.1.332), as
+# `hc read` showed them; herdr-core reported no status for either.
+CODEX_TRUST_SCREEN = """
+  Folder access
+
+  /home/me/.local/share/shepherdr/worktrees/agents/task-guard
+
+  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:
+  /home/me/agents
+
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings can
+  run code automatically, even without a model request. Continue only if you
+  trust these files. Your trust decision will be saved.
+
+› 1. Trust and continue
+  2. Back to Agent Command Center
+
+  enter continue · esc back
+"""
+CLAUDE_ADD_DIR_SCREEN = """
+────────────────────────────────────────────────────────────────────────────────
+ Adding a new directory:
+
+ /home/me/.config/herdr-core/templates
+
+ This session hasn't worked here before. Is this a directory you created or one you trust?
+
+ Claude Code'll be able to read, edit, and execute files here. Its skills, commands, and agents load and can run
+ commands, and so can the git settings of its repository. Your answer holds for this session.
+
+ ❯ No, exit
+   Yes, add it
+
+ Enter to confirm · Esc to cancel
+"""
+
+
+class ReviewerAtItsStartScreen(unittest.TestCase):
+    """dmalis/shepherdr#212: a Codex reviewer on its folder-trust screen was "frozen before its first answer" after 5
+    minutes and ended, twice; the worker switched to Claude Code, whose --add-dir trust screen it then answered itself.
+    Now a reviewer at its start screen is left running for the person and its worker hears once, at once, what it
+    waits on; the Claude reviewer reads its templates through a read rule, with no --add-dir and no trust screen; and a
+    task's terminal can't press keys in its reviewer. A fake hc: nothing real runs."""
+    setUp, reviewer, tick = ReviewerThatNeverAnswers.setUp, ReviewerThatNeverAnswers.reviewer, ReviewerThatNeverAnswers.tick
+
+    def test_codex_on_its_trust_screen_is_left_running_and_its_worker_told_at_once(self):
+        self.reviewer("t5")
+        self.screens["t5"] = CODEX_TRUST_SCREEN
+        got = self.tick(5)
+        self.assertEqual(got, [{"reviewer": "shop-t5-review", "why": "startup", "task": "dev-shop#1", "ended": False}])
+        (to, msg), = self.sent
+        self.assertEqual(to, "t1")
+        for words in ('Codex is waiting on its start screen ("Asks to trust this folder")', "hasn't read your prompt",
+                      "the person's to answer", "card for it under Needs you", "Never press keys in it yourself",
+                      "don't start another reviewer", "I left it running", "`hc wait shop-t5-review --timeout 600`"):
+            self.assertIn(words, msg)
+        self.assertNotIn("froze", msg)
+        # it waits on the person for as long as it takes: never ended, never told again
+        for _ in range(30):
+            self.assertEqual(self.tick(30), [])
+        self.assertEqual(self.killed, [])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_claude_on_its_add_dir_trust_screen_too(self):
+        self.reviewer("t6", agent="claude")
+        self.screens["t6"] = CLAUDE_ADD_DIR_SCREEN
+        self.assertEqual(self.tick(5)[0]["why"], "startup")
+        self.assertIn("Claude Code is waiting on its start screen", self.sent[0][1])
+        self.assertEqual(self.killed, [])
+
+    def test_once_answered_it_is_watched_again_and_a_real_freeze_still_ends_it(self):
+        self.reviewer("t5")
+        self.screens["t5"] = CODEX_TRUST_SCREEN
+        self.tick(5)
+        self.tick(240)
+        # the person trusted the folder: its session begins, then hangs on "Working" with only its timer moving
+        self.records["t5"]["status"] = {"app": "codex", "state": "working"}
+        for i in range(11):
+            self.screens["t5"] = f"› review it\n\n• Working ({i}m {i * 7}s • esc to interrupt)\n\n  100% context left"
+            self.tick(30)
+        self.assertEqual(self.killed, ["t5"])
+        self.assertIn("froze before its first answer", self.sent[-1][1])
+        self.assertEqual(len(self.sent), 2)
+
+    def test_an_unknown_screen_before_its_session_is_the_persons_too(self):
+        self.reviewer("t5", agent="claude")
+        self.screens["t5"] = "Allow external CLAUDE.md file imports?\n\n❯ 1. Yes, allow\n  2. No\n\nEnter to confirm"
+        self.assertEqual(self.tick(30), [])
+        self.assertEqual(self.tick(50), [])
+        got = self.tick(50)
+        self.assertEqual(got, [{"reviewer": "shop-t5-review", "why": "screen", "task": "dev-shop#1", "ended": False}])
+        msg = self.sent[0][1]
+        self.assertIn("hasn't begun its session: Claude Code's screen has stayed the same for 90 s", msg)
+        self.assertIn('its last line: "Enter to confirm"', msg)
+        self.assertIn("Your reviewer is waiting on a startup screen; answer it in its terminal", msg)
+        self.assertIn("if its screen still hasn't changed 5 minutes in, I'll end it as frozen", msg)
+        # a screen nobody knows is bounded, as before: told early, still ended at 5 minutes unchanged
+        for _ in range(6):
+            self.assertEqual(self.tick(30), [])
+        self.assertEqual(self.killed, [])
+        self.assertEqual(self.tick(30)[0]["why"], "frozen")
+        self.assertEqual(self.killed, ["t5"])
+
+    def test_a_statusless_freeze_on_working_still_ends_at_five_minutes(self):
+        """The review's repro: #1439's fixture with no status from herdr-core (a Codex "Working" that never moves)."""
+        self.reviewer("t5")
+        for i in range(11):
+            self.screens["t5"] = f"› review it\n\n• Working ({i}m {i * 7}s • esc to interrupt)\n\n  100% context left"
+            self.tick(30)
+        self.assertEqual(self.killed, ["t5"])
+        self.assertEqual([m[:40] for _, m in self.sent], ["Herdr: your reviewer shop-t5-review hasn",
+                                                          "Herdr: your reviewer shop-t5-review froz"])
+
+    def test_a_held_notice_is_withdrawn_once_the_reviewer_moves_on(self):
+        """A Codex worker busy in `hc wait` gets held messages only once idle: by then the screen may be gone."""
+        from unittest import mock
+        from herdr_task import news
+        held = os.path.join(self.tmp, ".held.json")
+        with mock.patch.object(news, "HELD", held), mock.patch.object(news, "STORE", self.tmp), \
+                mock.patch.object(news, "send_or_hold", lambda a, m: news.hold(a, m) or "held"):
+            news.hold("t1", "the person's own note")
+            for address in ("t5", "t6"):
+                self.reviewer(address)
+                self.screens[address] = CODEX_TRUST_SCREEN
+            self.tick(5)
+            with open(held) as f:
+                self.assertEqual(len(json.load(f)["t1"]), 3)
+            # the person trusted t5's folder and its session began; t6 they ended (No)
+            self.records["t5"]["status"] = {"app": "codex", "state": "working"}
+            self.screens["t5"] = "› review it\n\n• Working (0s • esc to interrupt)"
+            self.records.pop("t6")
+            self.tick(5)
+            with open(held) as f:
+                self.assertEqual([x["text"] for x in json.load(f)["t1"]], ["the person's own note"])
+
+    def test_the_claude_reviewer_reads_its_templates_by_a_rule_not_add_dir(self):
+        import shlex
+        from herdr_task import launch, settings
+        cmd = settings.reviewer_command("claude", "opus", "high")
+        self.assertNotIn("--add-dir", cmd)
+        rule = "--allowedTools=Read(/" + settings.TEMPLATES.rstrip("/") + "/**)"
+        self.assertIn(shlex.quote(rule), cmd)
+        self.assertTrue(rule.startswith("--allowedTools=Read(//"))  # Claude Code's absolute path form
+        # the worker's hc run of it is its own reviewer; a rule for any other folder or tool isn't
+        own = lambda line: launch.helper_hc(shlex.split(line))  # noqa: E731
+        base = "hc run --bg --name demo-1-review -- claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config"
+        self.assertTrue(own(f"{base} {shlex.quote(rule)} --model opus 'review'"))
+        self.assertTrue(own(f"{base} --add-dir={settings.TEMPLATES} 'review'"))  # a brief from before
+        for bad in ("--allowedTools=Read(//etc/**)", "'--allowedTools=Bash(*)'", "--allowedTools=Edit",
+                    shlex.quote(rule) + " --allowedTools=Edit", "--allowedTools " + shlex.quote(rule.partition("=")[2])):
+            self.assertFalse(own(f"{base} {bad} 'review'"), bad)
+
+    def test_pins_what_it_relies_on(self):
+        """If one fails, upstream changed it: adapt herdr_task/reviewer_start.py."""
+        from herdr_task import agents
+        self.assertEqual(agents.startup_reason("codex", CODEX_TRUST_SCREEN), agents.REASONS["trust"])
+        self.assertEqual(agents.startup_reason("claude", CLAUDE_ADD_DIR_SCREEN), agents.REASONS["trust"])
+        with open(os.path.join(BIN, "herdr_task", "reviewers.py")) as f:
+            src = f.read()
+        self.assertIn("asked = reviewer_start.start_screen(k, text)", src)
+        self.assertIn("if why in reviewer_start.WAITS:", src)
 
 
 if __name__ == "__main__":
