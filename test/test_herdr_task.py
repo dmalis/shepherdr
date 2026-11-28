@@ -14484,6 +14484,12 @@ class WorkersNeverStallProof(unittest.TestCase):
         self.assertNotEqual(t["waits_why"], proof_hold.WHY)
         self.assertIn("only when you say so", t["waits_why"])
 
+    def test_a_merge_the_person_asked_for_is_theirs(self):
+        t, msg = self.ready("auto", merge_asked=True)
+        self.assertIn("The person already asked to merge it", msg)
+        self.assertEqual(t["auto_merge"], "checks")
+        self.assertNotIn("proof_held", t)
+
     def test_ready_tells_its_agent_what_to_do(self):
         from herdr_task import proof_hold
         self.assertIn("run ready again with --proof <its id>", proof_hold.TOLD)
@@ -14502,11 +14508,12 @@ class WorkersNeverStallRounds(unittest.TestCase):
         from herdr_task import brief_rounds
         n = brief_rounds.named
         for words, want in (("Fix it. At most 2 review rounds.", 2), ("Up to two rounds of review, then ready.", 2),
-                            ("One review round is enough.", 1), ("Review rounds: 3", 3), ("Review rounds: at most 4 (this repo's)", 4),
-                            ("no more than 10 review rounds", 10), ("a single review round", 1)):
+                            ("Only one review round.", 1), ("Review rounds: 3", 3), ("Review rounds: at most 4 (this repo's)", 4),
+                            ("no more than 10 review rounds", 10), ("Don't push. At most a single review round.", 1)):
             self.assertEqual(n(words), want, words)
-        for words in ("Fix it.", "In review round 2, check the docs.", "2 review rounds, then 3 review rounds",
-                      "at most 12 review rounds", "", None):
+        for words in ("Fix it.", "In review round 2, check the docs.", "at most 2 review rounds, then at most 3 review rounds",
+                      "at most 12 review rounds", "At least 2 review rounds.", "Don't run 5 review rounds.",
+                      "Never do at most 3 review rounds here.", "Two review rounds went fine.", "", None):
             self.assertIsNone(n(words), words)
 
     def test_add_sets_them_and_ready_counts_them(self):
@@ -14522,6 +14529,23 @@ class WorkersNeverStallRounds(unittest.TestCase):
         self.assertNotIn("review_rounds", self.task(3).get("set") or {})
         self.add("Plain", prompt="Fix the logout.", here=True)
         self.assertNotIn("review_rounds", self.task(4).get("set") or {})
+
+    def test_an_edited_brief_and_a_task_added_before(self):
+        from herdr_task import brief_rounds
+        t = {"prompt": "At most 2 review rounds."}
+        self.assertEqual(brief_rounds.apply(t, t["prompt"]), 2)  # ready, on a task added before: its brief read then
+        self.assertEqual(brief_rounds.apply(t, "At most 3 review rounds."), 3)  # an edit's new cap
+        self.assertEqual(t["set"]["review_rounds"], 3)
+        self.assertIsNone(brief_rounds.apply(t, "Fix it."))  # its cap gone: taken back
+        self.assertNotIn("set", t)
+        t = {"set": {"review_rounds": 5}}  # the Assistant's own --set
+        self.assertIsNone(brief_rounds.apply(t, "At most 2 review rounds."))
+        self.assertEqual(t["set"]["review_rounds"], 5)
+        self.add("Edited", prompt="Fix it.", here=True)
+        self.run_cmd(self.commands.cmd_edit, id="1", prompt="Fix it. At most 2 review rounds.", title=None, prompt_file=None)
+        self.assertEqual(self.task(1)["set"]["review_rounds"], 2)
+        src = open(os.path.join(BIN, "herdr_task", "commands.py")).read()
+        self.assertIn('brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before', src)
 
 
 class WorkersNeverStallTold(unittest.TestCase):
@@ -14600,6 +14624,10 @@ class WorkersNeverStallWait(unittest.TestCase):
         from herdr_task.base import Fail
         with self.assertRaises(Fail):
             self.hw.cmd_wait_for(argparse.Namespace(name="shepherdr-assistant", timeout=5))
+        self.terminal = {"state": "live", "turn": 0, "parent": "t8"}  # another agent's reviewer
+        with unittest.mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t26"}), self.assertRaises(Fail) as e:
+            self.hw.cmd_wait_for(argparse.Namespace(name="other-9-review", timeout=5))
+        self.assertIn("isn't yours", str(e.exception))
         self.assertIn("wait-for", launch.OWN)
         self.assertIn("wait-for <its name> --timeout 600", open(settings.__file__).read())
 

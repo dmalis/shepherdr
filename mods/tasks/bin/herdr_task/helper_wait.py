@@ -5,10 +5,11 @@
 wait ends in a second while the agent goes on to work (hc's help: "Without a launch task, idle still counts as
 stopped"). Its worker then read a report that wasn't there. `herdr-task wait-for <name>` waits again while hc says
 idle at turn 0 and the terminal lives, until its timeout: a turn that ended is turn 1 or more. A reviewer on a startup
-screen (trust, sign-in) still waits until the timeout, and nothing answers it. Only herdr-core's documented `hc wait`
-and `hc get`; the fix itself belongs in herdr-core's wait."""
+screen (trust, sign-in) is never answered: it waits as hc wait does. Only a helper the caller started, and only
+herdr-core's documented `hc wait` and `hc get`; the fix itself belongs in herdr-core's wait."""
 
 import json
+import os
 import time
 
 from .base import Fail, run
@@ -55,6 +56,9 @@ def wait_for(name, timeout, clock=time.monotonic, sleep=time.sleep):
 def cmd_wait_for(args):
     if not HELPER.fullmatch(args.name or ""):
         raise Fail("wait-for is for your own reviewer or helper (<your task's key, lower case>-review or -helper).")
+    me, t = os.environ.get("HC_TERMINAL_ID"), hc("get", args.name)
+    if me and t and t.get("parent") not in (me, None):
+        raise Fail(f"{args.name} isn't yours (another agent started it): wait-for is for the reviewer or helper you started.")
     out = wait_for(args.name, max(1, int(args.timeout)))
     if out.get("still_startup"):
         out["note"] = (f"{args.name} is still at turn 0 after the whole wait: `hc read {args.name}` to see why (a startup "

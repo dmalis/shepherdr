@@ -15,8 +15,7 @@ itself got wrong, nor merge before it should.
 
 ## The reports
 
-Each was reproduced or checked again against this tree (v3.2.22 plus our patches) and upstream (v3.2.23, main
-5abe8526).
+Each was reproduced or checked again against this tree (v3.2.22 plus our patches) and upstream (v3.2.24, released while this was built: main 5abe8526; it changes only machines.py of herdr-task).
 
 ### Already fixed here: checked, nothing to build
 
@@ -24,7 +23,7 @@ Each was reproduced or checked again against this tree (v3.2.22 plus our patches
 |---|---|---|
 | `2460624572` push after a rebase refused with a bare "(failed)" | GitHub's passing refusal | #97 `rebased_push.py`: one more try after a fetch and a pause, GitHub's words said |
 | `d6bd75a699` conflict right after a clean rebase and push | GitHub's mergeable still UNKNOWN or the old CONFLICTING | #97 `merge_wait.mergeable_waits()`: waits while GitHub works it out |
-| `1612fbff62` merge right after the push, before the required checks ran | GitHub's view at the old commit, or a required check not listed yet | #74 `merge_wait.py`: the merge is pinned to the commit pushed (`--match-head-commit`) and waits for its required checks |
+| `1612fbff62` merge right after the push, before the required checks ran | GitHub's view at the old commit, or a required check not listed yet | #74 `merge_wait.py`: the merge is pinned to the commit pushed (`--match-head-commit`), and waits while GitHub's view is at another commit or BLOCKED with a required check not listed yet. That the required checks passed is GitHub's own rule: it never says CLEAN while one is missing, and gh refuses a BLOCKED merge |
 | `a8c06c6022` ready refuses a follow-up on a Done task | A merged task stayed Done with no way on | #48 `after_merge.py`: ready offers the `follow-up` command |
 
 All four were filed before their fix merged. Their tests (`ReadyAfterARebase`, `PushedForItsMerge`, `RebasedPush`,
@@ -42,7 +41,9 @@ card says "Waits for you to merge it: Proof is on and it has none yet." The agen
 ready again with --proof <its id>; it then merges as Merge says. Not refused: a change too small to show has no
 proof, as the worker template allows, and the person can still accept it as it is.
 
-A ready that finds a proof clears the hold. The person's own Accept still merges a held task.
+A ready that finds a proof clears the hold. Merging stays the person's to choose: their own Accept merges a held task,
+and so does a merge they asked for before (the merge queue an Accept put it in, a Mark as done that failed): Herdr
+never merges a held task on its own.
 
 ### Review rounds the brief names (`ddc42234cd`)
 
@@ -50,10 +51,12 @@ A ready that finds a proof clears the hold. The person's own Accept still merges
 brief's words win for the agent (the Settings block says so), but ready counts the setting's rounds, so after two
 rounds ready asked for a third.
 
-**Fix** (`brief_rounds.py`, one call in add). A brief that names its review rounds in one clear phrase ("at most 2
-review rounds", "2 review rounds", "review rounds: 2", "one review round") sets the task's Review rounds to it, as
-`--set review.rounds=2` would, unless `--set review.rounds` is given. add says so. Two different numbers, or a number
-out of 1 to 10, set nothing.
+**Fix** (`brief_rounds.py`, calls in add, edit and ready). A brief that caps its review rounds in one clear phrase
+("at most 2 review rounds", "up to two rounds of review", "only one review round", "Review rounds: 2") sets the
+task's Review rounds to it, as `--set review.rounds=2` would, unless the Assistant's `--set review.rounds` or
+`review=off` is given. add says so. Only a cap: a floor ("at least 2"), a bare count, "review round 2", a phrase
+with a no before it in its sentence, two different numbers or one out of 1 to 10 set nothing. An edit of the brief reads
+it again (a cap it no longer names is taken back), and ready reads it for a task added before this.
 
 ### The hand-in flags ready names (`816c43c6fc`)
 
@@ -77,9 +80,10 @@ person reports that to herdr-core's project.
 
 **Fix meanwhile** (`helper_wait.py`, `herdr-task wait-for <name>`). It runs `hc wait <name> --timeout <s>` and, while
 the result is idle at turn 0 and the terminal still lives, waits again (a short pause first), until the timeout. It
-prints hc's last result. A reviewer on a startup screen (trust, sign-in) still waits until the timeout, as before:
-nobody answers it. Only a worker's own helpers (`<key>-review`, `<key>-helper`), as `hc wait` is allowed today, and it
-runs without asking (launch.py's OWN). The Reviewer line in the Settings block names it: "wait for it with
+prints hc's last result. A reviewer on a startup screen (trust, sign-in) is never answered: wait-for waits on it as hc
+wait does, and ends when Herdr's reviewer watch (reviewers.py, unchanged here) tells the worker and ends it. Only a
+helper the worker started itself (named `<key>-review` or `-helper`, its hc parent the caller), and it runs without
+asking (launch.py's OWN). The Reviewer line in the Settings block names it: "wait for it with
 `herdr-task wait-for <its name> --timeout 600`". Upstream's worker template still says `hc wait`, which still works
 when the agent waits again by hand as it says.
 

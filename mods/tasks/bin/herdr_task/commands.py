@@ -807,6 +807,7 @@ def cmd_ready(args):
         if after is not None:
             s.save()
             raise Fail(after_merge.ready_words(s, t, after))
+        brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before, its brief's rounds too
         refused = unmoved or collides or review_refusal(s, t, wt)
         if refused:
             # Kept (the task's line says why it waits); refused after the store is saved.
@@ -1457,12 +1458,14 @@ def finalize(s, t):
         # #1215: its push took it out of GitHub's merge queue, where an Accept had put it: back in once
         # its checks pass and GitHub says it can merge (never while it conflicts: merge_now()).
         t["auto_merge"] = "checks"
+        t.pop("proof_held", None)  # the person's own Accept put it there: theirs to merge, proof or not
         return msg + (" It was in GitHub's merge queue: Herdr took it out to push, and it goes back in once its "
                       "checks pass.")
     if policy not in ("auto", "checks") and t.get("merge_asked") and t.get("pr"):
         # SHEP-320: the person already asked to merge it (Mark as done, merge) and the try failed (a conflict, a
         # check): its agent's fix merges once its checks pass, never asked for again.
         t["auto_merge"] = "checks"
+        t.pop("proof_held", None)  # the person's own ask: theirs to merge, proof or not
         return msg + " The person already asked to merge it: it merges by itself once its checks pass."
     if policy in ("auto", "checks"):
         t["auto_merge"] = policy
@@ -1673,6 +1676,8 @@ def cmd_edit(args):
                 t["prompt"] = f.read()
         pick = [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")]
         set_opts(t, args, s)
+        if args.prompt is not None or args.prompt_file:
+            brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: its new brief's rounds
         if [t.get(k) for k in ("agent", "model", "effort", "flags", "speed", "perm")] != pick:
             # The next agent started for it runs on the new choice (start_again), a queued one too.
             t["pick_at"] = now()

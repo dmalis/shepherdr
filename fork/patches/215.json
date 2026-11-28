@@ -9,7 +9,8 @@
     "mods/tasks/bin/herdr_task/commands.py",
     "mods/tasks/bin/herdr_task/cli.py",
     "mods/tasks/bin/herdr_task/launch.py",
-    "mods/tasks/bin/herdr_task/settings.py"
+    "mods/tasks/bin/herdr_task/settings.py",
+    "docs/agents-and-terms.md"
   ],
   "tests": [
     "test/test_herdr_task.py::WorkersNeverStallProof",
