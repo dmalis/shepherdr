@@ -449,8 +449,12 @@ export class Compat {
     // in the home folder here: Everything's, never this computer's own ~ space beside it (3.2.8) unless that one started it
     const tildeId = SPc.tildeOf(spaces, HOME)?.id;
     // dmalis/shepherdr#131: a space made at a symlink holds its folder by its real path too, the path herdr-task keeps
+    // (this machine's spaces: another's can't be resolved here); a space at the exact path comes first
     const sameFolder = (s: (typeof spaces)[number], f: string | null | undefined) => !!f && (s.folder === f || (!s.machine && realFolder(s.folder) === f));
-    const inFolder = (r: Row) => spaces.find((s) => s.id !== tildeId && (s.machine ?? null) === (r.machine ?? null) && sameFolder(s, r.folder));
+    const inFolder = (r: Row) => {
+      const mine = spaces.filter((s) => s.id !== tildeId && (s.machine ?? null) === (r.machine ?? null) && sameFolder(s, r.folder));
+      return mine.find((s) => s.folder === r.folder) ?? mine[0];
+    };
     const placeName = (r: Row) => places.find((p) => p.id === inFolder(r)?.id)?.name ?? r.list ?? "";
     const spaceIds = new Set(spaces.map((s) => s.id));
     const placeOf = (r: Row) => (spaceIds.has(r.space) ? r.space : inFolder(r)?.id ?? "");

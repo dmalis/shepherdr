@@ -52,6 +52,13 @@ test('the same folder path on another machine is another folder: it names its sp
   expect(fromSpace(all, { ...base, on: 'vm', work: shop })).toBe('#shop')
 })
 
+test('a space made at a symlink is in its folder by either path (the service sends its real one)', () => {
+  const linked: Snapshot = { ...all, places: all.places.map((p) => (p.id === SHOP ? { ...p, real: '/Volumes/work/shop' } : p)) }
+  expect(fromSpace(linked, { ...base, work: { ...shop, folder: '/Volumes/work/shop' } })).toBe('')
+  expect(fromSpace(linked, { ...base, work: shop })).toBe('')
+  expect(fromSpace(linked, { ...base, work: handbook })).toBe('#shop')
+})
+
 test('nothing more for a task from Everything, without a folder, or whose space is gone', () => {
   expect(fromSpace(all, { ...base, place: EV, work: handbook })).toBe('')
   expect(fromSpace(all, { ...base, work: undefined })).toBe('')
