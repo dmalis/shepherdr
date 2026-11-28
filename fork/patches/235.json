@@ -19,6 +19,21 @@
     "service/feedback.ts",
     "service/jobs.ts",
     "service/next.ts",
+    "service/triage-keys.ts",
+    "service/main.ts",
+    "service/voice-data.ts",
+    "web/plugins/triage/client.tsx",
+    "web/plugins/triage/triage.css",
+    "web/plugins.json",
+    "web/src/applies-to.tsx",
+    "web/src/settings.tsx",
+    "web/src/needs-count.tsx",
+    "web/shared/attention.ts",
+    "web/shared/needs-open.ts",
+    "web/shared/types.ts",
+    "web/plugins/feedback/report.ts",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
     "fork/bin/found",
     "docs/settings.md",
     "docs/plugins.md",
@@ -27,6 +42,8 @@
   "tests": [
     "test/test_triage.py",
     "service/triage.test.ts",
+    "service/triage-keys.test.ts",
+    "web/plugins/triage/triage.test.tsx",
     "fork/tests/test_found.py"
   ]
 }

@@ -150,10 +150,12 @@ is checked again after it, unless that check started the run. A one-off takes ne
 ## Triage
 
 Triage (fork #235, [fork/specs/issue-loop.md](../fork/specs/issue-loop.md)) files what agents found as issues in a
-repo and scores them. It is off for every repo until you switch one on, and only you switch it: the app's
-Settings › Triage (a later step), or `herdr-task triage set <key> <value> --folder <checkout>` from your own terminal
-(refused in an agent's). In the settings file they are `repos[<folder>].triage`, and all but the level also take an
-Everywhere default (`everywhere.triage`):
+repo and scores them. It is off for every repo until you switch one on, and only you switch it, in the app's
+Settings › Triage: pick the repo under Applies to (this machine's repos for now), then its level. Each row says "Same as
+Everything", or "Set here" with Reset. From a terminal outside Shepherdr (for example over ssh),
+`herdr-task triage set <key> <value> --folder <checkout>` does the same; it is refused in any terminal Shepherdr runs,
+its own Terminal page included. In the settings file they are `repos[<folder>].triage`, and all but the level also take
+an Everywhere default (`everywhere.triage`):
 
 | Key | Values | What it does |
 |---|---|---|
@@ -166,8 +168,12 @@ Everywhere default (`everywhere.triage`):
 
 Switching a repo on fences the old posting off for it (`fork/bin/found`, `feedback --file` and another machine's Post
 it say "Triage files this repo's findings"), reconciles posts already in flight, and adds its schedule, "Triage",
-checked hourly. Its Pause is Triage's pause; Off pauses it too. Findings go to `agents.feedback_repo` only (never
-upstream's), and a finding whose words came from another space waits for your Post it in the app.
+checked hourly, in the space on that checkout (the deepest one around it, so Everything's home folder never makes it
+ask which). Its Pause is Triage's pause, on Settings › Triage as on the Schedules page; Off pauses it too. Findings go
+to `agents.feedback_repo` only (never upstream's). What Triage won't post by itself (words from another machine or
+space, or a privacy check that wasn't sure) waits for you as a card under Needs you, with the exact words: Yes posts
+them, No keeps them private until they change. An outside issue marked `ready` asks the same way before a fix starts
+(with Score and fix). Your answer counts only for the words you saw: changed words ask again.
 
 ## Where they are kept
 
