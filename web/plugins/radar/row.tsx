@@ -51,6 +51,8 @@ export function RadarRow({ snap }: { snap: Snapshot }) {
       </div>
     )
   }
-  if (n) return <Row icon="pulse" label="Radar" current={on || undefined} aria-label={`Radar, ${waitingWords(n)}`} end={<Cnt n={n} />} onClick={() => openRadar({ tab: 'all', project: null, filter: 'waiting' })} />
+  // the calm timeline has no tabs: the row keeps it, where what is new and next up are its own lines; the other
+  // openings open All items on exactly what the grey count counts
+  if (n) return <Row icon="pulse" label="Radar" current={on || undefined} aria-label={`Radar, ${waitingWords(n)}`} end={<Cnt n={n} />} onClick={() => (view.opening === 'timeline' ? overview() : openRadar({ tab: 'all', project: null, filter: 'waiting' }))} />
   return <Row icon="pulse" label="Radar" current={on || undefined} onClick={overview} />
 }

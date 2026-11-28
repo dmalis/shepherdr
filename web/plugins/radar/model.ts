@@ -134,7 +134,7 @@ export const getView = () => s.view
 /** the shared cards this day's items ask on (Start over forgets their presses: the same card comes back) */
 export const askCards = () => (s.seed?.items ?? []).flatMap((i) => (i.needs ? [i.needs.card] : []))
 /** Resume: a paused project's finished drafts post (this page's copy): each leaves the queue as the issue it became */
-export function resume(id: string): string[] {
+export function resume(id: string, now = Date.now()): string[] {
   if (!s.day) return []
   const p = s.day.projects.find((x) => x.id === id)
   if (!p) return []
@@ -147,7 +147,7 @@ export function resume(id: string): string[] {
       if (i.project !== id || !i.draft || i.state !== 'next') return i
       const issue = `${p.repo}#${++n}`
       posted.push(issue)
-      return { ...i, draft: undefined, posted: issue, reason: `Its finished draft posted as ${issue} when you resumed ${p.name}. Watch and score starts no fixes, so it stays an open issue.` }
+      return { ...i, draft: undefined, posted: issue, changed: now, reason: `Its finished draft posted as ${issue} when you resumed ${p.name}. Watch and score starts no fixes, so it stays an open issue.` }
     }),
   }
   emit()
@@ -183,8 +183,9 @@ export const clock = (now: number, v: Pick<View, 'later'>) => now + (v.later ? 7
 export function at(i: RadarItem, now: number, live?: Live): RadarItem {
   if (i.state === 'later' && i.later && (i.later.until <= now || (i.later.soon ?? Infinity) <= now)) return { ...i, state: 'new', reason: i.later.returned ?? 'Its parked time is up.', later: { ...i.later, returned: i.later.returned ?? 'Its parked time is up.' } }
   const a = i.needs && live && !live.cards.has(i.needs.card) ? live.answers[i.needs.card] : undefined
-  if (a === 'yes') return { ...i, approved: true, state: 'running', task: i.task ?? 'Fix: ' + i.title }
-  if (a === 'no') return { ...i, needs: undefined, state: 'declined', reason: 'You said no on its card.' }
+  // answered on its card just now as far as this page knows: the timeline shows it at this clock, not when it was found
+  if (a === 'yes') return { ...i, approved: true, state: 'running', changed: now, task: i.task ?? 'Fix: ' + i.title }
+  if (a === 'no') return { ...i, needs: undefined, state: 'declined', changed: now, reason: 'You said no on its card.' }
   return i
 }
 export const itemsAt = (d: RadarDemo, now: number, live?: Live) => d.items.map((i) => at(i, now, live))

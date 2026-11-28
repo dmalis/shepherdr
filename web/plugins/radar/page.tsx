@@ -288,7 +288,7 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
             return
           }
           // its finished draft posts now, as the paused line promised
-          const posted = resume(p.id)
+          const posted = resume(p.id, c.now)
           notice(posted.length ? `${p.name} resumed · its draft posted as ${posted.join(', ')}` : `${p.name} resumed`, { tone: 'ok' })
         }}>
           <I n={p.paused ? 'play' : 'pause'} />

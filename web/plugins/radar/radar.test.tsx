@@ -283,7 +283,7 @@ test('one short line an event, newest first: what shipped and what’s next are 
   for (const l of ls) expect(l.length).toBeLessThanOrEqual(48)
   const html = text(renderToStaticMarkup(<Timeline c={c} onSetup={() => undefined} setupEmpty={() => null} />))
   expect(html).toContain('shop needs you · Checkout fails on an empty cart')
-  expect(html).toMatch(/This week: 10 fixed · 1 reverted · 1 waits for you Today .* Yesterday .* This week .* Before that: 3 parked · 1 not doing Earlier/)
+  expect(html).toMatch(/This week: 10 fixed · 1 reverted · 1 waits for you Today .* Yesterday .* This week .* Week of \d+ \w+: 3 parked · 1 not doing Earlier/)
   // the project not set up is offered once, at the end
   expect(html.trim().endsWith('blog isn’t watched yet · set it up')).toBe(true)
 })
@@ -314,4 +314,47 @@ test('the empty and paused fixtures read well: set it up, and a paused project�
   expect(lines(garden)).toEqual(['garden-app paused', 'Seed list order · waits for Resume', 'Weather reminders · parked'])
   // one project picked: the project's name leaves the end of each line
   expect(text(renderToStaticMarkup(<Timeline c={garden} onSetup={() => undefined} setupEmpty={() => null} />))).not.toMatch(/paused garden-app/)
+})
+
+test('each older week has its own recap, and only the first is labelled Earlier', () => {
+  const now = new Date(2026, 10, 28, 15).getTime(), d = 86400_000
+  const e = (id: string, ago: number, count?: 'fixed' | 'parked') => ({ id, at: now - ago * d, project: 'x', icon: 'check' as const, words: id, open: id, count })
+  const ws = weeks([e('a', 0, 'fixed'), e('b', 8, 'parked'), e('c', 9, 'parked'), e('f', 16, 'fixed')], now, 0)
+  expect(ws.map((w) => w.recap.replace(/ /g, ' '))).toEqual(['This week: 1 fixed', 'Week of 15 Nov: 2 parked', 'Week of 8 Nov: 1 fixed'])
+  expect(ws.map((w) => w.days.map((x) => x.day))).toEqual([['Today'], ['Earlier'], [null]])
+})
+
+test('a paused project’s queue waits for Resume; what runs stays still, never a spinner', () => {
+  const s = day()
+  const r = radarOf(s)!
+  const paused = { ...s, radar: { ...r, projects: r.projects.map((p) => (p.id === 'shepherdr' ? { ...p, paused: Date.now() } : p)) } } as Snapshot
+  const ls = lines(tlOf(paused))
+  expect(ls).toContain('Old-main starts · waits for Resume')
+  expect(ls).toContain('Archive asks twice · waits for Resume')
+  expect(ls).toContain('Long chats jump · being fixed')
+  expect(ls.some((l) => l.includes('next up'))).toBe(false)
+  // the shared working ring turns for as long as it shows: the calm feed uses a still mark
+  const c = tlOf(answered(true))
+  expect(events(c.items, c.projects, c.live, c.now, null).filter((e) => e.icon === 'working')).toEqual([])
+})
+
+test('Resume and a card’s answer are events at the time they happened, not when the item was found', () => {
+  const now = Date.now()
+  reset()
+  dayOf(radarOf(day()))
+  resume('garden', now)
+  const i = useRadarDay()!.items.find((x) => x.id === 'r-gdraft')!
+  expect(i.changed).toBe(now)
+  reset()
+  const c = tlOf(answered(true))
+  const yes = events(c.items, c.projects, c.live, c.now, null).find((e) => e.id === 'r-err')!
+  expect(dayGroup(yes.at, c.now)).toBe('Today')
+  expect(yes.at).toBe(c.now)
+})
+
+test('on the calm timeline the Radar row keeps it: the grey count does not jump to the tabbed All items', () => {
+  const row = readFileSync(join(import.meta.dir, 'row.tsx'), 'utf8')
+  expect(row).toContain("onClick={() => (view.opening === 'timeline' ? overview() : openRadar({ tab: 'all', project: null, filter: 'waiting' }))}")
+  // and an item opens beside the timeline from 720 px of page, so a desktop with a pane open keeps the list
+  expect(readFileSync(join(import.meta.dir, 'radar.css'), 'utf8')).toContain('@container (min-width:720px){')
 })

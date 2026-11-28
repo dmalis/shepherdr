@@ -55,8 +55,8 @@ export function Timeline({ c, onSetup, setupEmpty }: { c: TimelineCtx; onSetup: 
         <section key={w.recap} className="rd-week">
           <p className="rd-recap">{w.recap}</p>
           {w.days.map((d) => (
-            <section key={d.day} className="rd-sec">
-              <h3 className="rd-h">{d.day}</h3>
+            <section key={d.day ?? 'week'} className="rd-sec">
+              {d.day && <h3 className="rd-h">{d.day}</h3>}
               <ul className="rd-list">
                 {d.events.map((e) => <Line key={e.id} e={e} on={c.view.item === e.open} end={pick ? undefined : name(e.project)} />)}
               </ul>

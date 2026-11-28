@@ -40,11 +40,11 @@
 .app.tap .rd-bar .btn,.app.tap .rd-acts .btn,.app.tap .rd-proto .btn{height:var(--btn)}
 
 .rd-body{display:grid;gap:24px;min-width:0}
-@container (min-width:880px){
-  .rdp.open .rd-body{grid-template-columns:minmax(0,1fr) minmax(320px,400px);align-items:start}
+@container (min-width:720px){
+  .rdp.open .rd-body{grid-template-columns:minmax(0,1fr) minmax(300px,400px);align-items:start}
   .rdp.open .rd-detail{position:sticky;top:0}
 }
-@container (max-width:879px){.rdp.open:not(.full) .rd-main{display:none}}
+@container (max-width:719px){.rdp.open:not(.full) .rd-main{display:none}}
 .rd-main{display:grid;gap:16px;min-width:0}
 
 .rd-intro{padding-inline:8px;color:var(--fg);font-weight:600}

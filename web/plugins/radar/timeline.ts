@@ -36,7 +36,7 @@ export function eventOf(i: RadarItem, items: RadarItem[], projects: RadarProject
   const s = i.short ?? i.title
   const base = { id: i.id, at: eventAt(i, now), project: i.project, open: i.id }
   const paused = !!projects.find((p) => p.id === i.project)?.paused
-  if (i.approved) return { ...base, icon: 'working', tone: 'warm', words: s, status: 'fix being built' }
+  if (i.approved) return { ...base, icon: 'pen', tone: 'warm', words: s, status: 'fix being built' }
   if (i.posted) return { ...base, icon: 'ready', words: s, status: 'posted' }
   switch (i.state) {
     case 'shipped': {
@@ -45,14 +45,16 @@ export function eventOf(i: RadarItem, items: RadarItem[], projects: RadarProject
       if (how === 'merged') return { ...base, icon: 'merged', words: `${s} fixed`, status: 'not installed yet', count: 'fixed' }
       return { ...base, icon: 'check', tone: 'ok', words: `${s} fixed`, status: i.shipped?.after ? 'holding' : 'live', count: 'fixed' }
     }
-    case 'running': return { ...base, icon: 'working', tone: 'warm', words: s, status: 'being fixed' }
+    case 'running': return { ...base, icon: 'pen', tone: 'warm', words: s, status: 'being fixed' }
     case 'next': {
       if (i.draft) return { ...base, icon: 'note', words: s, status: paused ? 'waits for Resume' : 'draft finished' }
+      // a paused project's queue starts nothing: it waits, whatever its place in line
+      if (paused) return { ...base, icon: 'next', words: s, status: 'waits for Resume' }
       const first = queue(items, i.project)[0]?.id === i.id
       if (!first) return { ...base, icon: 'next', words: s, status: 'queued' }
       return { ...base, icon: i.trend === 'rising' ? 'up' : 'next', words: s, status: i.trend === 'rising' ? 'rising, next up' : 'next up' }
     }
-    case 'held': return { ...base, icon: 'pause', words: s, status: 'held back' }
+    case 'held': return { ...base, icon: 'pause', words: s, status: paused ? 'waits for Resume' : 'held back' }
     case 'later': return { ...base, icon: 'clock', words: s, status: 'parked', count: 'parked' }
     case 'declined': return { ...base, icon: 'minus', words: s, status: 'not doing', count: 'declined' }
     case 'new': {
@@ -77,11 +79,12 @@ export function events(items: RadarItem[], projects: RadarProject[], live: Live,
 }
 
 export type Day = 'Today' | 'Yesterday' | 'This week' | 'Earlier'
-export const DAYS: Day[] = ['Today', 'Yesterday', 'This week', 'Earlier']
+/** how many of this device's calendar days ago (0: today; a later time counts as today) */
+const daysAgo = (at: number, now: number) => Math.max(0, Math.round((new Date(new Date(now).toDateString()).getTime() - new Date(new Date(at).toDateString()).getTime()) / DAY))
 /** which day group an event is in, by this device's calendar days */
 export function dayGroup(at: number, now: number): Day {
-  const days = Math.round((new Date(new Date(now).toDateString()).getTime() - new Date(new Date(at).toDateString()).getTime()) / DAY)
-  return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : 'Earlier'
+  const days = daysAgo(at, now)
+  return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : 'Earlier'
 }
 
 /** a number and its word, never split across lines on a narrow page ("10 fixed", not "10 / fixed") */
@@ -99,14 +102,30 @@ export function recap(es: Event[], waits = 0): string {
   return bits.length ? bits.join(`${NB}· `) : `${es.length}${NB}${es.length === 1 ? 'change' : 'changes'}`
 }
 
-export interface Week { recap: string; days: { day: Day; events: Event[] }[] }
-/** the feed in weeks (this week, then what came before), each in its days; empty days and weeks left out */
+/** a week of the feed: its recap, then its days. An older week is one group, and only the first of them is labelled
+ *  Earlier (its recap names its dates) */
+export interface Week { recap: string; days: { day: Day | null; events: Event[] }[] }
+/** the feed in weeks of 7 days back from today (this week, then each week before), this week in its days; empty days
+ *  and weeks left out */
 export function weeks(es: Event[], now: number, waits: number): Week[] {
-  const by = (d: Day) => es.filter((e) => dayGroup(e.at, now) === d)
-  const week = (ds: Day[], lead: string, w: number): Week | null => {
-    const days = ds.map((day) => ({ day, events: by(day) })).filter((d) => d.events.length)
-    const all = days.flatMap((d) => d.events)
-    return all.length || w ? { recap: `${lead}: ${recap(all, w)}`, days } : null
+  const out: Week[] = []
+  const thisWeek = es.filter((e) => daysAgo(e.at, now) < 7)
+  if (thisWeek.length || waits) {
+    const days = (['Today', 'Yesterday', 'This week'] as Day[]).map((day) => ({ day, events: thisWeek.filter((e) => dayGroup(e.at, now) === day) })).filter((d) => d.events.length)
+    out.push({ recap: `This week: ${recap(thisWeek, waits)}`, days })
   }
-  return [week(['Today', 'Yesterday', 'This week'], 'This week', waits), week(['Earlier'], 'Before that', 0)].filter((w): w is Week => !!w)
+  const older = new Map<number, Event[]>()
+  for (const e of es) {
+    const k = Math.floor(daysAgo(e.at, now) / 7)
+    if (k > 0) older.set(k, [...(older.get(k) ?? []), e])
+  }
+  const date = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  let first = true
+  for (const k of [...older.keys()].sort((a, b) => a - b)) {
+    const of = older.get(k)!
+    // named by its first day, 7k+6 days before today
+    out.push({ recap: `Week of ${date(now - (7 * k + 6) * DAY)}: ${recap(of)}`, days: [{ day: first ? 'Earlier' : null, events: of }] })
+    first = false
+  }
+  return out
 }
