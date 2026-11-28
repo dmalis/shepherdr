@@ -78,6 +78,9 @@ jobs:
         # fork/specs/ui-polish.md slice 2: web/demo/still-check.ts, no running animation and almost no style work over
         # 10 s with pictures blocked, hung and served, and no layout shift as they load, in the runner's own Chrome
         run: bun web/demo/still-check.ts
+      - name: every demo artifact's words read in light, dark and night (the built demo, phone and desktop)
+        # UI polish slice 19: web/demo/artifact-check.ts measures each line in the artifact's frame as painted, at 4.5:1
+        run: bun web/demo/artifact-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.
