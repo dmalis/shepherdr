@@ -275,7 +275,8 @@ async function runChecks() {
 }
 
 // WebKit has no scroll anchoring, so a long chat keeps the reader's place there by hand: SCROLL_WEBKIT names a
-// Playwright server that runs WebKit (`playwright run-server`, e.g. in Playwright's own container image)
+// Playwright server that runs WebKit (`playwright run-server`, e.g. in Playwright's own container image on the host's
+// network, so it reaches the demo), of the same version as playwright-core here
 async function webkitChecks() {
   const at = process.env.SCROLL_WEBKIT
   if (!at) return console.log('WebKit: skipped (set SCROLL_WEBKIT to a Playwright server)')

@@ -56,6 +56,8 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
   - a row, a control or a status colour: `bun web/demo/contrast-check.ts` (dim rows, checkboxes, fields and the focus
     ring measured as painted, and red only under Needs you);
+  - anything in a chat's scrolling: `bun web/demo/scroll-check.ts`, with `SCROLL_WEBKIT=<a Playwright server's
+    ws:// address>` for WebKit too (`playwright run-server` in Playwright's image of the same version);
   - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`,
     `slowfiles` (Files loading; #notes is an empty folder, #blog's can't be read); a task or artifact by `?task=<id>`
     or `?artifact=<id>`;
@@ -504,8 +506,21 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
   is not imported where the first screen starts.
 - **What a tap must start stays in the first script:** the microphone's and a call's audio are made inside the tap
   (a phone keeps audio made after an await silent), so dictation and the call are never parts that come later.
-- **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
-  screen are options to prove against find, copy, jump-to-quote and keeping your place.
+- **A long chat opens on its newest messages:** the first paint draws the newest 40, and the older ones come in 50 at
+  a time right after it (`chat/first-rows.ts`), as Slack, iMessage and Discord open a conversation. Every message is
+  then on the page, so find, copy and a quote's jump reach them all; a jump to one not drawn yet draws the whole chat
+  at once. A reply's HTML is kept by its words and the kinds of the tasks it links (`chat/made.ts`): a chat opened
+  again parses none of them. A bubble draws again only when what it shows changes. Rendering only what is near the
+  screen (`content-visibility`, a virtual list) isn't used: measured, it wasn't needed, and it would cost find,
+  copy, the quote's measured jump and the reply slide's room.
+- **Long lists:** measure first, as above; skipping off-screen rows is an option to prove against find, copy,
+  jump-to-quote and keeping your place.
+- **Your place holds** when rows come in above it (an earlier page, a long chat's older messages): the row at the top
+  stays where it was, kept by hand in every browser, since WebKit has no scroll anchoring and Chromium's skips a
+  scroller at its very top, where a wheel or a fling ends. The browser's own anchoring is off for that one render, so
+  the row is never moved twice. A scroll up is never undone by what grows below before its scroll event comes, and a
+  folded reply drawn above you never scrolls itself into view. `web/demo/scroll-check.ts` checks all of it in
+  Chromium and, with a Playwright server, WebKit.
 - **Pictures keep their room before they load,** so nothing moves as they come in: a frame of a fixed shape that the
   picture fills without taking part in its size (an artifact's tile at 16:10, a screen's picture at 16:8, logos and
   space icons at their size, a picture opened in Files fitted into the pane), or the size this screen already knows (a

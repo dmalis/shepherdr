@@ -1,0 +1,26 @@
+{
+  "issue": 190,
+  "name": "Speed: switching chats stays quick",
+  "files": [
+    "web/plugins/chat/first-rows.ts",
+    "web/plugins/chat/made.ts",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/markdown.tsx",
+    "web/plugins/chat/stick.ts",
+    "web/demo/long-chat.ts",
+    "web/demo/scroll-check.ts",
+    "docs/design.md",
+    "web/plugins/chat/first-rows.test.tsx",
+    "web/plugins/chat/made.test.ts",
+    "web/plugins/chat/stick.test.ts"
+  ],
+  "tests": [
+    "web/plugins/chat/first-rows.test.tsx",
+    "web/plugins/chat/made.test.ts",
+    "web/plugins/chat/stick.test.ts",
+    "web/plugins/chat/markdown.test.ts",
+    "web/plugins/chat/fold.test.tsx",
+    "web/plugins/chat/kind.test.tsx",
+    "test/test_reply_row.py"
+  ]
+}
