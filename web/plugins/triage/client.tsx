@@ -7,15 +7,15 @@
 // No, as Linear's Triage accepts or declines one issue at a time; the answer is kept by the service only, bound to that
 // text's hash, so a changed text asks again. Switched off (Settings › Plugins), the page and the cards are gone and
 // Triage does nothing.
-import { attempt, definePlugin, tryAct, useSnap } from '@client/kernel.ts'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { act, attempt, definePlugin, notice, tryAct, useSnap } from '@client/kernel.ts'
 import { AppliesTo, useAppliesTo } from '@client/applies-to.tsx'
 import { Choice as Seg } from '@client/choice.tsx'
-import { Own, SRow } from '@client/settings-rows.tsx'
-import { ActBtn, ActError, Btn, I, Tgl, useCardActs } from '@client/ui.tsx'
-import { useLayoutEffect, useRef } from 'react'
 import { openDialog } from '@client/overlay.tsx'
-import { TRIAGE_DRAFTS, triageAsk, triageDraftsWords, triagePlace, triageShown } from '@shared/attention.ts'
-import type { Automation, Snapshot, TriageCard, TriageKeys } from '@shared/types.ts'
+import { Own, SRow } from '@client/settings-rows.tsx'
+import { ActBtn, ActError, Btn, I, Row, Tgl, useCardActs } from '@client/ui.tsx'
+import { TRIAGE_DRAFTS, triageAsk, triageCount, triageDraftsWords, triagePlace, triageShown } from '@shared/attention.ts'
+import type { Automation, Snapshot, TriageBatchItem, TriageCard, TriageKeys } from '@shared/types.ts'
 import './triage.css'
 
 export const PAGE = 'Triage'
@@ -158,14 +158,118 @@ export function TriageCardView({ c }: { c: TriageCard }) {
   )
 }
 
-/** a space's held drafts, oldest first, as the list opened from their one card shows them */
-const draftsIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).filter((c) => c.kind === 'draft' && triagePlace(snap, c) === place)
+/* ---------- a space's grouped drafts: one card, its list the batch review ---------- */
 
-/** the list behind the one card: each draft's own card, answered one by one as before. It reads the snapshot live, so
- *  an answered one leaves the list, and the list stays open while it empties */
+/** the finding kinds, in the order the review lists them (the Feedback page's own words for each) */
+const KINDS: [string, string][] = [['bug', 'Bugs'], ['miss', 'Agent mistakes'], ['confusing', 'Confusing'], ['workaround', 'Workarounds'], ['manual', 'Done by hand'], ['', 'Not sorted']]
+const kindOf = (k: string | null) => (KINDS.some((x) => x[0] === k) ? k ?? '' : '')
+export const itemId = (x: TriageBatchItem) => `${x.copy ? 'c' : 'f'}:${x.key}`
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/** a space's held drafts, oldest first (each its own card), and its batch card (the drafts one Yes can post) */
+const draftsIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).filter((c) => c.kind === 'draft' && triagePlace(snap, c) === place)
+const batchIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).find((c) => c.kind === 'batch' && !!c.items?.length && triagePlace(snap, c) === place)
+
+const Tick = ({ on, part }: { on: boolean; part?: boolean }) => <span className={`cbx${on || part ? ' on' : ''}`} aria-hidden="true">{on ? <I n="check" /> : part ? <I n="minus" /> : null}</span>
+
+/** the list a review shows: the one the person opened, kept while the live one differs (it then says it changed), and the
+ *  live one once the change is their own Post's -> {list, stale} */
+export function batchShown(shown: TriageCard, live: TriageCard, theirs: boolean): { list: TriageCard; stale: boolean } {
+  if (live.hash === shown.hash) return { list: shown, stale: false }
+  return theirs ? { list: live, stale: false } : { list: shown, stale: true }
+}
+
+/** the bulk bar's words: "Post all N" while every one is ticked, "Post N" once any is unticked (Gmail's and GitHub's
+ *  bulk bars name the count they act on) */
+export const postWords = (ticked: number, of: number) => (!ticked ? 'Nothing ticked' : ticked === of && of > 1 ? `Post all ${ticked}` : `Post ${ticked}`)
+
+/** The batch review's state: the list shown, what is unticked, and its one Post. The Yes sends the hash of the list
+ *  shown, so it is for what the person read: a list that changes while it is open stays as it was, says it changed and
+ *  posts nothing until they show the new one (as GitHub's "This page is out of date"); after their own Post, the list
+ *  left takes its place. The unticked stay unticked. */
+function useBatch(c: TriageCard | undefined) {
+  const [shown, setShown] = useState(c)
+  const [skip, setSkip] = useState<Set<string>>(() => new Set())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // set while the person's own Post goes and right after: the change it makes is theirs, so the new list is taken
+  const adopt = useRef(false)
+  const view = !shown || !c ? { list: c, stale: false } : batchShown(shown, c, adopt.current)
+  const stale = view.stale
+  useEffect(() => { if (view.list !== shown) { adopt.current = false; setShown(view.list) } }, [view.list, shown])
+  const list = view.list
+  const items = list?.items ?? []
+  const ticked = items.filter((x) => !skip.has(itemId(x)))
+  const flip = (id: string) => setSkip((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const post = async () => {
+    if (!list || !ticked.length || busy || stale) return
+    setBusy(true)
+    setError(null)
+    adopt.current = true
+    try {
+      const r = await act<{ ok?: boolean; error?: string; kept?: number; changed?: number | boolean }>({ type: 'triage', do: 'answer', answer: 'yes', kind: 'batch', hash: list.hash, skip: [...skip] })
+      if (r.ok === false) { adopt.current = false; setError(r.error || 'That did not work.'); return }
+      // a list that never came back changed (a slow link) is not theirs for ever: a later change asks again
+      setTimeout(() => { adopt.current = false }, 10_000)
+      const kept = r.kept ?? 0, changed = Number(r.changed) || 0
+      // the unticked ones stay here, still unticked: kept private until the person ticks them
+      notice(`${plural(kept, 'finding')} will be posted, a couple of seconds apart.${changed ? ` ${plural(changed, 'finding')} changed since you read ${changed === 1 ? 'it' : 'them'} and wait${changed === 1 ? 's' : ''} again.` : ''}`, { tone: 'ok' })
+    } catch (e) {
+      adopt.current = false
+      setError(e instanceof Error && e.message ? e.message : 'That did not work.')
+    } finally { setBusy(false) }
+  }
+  const renew = () => { setShown(c); setError(null) }
+  return { list, items, skip, setSkip, ticked, flip, busy, error, stale, post, renew }
+}
+type Batch = ReturnType<typeof useBatch>
+
+/** The batch part of the list: every draft one Yes would post, its exact title and text, grouped by kind, each ticked;
+ *  untick any to keep it out (GitHub's issue list, Gmail and Linear: a select-all with its count, one bulk action) */
+function BatchPart({ b }: { b: Batch }) {
+  const { items, skip, setSkip, ticked, flip, list } = b
+  const all = ticked.length === items.length
+  return (
+    <section className="tri-batch" aria-labelledby="tri-batch-h">
+      <div className="lab" id="tri-batch-h">One Yes for these · {items.length}</div>
+      <p className="hint">They passed the privacy check. Each ticked one becomes its own issue in {list?.repo}, exactly as written here. Untick any you’d rather keep private: it waits here for later.</p>
+      <Row className="tri-all" lead={<Tick on={all} part={!all && ticked.length > 0} />} label={all ? `All ${items.length} ticked` : `${ticked.length} of ${items.length} ticked`}
+        role="checkbox" aria-checked={all ? true : ticked.length ? 'mixed' : false} onClick={() => setSkip(all ? new Set(items.map(itemId)) : new Set())} />
+      {KINDS.map(([k, name]) => {
+        const rows = items.filter((x) => kindOf(x.kind) === k)
+        if (!rows.length) return null
+        return (
+          <div className="tri-kind" key={k || 'none'} role="group" aria-label={`${name}, ${rows.length}`}>
+            <div className="lab">{name} · {rows.length}</div>
+            {rows.map((x) => {
+              const id = itemId(x), on = !skip.has(id)
+              return (
+                <div className="tri-item" key={id}>
+                  <Row lead={<Tick on={on} />} label={x.title} role="checkbox" aria-checked={on} onClick={() => flip(id)} />
+                  <details>
+                    <summary>The text</summary>
+                    <pre>{x.body}</pre>
+                  </details>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+/** the list behind the one card: first the batch (a tick per draft), then each held draft as its own card, answered one
+ *  by one as before, and at the sheet's foot one bar that stays in view while it scrolls (Gmail's and GitHub's bulk bars):
+ *  Close, and Post for the ticked ones. It reads the snapshot live, so what is answered leaves the list, and the list
+ *  stays open while it empties */
 export function TriageDraftsList({ place, close }: { place: string; close: () => void }) {
   const snap = useSnap()
   const drafts = snap ? draftsIn(snap, place) : []
+  const b = useBatch(snap ? batchIn(snap, place) : undefined)
+  const batch = b.list && b.items.length ? b.list : undefined
+  const n = drafts.length + (batch ? b.items.length : 0)
   const box = useRef<HTMLDivElement>(null)
   const done = useRef<HTMLDivElement>(null)
   // the card that last held focus: an answer takes it away with its button, so focus goes on to the card now in its
@@ -181,14 +285,27 @@ export function TriageDraftsList({ place, close }: { place: string; close: () =>
   }, [ids])
   return (
     <>
-      <h2>{drafts.length ? triageDraftsWords(drafts.length) : 'Nothing waits to be posted'}</h2>
-      <p>{drafts.length ? 'Each goes public only when you say yes. Answer them one by one, oldest first.' : 'Every finding here has its answer.'}</p>
+      <h2>{n ? triageDraftsWords(n) : 'Nothing waits to be posted'}</h2>
+      <p>{!n ? 'Every finding here has its answer.' : batch ? 'Each goes public only when you say yes: the ticked ones with one Yes, the rest one by one.' : 'Each goes public only when you say yes. Answer them one by one, oldest first.'}</p>
+      {batch && <BatchPart b={b} />}
       {drafts.length > 0 && (
-        <div className="tri-list" ref={box} onFocus={(e) => void (at.current = [...e.currentTarget.children].findIndex((c) => c.contains(e.target)))}>
-          {drafts.map((c) => <TriageCardView key={c.id} c={c} />)}
-        </div>
+        <section className="tri-held" aria-labelledby="tri-held-h">
+          {batch && <div className="lab" id="tri-held-h">Your answer one by one · {drafts.length}</div>}
+          {batch && <p className="hint">The privacy check found something in these, or they can’t go in one Yes. Each has its own answer.</p>}
+          <div className="tri-list" ref={box} onFocus={(e) => void (at.current = [...e.currentTarget.children].findIndex((c) => c.contains(e.target)))}>
+            {drafts.map((c) => <TriageCardView key={c.id} c={c} />)}
+          </div>
+        </section>
       )}
-      <div className="acts" ref={done}><Btn onClick={close}>Close</Btn></div>
+      <div className="tri-foot">
+        {b.error && <p className="tri-err" role="alert">{b.error}</p>}
+        {b.stale && <p className="tri-why" role="status"><I n="warn" />The list changed since you opened it. Look at the new one before you post.</p>}
+        <div className="acts" ref={done}>
+          <Btn onClick={close}>Close</Btn>
+          {b.stale && <Btn onClick={b.renew}>Show the new list</Btn>}
+          {batch && <Btn kind="pri" disabled={b.busy || b.stale || !b.ticked.length} onClick={() => void b.post()}>{b.busy ? 'Saving…' : postWords(b.ticked.length, b.items.length)}</Btn>}
+        </div>
+      </div>
     </>
   )
 }
@@ -202,12 +319,17 @@ function focusLeft(opener: Element | null) {
   })
 }
 
-/** more drafts than TRIAGE_GROUP_OVER in a space: one card that says how many, and opens their list */
-export function TriageDraftsCard({ place, n }: { place: string; n: number }) {
+/** more drafts than TRIAGE_GROUP_OVER in a space, or any that one Yes can post: one card that says how many, and opens
+ *  their list */
+export function TriageDraftsCard({ place, n, batch = 0 }: { place: string; n: number; batch?: number }) {
+  const held = n - batch
+  const why = !batch ? 'Each goes public only when you say yes.'
+    : held ? `One Yes posts the ${batch} that passed the privacy check, the ones you tick. ${held === 1 ? 'The other waits' : `The other ${held} wait`} for your answer one by one.`
+    : `${batch === 1 ? 'It passed' : `All ${batch} passed`} the privacy check: one Yes posts the ones you tick.`
   return (
-    <section className="card tri-card" data-card={TRIAGE_DRAFTS} data-ask="" aria-labelledby="tri-drafts-q">
+    <section className="card tri-card" data-card={TRIAGE_DRAFTS} data-ask="" aria-labelledby="tri-drafts-q" aria-describedby="tri-drafts-why">
       <span className="t" id="tri-drafts-q">{triageDraftsWords(n)}</span>
-      <span className="s">Each goes public only when you say yes.</span>
+      <span className="s" id="tri-drafts-why">{why}</span>
       <div className="acts">
         <Btn kind="pri" onClick={(e) => { const opener = e.currentTarget; openDialog((close) => <TriageDraftsList place={place} close={close} />, { wide: true, label: 'Findings to post', onClose: () => focusLeft(opener) }) }}>Show them</Btn>
       </div>
@@ -216,11 +338,11 @@ export function TriageDraftsCard({ place, n }: { place: string; n: number }) {
 }
 
 /** the cards in a space's own chat (its repo's, else Everything's), oldest first, where Needs you opens them: more
- *  drafts than TRIAGE_GROUP_OVER are one card (triageShown), start cards always single */
+ *  drafts than TRIAGE_GROUP_OVER, or a batch, are one card (triageShown), start cards always single */
 export function triageCards(snap: Snapshot, thread: { place: string; task?: unknown }) {
   if (thread.task) return []
   const { drafts, single } = triageShown((snap.triage?.cards ?? []).filter((c) => triagePlace(snap, c) === thread.place))
-  const one = drafts.length ? [{ key: TRIAGE_DRAFTS, at: Math.min(...drafts.map((c) => c.at)), after: () => true, node: <TriageDraftsCard place={thread.place} n={drafts.length} /> }] : []
+  const one = drafts.length ? [{ key: TRIAGE_DRAFTS, at: Math.min(...drafts.map((c) => c.at)), after: () => true, node: <TriageDraftsCard place={thread.place} n={triageCount(drafts)} batch={triageCount(drafts.filter((c) => c.kind === 'batch'))} /> }] : []
   return [...one, ...single.map((c) => ({ key: `triage:${c.id}`, at: c.at, after: () => true, node: <TriageCardView c={c} /> }))]
 }
 

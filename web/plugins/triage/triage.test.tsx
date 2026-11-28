@@ -13,7 +13,7 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
@@ -189,4 +189,85 @@ test('2 drafts stay 2 cards, and 3; a 4th makes them one', () => {
   // the demo's backlog day: 150 drafts and the start card in #shop
   const day = snapshot('drafts') as Snapshot
   expect(triageCards(day, { place: shopOf(day) }).map((c) => c.key)).toEqual(['triage:drafts', 'triage:start:41'])
+})
+
+// "Triage: one Yes posts all": the drafts one Yes can post are in the same one card, its list the batch review: every
+// draft ticked, by kind, one Yes for the ticked set, then the held drafts each with its own answer
+const withBatch = (snap: Snapshot, n: number, held: number): Snapshot => {
+  const [draft, start] = snap.triage!.cards
+  const items = Array.from({ length: n }, (_, i) => ({ key: `a${i}`, copy: false, rev: 1, hash: String(i).padStart(64, 'c'), title: `Batch ${i}`, body: `Text ${i}`, kind: i % 2 ? 'confusing' : 'bug', at: draft!.at - 100 + i }))
+  const batch = { id: 'batch', kind: 'batch' as const, repo: 'example/shop', title: `${n} findings`, body: '', hash: 'f'.repeat(64), items, at: draft!.at - 100 }
+  const drafts = Array.from({ length: held }, (_, i) => ({ ...draft!, id: `draft:f:x${i}`, key: `x${i}`, hash: String(i).padStart(64, 'e'), title: `Held ${i}`, at: draft!.at + i }))
+  return { ...snap, triage: { ...snap.triage!, cards: [...(n ? [batch] : []), ...drafts, start!] } }
+}
+
+test('a batch is always in the one card, counted by its drafts; Needs you says one Yes posts them', () => {
+  const base = snapshot('triage') as Snapshot
+  const shop = shopOf(base)
+  for (const [n, held, words, sub] of [[1, 0, '1 finding waits', 'One Yes posts the ones you tick'], [85, 65, '150 findings wait', 'One Yes posts 85 of them'], [2, 1, '3 findings wait', 'One Yes posts 2 of them']] as const) {
+    const snap = withBatch(base, n, held)
+    const cards = triageCards(snap, { place: shop })
+    expect(cards.map((c) => c.key)).toEqual(['triage:drafts', 'triage:start:41'])
+    const one = text(renderToStaticMarkup(<>{cards[0]!.node}</>))
+    expect(one).toContain(words)
+    expect(one).toContain('privacy check')
+    const s2 = { ...snap, attention: projectAttention(snap, Date.now()) }
+    const acts = s2.attention.actions.filter((a) => a.kind === 'triage')
+    expect(acts.map((a) => [a.card, a.drafts ?? null, a.batch ?? null])).toEqual([['triage:drafts', n + held, n], ['triage:start:41', null, null]])
+    expect(needsChats(s2, [shop]).find((i) => i.card === 'triage:drafts')!.sub).toBe(sub)
+  }
+  // with no batch, 3 held drafts stay single as before
+  expect(triageCards(withBatch(base, 0, 3), { place: shop }).map((c) => c.key)).toEqual(['triage:draft:f:x0', 'triage:draft:f:x1', 'triage:draft:f:x2', 'triage:start:41'])
+})
+
+test('the list is the batch review: every draft ticked by kind, one Yes for them, then the held drafts with their own answer', () => {
+  const snap = withBatch(snapshot('triage') as Snapshot, 4, 2)
+  Object.assign(getState(), { snap })
+  const html = renderToStaticMarkup(<TriageDraftsList place={shopOf(snap)} close={() => {}} />)
+  const t = text(html)
+  expect(t).toContain('6 findings wait to be posted to GitHub')
+  expect(t).toContain('All 4 ticked')
+  expect(t).toContain('Post all 4')
+  // grouped by kind, Bugs first, each a checkbox row, ticked
+  expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Confusing · 2'))
+  expect(html.match(/role="checkbox" aria-checked="true"/g)!.length).toBe(5)
+  // the held ones: their own cards, Yes and No each, after the batch; one bar at the sheet's foot, after them all
+  expect(html.match(/data-card="triage:draft:/g)!.length).toBe(2)
+  expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Held 0'))
+  expect(html.match(/class="tri-foot"/g)).toHaveLength(1)
+  expect(html.lastIndexOf('Held 1')).toBeLessThan(html.indexOf('class="tri-foot"'))
+  expect(text(html.slice(html.indexOf('class="tri-foot"')))).toMatch(/Close.*Post all 4/)
+  expect(t).toContain('Your answer one by one · 2')
+  expect(t).toContain('Yes, post it')
+  // only a batch left: no held part
+  Object.assign(getState(), { snap: withBatch(snapshot('triage') as Snapshot, 3, 0) })
+  const only = text(renderToStaticMarkup(<TriageDraftsList place={shopOf(snap)} close={() => {}} />))
+  expect(only).toContain('Post all 3')
+  expect(only).not.toContain('Your answer one by one')
+})
+
+test('the demo backlog is one card of 150: 85 in the batch, 65 held', () => {
+  const day = snapshot('drafts') as Snapshot
+  const shop = shopOf(day)
+  Object.assign(getState(), { snap: day })
+  const t = text(renderToStaticMarkup(<>{triageCards(day, { place: shop })[0]!.node}</>))
+  expect(t).toContain('150 findings wait to be posted to GitHub')
+  expect(t).toContain('One Yes posts the 85 that passed the privacy check')
+  expect(t).toContain('The other 65 wait for your answer one by one')
+})
+
+test('an open review keeps the list the person read: a change from elsewhere says so and posts nothing; their own Post takes the new one', () => {
+  const base = snapshot('triage') as Snapshot
+  const read = withBatch(base, 4, 0).triage!.cards[0]!
+  const now = { ...read, hash: 'a'.repeat(64), items: read.items!.slice(1) }
+  expect(batchShown(read, { ...read }, false)).toEqual({ list: read, stale: false })
+  expect(batchShown(read, now, false)).toEqual({ list: read, stale: true })
+  expect(batchShown(read, now, true)).toEqual({ list: now, stale: false })
+})
+
+test("the bulk bar names its count: Post all N while all are ticked, Post N once one is unticked", () => {
+  expect(postWords(85, 85)).toBe('Post all 85')
+  expect(postWords(84, 85)).toBe('Post 84')
+  expect(postWords(1, 1)).toBe('Post 1')
+  expect(postWords(0, 85)).toBe('Nothing ticked')
 })

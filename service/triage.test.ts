@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Feedback, type Runner } from "./feedback.ts";
-import { answerCard, CHANGED, destination, fenced, followLevel, keepYes, legacyFenced, PUBLISH_EVERY, Publisher, shown, TriageView, triageWhy, viewOf, yesHash } from "./triage.ts";
+import { answerBatch, answerCard, batchHash, CHANGED, itemId, PASS_S, destination, fenced, followLevel, keepYes, legacyFenced, PUBLISH_EVERY, Publisher, shown, TriageView, triageWhy, viewOf, yesHash } from "./triage.ts";
 
 const REPO = "acme/shepherdr";
 const SETTINGS = { everywhere: { agents: { feedback_repo: REPO } } };
@@ -91,7 +91,7 @@ test("the publisher runs at most every 10 minutes, soon after a yes, never while
   const p = new Publisher(async (args) => { calls.push(args); return { code: 0, stdout: "{}", stderr: "" }; },
     () => ({ "vm-b": [{ id: "b1", line: "Search misses archived spaces" }] }), () => on, () => join(dir, "there.json"));
   expect(await p.tick(1_000_000)).toBe(true);
-  expect(calls[0]).toEqual(["triage", "publish", "--there", join(dir, "there.json"), "--json"]);
+  expect(calls[0]).toEqual(["triage", "publish", "--there", join(dir, "there.json"), "--for", String(PASS_S), "--json"]);
   expect(JSON.parse(readFileSync(join(dir, "there.json"), "utf8"))["vm-b"][0].id).toBe("b1");
   expect(await p.tick(1_000_000 + PUBLISH_EVERY - 1)).toBe(false);
   expect(await p.tick(1_000_000 + 60_000, true)).toBe(true);
@@ -228,12 +228,12 @@ test("a finding that no longer waits takes no answer: posted, filed, done on its
 test("a full answer file drops retired rows first: a No still in force stays", () => {
   const dir = store();
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 1).ok).toBe(true);
-  const old = Array.from({ length: 260 }, (_, i) => ({ kind: "draft", repo: REPO, key: `gone${i}`, rev: 1, hash: "f".repeat(64), at: 2 + i, by: "app" }));
+  const old = Array.from({ length: 1060 }, (_, i) => ({ kind: "draft", repo: REPO, key: `gone${i}`, rev: 1, hash: "f".repeat(64), at: 2 + i, by: "app" }));
   writeFileSync(join(dir, ".triage-yes.json"), JSON.stringify({ yes: [...yeses(dir), ...old] }));
   writeFileSync(join(dir, ".triage.json"), JSON.stringify({ repos: { [REPO]: { fenced: { at: 1 }, asks: { "12": { title: "S", body: "B", at: 4 } } } } }));
-  expect(answerCard({ kind: "start", issue: 12, hash: yesHash({ repo: REPO, action: "start", issue: 12 }, "S", "B"), answer: "no" }, dir, SETTINGS, 999).ok).toBe(true);
+  expect(answerCard({ kind: "start", issue: 12, hash: yesHash({ repo: REPO, action: "start", issue: 12 }, "S", "B"), answer: "no" }, dir, SETTINGS, 9999).ok).toBe(true);
   const rows = yeses(dir);
-  expect(rows).toHaveLength(200);
+  expect(rows).toHaveLength(1000);
   expect(rows[0]).toMatchObject({ key: "a1", answer: "no" });
   expect(rows[rows.length - 1]).toMatchObject({ kind: "start", issue: 12 });
 });

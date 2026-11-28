@@ -356,7 +356,7 @@ class Filing(Triaged):
 
     def test_writes_go_two_seconds_apart_and_creates_stop_at_the_hourly_cap(self):
         for i in range(12):
-            self.report(line=f"The reply bubble number {chr(97 + i)} misses its quote")
+            self.report(line=f"The reply bubble number {chr(97 + i) * 2} misses its quote")
         out = tpub.publish()
         self.assertEqual(len(self.hub.creates()), 10, out)
         self.assertTrue(all(ms <= tgh.APART_MS for ms in self.slept))
@@ -936,6 +936,156 @@ class YesCards(Triaged):
         self.assertEqual(code, 1)
         sent.assert_not_called()
         self.assertIn("on that machine itself", out.getvalue())
+
+
+class BatchYes(Triaged):
+    """The backlog's one batch yes (fork/specs/issue-loop.md, "The backlog"): the service keeps one row per ticked draft,
+    each bound to its revision and text and marked with the batch's hash. The publisher posts them one at a time, two
+    seconds apart, under GitHub's documented limits instead of Triage's 10 an hour, still through the gate, the
+    privacy check and the receipts."""
+
+    def hold(self, n, details="Seen in the chat: it shows no quote."):
+        keys = []
+        for i in range(n):
+            line = f"The reply bubble number {chr(97 + i) * 2} misses its quote"
+            keys.append(self.report(line=line, details=details))
+            self.report(line=line, caller=OTHER, details=details, fix=f"Show quote {chr(97 + i) * 2} above the reply")  # waits: sp2's fix
+        out = tpub.publish()
+        self.assertEqual((out["posted"], out["waits"]), (0, n), out)
+        return keys
+
+    def batch_yes(self, keys, batch="b" * 64):
+        """the service's rows for one batch Yes (service/triage.ts answerBatch), on each draft's text now"""
+        rows = []
+        for key in keys:
+            dr = fb.problems_read()[key]["draft"]
+            h = tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))
+            rows.append({"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app", "batch": batch})
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": rows}, f)
+
+    def test_the_waiting_rows_say_which_may_go_in_the_batch(self):
+        (ok,) = self.hold(1)
+        self.report(line="Jane's bubble misses its quote", details="Jane saw it at 192.168.1.20.")
+        self.assertEqual(tpub.publish()["posted"], 0)  # drafted, held by the privacy check
+        rows = {w["key"]: w for w in tpub.waiting_rows()}
+        self.assertEqual((rows[ok]["batch"], rows[ok].get("found")), (True, None))
+        (priv,) = [k for k in rows if k != ok]
+        self.assertFalse(rows[priv]["batch"])
+        self.assertTrue(rows[priv]["found"])
+
+    def test_a_batch_posts_past_the_hourly_cap_two_seconds_apart_and_never_twice(self):
+        keys = self.hold(12)
+        self.batch_yes(keys)
+        out = tpub.publish()
+        self.assertEqual((out["posted"], len(self.hub.creates())), (12, 12), out)
+        self.assertNotIn("why", out)
+        self.assertTrue(self.slept and all(0 < ms <= tgh.APART_MS for ms in self.slept))
+        self.assertEqual(len(self.slept), 11)  # every create after the first waited its gap
+        for key in keys:
+            self.assertEqual(fb.problems_read()[key]["state"], "filed")
+        self.assertEqual(len(self.record()["repos"][REPO]["receipts"]), 12)
+        self.assertEqual(tpub.publish()["posted"], 0)
+        self.assertEqual(len(self.hub.creates()), 12)
+
+    def test_a_plain_yes_still_keeps_triages_cap(self):
+        keys = self.hold(12)
+        self.batch_yes(keys)
+        with open(tri.YES) as f:
+            rows = json.load(f)["yes"]
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": [{k: v for k, v in y.items() if k != "batch"} for y in rows]}, f)
+        tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 10)
+
+    def test_the_batch_stops_at_its_own_hourly_ceiling(self):
+        keys = self.hold(6)
+        self.batch_yes(keys)
+        with mock.patch.object(tgh, "BULK_HOUR", 4):
+            out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 4, out)
+        self.assertIn("why", out)
+
+    def test_a_privacy_failure_never_posts_whatever_the_batch_says(self):
+        (key,) = self.hold(1, details="Jane saw it at 192.168.1.20.")
+        self.batch_yes([key])
+        self.assertEqual((tpub.publish()["posted"], self.hub.writes()), (0, []))
+        self.assertEqual([(w["key"], w["batch"]) for w in tpub.waiting_rows()], [(key, False)])  # back on its own card
+
+    def test_a_draft_changed_after_the_batch_yes_waits_again(self):
+        a, b = self.hold(2)
+        self.batch_yes([a, b])
+        self.report(line="The reply bubble number bb misses its quote", caller=OTHER, fix="Show quote bb above it, changed after the yes")
+        out = tpub.publish()
+        self.assertEqual(out["posted"], 1, out)
+        self.assertEqual(fb.problems_read()[a]["state"], "filed")
+        self.assertEqual([w["key"] for w in tpub.waiting_rows()], [b])
+
+    def test_a_word_denied_during_the_pass_stops_the_next_batch_post(self):
+        a, b = self.hold(2)
+        self.batch_yes([a, b])
+        base, reads = tri.ctx_for, []
+
+        def ctx(folder, repo, d=None):
+            reads.append(1)
+            c = base(folder, repo, d)
+            if len(reads) > 2:  # after the pass's own read and the first post's, a daily read adds b's words
+                c = {**c, "deny": {**c["deny"], "words": c["deny"]["words"] + ["number bb"]}}
+            return c
+        with mock.patch.object(tri, "ctx_for", ctx):
+            out = tpub.publish()
+        self.assertEqual((out["posted"], len(self.hub.creates())), (1, 1), out)
+        self.assertEqual(fb.problems_read()[a]["state"], "filed")
+        self.assertEqual([(w["key"], w["batch"]) for w in tpub.waiting_rows()], [])  # the deny list is back as it was
+
+    def test_a_copy_decided_on_its_own_machine_never_posts_after_a_batch_yes(self):
+        there = os.path.join(self.dir, "there.json")
+        with open(there, "w") as f:
+            json.dump({"vm-b": [{"id": "b1", "line": "Search misses archived spaces", "details": "From the other machine.", "space": "sp1"},
+                                {"id": "b2", "line": "The tab bar hides the last tab", "details": "From the other machine.", "space": "sp1"}]}, f)
+        tpub.publish(there)
+        rows = []
+        with tri.record() as d:
+            for key in ("vm-b:b1", "vm-b:b2"):
+                dr = d["copies"][key]["draft"]
+                rows.append({"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "at": 1, "by": "app", "batch": "b" * 64,
+                             "hash": tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))})
+            d["copies"]["vm-b:b1"]["there_done"] = True  # declined on vm-b after the batch's yes
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": rows}, f)
+        tpub.publish()
+        made = self.hub.creates()
+        self.assertEqual(len(made), 1, made)
+        self.assertNotIn("archived spaces", json.dumps(made))
+        self.assertNotIn("post", self.record()["copies"]["vm-b:b1"])
+
+    def test_a_full_batch_ceiling_leaves_everyday_posts_going(self):
+        keys = self.hold(2)
+        self.batch_yes(keys)
+        own = self.report(line="The send button stays grey after a paste")  # Triage posts this one by itself
+        with mock.patch.object(tgh, "BULK_HOUR", 0):
+            out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 1, out)
+        self.assertEqual(fb.problems_read()[own]["state"], "filed")
+        self.assertIn("batch's pace", out["why"])
+
+    def test_the_batch_ceiling_counts_every_repo(self):
+        t = tgh.now()
+        d = {"creates": {"a/x": [t, t]}, "bulk": {"b/y": [t, t, t], "c/z": [t - tgh.HOUR_MS - 1]}}
+        self.assertEqual(tgh.bulk_left(d, "c/z"), tgh.BULK_HOUR - 5)
+
+    def test_a_pass_with_its_time_up_stops_and_says_more(self):
+        keys = self.hold(6)
+        self.batch_yes(keys)
+        clock = [tpub.now()]
+        with mock.patch.object(tpub, "now", lambda: clock[0]), \
+                mock.patch.object(tgh, "sleep", lambda ms: (self.slept.append(ms), clock.__setitem__(0, clock[0] + 2500))):
+            out = tpub.publish(for_s=5)
+        self.assertTrue(out.get("more"), out)
+        self.assertLess(out["posted"], 6)
+        self.assertGreater(out["posted"], 0)
+        out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 6, out)
 
 
 class CheckoutSpace(Triaged):

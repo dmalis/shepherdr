@@ -8,7 +8,7 @@
 // (herdr-task's read, `ship`), the person's Works and Still broken, and a problem that came back.
 // Every linked machine's problems (slice 8) are read there and shown with their machine (feedback-machines.ts); a call
 // on one of them goes to that machine.
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
 import { where } from "./paths.ts";
@@ -257,13 +257,34 @@ const settingsNow = () => { try { return readSettings(); } catch { return {}; } 
 
 /** this machine's list with each linked machine's (slice 8): every row with its machine, newest first; a machine whose
  *  list can't be acted on now has its rows read only, and is named for the page's line about it */
-export function withMachines(here: FeedbackList, there: FeedbackMachines["lists"], settings: any, now = Date.now()): FeedbackList {
+/** the other machines' findings Triage filed from here (#235): its copies with an issue, "machine:id" -> the issue */
+export function filedCopies(dir: string): Map<string, string> {
+  const path = join(dir, ".triage.json");
+  let stamp = "";
+  try { const s = statSync(path); stamp = `${path}:${s.mtimeMs}:${s.size}`; } catch { return new Map(); }
+  if (filedSeen?.stamp === stamp) return filedSeen.map; // read again only when Triage's record changed
+  const out = new Map<string, string>();
+  let copies: any = null;
+  try { copies = JSON.parse(readFileSync(path, "utf8"))?.copies; } catch { return out; }
+  for (const [k, c] of Object.entries<any>(copies && typeof copies === "object" ? copies : {})) {
+    const url = c && typeof c === "object" && c.state === "filed" ? githubUrl(c.url) : null;
+    if (url) out.set(k, url);
+  }
+  filedSeen = { stamp, map: out };
+  return out;
+}
+let filedSeen: { stamp: string; map: Map<string, string> } | null = null;
+
+export function withMachines(here: FeedbackList, there: FeedbackMachines["lists"], settings: any, now = Date.now(), filed: Map<string, string> = new Map()): FeedbackList {
   if (!there.size) return here;
   const rows = [...here.rows];
   const machines: NonNullable<FeedbackList["machines"]> = [];
   for (const [m, l] of [...there].sort(([a], [b]) => a.localeCompare(b))) {
     if (l.state !== "ok") machines.push({ name: m, state: l.state, at: l.at });
-    const named = l.rows.map((p: any) => (p && typeof p === "object" ? { ...p, space: spaceThere(m, p.space) } : p));
+    // a row Triage filed from here (#235: its copy, keyed machine:id, has its issue) shows filed, with its issue, though
+    // the other machine's own row is never written
+    const asFiled = (p: any) => ((u) => (u ? { ...p, state: "filed", url: u, outcome: { url: u } } : p))(filed.get(`${m}:${p.id ?? p.key}`));
+    const named = l.rows.map((p: any) => (p && typeof p === "object" ? { ...asFiled(p), space: spaceThere(m, p.space) } : p));
     const lock = l.state === "stale" || l.state === "old" ? { readOnly: l.state } : {};
     rows.push(...rowsOf(named, settings, now).rows.map((r) => ({ ...r, machine: m, ...lock })));
   }
@@ -356,7 +377,7 @@ export class Feedback {
   list(now = Date.now(), chats?: Set<string>): FeedbackList | null {
     if (this.last === null && !this.error) return null;
     const settings = this.settings();
-    const out = withChats(withMachines(rowsOf(this.last ?? [], settings, now), this.there.lists, settings, now), chats);
+    const out = withChats(withMachines(rowsOf(this.last ?? [], settings, now), this.there.lists, settings, now, filedCopies(dirname(this.file()))), chats);
     return this.error ? { ...out, error: "Couldn't read the newest list just now: showing the last one." } : out;
   }
 

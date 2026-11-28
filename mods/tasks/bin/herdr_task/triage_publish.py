@@ -177,15 +177,17 @@ def post_args(dr):
 
 def post_one(key, copy, pub, ctx):
     """Posts one row's stored draft once. -> "posted", "refused", "unsure", "waits" (didn't go out: no yes for this very
-    text, the check, the pace or GitHub's limit) or "stop" (the level, the destination or the pause changed: nothing
-    more this pass). Whether it may go (the app's yes for this exact draft, or every field from the repo's space and the
+    text, the check or GitHub's limit), "pace" or "bulk-pace" (Triage's own cap, or the batch's ceiling, is full: it
+    waits, and the other kind still goes) or "stop" (the level, the destination, the pause or GitHub's limit: nothing more this
+    pass). Whether it may go (the app's yes for this exact draft, or every field from the repo's space and the
     privacy check) is decided under the same lock that reserves the post: a draft replaced meanwhile is judged as it is."""
     with rows_lock(copy) as ps:
         p = ps.get(key)
         d = read_settings()
         if tri.publisher(d) != pub:  # the level, destination and pause, read again under the record's lock
             return "stop"
-        if not isinstance(p, dict) or not eligible(p) or not isinstance(p.get("draft"), dict):
+        # a copy whose finding was decided on its own machine (declined, filed there) since its yes never posts here
+        if not isinstance(p, dict) or not eligible(p) or p.get("there_done") or p.get("joined") or not isinstance(p.get("draft"), dict):
             return "waits"
         dr = p["draft"]
         if str(dr["target"].get("repo") or "").lower() != pub["repo"].lower():
@@ -195,6 +197,15 @@ def post_one(key, copy, pub, ctx):
         if not yes and (tri.yes_for(key, p, pub["repo"], "no") or not auto_ok(p, dr, pub, ctx)):
             return "waits"
         dr = {**dr, "body": fpost.fresh(key, dr["body"])}  # a draft from before mark_key: its marker names no machine
+        # a yes from the backlog's batch card: never past the privacy check (the batch holds only drafts that pass it;
+        # one that fails now waits for its own card), and paced by GitHub's limits instead of Triage's cap
+        bulk = bool(yes) and dr["target"]["action"] == "create" and tri.yes_for(key, p, pub["repo"], batch=True)
+        if bulk:
+            # the privacy inputs read again for each batch post (a word added to the deny list during the pass counts),
+            # used for this check and for the wrapper's own check of the text right before gh
+            ctx = tri.ctx_for(pub["folder"], pub["repo"])
+            if privacy(p, dr, lambda t: _check(t, ctx)):
+                return "waits"
         post = {"state": "posting", "rev": dr["rev"], "target": dr["target"], "started": now(),
                 "mark": fpost.mark_of(dr["body"]) or fpost.marker(key, dr["rev"]), "by": "triage"}
         ps[key] = {**p, "draft": dr, "post": post}
@@ -202,8 +213,8 @@ def post_one(key, copy, pub, ctx):
     text = (dr["title"] + "\n" if dr["target"]["action"] == "create" else "") + fpost.shown(dr["body"])
     try:
         res = tgh.call(argv, repo=pub["repo"], text=text, body=dr["body"], write=True,
-                       create=dr["target"]["action"] == "create", yes=yes, ctx=ctx,
-                       still=lambda: tri.publisher() == pub)
+                       create=dr["target"]["action"] == "create", yes=yes and not bulk, ctx=ctx,
+                       still=lambda: tri.publisher() == pub, bulk=bulk)
     except Exception as e:  # noqa: BLE001  (anything else: nobody knows whether it went out)
         res = tgh.Result(False, err=f"{type(e).__name__}: {e}", sent=True, why="failed")
     if not res.sent:
@@ -211,6 +222,9 @@ def post_one(key, copy, pub, ctx):
             p = ps.get(key) or {}
             if (p.get("post") or {}).get("started") == post["started"]:
                 ps[key] = {k: v for k, v in p.items() if k != "post"}
+        # a cap full (Triage's own, or the batch's ceiling): this one waits, and the other kind still goes this pass
+        if res.why == "pace":
+            return "bulk-pace" if bulk else "pace"
         return "waits" if res.why in ("private", "hit", "unsure") else "stop"
     urls = re.findall(r"https://github\.com/\S+", res.out or "")
     if res.ok and urls:
@@ -309,17 +323,29 @@ def reconcile_all(repo, folder):
 
 # ---- the pass -------------------------------------------------------------------------------
 
+def _check(text, ctx):
+    from . import triage_public as public
+    return public.check(text, ctx.get("deny"), ctx.get("known"), ctx.get("redact"))
+
+
+def privacy(p, dr, check):
+    """What the privacy check found in a draft and in the finding's own words before redaction (what redaction changed
+    was private: the person decides): [] when both pass, else the kinds with their line, never the text."""
+    raw = "\n".join(str(p.get(f) or "") for f in ("line", "details", "fix"))
+    found = []
+    for text in (dr["title"] + "\n" + fpost.shown(dr["body"]), raw):
+        c = check(text)
+        if c["verdict"] != "pass":
+            found += [f"{x['kind']}, line {x['line']}" for x in c.get("found") or []] or [c["verdict"]]
+    return list(dict.fromkeys(found))[:6]
+
+
 def auto_ok(p, dr, pub, ctx):
     """It posts by itself: Triage's own draft, every field from the repo's space, and the privacy check passes, on the
-    draft and on the finding's own words before redaction (what redaction changed was private: the person decides)."""
-    from . import triage_public as public
+    draft and on the finding's own words."""
     if dr.get("by") != "triage" or p.get("_copy") or not own_space(p, pub["space"]):
         return False
-    raw = "\n".join(str(p.get(f) or "") for f in ("line", "details", "fix"))
-    for text in (dr["title"] + "\n" + fpost.shown(dr["body"]), raw):
-        if public.check(text, ctx.get("deny"), ctx.get("known"), ctx.get("redact"))["verdict"] != "pass":
-            return False
-    return True
+    return not privacy(p, dr, lambda t: _check(t, ctx))
 
 
 def held_why(p, dr, copy, pub, check):
@@ -332,17 +358,16 @@ def held_why(p, dr, copy, pub, check):
     src = p.get("sources") if isinstance(p.get("sources"), dict) else {}
     if not pub or not own_space(p, pub["space"]):
         return {"why": "unknown" if any(not src.get(f) for f in fields_of(p)) else "space"}
-    found = []
-    raw = "\n".join(str(p.get(f) or "") for f in ("line", "details", "fix"))
-    for text in (dr["title"] + "\n" + fpost.shown(dr["body"]), raw):
-        found += [f"{x['kind']}, line {x['line']}" for x in check(text).get("found") or []]
-    return {"why": "private", "found": list(dict.fromkeys(found))[:6]}
+    return {"why": "private", "found": privacy(p, dr, check)}
 
 
 def waiting_rows():
     """Findings with a Triage draft that wait for the person's yes in the app: [{key, copy, rev, hash, title, body,
-    target, at, why, found?}] (the service's cards read this, and the digest counts it). One the person said No to, for
-    its exact text, no longer waits: it stays private until its text changes."""
+    target, at, why, found?, kind, label, batch}] (the service's cards read this, and the digest counts it). One the
+    person said No to, for its exact text, no longer waits: it stays private until its text changes.
+
+    `batch`: the draft may go in the backlog's one batch yes (a new issue whose words and the finding's own pass the
+    privacy check); one that doesn't keeps its own card, with what the check found (`found`)."""
     from . import triage_public as public
     pub = tri.publisher()
     out = []
@@ -366,21 +391,33 @@ def waiting_rows():
             dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
             if not dr or (pub and str(dr["target"].get("repo") or "").lower() != pub["repo"].lower()):
                 continue
-            if pub and (tri.yes_for(key, p, pub["repo"], "no") or tri.yes_for(key, p, pub["repo"])):
-                continue  # answered for this very text: No keeps it private, Yes waits only for the publisher's pace
+            if pub and tri.yes_for(key, p, pub["repo"], "no"):
+                continue  # No to this very text keeps it private
+            # Yes to this very text waits only for the publisher's pace; a batch's yes never goes past the privacy
+            # check, so one that fails it now (a new word on the deny list) asks again on its own card
+            if pub and tri.yes_for(key, p, pub["repo"]) and not (
+                    tri.yes_for(key, p, pub["repo"], batch=True) and privacy(p, dr, check)):
+                continue
             if dr.get("by") == "triage" and not copy and pub and own_space(p, pub["space"]) and posts_by_itself(p, dr):
                 continue  # posts by itself: not waiting (one its privacy check holds back waits for the yes)
             body = fpost.shown(dr["body"])
+            held = held_why(p, dr, copy, pub, check)
+            found = held.get("found") if held["why"] == "private" else (privacy(p, dr, check) if pub else ["unsure"])
             out.append({"key": key, "copy": copy, "rev": dr["rev"], "title": dr["title"], "body": body,
                         "target": dr["target"], "hash": tri.yes_hash(dr["target"], dr["title"], body),
-                        "at": int(dr.get("at") or p.get("at") or 0), **held_why(p, dr, copy, pub, check)})
+                        "at": int(dr.get("at") or p.get("at") or 0), **held,
+                        **({"found": found} if found else {}), "kind": p.get("kind") or None, "label": kind_label(p),
+                        "batch": not found and dr["target"].get("action") == "create"})
     return out
 
 
-def publish(there=None):
+def publish(there=None, for_s=None):
     """One publisher pass: other machines' findings copied in, then each waiting finding drafted and, when it may be,
-    posted once, at the pace. -> {posted, waits, unsure, refused, why?}"""
+    posted once, at the pace. for_s: the pass's time (seconds): once it is up, nothing more starts and `more` says the
+    rest waits for the next pass (the service runs it soon), so a batch of a hundred never outlives its caller.
+    -> {posted, waits, unsure, refused, why?, more?}"""
     out = {"posted": 0, "waits": 0, "unsure": 0, "refused": 0}
+    until = now() + int(for_s * 1000) if for_s else None
     pub = tri.publisher()
     if not pub:
         return {**out, "why": "Triage files no repo's findings here now (off, paused, not this repo, or no destination)."}
@@ -396,18 +433,25 @@ def publish(there=None):
                 if (p.get("post") or {}).get("state") in ("unsure",) or fpost.stale(p.get("post") or {}):
                     todo.append((key, "reconcile"))
                     continue
-                if not eligible(p) or p.get("joined"):
+                if not eligible(p) or p.get("joined") or p.get("there_done"):  # decided on its own machine: no draft, no post
                     continue
                 dr = keep_draft(ps, key, compose(p), pub["repo"])
                 todo.append((key, "post"))
         for key, what in todo:
+            if until and now() >= until:
+                out["more"] = True
+                return out
             if what == "reconcile":
                 r = reconcile(key, copy, pub["repo"], ctx)
                 out["posted" if r == "posted" else "unsure"] += r in ("posted", "unsure")
                 continue
             r = post_one(key, copy, pub, ctx)
             if r == "stop":
-                out["why"] = "Stopped: the level, the destination, the pause or GitHub's limit or pace changed."
+                out["why"] = "Stopped: the level, the destination, the pause or GitHub's limit changed."
                 return out
+            if r == "pace":  # Triage's own cap: the rest of the everyday posts wait for the next hour, the batch's go on
+                out.setdefault("why", "Triage's pace: at most 10 new issues an hour and 30 a day per repo; the rest wait.")
+            if r == "bulk-pace":  # the batch's ceiling: its rest waits, everyday posts still go
+                out.setdefault("why", f"The batch's pace: at most {tgh.BULK_HOUR} new issues an hour; the rest wait.")
             out[r if r in out else "waits"] += 1
     return out

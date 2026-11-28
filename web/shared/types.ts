@@ -1559,9 +1559,12 @@ export interface Snapshot {
  *  check that wasn't sure), or an outside issue you marked ready (Start a fix for this?). Its hash binds your answer
  *  to this exact text: a changed text asks again. */
 export interface TriageCard {
-  /** draft:<f|c>:<key> or start:<issue> */
+  /** draft:<f|c>:<key>, start:<issue>, or batch (the backlog's one batch yes) */
   id: string
-  kind: 'draft' | 'start'
+  kind: 'draft' | 'start' | 'batch'
+  /** the batch's drafts, each a new issue whose words passed the privacy check: its yes is bound to `hash`, the hash
+   *  of every item's finding, revision and text hash; the drafts it holds back are their own cards */
+  items?: TriageBatchItem[]
   /** a draft's finding (c: a copy of another machine's, keyed machine:id) and its revision */
   key?: string
   copy?: boolean
@@ -1583,6 +1586,21 @@ export interface TriageCard {
   why?: string
   /** what the privacy check found: its kind and line, never the text */
   found?: string[]
+}
+
+/** One draft in Triage's batch card: exactly what Yes posts for it, as a new issue */
+export interface TriageBatchItem {
+  /** the finding (copy: another machine's, keyed machine:id) and its draft's revision */
+  key: string
+  copy: boolean
+  rev: number
+  /** the hash of its target, title and body (the single card's) */
+  hash: string
+  title: string
+  body: string
+  /** the finding's kind (bug, confusing, workaround, miss, manual), or none */
+  kind: string | null
+  at: number
 }
 
 export interface TriageView {

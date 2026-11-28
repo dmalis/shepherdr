@@ -260,13 +260,14 @@ def _said(y, answer):
     return (y.get("answer") or "yes") == answer
 
 
-def has_yes(key, rev, h, repo, after=0, answer="yes"):
+def has_yes(key, rev, h, repo, after=0, answer="yes", batch=False):
     """The app's yes (or, answer="no", its No: keep it private) for this draft's exact text, made after `after` (ms:
     the row's last Not now or Never, `unyes`, which takes back an earlier yes even once undone or over). A changed
-    text has another hash, so it asks again."""
+    text has another hash, so it asks again. batch: only a yes given in the backlog's batch (its row names the batch
+    card's hash), which posts at the batch's pace and never past the privacy check."""
     return any(y.get("kind") == "draft" and y.get("key") == key and y.get("rev") == rev and y.get("hash") == h
                and str(y.get("repo") or "").lower() == repo.lower() and int(y.get("at") or 0) > int(after or 0)
-               and _said(y, answer) for y in yeses())
+               and _said(y, answer) and (not batch or bool(y.get("batch"))) for y in yeses())
 
 
 def _draft_hash(p):
@@ -275,13 +276,13 @@ def _draft_hash(p):
     return (dr, yes_hash(dr.get("target"), dr.get("title"), shown(dr.get("body")))) if dr else (None, None)
 
 
-def yes_for(key, p, repo, answer="yes"):
-    """Whether the row's stored draft, as it is now, has the app's yes (answer="no": its No), read under the row's
-    lock by the caller."""
+def yes_for(key, p, repo, answer="yes", batch=False):
+    """Whether the row's stored draft, as it is now, has the app's yes (answer="no": its No; batch: a yes from the
+    batch card), read under the row's lock by the caller."""
     dr, h = _draft_hash(p)
     if not dr:
         return False
-    return has_yes(key, dr.get("rev"), h, repo, p.get("unyes") or 0, answer)
+    return has_yes(key, dr.get("rev"), h, repo, p.get("unyes") or 0, answer, batch)
 
 
 def start_answer(repo, issue, title, body):
@@ -1119,7 +1120,7 @@ def cmd_triage(args):
         return say(args, st, json.dumps(st, indent=2))
     if sub == "publish":
         from .triage_publish import publish
-        out = publish(getattr(args, "there", None))
+        out = publish(getattr(args, "there", None), getattr(args, "for_s", None))
         return say(args, out, json.dumps(out))
     if sub == "issues":
         rows = issues_cmd(args)
@@ -1173,6 +1174,7 @@ def add_parser(sub):
     c("status", "Triage here: keys, schedule, pause, fence")
     x = c("publish", "file what waits (the service's tick)")
     x.add_argument("--there", help="another machine's feedback lists, as the service read them (a JSON file)")
+    x.add_argument("--for", dest="for_s", type=int, help="the pass's time in seconds: then the rest waits (more: true)")
     c("issues", "the open issues waiting for a score, for the scoring run")
     x = c("score", "apply the scoring run's list (a JSON file, or - for stdin)")
     x.add_argument("file")

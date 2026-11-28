@@ -8,7 +8,12 @@
   limit waits for its reset; a secondary one waits `retry-after`, else one minute, doubling up to 30 minutes
   (Triage's own wait, `.triage-gh.json`). While it waits, nothing is sent.
 - **The pace:** writes go one at a time (a lock), two seconds apart; at most 10 new issues an hour and 30 a day per repo.
-  A create over the cap isn't sent, and says so.
+  A create over the cap isn't sent, and says so. A create the person said yes to in the backlog's batch (`bulk`) skips
+  that cap and keeps inside GitHub's documented secondary limits for content-creating requests instead ("no more than
+  80 content-generating requests per minute and no more than 500 content-generating requests per hour", and "wait at
+  least one second between each request": docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api and
+  .../best-practices-for-using-the-rest-api): two seconds apart (30 a minute at most) and at most BULK_HOUR creates of
+  any kind an hour. Its creates are counted apart, so they don't spend the cap's own count.
 
 Nothing here retries: a call that didn't go out is the caller's to try on its next pass."""
 
@@ -29,6 +34,7 @@ LOCK = STATE + ".lock"
 APART_MS = 2000
 HOUR_MS, DAY_MS = 3600000, 24 * 3600000
 CREATES_HOUR, CREATES_DAY = 10, 30
+BULK_HOUR = 300                     # the batch's ceiling, well under GitHub's 500 content-creating requests an hour
 SECONDARY_FIRST_MS, SECONDARY_MAX_MS = 60000, 30 * 60000
 RETRY_AFTER = re.compile(r"(?i)retry-after:\s*(\d+)")
 
@@ -116,12 +122,21 @@ def creates_left(d, repo, at=None):
     return min(CREATES_HOUR - len([t for t in made if at - t < HOUR_MS]), CREATES_DAY - len(made))
 
 
-def call(args, *, repo, text=None, body=None, write=False, create=False, yes=False, ctx=None, still=None):
+def bulk_left(d, repo, at=None):
+    """Creates the batch may still make this hour: every create Triage made (capped or the batch's), in every repo,
+    counts, as GitHub's content limit is the login's, not a repo's (`repo` is kept for the caller's symmetry)."""
+    at = at or now()
+    made = [t for k in ("creates", "bulk") for ts in (d.get(k) or {}).values() if isinstance(ts, list) for t in ts if at - t < HOUR_MS]
+    return BULK_HOUR - len(made)
+
+
+def call(args, *, repo, text=None, body=None, write=False, create=False, yes=False, ctx=None, still=None, bulk=False):
     """One gh call: args after `gh` (a body goes in a file, `--body-file`, byte for byte). text: the free text it sends
     (title and body, or a comment), checked with every rule; yes: that text is what the person said yes to in the app.
     ctx: {"deny", "known", "redact"} for the check. still: for a write, whether it may still go (the caller's pause,
     level and destination), asked again right before gh, after the write lock and the pace's wait, with the destination
-    and GitHub's limit. -> Result (sent says whether gh was asked at all)."""
+    and GitHub's limit. bulk: a create from the person's batch yes, paced by GitHub's documented limits instead of
+    Triage's hourly and daily cap. -> Result (sent says whether gh was asked at all)."""
     ctx = ctx or {}
     argv_text = "\n".join(str(a) for a in args)
     fixed = public.check(argv_text, ctx.get("deny"), hits_only=True)
@@ -145,7 +160,9 @@ def call(args, *, repo, text=None, body=None, write=False, create=False, yes=Fal
             lock = open(LOCK, "a")
             fcntl.flock(lock, fcntl.LOCK_EX)
             d = _read()
-            if create and creates_left(d, repo) <= 0:
+            if create and bulk and bulk_left(d, repo) <= 0:
+                return Result(False, why="pace", err=f"The batch's pace: at most {BULK_HOUR} new issues an hour")
+            if create and not bulk and creates_left(d, repo) <= 0:
                 return Result(False, why="pace", err="Triage's pace: at most 10 new issues an hour and 30 a day per repo")
             gap = APART_MS - (now() - int(d.get("last_write") or 0))
             if gap > 0:
@@ -178,8 +195,9 @@ def call(args, *, repo, text=None, body=None, write=False, create=False, yes=Fal
             if write:
                 d["last_write"] = now()
                 if create and r.returncode == 0:
-                    made = [t for t in (d.get("creates") or {}).get(repo.lower(), []) if now() - t < DAY_MS]
-                    d.setdefault("creates", {})[repo.lower()] = made + [now()]
+                    k = "bulk" if bulk else "creates"
+                    made = [t for t in (d.get(k) or {}).get(repo.lower(), []) if now() - t < DAY_MS]
+                    d.setdefault(k, {})[repo.lower()] = made + [now()]
         return Result(r.returncode == 0, r.stdout or "", err, sent=True, why=None if r.returncode == 0 else "failed")
     finally:
         if path:

@@ -94,7 +94,9 @@ minutes, while something waits. Once Triage is on for a repo, it is that repo's 
 - **One publisher machine.** The serving machine publishes. Other machines' findings are read the way the Feedback
   page reads them (`service/feedback-machines.ts`, read only) and copied in, keyed by machine and id. The other
   machine's own row is never written.
-- **Pace:** one write at a time, two seconds apart, at most 10 new issues an hour and 30 a day per repo. Every call
+- **Pace:** one write at a time, two seconds apart, at most 10 new issues an hour and 30 a day per repo. The backlog's
+  batch yes (below) is paced by GitHub's documented limits instead of that cap: still two seconds apart, at most 300 new
+  issues an hour (its own and Triage's count together, in every repo). Every call
   goes through herdr-task's budget gate (`ghbudget.py`, #201), whose wait is kept on disk. A primary limit waits for
   its reset. A secondary limit waits `retry-after`, else one minute, doubling up to 30 minutes. While it waits,
   nothing is sent.
@@ -382,6 +384,34 @@ For each repo, in this order:
   - own-space rows whose every field has a known source are filed at the publisher's pace;
   - others wait for the app's yes;
   - an irrelevant row gets `decision: declined` with `why: "dropped: <reason>"`, and stays in the record.
+
+  **One Yes for the backlog.** The person can't answer 150 cards one by one. The space's one card ("Triage: one card,
+  not 150") opens a list. Its first part is every waiting draft that is a new issue and passes the privacy check, on
+  its words and on the finding's own words before redaction. Each is ticked, grouped by kind, with its exact title and
+  text. One Yes posts the ticked ones. Below them, the drafts the check held back, or that are a comment, are each
+  their own card with their own Yes and No. The rules:
+  - The Yes comes from the app only (`service/triage.ts` `answerBatch`). No herdr-task command or agent can give it.
+  - It is bound to the list's hash: the repo, and each draft's finding, revision and text hash. A list that changed
+    since it opened asks again.
+  - Each ticked draft is read again. One that changed, was answered or is posting drops out and waits again. An
+    unticked one keeps waiting.
+  - Each kept yes names its revision, its text's hash and the batch's hash. A changed draft no longer has it.
+  - The publisher checks privacy again before each batch post. A draft that fails it now (a new word on the deny
+    list) doesn't post, and comes back on its own card.
+  - The pace is GitHub's documented limits instead of Triage's 10 an hour and 30 a day. GitHub allows "no more than 80
+    content-generating requests per minute and no more than 500 content-generating requests per hour"
+    ([secondary limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#about-secondary-rate-limits))
+    and asks to "wait at least one second between each request" for writes
+    ([best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)).
+    The batch keeps two seconds apart (30 a minute at most) and stops at 300 new issues an hour across every repo (any create Triage made counts), leaving room for the
+    person's other writes. 85 drafts take about three minutes.
+  - Everything else is as for one post: through the gate, the receipts and the post state, so a post is never made
+    twice.
+  - A publisher pass starts nothing new after 150 seconds and says `more` (a GitHub call started then still ends within
+    the service's 5-minute limit). The service then runs the next pass a minute later, so a
+    batch never outlives the call that runs it.
+  - Everyday posting keeps 10 an hour and 30 a day: a plain yes or a post Triage makes by itself never takes the
+    batch's pace.
 
   Filed, joined, dropped and kept private add up to the snapshot, per machine. `unsure` rows stay recoverable from the
   backup and that list.
