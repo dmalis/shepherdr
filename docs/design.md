@@ -177,8 +177,9 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 - **Controls you need to find** have an edge or fill of at least 3:1 against what is around them (WCAG 2.2, non-text
   contrast): an unticked checkbox (`.cbx`), a field (`.inp`, and the pickers drawn as one, `.fake`) and a switch that
   is off (`.tg`) are edged in `--edge`; ticked and on, they are filled with `--fg`. A field takes a `--fg` edge while it
-  has focus. A `--line2` hairline (about 1.4:1) is for surfaces (cards, menus, the message box), never the only sign of
-  a control. `web/demo/contrast-check.ts` measures them as painted in each theme, with the focus ring (`--fg`, 2 px).
+  has focus. The edge holds on a hovered row and on a pressed switch, which never fades. A `--line2` hairline (about
+  1.4:1) is for surfaces (cards, menus, the message box), never the only sign of a control.
+  `web/demo/contrast-check.ts` measures them as painted in each theme, with the focus ring (`--fg`, 2 px).
 - **Hierarchy by weight and colour before size:** a row is the name (600, `--fg`) over a second line (400,
   `--muted`).
 - **Words:** sentence case, plain verbs, no jargon, nothing the app's own code calls it. The app never says Assistant,
@@ -227,8 +228,8 @@ lighter than the page, but they are roles, not a strict ladder (Night's overlay 
 | Overlay | `--overlay` | Menus, sheets, dialogs, toasts, the quick bar |
 | Scrim | `--scrim` | The shade behind a sheet or dialog |
 
-`--edge` is the one edge for a control (above, Readability): 3.3:1 or more on the page, a field, a raised surface and
-an overlay in every theme (`test/test_design.py`).
+`--edge` is the one edge for a control (above, Readability): 3.1:1 or more on the page, a field, a raised surface and
+an overlay in every theme, bare or under a hovered row's `--control` (`test/test_design.py`).
 
 - **Overlays** have a 1 px `--line2` inset edge and `--shadow`, which is only a shadow in light; a sheet has its own
   shadow (`sheets.css`).

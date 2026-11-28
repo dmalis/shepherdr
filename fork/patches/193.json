@@ -12,11 +12,13 @@
     "docs/design.md",
     "test/test_design.py",
     "web/shared/view.test.ts",
-    "web/plugins/tasks/checks-card.test.tsx"
+    "web/plugins/tasks/checks-card.test.tsx",
+    "web/plugins/tasks/repo-line.test.tsx"
   ],
   "tests": [
     "test/test_design.py::Contrast",
     "web/shared/view.test.ts",
-    "web/plugins/tasks/checks-card.test.tsx"
+    "web/plugins/tasks/checks-card.test.tsx",
+    "web/plugins/tasks/repo-line.test.tsx"
   ]
 }

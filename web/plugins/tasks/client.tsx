@@ -17,7 +17,7 @@ import { alertWhat, taskAlerts, type Alert } from '@shared/needs-you.ts'
 import { askInChat, focusBox, focusChat, focusTask } from '@client/commands.ts'
 import { SpaceIcon } from '@client/space-icon.tsx'
 import type { MergeEvidence, Message, Snapshot, Task } from '@shared/types.ts'
-import { askedWords, isEverything, machineLabel, nowGroups, onBranch, placeDown, reposOf, spaceLabel, spaceOnFolder, spacesOf, etaOf, headLine, leftWords, statusWord, taskChat, taskLine, taskWhen, tasksIn, tstate, workKey, workName, workWords, type Repo } from '@shared/view.ts'
+import { askedWords, isEverything, machineLabel, nowGroups, onBranch, placeDown, reposOf, spaceLabel, spaceOnFolder, spacesOf, etaOf, headLine, leftWords, statusWord, taskChat, taskGroup, taskLine, taskWhen, tasksIn, tstate, workKey, workName, workWords, type Repo } from '@shared/view.ts'
 import { DoneRow } from '@plugins/chat/cards.tsx'
 import { KindName } from '@plugins/chat/kind.tsx'
 import { Markdown } from '@plugins/chat/markdown.tsx'
@@ -77,10 +77,13 @@ export function prState(t: Task): PrState | null {
 
 const PR_WORDS: Record<PrState, string> = { merged: 'merged', closed: 'closed', running: 'checks running', failed: 'checks failed', passed: 'checks passed', open: 'open' }
 
-/** the one tiny mark for its checks: running a quiet ring, failed red, passed green (nothing for the rest) */
-function ChecksMark({ st }: { st: PrState | null }) {
+/** a failed check's colour (UI 11): red only while the task waits on the person, amber while its agent fixes it */
+const failTone = (t: Task) => (taskGroup(t) === 'ask' ? 'c-red' : 'c-working')
+
+/** the one tiny mark for its checks: running a quiet ring, failed a cross (failTone), passed green (nothing for the rest) */
+function ChecksMark({ st, t }: { st: PrState | null; t: Task }) {
   if (st === 'running') return <I n="checking" />
-  if (st === 'failed') return <I n="x" c="c-red" />
+  if (st === 'failed') return <I n="x" c={failTone(t)} />
   if (st === 'passed') return <I n="check" c="c-ready" />
   return null
 }
@@ -125,7 +128,7 @@ export function HeadPr({ t }: { t: Task }) {
   const spoken = st === 'merged' ? `merged, pull request ${n}` : `pull request ${n}, ${PR_WORDS[st]}`
   return (
     <span className="hpr" role="img" aria-label={spoken}>
-      <span aria-hidden="true">·</span>{st === 'merged' ? <><I n="merged" /><span className="pn">Merged #{n}</span></> : <><span className="pn">PR #{n}</span><ChecksMark st={st} /></>}
+      <span aria-hidden="true">·</span>{st === 'merged' ? <><I n="merged" /><span className="pn">Merged #{n}</span></> : <><span className="pn">PR #{n}</span><ChecksMark st={st} t={t} /></>}
     </span>
   )
 }
@@ -150,8 +153,8 @@ export function GitStrip({ t }: { t: Task }) {
         <div className="gl">
           <I n={st === 'merged' ? 'merged' : 'pr'} />
           <span className="pn">PR #{t.pr.number}</span>
-          <ChecksMark st={st} />
-          <span className={cx('tr', st === 'failed' ? 'c-red' : 'mu')}>{PR_WORDS[st!]}</span>
+          <ChecksMark st={st} t={t} />
+          <span className={cx('tr', st === 'failed' ? failTone(t) : 'mu')}>{PR_WORDS[st!]}</span>
           <a className="gh" href={t.pr.url} target="_blank" rel="noreferrer" aria-label={`Pull request ${t.pr.number} on GitHub`}>GitHub<I n="ext" /></a>
         </div>
       ) : branch && (

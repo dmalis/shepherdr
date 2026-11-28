@@ -58,11 +58,16 @@ test('header: open pull request, checks running: "PR #1313" and the quiet runnin
   expect(html).not.toContain('c-ready')
 })
 
-test('header: checks failed: the mark is a red cross, the only colour', () => {
+test('header: checks failed while its agent fixes them: an amber cross, the only colour (UI 11: red is Needs you)', () => {
   const html = head(SIX.failed!)
   expect(text(html)).toBe('·PR #1318')
+  expect(html).toContain(`<svg class="i c-working" viewBox="0 0 20 20" aria-hidden="true">${icon('x')}</svg>`)
+  expect(html.match(/c-(red|ready|ask|working)/g)).toEqual(['c-working'])
+})
+
+test('header: checks failed and the task waits on the person: a red cross', () => {
+  const html = head({ ...SIX.failed!, action: { id: 'a', owner: 'you', kind: 'prompt', what: '', since: 0 } } as Task)
   expect(html).toContain(`<svg class="i c-red" viewBox="0 0 20 20" aria-hidden="true">${icon('x')}</svg>`)
-  expect(html.match(/c-(red|ready|ask|working)/g)).toEqual(['c-red'])
 })
 
 test('header: checks passed: a green check', () => {
