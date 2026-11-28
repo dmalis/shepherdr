@@ -5,7 +5,7 @@
 // and reached by Tab, and opens whole in a dialog (a sheet on a phone) by its Open table (fork #164).
 import DOMPurify from 'dompurify'
 import { marked, type MarkedExtension } from 'marked'
-import { useEffect, useMemo, useRef, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { copyText } from '@client/copy.ts'
 import { IC } from '@client/icons.ts'
 import { go, notice, openTask, useSnap } from '@client/kernel.ts'
@@ -179,6 +179,19 @@ function follow(e: MouseEvent, snap: Snapshot | null, done?: () => void) {
   const el = (e.target as Element).closest('[data-task], [data-place]')
   if (!el || !e.currentTarget.contains(el)) return onCopy(e)
   e.stopPropagation()
+  goTo(el, snap, done)
+}
+
+/** Enter on a task or #space link opens it, as a click does (they are links without an address: role="link") */
+function enter(e: KeyboardEvent, snap: Snapshot | null, done?: () => void) {
+  const el = e.target as Element
+  if (e.key !== 'Enter' || !el.matches('[data-task], [data-place]') || !e.currentTarget.contains(el)) return
+  e.preventDefault()
+  e.stopPropagation()
+  goTo(el, snap, done)
+}
+
+function goTo(el: Element, snap: Snapshot | null, done?: () => void) {
   done?.()
   const task = el.getAttribute('data-task')
   if (task) return snap?.tasks.some((t) => t.id === task) ? openTask(task) : notice('That task is not in your lists here.')
@@ -206,7 +219,17 @@ function TableSheet({ name, html, close }: { name: string; html: string; close: 
         <h2>{name}</h2>
         <IB icon="x" label="Close" onClick={close} />
       </div>
-      <div ref={ref} className="md" onClick={(e) => follow(e, snap, close)}>
+      <div
+        ref={ref}
+        className="md"
+        onKeyDown={(e) => enter(e, snap, close)}
+        onClick={(e) => {
+          // a link with an address (another site, or a page of this app that kernel.ts opens in it) goes, and the sheet
+          // closes after it, so the link has left before its element does
+          if ((e.target as Element).closest('a[href]')) return void setTimeout(close)
+          follow(e, snap, close)
+        }}
+      >
         <div className="tbl">
           <div className="tbls" data-sx={name} dangerouslySetInnerHTML={{ __html: html }} />
         </div>
@@ -274,7 +297,7 @@ export function Markdown({ text, mentions, plain, place }: { text: string; menti
     const box = t.previousElementSibling
     if (box?.matches('.tbl')) openTable(box)
   }
-  return <div ref={ref} className="md" onClick={open} dangerouslySetInnerHTML={{ __html: html }} />
+  return <div ref={ref} className="md" onClick={open} onKeyDown={(e) => enter(e, snap)} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 /** your own words as you typed them, with their web addresses as links (one to this app opens in it) and each space

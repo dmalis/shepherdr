@@ -85,8 +85,8 @@ async function check(browser: Browser, url: string, s: Scene): Promise<string[]>
       return !!before
     })
     await page.keyboard.press('Tab')
-    const focused = await box.evaluate((s) => document.activeElement === s && s.matches(':focus-visible'))
-    want(landed && focused, 'Tab reaches the wide table\'s box, with its ring')
+    const focused = await box.evaluate((s) => document.activeElement === s && s.matches(':focus-visible') && getComputedStyle(s.parentElement!).outlineStyle === 'solid')
+    want(landed && focused, 'Tab reaches the wide table\'s box, with a ring round it')
     // scrolled to its end, the fade moves to the start
     await box.evaluate((s) => s.scrollTo({ left: s.scrollWidth }))
     await page.waitForTimeout(150)
@@ -97,7 +97,8 @@ async function check(browser: Browser, url: string, s: Scene): Promise<string[]>
     await open.click()
     const sheet = page.locator('[data-panel]:has(.tblsheet)')
     await sheet.waitFor({ timeout: 3000 }).catch(() => undefined)
-    const shown = await sheet.evaluate((p) => ({ cls: p.className, title: p.querySelector('h2')?.textContent, rows: p.querySelectorAll('tbody tr').length, w: p.getBoundingClientRect().width })).catch(() => null)
+    const shown = await sheet.evaluate((p) => ({ cls: p.className, title: p.querySelector('h2')?.textContent, rows: p.querySelectorAll('tbody tr').length, w: p.getBoundingClientRect().width, clear: p.querySelector('.hd')!.getBoundingClientRect().bottom <= p.querySelector('table')!.getBoundingClientRect().top })).catch(() => null)
+    want(!!shown?.clear, 'the sheet\'s title sits above its table')
     want(!!shown && shown.title === WIDE && shown.rows === 2, `Open table shows the table whole, titled, got ${JSON.stringify(shown)}`)
     if (shown) want(s.phone ? shown.cls.includes('sheet') : shown.cls.includes('dlg') && shown.w > 900, `on a ${s.phone ? 'phone, a sheet' : 'desktop, a wide dialog'}, got ${shown.cls} ${Math.round(shown.w)}px`)
     await page.keyboard.press('Escape')
