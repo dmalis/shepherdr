@@ -63,7 +63,9 @@ const chatFor = (s: Sock, key: string): Chat => {
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
 const taskOf = (id: string) => state.normal.tasks.find((t) => t.id === id || `${t.id}/worker` === id)
-const patchTask = (id: string, p: Partial<Task>) => each((snap) => { snap.tasks = snap.tasks.map((t) => (t.id === id ? { ...t, ...p } : t)) })
+// a task Done or archived is no longer urgent (dmalis/shepherdr#119: web/shared/urgent.ts's rule, which the real service reads)
+const unmarked = (t: Task): Task => (t.urgent && (t.status === 'done' || t.archived) ? { ...t, urgent: undefined } : t)
+const patchTask = (id: string, p: Partial<Task>) => each((snap) => { snap.tasks = snap.tasks.map((t) => (t.id === id ? unmarked({ ...t, ...p }) : t)) })
 const uploaded = new Map<string, File>()
 const say = (key: string, m: Partial<Message>) => { (chats[key] ??= { key, messages: [], cli: 'claude', top: true }).messages.push({ id: `n${++n}`, who: 'agent', at: Date.now(), ...m } as Message); pushChat(key) }
 
@@ -242,6 +244,8 @@ function action(a: Record<string, any>): unknown {
   if (a.type === 'delete' && t) return each((snap) => { snap.tasks = snap.tasks.filter((x) => x.id !== t.id) }), { ok: true }
   if (a.type === 'archive' && t) return patchTask(t.id, { archived: a.on ? Date.now() : undefined }), { ok: true }
   if (a.type === 'task-rename' && t) return patchTask(t.id, { name: a.name }), { ok: true }
+  // dmalis/shepherdr#119: Mark as urgent / Mark as not urgent
+  if (a.type === 'task-urgent' && t) return patchTask(t.id, { urgent: a.on === true ? true : undefined }), { ok: true }
   if (a.type === 'task-move' && t) return patchTask(t.id, { place: a.place }), { ok: true }
   if (a.type === 'agent-update') return { ok: true, words: 'Codex is now 0.172.0. 1 other chat on this machine gets it when it restarts.' }
   if (a.type === 'task-start' && t) { patchTask(t.id, { status: 'work', started: Date.now() - 15 * 60_000, report: { msg: 'Just started', progress: 50 }, agent: { chat: `${t.id}/worker`, role: 'worker', cli: 'claude', status: 'work', running: true, age: '', note: '' } }); say(`${t.id}/worker`, { text: "Started. I'll tell you when it's ready for review." }); return { ok: true } }

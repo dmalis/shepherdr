@@ -27,6 +27,8 @@ import { AfterMergeCard } from './after-merge.tsx'
 import { fromSpace, showsAgent, TaskWhere } from './where.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { ChecksCard } from './checks-card.tsx'
+import { UrgentMark, UrgentWord, urgentRows } from './urgent.tsx'
+import { urgentFirst } from '@shared/urgent.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
 import { needsWords } from '@shared/needs-open.ts'
@@ -215,6 +217,8 @@ export function taskRows(t: Task, where: 'row' | 'thread'): MenuRow[] | null {
     ...(s === 'next' ? [{ icon: 'folder' as const, label: 'Move to', sub: spacesOf(snap).filter((p) => p.id !== t.place && !p.archived).map((p) => ({ label: spaceLabel(snap, p.id), run: () => void tryAct({ type: 'task-move', chat, place: p.id }, undefined, 'Moving…') })) }] : []),
     // from the menu it closes without merging: "Done · not merged" for a task on its own branch
     ...(s !== 'done' && s !== 'archived' ? [{ icon: 'check' as const, label: 'Mark as done', run: () => markDone(t) }] : []),
+    // dmalis/shepherdr#119: Mark as urgent / Mark as not urgent, on an open task
+    ...urgentRows(t),
     { icon: 'pen', label: 'Rename', cmd: 'tasks.rename', run: () => renameDialog(t.name, (name) => tryAct({ type: 'task-rename', chat, name })) },
     // Stop pauses the agent, like pressing Esc: it drops what it was doing and waits
     ...(s === 'working' ? [{ icon: 'stop' as const, label: 'Stop', cmd: 'tasks.stop', run: () => void tryAct({ type: 'stop', chat }, undefined, 'Stopping…') }] : []),
@@ -490,6 +494,7 @@ function TaskHead({ task: t, where, scrolled }: { task: Task; where: 'chat' | 'p
       kicker={snap ? <TaskWhere snap={snap} t={live} onShow={() => showRepo(workKey(t))} /> : undefined}
       sub={
         <span className="hline">
+          <UrgentWord t={live} />
           <StatusIcon t={live} time="none" />
           <span>{big && snap ? `${line} · in ${spaceLabel(snap, t.place)}` : line}</span>
           {/* waiting on its checks, its agent is done: the words what it waits for get the room (dmalis/shepherdr#42) */}
@@ -592,7 +597,7 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
       <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
-          <span className="l1">{t.name}</span>
+          <span className="l1"><UrgentMark t={t} />{t.name}</span>
           {alert && !down ? (
             <>
               <span className="l2 alw">{alertWhat(alert)}</span>
@@ -673,7 +678,7 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
               {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
-            {o && shown.map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
+            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={alerts.get(t.id)} />)}
             {o && questions.map(({ task, question }) => <Row key={question.id} icon="chat"
               label={question.title} sub={task.name} onClick={() => { openTask(task.id); setUI({ jump: question.id }) }} />)}
             {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}

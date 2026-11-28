@@ -1,0 +1,14 @@
+/* Urgent tasks' mark (urgent.tsx, dmalis/shepherdr#119): an exclamation mark in a filled square, in the text's own
+   colour, before a row's title and first in an open task's header. Nothing here moves: no transition, so the Motion
+   setting and prefers-reduced-motion have nothing to turn off. */
+
+/* a row: 16px, centred on the title's first line, 20px before the title with its gap (a long title still clamps). In the
+   title's own ink (the row's text colour, --fg once it is the open one), past ds.css's muted row icons */
+.urg>.i,.row.tk .urg>.i:not([class*="c-"]){width:16px;height:16px;margin-right:4px;vertical-align:-3px;color:inherit}
+
+/* the header's facts line: "Urgent ·" first, the word in the text's colour; it never gives way to the line after it */
+.hline>.hurg{flex:none;display:inline-flex;align-items:center;gap:4px;color:var(--fg);font-weight:500;overflow:visible}
+.hline>.hurg>.i{width:14px;height:14px}
+.hurg>.hsep{margin-left:2px;color:var(--muted);font-weight:400}
+/* its room comes from the model line too, which gives way beside it (else the status words would get none in a narrow pane) */
+.hline:has(>.hurg)>.head-agent{flex-shrink:1;min-width:0}
