@@ -338,8 +338,8 @@ something that arrives, reorders or retries on its own.
 
 - **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Hover styles
   sit under `@media (hover: hover)`, so a tap never leaves one lit, and a touch screen sees the press instead.
-  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css`, the inbox and the task's
-  place line) to their count.
+  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css` and the task's place
+  line) to their count.
 - **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. Today a row slides
   right to reply. Target: left shows one or two of the row's actions that are safe to undo, each tapped to act; merging,
   stopping, allowing and deleting are never on a swipe. A swipe locks to sideways before it takes over, so the list

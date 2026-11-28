@@ -173,6 +173,10 @@ test('an alert reads whole: its title is its name, its body, place, time and sta
   const waited = row('need:SHOP-14/worker:q2')
   expect(waited.name).toBe('Task Switch payment provider Needs you')
   expect(waited.description).toBe('Which provider, Stripe or Adyen? #shop, 40 minutes ago Waiting on you')
+  // the comma the parser reads between place and time is the dot's words in inbox.css, and a press keeps the light fill
+  const css = readFileSync(join(import.meta.dir, 'inbox.css'), 'utf8')
+  expect(css).toContain('.inbx-w+.inbx-a::before{content:"·" / ", ";')
+  expect(css).toContain('.inbx-it{--press:var(--control)}@media(hover:hover){.inbx-it:hover:not(:active){background:var(--control)}}')
   // an Assistant's alert has no task kind: its title as it is
   expect(row('msg:p:mac-mini:blog:9').name).toBe('#blog Assistant · New message')
 })
