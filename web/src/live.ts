@@ -1,14 +1,15 @@
 /* What changes on its own, said to screen readers through one polite live region (docs/design.md, Touch, gestures and
    keys): a toast, a failed send, the link to Shepherdr going and coming back, a filter's new count. Drawn by ui.tsx's
-   LiveRegion, mounted once by the app. Each `say()` adds its own line, so it is spoken once, and the same words said
+   LiveRegion, mounted once beside the app (main.tsx), so it stays the same element from the first load on. Each `say()` adds its own line, so it is spoken once, and the same words said
    again later are spoken again; a line leaves after a while, quietly, so nothing is read twice on a later visit. */
 
 export type Said = { id: number; text: string }
 
 /** how long a line stays in the region once said (long enough for a screen reader to reach it) */
 export const KEEP_MS = 7000
-/** the most lines kept at once: an older one gives its place */
-const MOST = 3
+/** the most lines kept at once, only a guard against a flood: lines said together (four sends failing in one pass)
+ *  are all added in one go, so each is spoken; they leave by time, not by giving their place */
+const MOST = 20
 
 let lines: Said[] = []
 let next = 1

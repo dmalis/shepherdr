@@ -21,12 +21,15 @@ async function listen(page: Page) {
     w.heard = []
     const live = (el: Element | null) => el?.closest('[aria-live]:not([aria-live="off"]),[role="status"],[role="alert"],[role="log"]')
     new MutationObserver((ms) => {
-      for (const m of ms)
+      for (const m of ms) {
+        // a text changed in place inside a live region (an implicit one too, role=status) is spoken as well
+        if (m.type === 'characterData' && live(m.target.parentElement) && m.target.textContent?.trim()) w.heard.push(m.target.textContent.trim())
         for (const n of m.addedNodes) {
           const el = n.nodeType === 1 ? (n as Element) : n.parentElement
           if (live(el) && n.textContent?.trim()) w.heard.push(n.textContent.trim())
         }
-    }).observe(document.body, { childList: true, subtree: true, characterData: false })
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
   })
 }
 const heard = (page: Page) => page.evaluate(() => (window as unknown as { heard: string[] }).heard)
@@ -68,6 +71,14 @@ let h = await heard(page)
 check(times(h, /^Your message wasn't sent/) === 1, `a failed send is said once (${JSON.stringify(h)})`)
 check(await page.getByText('Not sent').first().isVisible(), 'its bubble shows Not sent')
 
+// a `!` command that isn't sent: said once too (its row is not a live region of its own)
+await box.click()
+await box.fill('!ls')
+await page.keyboard.press('Enter')
+await page.waitForTimeout(2500)
+h = await heard(page)
+check(times(h, /^Your message wasn't sent/) === 2 && !h.some((t) => /^Not sent/.test(t)), `a command not sent is said once (${JSON.stringify(h)})`)
+
 // a toast: said once (the bell's Mark all read, refused)
 await page.getByRole('button', { name: /^Alerts/ }).first().click()
 await page.getByRole('button', { name: 'Mark all read' }).click()
@@ -90,7 +101,7 @@ await page.waitForTimeout(500)
 h = await heard(page)
 check(times(h, /^Can't reach Shepherdr\./) === 1, 'going offline is said once')
 check(times(h, /^Shepherdr is back\./) === 1, 'coming back is said once')
-check(times(h, /^Your message wasn't sent/) === 1, 'the failed send is not said again')
+check(times(h, /^Your message wasn't sent/) === 2, 'the failed sends are not said again')
 
 // the Tasks filter's new count
 await page.goto(`${base}?place=p:mac-mini:~&pane=tasks`)
@@ -101,6 +112,17 @@ await page.getByRole('checkbox').first().click()
 await page.waitForTimeout(600)
 h = await heard(page)
 check(h.length === 1 && /tasks? shown$|^No tasks match$/.test(h[0]!), `a filter's new count is said once (${JSON.stringify(h)})`)
+
+// a first load whose /api/me never answers and whose link is refused: never a blank page, and one link at a time
+const cold = await ctx.newPage()
+let opened = 0
+await cold.route(/api\/me/, () => {})
+await cold.routeWebSocket(/api\/ws/, (ws) => (opened++, ws.close()))
+await cold.goto(`${base}?place=p:mac-mini:shop`)
+await cold.waitForTimeout(1500)
+cold.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))).catch(() => {})
+await cold.getByText("Can't reach Shepherdr").first().waitFor({ timeout: 15_000 }).then(() => check(true, 'a first load that hangs says it can\'t reach Shepherdr'), () => check(false, 'a first load that hangs says it can\'t reach Shepherdr'))
+check(opened <= 4, `its tries to link stay few (${opened})`)
 
 await browser.close()
 console.log(failures ? `${failures} failed` : 'all passed')

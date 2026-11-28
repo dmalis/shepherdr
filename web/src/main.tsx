@@ -13,6 +13,7 @@ import { offlineWords, TRY_AGAIN } from './states.ts'
 import { applySizes } from './resize.ts'
 import { UpdateChip } from './update-chip.tsx'
 import { watchViewport } from './viewport.ts'
+import { LiveRegion } from './ui.tsx'
 
 /** Your phone can't reach Shepherdr: a thin line. What you see stays, as it was when the link went (said with its
  *  time), it tries again by itself, and Try again tries now. What you typed stays in the box and sends when it is back.
@@ -54,9 +55,10 @@ async function start() {
   // the plugins switched off in Settings › Plugins are left out: their buttons, menu items and settings are gone
   let off: string[] = []
   try {
-    off = ((await (await fetch('api/me')).json()) as { off?: string[] }).off ?? []
+    // bounded: a service that never answers must not keep the page blank (it then says Loading…, then can't reach)
+    off = ((await (await fetch('api/me', { signal: AbortSignal.timeout(3000) })).json()) as { off?: string[] }).off ?? []
   } catch {
-    /* the link is down: every plugin, until the first snapshot says otherwise */
+    /* the link is down or slow: every plugin, until the first snapshot says otherwise */
   }
   ;(window as { shepherdrOff?: string[] }).shepherdrOff = off
   installPlugins(loaded.filter((p) => !off.includes(p.name)), enabled.filter((n) => !off.includes(n)), user)
@@ -66,6 +68,8 @@ async function start() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
+      {/* the one live region (live.ts), beside the app so the first snapshot doesn't replace it */}
+      <LiveRegion />
     </StrictMode>,
   )
 }

@@ -648,6 +648,16 @@ const sentChats = new Map<string, Chat>()
 let heard = 0
 /** a screen reader was told the link is gone (live.ts): it is told once it is back */
 let saidLost = false
+/** when the link last opened again after it was down, and who asks again then for what failed meanwhile */
+let backAt = 0
+const backs = new Set<() => void>()
+/** the link to Shepherdr is open again after it was down (a real open, not only the screen coming back): `f` runs */
+export function onLinkBack(f: () => void): () => void {
+  backs.add(f)
+  return () => void backs.delete(f)
+}
+/** when the link last came back (0: never). A request sent before this that failed was sent into the outage. */
+export const linkBackAt = () => backAt
 
 /** Try again on the line that says the link is gone: a new try now, its waits between tries started over. The line
  *  stays until the link is back. */
@@ -661,6 +671,8 @@ export function retryNow() {
 export function connect() {
   if (retrying) clearTimeout(retrying)
   retrying = null
+  // one link at a time: a link opening or open stays (a wake during start-up, then start's own connect)
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
   const url = new URL('api/ws', location.href)
   url.protocol = url.protocol.replace('http', 'ws')
   const sock = new WebSocket(url)
@@ -671,6 +683,7 @@ export function connect() {
     clearTimeout(opening!)
     heard = Date.now()
     tries = 0
+    const back = downSince !== null
     downSince = null
     if (saying) clearTimeout(saying)
     saying = null
@@ -680,6 +693,10 @@ export function connect() {
     wakeAll()
     if (saidLost) (saidLost = false, say(LINK_BACK))
     if (state.ui.offline) setUI({ offline: null })
+    if (back) {
+      backAt = Date.now()
+      for (const f of backs) f()
+    }
     watchVisible()
   }
   sock.onmessage = (ev) => {

@@ -14,7 +14,7 @@ import { closeTop, Layers, Overlay } from './overlay.tsx'
 import { edge } from './resize.ts'
 import { columnsOf, swapSides, useSides } from './sides.ts'
 import { SettingsWindow } from './settings.tsx'
-import { cx, Empty, Failed, I, IB, LiveRegion, Loading, useScrolled } from './ui.tsx'
+import { cx, Empty, Failed, I, IB, Loading, useScrolled } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
 import { EverythingLine } from './everything-line.tsx'
 import { needsWords } from '@shared/needs-open.ts'
@@ -259,7 +259,6 @@ export function App() {
         <div className="device boot">
           {ui.offline ? <Failed title="Can't reach Shepherdr" why="It tries again by itself. Check that this device is online." again={retryNow} /> : <Loading />}
         </div>
-        <LiveRegion />
       </div>
     )
   const hidden = sideHidden(ui)
@@ -309,7 +308,6 @@ export function App() {
           {registry.overlays.map((V, i) => <V key={i} />)}
         </div>
         <Toasts />
-        <LiveRegion />
         <MarkRead />
       </div>
     </div>

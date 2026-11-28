@@ -14,6 +14,7 @@ import { useDark } from '@client/prefs.ts'
 import type { Artifact, Chat, Message } from '@shared/types.ts'
 import { agoShort, artifactsIn, isEverything, spaceLabel } from '@shared/view.ts'
 import { failed, firstLines, loaded, startShot, type Shot } from './preview.ts'
+import { askInChat } from '@client/commands.ts'
 
 const on = (a: Artifact) => (a.machine ? `&on=${encodeURIComponent(a.machine)}` : '')
 /** the page itself, at a version */
@@ -325,7 +326,7 @@ function ArtifactsPane() {
         q ? (
           <Empty title="No artifacts match" act={{ label: 'Clear search', run: () => setUI({ artq: '' }) }}>Nothing here matches “{ui.artq?.trim()}”.</Empty>
         ) : (
-          <Empty title="No artifacts yet">Pages an agent makes for you, like a proof or a report, show here.</Empty>
+          <Empty title="No artifacts yet" act={{ label: 'Ask in the chat', run: askInChat }}>Pages an agent makes for you, like a proof or a report, show here.</Empty>
         )
       )}
     </PaneFrame>

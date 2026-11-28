@@ -2,7 +2,7 @@
 // them (kept for the person in the settings file, every device alike), the one key handler that runs them, and the
 // palette's recent picks (this device). Plain rules (chords, where they fire, clashes) are keys.ts'.
 import { useSyncExternalStore } from 'react'
-import { getState, registry, setDraft, subscribe, type Command } from './kernel.ts'
+import { getState, registry, setDraft, subscribe, togglePane, type Command } from './kernel.ts'
 import { hasLayer } from './overlay.tsx'
 import { chordOf, focusOf, held, here, isMac, mayFire } from './keys.ts'
 import type { Task } from '@shared/types.ts'
@@ -159,6 +159,13 @@ export function focusBox(chat = focusChat(), start?: string) {
   box.focus()
   requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length))
   return true
+}
+
+/** an empty pane's one thing to do (Tasks, Artifacts): the message box of the chat in focus, the pane closed first on a
+ *  phone, where it covers the chat */
+export function askInChat() {
+  if (getState().ui.phone) togglePane(null)
+  requestAnimationFrame(() => focusBox())
 }
 
 /** a part of the message box of the chat in focus (its agent line, its mic) */

@@ -2,9 +2,9 @@
 // what a task changed against its base (its branch, committed or not), or what isn't committed yet in a space's own
 // folder, file by file; tap a file for its lines. Read only: nothing is staged, committed or edited here. The service
 // reads git on the task's or space's machine (service/worktree.ts, GET /api/worktree).
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PaneFrame } from '@client/App.tsx'
-import { definePlugin, getState, setUI, togglePane, useSnap, useUI } from '@client/kernel.ts'
+import { definePlugin, getState, linkBackAt, onLinkBack, setUI, togglePane, useSnap, useUI } from '@client/kernel.ts'
 import { openMenu } from '@client/overlay.tsx'
 import { cx, Empty, Failed, Hd, I, IB, Loading, Row, Stale } from '@client/ui.tsx'
 import { UNREACHABLE } from '@client/states.ts'
@@ -49,17 +49,24 @@ function pick(snap: Snapshot, at: string, picked: string | undefined): Src | nul
 function useLoad<T>(url: string | null) {
   const [got, setGot] = useState<Got<T> | null>(null)
   const [n, setN] = useState(0)
-  const offline = useUI((u) => !!u.offline)
   useEffect(() => {
     if (!url) return
     let live = true
-    void get<T>(url).then((v) => live && setGot((was) => settled(was, url, v, Date.now())))
+    const sent = Date.now()
+    void get<T>(url).then((v) => {
+      if (!live) return
+      // sent into an outage that has ended since: asked again rather than shown failed (kernel.ts, linkBackAt)
+      if ('error' in (v as object) && linkBackAt() > sent) return setN((x) => x + 1)
+      setGot((was) => settled(was, url, v, Date.now()))
+    })
     return () => { live = false }
   }, [url, n])
   const again = useCallback(() => setN((x) => x + 1), [])
   const mine = got && got.url === url ? got : null
-  // the link to Shepherdr back: what couldn't be read for it is asked again
-  useEffect(() => { if (!offline && mine && (mine.stale || 'error' in (mine.v as object))) again() }, [offline])
+  const failed = useRef(false)
+  failed.current = !!mine && (!!mine.stale || 'error' in (mine.v as object))
+  // the link to Shepherdr back (a real open): what couldn't be read for it is asked again
+  useEffect(() => onLinkBack(() => { if (failed.current) again() }), [again])
   return { v: mine?.v ?? null, stale: mine?.stale, again }
 }
 
@@ -72,9 +79,9 @@ const plusMinus = (add: number, del: number) => (
 
 const WORD: Record<DiffFile['status'], string> = { added: 'New', deleted: 'Deleted', renamed: 'Renamed', modified: '' }
 
-function FileList({ src, diff, open }: { src: Src; diff: Diff; open: (path: string) => void }) {
+function FileList({ src, diff, open, again }: { src: Src; diff: Diff; open: (path: string) => void; again: () => void }) {
   if (!diff.files.length)
-    return <Empty title="Nothing changed">{src.kind === 'space' ? 'Everything in this folder is committed.' : diff.against ? `No changes against ${diff.against}.` : 'Nothing new since its last commit.'}</Empty>
+    return <Empty title="Nothing changed" act={{ label: 'Refresh', run: again }}>{src.kind === 'space' ? 'Everything in this folder is committed.' : diff.against ? `No changes against ${diff.against}.` : 'Nothing new since its last commit.'}</Empty>
   return (
     <>
       <div className="lab">
@@ -156,7 +163,7 @@ function DiffPane() {
       )}
     >
       {!src ? (
-        <Empty title="Nothing to show">{isEverything(snap, ui.at) ? 'No space or task with a folder yet.' : 'This space has no folder or task to show.'}</Empty>
+        <Empty title="Nothing to show" act={ui.phone ? { label: 'Pick a space', run: () => setUI({ drawer: true }) } : undefined}>{isEverything(snap, ui.at) ? 'No space or task with a folder yet.' : 'This space has no folder or task to show.'}</Empty>
       ) : (
         <>
           <Row className="dsrc" icon={src.kind === 'task' ? 'tasks' : 'folder'} label={name} sub={sources.find((s) => s.key === srcKey(src))?.sub}
@@ -164,7 +171,7 @@ function DiffPane() {
           {!d ? <Loading /> : 'error' in d ? <Failed title="Can't show its changes" why={d.error} again={list.again} /> : (
             <>
               {list.stale && <Stale at={list.stale.at} why={list.stale.why} again={list.again} />}
-              <FileList src={src} diff={d} open={(path) => setUI({ diff: { src: srcKey(src), file: path } })} />
+              <FileList src={src} diff={d} again={list.again} open={(path) => setUI({ diff: { src: srcKey(src), file: path } })} />
             </>
           )}
         </>

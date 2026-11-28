@@ -14,7 +14,7 @@ import { waiting } from '@client/pending.ts'
 import { filterCountWords } from '@client/states.ts'
 import { copyText } from '@client/copy.ts'
 import { alertWhat, taskAlerts, type Alert } from '@shared/needs-you.ts'
-import { focusBox, focusChat, focusTask } from '@client/commands.ts'
+import { askInChat, focusBox, focusChat, focusTask } from '@client/commands.ts'
 import { SpaceIcon } from '@client/space-icon.tsx'
 import type { MergeEvidence, Message, Snapshot, Task } from '@shared/types.ts'
 import { askedWords, isEverything, machineLabel, nowGroups, onBranch, placeDown, reposOf, spaceLabel, spaceOnFolder, spacesOf, etaOf, headLine, leftWords, statusWord, taskChat, taskLine, taskWhen, tasksIn, tstate, workKey, workName, workWords, type Repo } from '@shared/view.ts'
@@ -698,7 +698,7 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
         )}
       </>
     ) : (
-      <Empty title="No tasks yet" act={ui.phone ? { label: 'Go to the chat', run: () => togglePane(null) } : undefined}>Ask in a chat to add one.</Empty>
+      <Empty title="No tasks yet" act={{ label: 'Ask in the chat', run: askInChat }}>Ask in a chat to add one.</Empty>
     )
   return (
     <>

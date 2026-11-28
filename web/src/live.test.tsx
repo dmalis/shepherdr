@@ -26,9 +26,11 @@ test('the live region is polite, and each thing said is one line in it, spoken o
   expect(saidLines()[0]!.id).not.toBe(saidLines()[1]!.id)
 })
 
-test('at most three lines are kept, each long enough for a screen reader to reach it', () => {
+test('lines said together are all kept, so each is spoken; each stays long enough for a screen reader to reach it', () => {
+  // four sends failing in one pass: four lines, none pushed out before it reached the page
   for (const w of ['a', 'b', 'c', 'd']) say(w)
-  expect(saidLines().map((l) => l.text)).toEqual(['b', 'c', 'd'])
+  expect(saidLines().map((l) => l.text)).toEqual(['a', 'b', 'c', 'd'])
+  expect(renderToStaticMarkup(<LiveRegion />).match(/<p>/g)?.length).toBe(4)
   expect(KEEP_MS).toBeGreaterThanOrEqual(5000)
 })
 

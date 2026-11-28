@@ -6,7 +6,7 @@ import { copyText } from '@client/copy.ts'
 import { dictatedInto, TEXT_IN_CALL, useDictating } from '@client/dictate.tsx'
 import { attr } from '@client/attr.ts'
 import { boxPart, focusBox, focusChat } from '@client/commands.ts'
-import { act, attempt, definePlugin, getDraft, getState, has, notice, openTask, registry, setDraft, setUI, tryAct, useChat, useDraft, useSnap, useStore, useUI, type MenuRow, type Thread } from '@client/kernel.ts'
+import { act, attempt, definePlugin, getDraft, getState, has, notice, openTask, registry, retryNow, setDraft, setUI, tryAct, useChat, useDraft, useSnap, useStore, useUI, type MenuRow, type Thread } from '@client/kernel.ts'
 import { endComposition, isEcho, type Sent } from './echo.ts'
 import { partsOf, placeOutgoing, placesOf, keyOf, readNow, showsAs, type Outgoing } from '@client/outbox.ts'
 import { confirm, openMenu } from '@client/overlay.tsx'
@@ -14,7 +14,8 @@ import { AgentLine, openPicker, pickFor, pickWords, reportedPick, type Pick } fr
 import { attach, detach, dropOut, retry, reupload, send, type Posted } from '@client/send.ts'
 import { whenSafe } from '@client/draft.ts'
 import { calm } from '@client/motion.ts'
-import { ActBtn, ActError, Btn, cx, Empty, I, IB, useCardActs, useGrow } from '@client/ui.tsx'
+import { ActBtn, ActError, Btn, cx, Empty, Failed, I, IB, Loading, useCardActs, useGrow } from '@client/ui.tsx'
+import { say } from '@client/live.ts'
 import type { IconName } from '@client/icons.ts'
 import { isImage, isVideo } from '@shared/files.ts'
 import type { Chat, Message, Relay, Snapshot, Task, TaskBrief, TurnActivity } from '@shared/types.ts'
@@ -318,12 +319,20 @@ function QuickBar({ msg, chat, mine, wrap, y, done, more, reply: onReply }: { ms
 function CommandRow({ msg, state, failed, gap }: { msg: Message; state: CommandState; failed?: string; gap: boolean }) {
   const out = msg.command?.out ?? ''
   const tone = state === 'failed' || state === 'unsent' ? 'c-red' : state === 'running' || state === 'sending' ? 'c-ask' : 'c-mute'
+  // how it went reaches screen readers through the app's one live region (live.ts), once per change: not sent is
+  // said there by the outbox already (kernel.ts), so not again here
+  const was = useRef(state)
+  useEffect(() => {
+    if (was.current === state) return
+    was.current = state
+    if (state === 'running' || state === 'done' || state === 'failed') say(`${(msg.text ?? '').replace(/^\s*!\s*/, '')}: ${commandWord[state]}`)
+  }, [state, msg.text])
   return (
     <div className={cx('cmdrow', gap && 'gap', (state === 'sending' || state === 'running') && 'live')} data-msg={msg.id} data-state={state}>
       <div className="cmdh">
         <I n="prompt" c="s16" />
         <code className="cmdc">{(msg.text ?? '').replace(/^\s*!\s*/, '')}</code>
-        <span className={cx('cmds', tone)} role="status">{commandWord[state]}{state === 'unsent' && failed ? ` · ${failed}` : ''}</span>
+        <span className={cx('cmds', tone)}>{commandWord[state]}{state === 'unsent' && failed ? ` · ${failed}` : ''}</span>
       </div>
       {out && <pre className="cmdo">{out}</pre>}
       {state === 'unsent' && msg.cid && (
@@ -608,6 +617,7 @@ function Messages({ thread }: { thread: Thread }) {
   const chat = useChat(thread.chat)
   const snap = useSnap()
   const outbox = useStore((s) => s.outbox)
+  const offline = useUI((u) => !!u.offline)
   const rows = useMemo(() => shownOf(chat, thread.chat, outbox), [chat, thread.chat, outbox])
   const end = useRef<HTMLDivElement>(null)
   const stuck = useRef(true)
@@ -865,8 +875,12 @@ function Messages({ thread }: { thread: Thread }) {
   return (
     <>
       {empty && !thread.task && chat && (
-        <Empty title={every ? 'Welcome to Shepherdr' : `Nothing in ${spaceLabel(snap, thread.place)} yet`}>Tell me what you want done{every ? ', here or in a space.' : ' here.'}</Empty>
+        <Empty title={every ? 'Welcome to Shepherdr' : `Nothing in ${spaceLabel(snap, thread.place)} yet`} act={{ label: 'Write a message', run: () => void focusBox(thread.chat) }}>
+          Tell me what you want done{every ? ', here or in a space.' : ' here.'}
+        </Empty>
       )}
+      {/* a chat not read yet: Loading… while it comes, or why it can't while the link is down (ui.tsx) */}
+      {!chat && !rows.length && !thread.task && (offline ? <Failed title="Can't show this chat" why="Shepherdr can't be reached. It tries again by itself." again={retryNow} /> : <Loading />)}
       {out}
       {thread.task && <StartLine chat={chat} thread={thread} />}
       {cards.map((c) => <Fragment key={`c:${c.key}`}>{c.node}</Fragment>)}
