@@ -13,10 +13,11 @@ import { Btn, I, IB, MenuGroup, Row, Tgl } from './ui.tsx'
 import { say } from './live.ts'
 import { NeedsCount, openNeeds } from './needs-count.tsx'
 import { needsItems } from '@shared/needs-open.ts'
-import { offersRepo, suggestions, tilde, untilde } from '@core/newspace.js'
+import { offersRepo, untilde } from '@core/newspace.js'
 import { attr } from './attr.ts'
 import { copyText } from './copy.ts'
 import { DictateButton } from './dictate.tsx'
+import { FolderField } from './folder-field.tsx'
 import { press, pressing } from './drag.ts'
 import { haptic } from './feel.ts'
 import { calm, IOS } from './motion.ts'
@@ -231,9 +232,8 @@ export function newSpaceDialog(machine?: string, pre?: { name: string; folder: s
       // a folder outside git (not home or /) is made a repo, so each task gets its own worktree; on unless turned off
       const [repoOff, setRepoOff] = useState(false)
       const offerRepo = !!info && offersRepo(untilde(path.replace(/\/+$/, ''), info.home), inRepo, info.home)
-      // a folder that has its space already only opens that one: not offered
+      // a folder that has its space already only opens that one: not offered among the recent ones
       const has = new Set((snap?.places ?? []).filter((p) => (p.machine ?? snap.host) === m).map((p) => p.folder))
-      const picks: string[] = info ? suggestions(info.recent.filter((f) => !has.has(f)), folder, info.home) : []
       const ok = async () => {
         if (!path || busy) return
         setBusy(true)
@@ -261,17 +261,7 @@ export function newSpaceDialog(machine?: string, pre?: { name: string; folder: s
             <input className="inp" name="space" aria-label="Name" value={name} placeholder={folderName(folder) || 'docs'} autoComplete="off" autoCapitalize="off" onChange={(e) => setName(e.target.value)} />
           </NameWithIcon>
           <MachineField value={m} onChange={setM} />
-          <label className="fld">
-            <span>Folder</span>
-            <input className="inp" name="folder" value={folder} placeholder={name.trim() ? `~/dev/${name.trim().replace(/^#\s*/, '')}` : '~/dev/docs'} autoComplete="off" autoCapitalize="off" spellCheck={false} onChange={(e) => setFolder(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void ok()} />
-          </label>
-          {info && picks.length > 0 && (
-            <div className="nsr" role="group" aria-label="Recent folders">
-              {picks.map((f) => (
-                <Row key={f} icon="folder" label={tilde(f, info.home)} onClick={() => setFolder(tilde(f, info.home))} />
-              ))}
-            </div>
-          )}
+          <FolderField machine={m} skip={has} value={folder} placeholder={name.trim() ? `~/dev/${name.trim().replace(/^#\s*/, '')}` : '~/dev/docs'} onChange={setFolder} onEnter={() => void ok()} />
           {offerRepo && (
             <div className="srow">
               <span className="n">Make it a git repo</span>

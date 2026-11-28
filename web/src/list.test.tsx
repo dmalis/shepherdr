@@ -326,3 +326,85 @@ test("a machine's groups and loose spaces show in one order: a loose space above
   const before = part(renderToStaticMarkup(<List snap={{ ...snap, sections: [{ id: 's:g1', name: 'Work', machine: 'mini', spaces: ['blog'] }] }} />), 'mini')
   expect(before.indexOf('data-heading="s:g1"')).toBeLessThan(before.indexOf('data-project="shop"'))
 })
+
+// New space's folder list (3.1's dropdown back): what it shows for what's typed, and its keys
+const FL = await import('./folder-list.ts')
+const home = '/Users/sam'
+const info = { home, recent: ['/Users/sam/dev/shop', '/Users/sam/notes', '/tmp/x'] }
+const inHome = { exists: true, entries: [{ name: 'dev', path: '~/dev', repo: false }, { name: 'notes', path: '~/notes', repo: false }, { name: 'Downloads', path: '~/Downloads', repo: false }] }
+const inDev = { exists: true, entries: [{ name: 'blog', path: '~/dev/blog', repo: true }, { name: 'shop', path: '~/dev/shop', repo: true }, { name: 'Ashes', path: '~/dev/Ashes', repo: false }, { name: 'shell', path: '~/dev/shell', repo: false }] }
+const texts = (s: ReturnType<typeof FL.shown>) => s.groups.map((g) => [g.label ?? '', g.rows.map((r) => r.text)])
+
+test("an empty Folder field lists the machine's recent folders first, then what's in its home (no scratch)", () => {
+  expect(FL.wanted('', home)).toBe(home)
+  const s = FL.shown('', info, inHome)
+  expect(texts(s)).toEqual([['Recent', ['~/dev/shop/', '~/notes/']], ['In ~', ['~/dev/', '~/Downloads/']]])
+  expect(s.groups[0]!.rows[0]).toMatchObject({ kind: 'recent', label: 'shop', sub: '~/dev/shop' })
+  expect(s.note).toBe(null)
+  // home still on its way: the recent folders show, and that more is coming
+  expect(FL.shown('', info, 'loading')).toEqual({ groups: [{ label: 'Recent', rows: FL.shown('', info, inHome).groups[0]!.rows }], note: 'Loading…' })
+})
+
+test('a word narrows them by name, those starting with it first; nothing matching says so quietly', () => {
+  // notes is recent, so not again under home
+  expect(texts(FL.shown('no', info, inHome))).toEqual([['Recent', ['~/notes/']]])
+  expect(texts(FL.shown('do', info, inHome))).toEqual([['In ~', ['~/Downloads/']]])
+  expect(FL.shown('zz', info, inHome)).toEqual({ groups: [], note: 'No matching folders' })
+})
+
+test('a typed path lists the folder up to its last /, narrowing by the word after it, with a way up first', () => {
+  expect(FL.wanted('~/dev/sh', home)).toBe('/Users/sam/dev')
+  expect(FL.wanted('~/dev/', home)).toBe('/Users/sam/dev')
+  expect(FL.wanted('~', home)).toBe(home)
+  const all = FL.shown('~/dev/', info, inDev)
+  expect(texts(all)).toEqual([['', ['~/', '~/dev/blog/', '~/dev/shop/', '~/dev/Ashes/', '~/dev/shell/']]])
+  expect(all.groups[0]!.rows[0]).toMatchObject({ kind: 'up', label: '..', sub: '~' })
+  expect(all.groups[0]!.rows[2]).toMatchObject({ label: 'shop', repo: true })
+  // as typed: "sh" starts shop and shell, and is inside Ashes
+  expect(texts(FL.shown('~/dev/sh', info, inDev))).toEqual([['', ['~/', '~/dev/shop/', '~/dev/shell/', '~/dev/Ashes/']]])
+  expect(texts(FL.shown('~/dev/SHO', info, inDev))).toEqual([['', ['~/', '~/dev/shop/']]])
+  // the top: no way up from /
+  expect(FL.shown('/', info, { exists: true, entries: [{ name: 'srv', path: '/srv', repo: false }] }).groups[0]!.rows.map((r) => r.text)).toEqual(['/srv/'])
+  expect(FL.shown('~/', info, inHome).groups[0]!.rows[0]).toMatchObject({ kind: 'up', text: '/Users/', sub: '/Users' })
+})
+
+test("a folder that isn't there yet says Create makes it; an error is a quiet line, never a crash", () => {
+  expect(FL.shown('~/dev/newthing', info, inDev).note).toBe("This folder doesn't exist. It will be created.")
+  expect(FL.shown('~/nope/', info, { exists: false, entries: [] })).toEqual({ groups: [{ rows: [{ kind: 'up', text: '~/', label: '..', sub: '~' }] }], note: "This folder doesn't exist. It will be created." })
+  expect(FL.shown('~/dev/', info, { exists: true, entries: [] }).note).toBe('No folders inside')
+  expect(FL.shown('~/dev/', info, { error: "Couldn't list that folder on vm." }).note).toBe("Couldn't list that folder on vm.")
+  expect(FL.shown('~/dev/', info, 'loading').note).toBe('Loading…')
+})
+
+test('keys: down and up move through the rows and wrap, Enter picks the row moved to or creates, Tab completes', () => {
+  const rows = FL.shown('~/dev/sh', info, inDev).groups[0]!.rows
+  const s = { open: true, at: -1, rows, value: '~/dev/sh' }
+  expect(FL.onKey('ArrowDown', s)).toEqual({ do: 'move', at: 0 })
+  expect(FL.onKey('ArrowDown', { ...s, at: rows.length - 1 })).toEqual({ do: 'move', at: 0 })
+  expect(FL.onKey('ArrowUp', s)).toEqual({ do: 'move', at: rows.length - 1 })
+  expect(FL.onKey('ArrowUp', { ...s, at: 1 })).toEqual({ do: 'move', at: 0 })
+  // shut, a key opens the list; Enter creates as before
+  expect(FL.onKey('ArrowDown', { ...s, open: false })).toEqual({ do: 'open' })
+  expect(FL.onKey('Enter', { ...s, open: false, at: 2 })).toEqual({ do: 'create' })
+  // open: Enter on no row still creates, on a row picks it (and goes into it: it ends in /)
+  expect(FL.onKey('Enter', s)).toEqual({ do: 'create' })
+  expect(FL.onKey('Enter', { ...s, at: 1 })).toEqual({ do: 'pick', row: rows[1] })
+  expect(rows[1]!.text).toBe('~/dev/shop/')
+  // Tab: the word completes to its first folder (never the way up), else the key moves on as usual
+  expect(FL.onKey('Tab', s)).toEqual({ do: 'pick', row: rows[1] })
+  expect(FL.onKey('Tab', { ...s, value: '~/dev/' })).toEqual({ do: 'none' })
+  expect(FL.onKey('Tab', { ...s, shift: true })).toEqual({ do: 'none' })
+  expect(FL.onKey('x', s)).toEqual({ do: 'none' })
+  expect(FL.onKey('ArrowDown', { ...s, rows: [] })).toEqual({ do: 'move', at: -1 })
+})
+
+test('the New space dialog has the folder list on its Folder field; the Name still follows the folder', async () => {
+  const { newSpaceDialog } = await import('./list.tsx')
+  newSpaceDialog('vm', { name: '', folder: '~/dev/shop/' })
+  const [form] = layersNow()
+  const html = renderToStaticMarkup(<>{form!.render(() => {})}</>)
+  expect(html).toContain('role="combobox"')
+  expect(html).toContain('aria-controls="ffld-list"')
+  expect(html).toContain('aria-expanded="false"')
+  expect(html).toContain('placeholder="shop"')
+})

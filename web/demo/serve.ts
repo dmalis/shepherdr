@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Chat, Message, Snapshot, Task } from '../shared/types.ts'
 import { withLinks } from '../../service/artifact-links.ts'
 import { commandList } from '../../core/slash.js'
-import { artifacts, catalog, chats as seed, config, EV, snapshot } from './data.ts'
+import { artifacts, catalog, chats as seed, config, EV, foldersOf, newSpaceInfo, snapshot } from './data.ts'
 import { demoBuild, demoBuilds } from './builds.ts'
 // fork Needs you 5/6: what needs the person, worked out as the service does (service/attention.ts)
 import { withAttention } from '../shared/attention.ts'
@@ -446,13 +446,13 @@ Bun.serve<Sock['data'], never>({
       if (what === 'read') return Response.json({ size: 812, text: file.endsWith('.json') ? '{\n  "name": "shop",\n  "private": true,\n  "scripts": { "dev": "vite", "test": "vitest" }\n}\n' : `# ${file}\n\nA fictional file in the demo.\n` })
       return Response.json({ error: 'Ask for ls or read.' })
     }
-    // New space's recent folders and whether a folder is in a git repo (service/spaces.ts newSpaceInfo, folders)
-    if (path === '/api/newspace') return Response.json({ home: '/Users/sam', recent: ['/Users/sam/dev/shop', '/Users/sam/dev/recipes', '/Users/sam/dev/blog', '/Users/sam/dev/portfolio', '/Users/sam/notes'], start: '/Users/sam' })
-    if (path === '/api/folders') {
-      const p = url.searchParams.get('path') ?? '~'
-      const repo = /^~\/dev\/(shop|blog|garden|portfolio)(\/|$)/.exec(p)
-      return Response.json({ path: p, exists: !!repo || p === '~/notes', dir: true, repo: repo ? `~/dev/${repo[1]}` : null, entries: [] })
+    // New space's folder list, as the service answers (a machine that can't be reached: its error, 400)
+    if (path === '/api/newspace') {
+      const m = url.searchParams.get('machine') ?? 'mac-mini'
+      const info = newSpaceInfo(m, /(?:^|;\s*)demo-case=down/.test(req.headers.get('cookie') ?? ''))
+      return info ? Response.json(info) : Response.json({ error: `Couldn't reach ${m}. Try New space again once it's connected.` }, { status: 400 })
     }
+    if (path === '/api/folders') return Response.json(foldersOf(url.searchParams.get('machine') ?? 'mac-mini', url.searchParams.get('path') ?? '~'))
     if (path === '/api/action') {
       const body = (await req.json()) as Record<string, any>
       // ?case=fail (#94, slice 7): every action answers with an error, its words holding what a report must never
