@@ -4,8 +4,8 @@
 //   - scrolling back toward older messages: the bottom tabs go, the box folds to one row and the chat gets the room,
 //     with the chat's view not moved by it (the same scroll position, the same top);
 //   - a small scroll toward the newest message, a tap on the chat, focus in the box: all back;
-//   - the switch is a few layouts, and the slide after it none: counted by Chrome, not timed, so a slow runner can't
-//     fail it and a slide that lays out every frame can't pass;
+//   - what it costs, counted by Chrome rather than timed, so a slow runner can't fail it: the drag back with its
+//     switch and slide a few layouts and long tasks, not one a scroll frame; the switch a few layouts, the slide none;
 //   - with text in the box: nothing steps aside;
 //   - one big jump back from the newest message: the chat stays where it went (not pulled back to its end);
 //   - Motion Reduced: the switch is instant (no animation runs);
@@ -30,6 +30,9 @@ const TALL = 844
 /** the most layouts a switch's step may take, and its slide after it (see the end of check()) */
 const SWITCH = 6
 const SLIDING = 2
+/** the most layouts, and long tasks, the first 700 px drag back may take, its switch and slide included */
+const DRAG = 15
+const LONG = 6
 
 async function startDemo() {
   const probe = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() })
@@ -86,7 +89,21 @@ async function drag(page: Page, dy: number) {
 /** the layouts the page has done so far (Chrome's own count: the same on a fast machine and a slow one) */
 async function layouts(cdp: CDPSession) {
   const { metrics } = await cdp.send('Performance.getMetrics')
-  return metrics.find((m) => m.name === 'LayoutCount')?.value ?? 0
+  const n = metrics.find((m) => m.name === 'LayoutCount')?.value
+  if (n == null) throw new Error("Chrome gave no LayoutCount (Performance.enable first): the layout counts can't be read")
+  return n
+}
+
+/** drag(), counting what it cost: its layouts, and its long tasks (the page logs them from its start). A switch is
+ *  one style and layout of the page, a long task of its own on a slow runner; what repeats on the scroll frames, a
+ *  layout or a script, counts once a frame. */
+async function dragCost(page: Page, cdp: CDPSession, dy: number) {
+  const before = await layouts(cdp)
+  const t0 = await page.evaluate(() => performance.now())
+  await drag(page, dy)
+  const n = (await layouts(cdp)) - before
+  const long = await page.evaluate((t0) => (window as unknown as { __long: [number, number][] }).__long.filter(([at, d]) => at + d > t0).map(([, d]) => Math.round(d)), t0)
+  return { layouts: n, long }
 }
 
 /** What a switch costs, by count: drag steps (as drag()'s) only until the mark flips, then still while the box and
@@ -158,17 +175,27 @@ async function check(browser: Browser, base: string, s: Scene) {
     await page.evaluate(() => document.querySelector<HTMLElement>('.anote button[aria-label="Dismiss"], .anote .x')?.click())
     await page.waitForTimeout(300)
     const shot = async (what: string) => shots && page.screenshot({ path: `${shots}/${`${name} ${what}`.replace(/[^\w]+/g, '-')}.png` })
+    // every long task from here, with when it started (dragCost() takes a drag's)
+    await page.evaluate(() => {
+      const w = window as unknown as { __long: [number, number][] }
+      w.__long = []
+      new PerformanceObserver((l) => l.getEntries().forEach((e) => w.__long.push([e.startTime, e.duration]))).observe({ type: 'longtask' })
+    })
     const at = await state(page)
     expect(!at.reading && (at.tabs || !s.phone), `${name}: at the newest message, the tabs are there (${JSON.stringify(at)})`)
     await shot('1 newest')
 
-    await drag(page, -700)
+    const cost = await dragCost(page, cdp, -700)
     const up = await state(page)
     if (!s.phone) {
       expect(!up.reading, `${name}: a mouse window never steps aside`)
       return { name, fails, counts }
     }
     expect(up.reading, `${name}: scrolled back 700px, it reads (${JSON.stringify(up)})`)
+    // the whole drag back, its switch and the slide while it goes on scrolling: a few layouts and at most the
+    // switch's own long tasks and a few of the chat's, not one a scroll frame (35 steps, 70 frames)
+    counts.push(`700px drag ${cost.layouts}${cost.long.length ? `, long tasks ${cost.long.join(' ')} ms` : ''}`)
+    expect(cost.layouts <= DRAG && cost.long.length <= LONG, `${name}: the drag back is at most ${DRAG} layouts and ${LONG} long tasks (${cost.layouts}; ${cost.long.join(', ') || 'none'})`)
     expect(!up.tabs, `${name}: the tabs stepped aside`)
     expect(up.box < at.box, `${name}: the box folded to one row (${at.box} -> ${up.box})`)
     expect(up.chat - at.chat >= 100, `${name}: the chat got at least 100px more (${at.chat} -> ${up.chat})`)
@@ -229,7 +256,7 @@ async function check(browser: Browser, base: string, s: Scene) {
     // What a switch costs the main thread, both ways, as counts: its step (today 3 or 4 layouts) and nothing per frame
     // while the box and the tabs slide (today 1 as the slide ends, 0 with Motion Reduced). A slide drawn with layout
     // (a margin, height or top that moves, or a script that sizes and measures each frame) lays out every frame,
-    // 13 to 23 times here at normal speed and 10x slower: well past the bar on any runner. Not timed: a long task's
+    // 13 to 24 times here at normal speed and 10x slower: well past the bar on any runner. Not timed: a long task's
     // length is the runner's speed (the old "no long task while scrolling" failed at 54 ms on GitHub's shared runners
     // while the same commit passed, and 6 runs in 10 here at 10x slower).
     for (const dy of [40, -700]) {
