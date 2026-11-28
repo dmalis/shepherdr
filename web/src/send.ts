@@ -6,6 +6,7 @@ import { act, getState, holdReload, notice, setOutbox, setUI, type Outgoing } fr
 import { anchorOf, priorOf, reasonOf, SEND_TIMEOUT } from './outbox.ts'
 import { HttpError, postFile, retrying } from './uploads.ts'
 import { dropFile, fileOf, keepFile, sweepFiles, uploadedFile, whenSafe } from './draft.ts'
+import { sentFelt } from './feel.ts'
 
 /** an id of the screen's own (randomUUID needs https, and a tailnet link may be plain http) */
 const newCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -212,6 +213,9 @@ export function send(key: string, chat: string, text: string, hold = false, alon
     how: how ?? (alone ? 'bubble' : 'typed'),
   }
   const kept = setOutbox((all) => [...all, out])
+  // your send went into the outbox: a tap and, with sounds on, a quiet tick (fork #196). A Retry or one going on
+  // after a reload is silent
+  sentFelt(cid)
   // fork #149: the box lets go of what was sent only once the send is safe: kept by the outbox, or, when storage is
   // full, delivered. A file that failed to go up or that a reload lost stays, with its Try again or its words
   if (!alone) {

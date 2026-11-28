@@ -15,6 +15,7 @@ import { heartbeatDue, OPEN_WITHIN, PONG_LATE, PONG_WITHIN, retryIn, SAY_LOST_AF
 import { expire, loadOutbox, newlyFailed, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
 import { draftParts, keepDraft, keepEach, settleDrafts } from './draft.ts'
 import { say } from './live.ts'
+import { failedFelt, whenCalling } from './feel.ts'
 import { failedSendWords, LINK_BACK, LINK_LOST, LINK_UPDATING } from './states.ts'
 import { setupGuarded } from './guard.tsx'
 import { HttpError, wakeAll } from './uploads.ts'
@@ -486,13 +487,18 @@ export function setOutbox(fn: (out: Outgoing[]) => Outgoing[]): boolean {
 function putOutbox(out: Outgoing[]): boolean {
   if (out === state.outbox) return true
   // a send that just failed is said to a screen reader once (its bubble shows Not sent, with Retry and Remove)
-  for (const o of newlyFailed(state.outbox, out)) say(failedSendWords(o.error))
+  const failed = newlyFailed(state.outbox, out)
+  for (const o of failed) say(failedSendWords(o.error))
+  // and felt, once, when it was sent from this page, with Settings › General › Haptics and sounds (fork #196)
+  if (failed.length) failedFelt(failed.map((o) => o.cid))
   state = { ...state, outbox: out }
   const kept = saveOutbox(out)
   // a box waiting on a send the outbox couldn't keep lets go of it once it is safe (draft.ts)
   settleDrafts(out, kept)
   return kept
 }
+// a voice call's audio is the call's: no sound of the app's over it (fork #196)
+whenCalling(() => !!state.ui.call)
 if (typeof window !== 'undefined')
   setInterval(() => {
     const out = expire(state.outbox, Date.now(), (chat) => !!state.chats[chat]?.working)

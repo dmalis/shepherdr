@@ -1,6 +1,6 @@
 // What this device looks like (Settings › General), kept on this device only: Theme (System follows the device's light
 // or dark), Zoom (the whole app), Chat text size (the messages only), Chat width (the messages and the message box
-// alike) and Motion. index.html puts the theme on the page before the first paint.
+// alike), Motion and Haptics and sounds. index.html puts the theme on the page before the first paint.
 import { useSyncExternalStore } from 'react'
 import { TEXTS, ZOOMS, type TextSize, type Zoom } from './zoom-steps.ts'
 
@@ -8,10 +8,13 @@ import { TEXTS, ZOOMS, type TextSize, type Zoom } from './zoom-steps.ts'
 export const THEMES = ['System', 'Light', 'Dark', 'Night'] as const
 export const WIDTHS = ['Narrow', 'Medium', 'Wide'] as const
 export const MOTIONS = ['System', 'Reduced'] as const
+/** Haptics and sounds (fork #196, feel.ts): haptics where the device has them, and very quiet ticks on your sends */
+export const FEELS = ['Off', 'Haptics', 'Haptics and sounds'] as const
 export interface Prefs {
   theme: (typeof THEMES)[number]
   width: (typeof WIDTHS)[number]
   motion: (typeof MOTIONS)[number]
+  feel: (typeof FEELS)[number]
   /** percent: every px of the app's CSS is times this (web/zoom-css.ts) */
   zoom: Zoom
   text: TextSize
@@ -20,7 +23,7 @@ export interface Prefs {
 export const CHAT_WIDTH: Record<Prefs['width'], number> = { Narrow: 720, Medium: 880, Wide: 1040 }
 
 const KEY = 'shepherdr.prefs'
-const START: Prefs = { theme: 'System', width: 'Narrow', motion: 'System', zoom: 100, text: 'Default' }
+const START: Prefs = { theme: 'System', width: 'Narrow', motion: 'System', feel: 'Haptics', zoom: 100, text: 'Default' }
 /** the bars over the app (the browser's, the phone's status bar): the canvas */
 const BAR = { light: '#ffffff', dark: '#121212', night: '#000000' }
 /** the app's manifest in each, its background_color and theme_color the canvas (index.html picks it before the paint);
@@ -34,6 +37,7 @@ function load(): Prefs {
       theme: THEMES.includes(v.theme as Prefs['theme']) ? v.theme! : START.theme,
       width: WIDTHS.includes(v.width as Prefs['width']) ? v.width! : START.width,
       motion: MOTIONS.includes(v.motion as Prefs['motion']) ? v.motion! : START.motion,
+      feel: FEELS.includes(v.feel as Prefs['feel']) ? v.feel! : START.feel,
       zoom: ZOOMS.includes(v.zoom as Zoom) ? v.zoom! : START.zoom,
       text: TEXTS.includes(v.text as TextSize) ? v.text! : START.text,
     }

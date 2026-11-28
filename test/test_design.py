@@ -12,7 +12,8 @@
 - the grey of second lines (`--muted`) at 4.5:1 on the page, a field, an agent's bubble and your own, in light, the
   device's dark, Dark and Night;
 - reduced motion: whatever moves (a transform, or a box's size or place, in a transition or an animation) has a rule
-  that stops it under each switch alone, the device's and Settings › General › Motion's, and script asks calm().
+  that stops it under each switch alone, the device's and Settings › General › Motion's, and script asks calm();
+- haptics: `navigator.vibrate` only in web/src/feel.ts's haptic(), and no hidden native switch clicked from script.
 
 What each file holds today is its cap below: a count may go down, never up, and a new file starts at none. A cap above
 what a file holds fails too, so lower it with the change that removed some. Moving rules to another file moves their
@@ -641,6 +642,28 @@ class ReducedMotion(unittest.TestCase):
         calls = [line for line in motion.splitlines() if re.search(r"\bstill\(\)", line)]
         self.assertEqual(len(calls), 1, calls)
         self.assertRegex(calls[0], r"^export const calm = \(\) => still\(\) \|\|")
+
+
+class Haptics(unittest.TestCase):
+    """docs/design.md, Haptics and sounds (fork #196): every haptic goes through web/src/feel.ts's haptic(), which
+    Settings › General › Haptics and sounds Off and either reduced-motion switch turn off; and no script fakes an iPhone
+    haptic by clicking a hidden native switch. web/src/feel.test.ts plays them."""
+
+    FEEL = "web/src/feel.ts"
+
+    def test_vibrate_only_in_feel(self):
+        own = [rel for rel in files(".ts", ".tsx") if rel.startswith(SCRIPTS) and rel != self.FEEL
+               and re.search(r"\.vibrate\b|\[.vibrate.\]", code(rel))]
+        self.assertEqual(own, [], "a haptic goes through haptic() from web/src/feel.ts")
+        feel = code(self.FEEL)
+        self.assertEqual(len(re.findall(r"navigator\.vibrate\(", feel)), 1)
+        self.assertRegex(feel, r"if \(!canBuzz\(\) \|\| getPrefs\(\)\.feel === 'Off'\) return\n\s*try \{\n\s*if \(calm\(\)\) return\n\s*navigator\.vibrate\(")
+
+    def test_no_hidden_switch(self):
+        # Safari's switch checkbox gives its haptic when the person flips it; one made and clicked by script is a fake
+        faked = [rel for rel in files(".ts", ".tsx") if rel.startswith(SCRIPTS)
+                 and re.search(r"setAttribute\(\s*'switch'|\.switch\s*=\s*true|\bbuzz\(", code(rel))]
+        self.assertEqual(faked, [], "no hidden switch clicked from script (docs/design.md: Haptics and sounds)")
 
 
 def theme(name):

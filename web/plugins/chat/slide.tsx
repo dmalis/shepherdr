@@ -9,6 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPE } from 'react'
 import { getState, setUI } from '@client/kernel.ts'
 import { attr } from '@client/attr.ts'
+import { haptic } from '@client/feel.ts'
 import { calm } from '@client/motion.ts'
 import { zoomNow } from '@client/prefs.ts'
 import { cx, I } from '@client/ui.tsx'
@@ -17,16 +18,10 @@ import { placeOf } from '@shared/view.ts'
 import type { Task } from '@shared/types.ts'
 import { Finger, HOLD_MS, leftOf, REPLY_AT } from './press.ts'
 
-/** a light tick, where the device has one (Android; iPhones have no web haptics). Reduced motion, the device's or
- *  Settings › General › Motion, turns it off (fork #185, docs/design.md: Haptics and sounds). */
-export const tick = (ms = 8) => {
-  if (calm()) return
-  try {
-    navigator.vibrate?.(ms)
-  } catch {
-    /* not allowed here */
-  }
-}
+/** a light tick, where the device has one (Android; iPhones have no web haptics), as the slide crosses its mark or a
+ *  hold opens its menu. Settings › General › Haptics and sounds Off, and reduced motion (the device's or Settings ›
+ *  General › Motion), turn it off (fork #196, web/src/feel.ts, docs/design.md: Haptics and sounds). */
+export const tick = (ms = 8) => haptic(ms)
 
 /** The click a finger's lift makes after a hold would land on the menu's backdrop the hold just opened, and close it:
  *  the next click (within a moment of the lift) is swallowed. */
