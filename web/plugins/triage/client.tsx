@@ -7,7 +7,7 @@
 // No, as Linear's Triage accepts or declines one issue at a time; the answer is kept by the service only, bound to that
 // text's hash, so a changed text asks again. Switched off (Settings › Plugins), the page and the cards are gone and
 // Triage does nothing.
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { act, attempt, definePlugin, notice, tryAct, useSnap } from '@client/kernel.ts'
 import { AppliesTo, useAppliesTo } from '@client/applies-to.tsx'
 import { Choice as Seg } from '@client/choice.tsx'
@@ -172,36 +172,54 @@ const batchIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).fi
 
 const Tick = ({ on, part }: { on: boolean; part?: boolean }) => <span className={`cbx${on || part ? ' on' : ''}`} aria-hidden="true">{on ? <I n="check" /> : part ? <I n="minus" /> : null}</span>
 
+/** the list a review shows: the one the person opened, kept while the live one differs (it then says it changed), and the
+ *  live one once the change is their own Post's -> {list, stale} */
+export function batchShown(shown: TriageCard, live: TriageCard, theirs: boolean): { list: TriageCard; stale: boolean } {
+  if (live.hash === shown.hash) return { list: shown, stale: false }
+  return theirs ? { list: live, stale: false } : { list: shown, stale: true }
+}
+
 /** The batch part of the list: every draft one Yes would post, its exact title and text, grouped by kind, each ticked;
  *  untick any to keep it out (GitHub's issue list, Gmail and Linear: a select-all with its count, one bulk action). The
- *  Yes sends the card's hash, so it is for the list shown here; its state is the skip list only, so a list that changes
- *  while it is open shows the change, new drafts ticked, and the service refuses a Yes for the old one. */
+ *  Yes sends the hash of the list shown, so it is for what the person read: a list that changes while it is open stays as
+ *  it was, says it changed and posts nothing until they show the new one (as GitHub's "This page is out of date"); after
+ *  their own Post, the list left takes its place. The unticked stay unticked. */
 function BatchPart({ c }: { c: TriageCard }) {
+  const [shown, setShown] = useState(c)
   const [skip, setSkip] = useState<Set<string>>(() => new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const items = c.items ?? []
+  // set while the person's own Post goes and right after: the change it makes is theirs, so the new list is taken
+  const adopt = useRef(false)
+  const view = batchShown(shown, c, adopt.current)
+  const stale = view.stale
+  useEffect(() => { if (view.list !== shown) { adopt.current = false; setShown(view.list) } }, [view.list, shown])
+  const items = shown.items ?? []
   const ticked = items.filter((x) => !skip.has(itemId(x)))
   const all = ticked.length === items.length
   const flip = (id: string) => setSkip((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const post = async () => {
-    if (!ticked.length || busy) return
+    if (!ticked.length || busy || stale) return
     setBusy(true)
     setError(null)
+    adopt.current = true
     try {
-      const r = await act<{ ok?: boolean; error?: string; kept?: number; changed?: number | boolean }>({ type: 'triage', do: 'answer', answer: 'yes', kind: 'batch', hash: c.hash, skip: [...skip] })
-      if (r.ok === false) { setError(r.error || 'That did not work.'); return }
+      const r = await act<{ ok?: boolean; error?: string; kept?: number; changed?: number | boolean }>({ type: 'triage', do: 'answer', answer: 'yes', kind: 'batch', hash: shown.hash, skip: [...skip] })
+      if (r.ok === false) { adopt.current = false; setError(r.error || 'That did not work.'); return }
+      // a list that never came back changed (a slow link) is not theirs for ever: a later change asks again
+      setTimeout(() => { adopt.current = false }, 10_000)
       const kept = r.kept ?? 0, changed = Number(r.changed) || 0
       // the unticked ones stay here, still unticked: kept private until the person ticks them
       notice(`${plural(kept, 'finding')} will be posted, a couple of seconds apart.${changed ? ` ${plural(changed, 'finding')} changed since you read ${changed === 1 ? 'it' : 'them'} and wait${changed === 1 ? 's' : ''} again.` : ''}`, { tone: 'ok' })
     } catch (e) {
+      adopt.current = false
       setError(e instanceof Error && e.message ? e.message : 'That did not work.')
     } finally { setBusy(false) }
   }
   return (
     <section className="tri-batch" aria-labelledby="tri-batch-h">
       <div className="lab" id="tri-batch-h">One Yes for these · {items.length}</div>
-      <p className="hint">They passed the privacy check. Each ticked one becomes its own issue in {c.repo}, exactly as written here. Untick any you’d rather keep private: it waits here for later.</p>
+      <p className="hint">They passed the privacy check. Each ticked one becomes its own issue in {shown.repo}, exactly as written here. Untick any you’d rather keep private: it waits here for later.</p>
       <Row className="tri-all" lead={<Tick on={all} part={!all && ticked.length > 0} />} label={all ? `All ${items.length} ticked` : `${ticked.length} of ${items.length} ticked`}
         role="checkbox" aria-checked={all ? true : ticked.length ? 'mixed' : false} onClick={() => setSkip(all ? new Set(items.map(itemId)) : new Set())} />
       {KINDS.map(([k, name]) => {
@@ -227,8 +245,10 @@ function BatchPart({ c }: { c: TriageCard }) {
       })}
       <div className="tri-foot">
         {error && <p className="tri-err" role="alert">{error}</p>}
+        {stale && <p className="tri-why" role="status"><I n="warn" />The list changed since you opened it. Look at the new one before you post.</p>}
         <div className="acts">
-          <Btn kind="pri" disabled={busy || !ticked.length} onClick={() => void post()}>{busy ? 'Saving…' : ticked.length ? `Post ${plural(ticked.length, 'finding')}` : 'Nothing ticked'}</Btn>
+          {stale && <Btn onClick={() => { setShown(c); setError(null) }}>Show the new list</Btn>}
+          <Btn kind="pri" disabled={busy || stale || !ticked.length} onClick={() => void post()}>{busy ? 'Saving…' : ticked.length ? `Post ${plural(ticked.length, 'finding')}` : 'Nothing ticked'}</Btn>
         </div>
       </div>
     </section>

@@ -123,9 +123,10 @@ def creates_left(d, repo, at=None):
 
 
 def bulk_left(d, repo, at=None):
-    """Creates the batch may still make this hour: every create to the repo (capped or the batch's) counts."""
+    """Creates the batch may still make this hour: every create Triage made (capped or the batch's), in every repo,
+    counts, as GitHub's content limit is the login's, not a repo's (`repo` is kept for the caller's symmetry)."""
     at = at or now()
-    made = [t for k in ("creates", "bulk") for t in (d.get(k) or {}).get(repo.lower(), []) if at - t < HOUR_MS]
+    made = [t for k in ("creates", "bulk") for ts in (d.get(k) or {}).values() if isinstance(ts, list) for t in ts if at - t < HOUR_MS]
     return BULK_HOUR - len(made)
 
 

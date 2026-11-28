@@ -1021,6 +1021,59 @@ class BatchYes(Triaged):
         self.assertEqual(fb.problems_read()[a]["state"], "filed")
         self.assertEqual([w["key"] for w in tpub.waiting_rows()], [b])
 
+    def test_a_word_denied_during_the_pass_stops_the_next_batch_post(self):
+        a, b = self.hold(2)
+        self.batch_yes([a, b])
+        base, reads = tri.ctx_for, []
+
+        def ctx(folder, repo, d=None):
+            reads.append(1)
+            c = base(folder, repo, d)
+            if len(reads) > 2:  # after the pass's own read and the first post's, a daily read adds b's words
+                c = {**c, "deny": {**c["deny"], "words": c["deny"]["words"] + ["number bb"]}}
+            return c
+        with mock.patch.object(tri, "ctx_for", ctx):
+            out = tpub.publish()
+        self.assertEqual((out["posted"], len(self.hub.creates())), (1, 1), out)
+        self.assertEqual(fb.problems_read()[a]["state"], "filed")
+        self.assertEqual([(w["key"], w["batch"]) for w in tpub.waiting_rows()], [])  # the deny list is back as it was
+
+    def test_a_copy_decided_on_its_own_machine_never_posts_after_a_batch_yes(self):
+        there = os.path.join(self.dir, "there.json")
+        with open(there, "w") as f:
+            json.dump({"vm-b": [{"id": "b1", "line": "Search misses archived spaces", "details": "From the other machine.", "space": "sp1"},
+                                {"id": "b2", "line": "The tab bar hides the last tab", "details": "From the other machine.", "space": "sp1"}]}, f)
+        tpub.publish(there)
+        rows = []
+        with tri.record() as d:
+            for key in ("vm-b:b1", "vm-b:b2"):
+                dr = d["copies"][key]["draft"]
+                rows.append({"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "at": 1, "by": "app", "batch": "b" * 64,
+                             "hash": tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))})
+            d["copies"]["vm-b:b1"]["there_done"] = True  # declined on vm-b after the batch's yes
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": rows}, f)
+        tpub.publish()
+        made = self.hub.creates()
+        self.assertEqual(len(made), 1, made)
+        self.assertNotIn("archived spaces", json.dumps(made))
+        self.assertNotIn("post", self.record()["copies"]["vm-b:b1"])
+
+    def test_a_full_batch_ceiling_leaves_everyday_posts_going(self):
+        keys = self.hold(2)
+        self.batch_yes(keys)
+        own = self.report(line="The send button stays grey after a paste")  # Triage posts this one by itself
+        with mock.patch.object(tgh, "BULK_HOUR", 0):
+            out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 1, out)
+        self.assertEqual(fb.problems_read()[own]["state"], "filed")
+        self.assertIn("batch's pace", out["why"])
+
+    def test_the_batch_ceiling_counts_every_repo(self):
+        t = tgh.now()
+        d = {"creates": {"a/x": [t, t]}, "bulk": {"b/y": [t, t, t], "c/z": [t - tgh.HOUR_MS - 1]}}
+        self.assertEqual(tgh.bulk_left(d, "c/z"), tgh.BULK_HOUR - 5)
+
     def test_a_pass_with_its_time_up_stops_and_says_more(self):
         keys = self.hold(6)
         self.batch_yes(keys)

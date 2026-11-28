@@ -24,8 +24,9 @@ const YES_KEPT = 1000; // room for the backlog's batch (a hundred or more answer
 /** GitHub's own limits on an issue's title and body: a card carries its text whole up to them */
 const TITLE_MAX = 300, BODY_MAX = 65_536;
 export const PUBLISH_EVERY = 10 * 60_000;
-/** one publisher pass's time (s), well under triageRun's 5-minute limit */
-export const PASS_S = 200;
+/** one publisher pass's time (s): a gh call started at its end (gh's own 120 s limit, triage_gh.py) still settles its
+ *  row and answers within triageRun's 5-minute limit */
+export const PASS_S = 150;
 
 const store = () => process.env.HERDR_TASK_STORE || where().tasks;
 const readJson = (path: string): any => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
@@ -99,7 +100,9 @@ function inForceOf(dir: string): (y: any) => boolean {
     if (y.kind === "start") return !!tri?.repos?.[String(y.repo ?? "").toLowerCase()]?.asks?.[String(y.issue)];
     const key = String(y.key ?? "");
     const p = (key.includes(":") ? tri?.copies : fb?.problems)?.[key];
-    return !!p && typeof p === "object" && p.draft?.rev === y.rev;
+    if (!p || typeof p !== "object" || p.draft?.rev !== y.rev) return false;
+    // a settled finding (filed, posted, declined, joined, done on its machine) needs its answer no more
+    return !(p.there_done || p.joined || ["filed", "declined"].includes(p.state) || p.post?.state === "posted" || ["declined", "following"].includes(p.decision));
   };
 }
 
@@ -118,7 +121,8 @@ function keepRows(dir: string, add: Record<string, unknown>[], same: (y: any, ro
     const inForce = inForceOf(dir);
     const live = next.filter((y) => add.includes(y) || inForce(y));
     const room = Math.max(0, YES_KEPT - live.length);
-    next = [...(room ? next.filter((y) => !live.includes(y)).slice(-room) : []), ...live].slice(-YES_KEPT);
+    // every answer in force stays, past the cap if it must (a No above all): only retired ones make room
+    next = [...(room ? next.filter((y) => !live.includes(y)).slice(-room) : []), ...live];
     next.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
   }
   const tmp = `${path}.${process.pid}.tmp`;
@@ -177,8 +181,10 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
     if (String(dr.target?.repo ?? "").toLowerCase() !== repo.toLowerCase()) return { ok: false, error: "Where it goes changed in Settings: nothing was kept." };
     if (dr.rev !== b.rev || yesHash(dr.target, dr.title, shown(dr.body)) !== b.hash) return { ok: false, error: CHANGED, changed: true };
     // a card is answered once for its text: the same answer again (another device) changes nothing; the other one,
-    // from a card left open elsewhere, doesn't overturn it (a Not now or Never since takes the earlier one back)
-    const was = said(dir, (y) => y.kind === "draft" && y.key === key && y.rev === dr.rev && y.hash === b.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0));
+    // from a card left open elsewhere, doesn't overturn it (a Not now or Never since takes the earlier one back). A
+    // batch's yes is no answer here: a draft on its own card after one is there because the privacy check held it back
+    // since, and its own Yes or No takes the batch's place
+    const was = said(dir, (y) => y.kind === "draft" && !y.batch && y.key === key && y.rev === dr.rev && y.hash === b.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0));
     if (was) return was === answer ? { ok: true } : { ok: false, error: ANSWERED[was] };
     keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
     return { ok: true };

@@ -4,7 +4,8 @@
 
 /** what can take focus inside a layer, in order (a video's own controls too: the browser moves within them) */
 // tabindex -1 is out of Tab's order (a list's rows that ↑ ↓ move through, as New space's folder list)
-const FOCUSABLE = ['a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type=hidden])', 'select:not([disabled])', 'textarea:not([disabled])', 'video[controls]', 'audio[controls]', '[tabindex]', '[contenteditable="true"]'].map((s) => `${s}:not([tabindex="-1"])`).join(', ')
+// a fold's own summary too (details > summary, which the browser puts in Tab's order: Triage's "The text")
+const FOCUSABLE = ['a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type=hidden])', 'select:not([disabled])', 'textarea:not([disabled])', 'details > summary:first-of-type', 'video[controls]', 'audio[controls]', '[tabindex]', '[contenteditable="true"]'].map((s) => `${s}:not([tabindex="-1"])`).join(', ')
 
 /** a field to type or choose in */
 const FIELDS = 'input:not([type=hidden]), textarea, select'

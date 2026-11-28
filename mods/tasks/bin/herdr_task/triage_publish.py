@@ -177,15 +177,17 @@ def post_args(dr):
 
 def post_one(key, copy, pub, ctx):
     """Posts one row's stored draft once. -> "posted", "refused", "unsure", "waits" (didn't go out: no yes for this very
-    text, the check or GitHub's limit), "pace" (Triage's own cap is full: it waits, a batch's posts still go) or "stop"
-    (the level, the destination, the pause or the batch's ceiling: nothing more this pass). Whether it may go (the app's yes for this exact draft, or every field from the repo's space and the
+    text, the check or GitHub's limit), "pace" or "bulk-pace" (Triage's own cap, or the batch's ceiling, is full: it
+    waits, and the other kind still goes) or "stop" (the level, the destination, the pause or GitHub's limit: nothing more this
+    pass). Whether it may go (the app's yes for this exact draft, or every field from the repo's space and the
     privacy check) is decided under the same lock that reserves the post: a draft replaced meanwhile is judged as it is."""
     with rows_lock(copy) as ps:
         p = ps.get(key)
         d = read_settings()
         if tri.publisher(d) != pub:  # the level, destination and pause, read again under the record's lock
             return "stop"
-        if not isinstance(p, dict) or not eligible(p) or not isinstance(p.get("draft"), dict):
+        # a copy whose finding was decided on its own machine (declined, filed there) since its yes never posts here
+        if not isinstance(p, dict) or not eligible(p) or p.get("there_done") or p.get("joined") or not isinstance(p.get("draft"), dict):
             return "waits"
         dr = p["draft"]
         if str(dr["target"].get("repo") or "").lower() != pub["repo"].lower():
@@ -198,8 +200,12 @@ def post_one(key, copy, pub, ctx):
         # a yes from the backlog's batch card: never past the privacy check (the batch holds only drafts that pass it;
         # one that fails now waits for its own card), and paced by GitHub's limits instead of Triage's cap
         bulk = bool(yes) and dr["target"]["action"] == "create" and tri.yes_for(key, p, pub["repo"], batch=True)
-        if bulk and privacy(p, dr, lambda t: _check(t, ctx)):
-            return "waits"
+        if bulk:
+            # the privacy inputs read again for each batch post (a word added to the deny list during the pass counts),
+            # used for this check and for the wrapper's own check of the text right before gh
+            ctx = tri.ctx_for(pub["folder"], pub["repo"])
+            if privacy(p, dr, lambda t: _check(t, ctx)):
+                return "waits"
         post = {"state": "posting", "rev": dr["rev"], "target": dr["target"], "started": now(),
                 "mark": fpost.mark_of(dr["body"]) or fpost.marker(key, dr["rev"]), "by": "triage"}
         ps[key] = {**p, "draft": dr, "post": post}
@@ -216,9 +222,9 @@ def post_one(key, copy, pub, ctx):
             p = ps.get(key) or {}
             if (p.get("post") or {}).get("started") == post["started"]:
                 ps[key] = {k: v for k, v in p.items() if k != "post"}
-        # Triage's own cap full: this one waits, and the batch's posts (paced apart) still go this pass
-        if res.why == "pace" and not bulk:
-            return "pace"
+        # a cap full (Triage's own, or the batch's ceiling): this one waits, and the other kind still goes this pass
+        if res.why == "pace":
+            return "bulk-pace" if bulk else "pace"
         return "waits" if res.why in ("private", "hit", "unsure") else "stop"
     urls = re.findall(r"https://github\.com/\S+", res.out or "")
     if res.ok and urls:
@@ -427,7 +433,7 @@ def publish(there=None, for_s=None):
                 if (p.get("post") or {}).get("state") in ("unsure",) or fpost.stale(p.get("post") or {}):
                     todo.append((key, "reconcile"))
                     continue
-                if not eligible(p) or p.get("joined"):
+                if not eligible(p) or p.get("joined") or p.get("there_done"):  # decided on its own machine: no draft, no post
                     continue
                 dr = keep_draft(ps, key, compose(p), pub["repo"])
                 todo.append((key, "post"))
@@ -441,9 +447,11 @@ def publish(there=None, for_s=None):
                 continue
             r = post_one(key, copy, pub, ctx)
             if r == "stop":
-                out["why"] = "Stopped: the level, the destination, the pause or GitHub's limit or pace changed."
+                out["why"] = "Stopped: the level, the destination, the pause or GitHub's limit changed."
                 return out
             if r == "pace":  # Triage's own cap: the rest of the everyday posts wait for the next hour, the batch's go on
                 out.setdefault("why", "Triage's pace: at most 10 new issues an hour and 30 a day per repo; the rest wait.")
+            if r == "bulk-pace":  # the batch's ceiling: its rest waits, everyday posts still go
+                out.setdefault("why", f"The batch's pace: at most {tgh.BULK_HOUR} new issues an hour; the rest wait.")
             out[r if r in out else "waits"] += 1
     return out

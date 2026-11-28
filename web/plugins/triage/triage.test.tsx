@@ -13,7 +13,7 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { batchShown, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
@@ -251,4 +251,13 @@ test('the demo backlog is one card of 150: 85 in the batch, 65 held', () => {
   expect(t).toContain('150 findings wait to be posted to GitHub')
   expect(t).toContain('One Yes posts the 85 that passed the privacy check')
   expect(t).toContain('The other 65 wait for your answer one by one')
+})
+
+test('an open review keeps the list the person read: a change from elsewhere says so and posts nothing; their own Post takes the new one', () => {
+  const base = snapshot('triage') as Snapshot
+  const read = withBatch(base, 4, 0).triage!.cards[0]!
+  const now = { ...read, hash: 'a'.repeat(64), items: read.items!.slice(1) }
+  expect(batchShown(read, { ...read }, false)).toEqual({ list: read, stale: false })
+  expect(batchShown(read, now, false)).toEqual({ list: read, stale: true })
+  expect(batchShown(read, now, true)).toEqual({ list: now, stale: false })
 })

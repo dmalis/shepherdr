@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { answerBatch, batchHash, itemId, PASS_S, Publisher, viewOf, yesHash } from "./triage.ts";
+import { answerBatch, answerCard, batchHash, itemId, PASS_S, Publisher, viewOf, yesHash } from "./triage.ts";
 
 const REPO = "acme/shepherdr";
 const SETTINGS = { everywhere: { agents: { feedback_repo: REPO } } };
@@ -115,4 +115,38 @@ test("the publisher's pass has its time, and a batch with more runs the next pas
   more = false;
   expect(await p.tick(1_120_000)).toBe(true);
   expect(await p.tick(1_180_000)).toBe(false); // done: back to every ten minutes
+});
+
+test("a draft back on its own card after a batch yes takes its own No, or its own Yes, in the batch's place", () => {
+  for (const answer of ["no", "yes"] as const) {
+    const dir = store(2);
+    const v = viewOf({ files: REPO, drafts: drafts(2) });
+    expect(answerBatch({ answer: "yes", hash: v.cards[0]!.hash }, v, dir, SETTINGS, 5).ok).toBe(true);
+    // the privacy check held k1 back since: its own card answers it, and its batch yes goes
+    const out = answerCard({ answer, kind: "draft", key: "k1", copy: false, rev: 1, hash: yesHash(T, "Problem 1", "Body 1") }, dir, SETTINGS, 9);
+    expect(out).toEqual({ ok: true });
+    const k1 = yeses(dir).filter((y: any) => y.key === "k1");
+    expect(k1).toHaveLength(1);
+    expect(k1[0].batch).toBeUndefined();
+    expect(k1[0].answer ?? "yes").toBe(answer);
+  }
+});
+
+test("trimming the answers keeps every one in force, a No above all; a filed finding's yes is retired first", () => {
+  const dir = store(1);
+  const fb = JSON.parse(readFileSync(join(dir, ".feedback.json"), "utf8"));
+  const old: any[] = [];
+  for (let i = 0; i < 999; i++) {
+    fb.problems[`f${i}`] = { id: `f${i}`, line: "Filed", state: "filed", draft: { rev: 1, target: T, title: "Filed", body: "B", by: "triage" } };
+    old.push({ kind: "draft", repo: REPO, key: `f${i}`, rev: 1, hash: "e".repeat(64), at: 10 + i, by: "app" });
+  }
+  writeFileSync(join(dir, ".feedback.json"), JSON.stringify(fb));
+  // k1's No, the oldest row of all, then 999 filed yeses
+  writeFileSync(join(dir, ".triage-yes.json"), JSON.stringify({ yes: [{ kind: "draft", repo: REPO, key: "k1", rev: 1, hash: yesHash(T, "Problem 1", "Body 1"), at: 1, by: "app", answer: "no" }, ...old] }));
+  const v = viewOf({ files: REPO, drafts: [drafts(1).at(-1)!] }); // the copy only
+  expect(answerBatch({ answer: "yes", hash: v.cards[0]!.hash }, v, dir, SETTINGS, 5000)).toMatchObject({ ok: true, kept: 1 });
+  const rows = yeses(dir);
+  expect(rows.length).toBeLessThanOrEqual(1000);
+  expect(rows.find((y: any) => y.key === "k1")).toMatchObject({ answer: "no" });
+  expect(rows.find((y: any) => y.key === "vm-b:c1")).toBeTruthy();
 });
