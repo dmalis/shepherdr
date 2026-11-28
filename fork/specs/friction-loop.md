@@ -237,7 +237,7 @@ the person didn't see.
   submit"): where it goes, in words ("A new issue in eliasstravik/shepherdr", "A comment on “<title>” in
   owner/name"), then the title and body exactly as they will be posted, redactions shown as `<name>`, `<host>`. Its
   primary button is **Post it**; Cancel closes it. A line set in Settings (`agents.feedback_note`, empty by default) shows
-  above it; ours says "Posting also starts a fix in this repo's space" ([The fork's parts](#the-forks-parts)). Post it records an approval for that revision and target
+  above it; ours says "A new issue posted here also starts a fix in this repo's space" ([The fork's parts](#the-forks-parts)). Post it records an approval for that revision and target
   (the service runs `herdr-task feedback --key K --approve <rev>`, a command refused in any agent's terminal, as
   `fork/bin/sync clear-broken` is), then sends the origin's Assistant the person's message "Post the feedback about
   “<line>”" with a hidden `<hc feedback id="…" rev="N"/>` line, the way a reply carries `<hc reply-to>`
@@ -505,7 +505,8 @@ page or in chat, on the draft.
 ## Build plan
 
 Each slice is one task, added `--after` the slice it names (or this spec), small enough to review in one sitting.
-Each is a patch (fork-patch skill): its own issue labelled `patch` that links #94, its own `fork/patches/<n>.json`, tests
+Each is a patch (fork-patch skill) under #94: its pull request says `Part of #94` and adds its files and tests to
+`fork/patches/94.json` (as slices 1 to 9 did), with tests
 pinning the upstream seams it relies on, and upstream's style. UI slices use the frontend-design skill plus
 better-layout, better-typography and better-accessibility, follow the Motion setting, and screenshot phone and
 desktop, light and dark. Each starts with the "check upstream first" rule (#83). Slices 1 and 2 alone fix the loss in
@@ -704,8 +705,8 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **Files:** `fork/bin/found` (the sweep, `took`, `task`, resending pending ones), `fork/tests/test_found.py`, FORK.md ("Every
   friction is a candidate fix" in line with the page), the shaping-a-request and upstream-sync skills (step 7 runs
   `--installed`), and `agents.feedback_note` (a new Everywhere text setting, empty by default: one line the
-  confirmation sheet shows above Post it; ours, in the person's settings file: "Posting also starts a fix in this
-  repo's space"), in `feedback.py`'s settings and the sheet.
+  confirmation sheet shows above Post it; ours, in the person's settings file: "A new issue posted here also starts
+  a fix in this repo's space": a comment starts none), in `feedback.py`'s settings and the sheet.
 - **Tests:** a handoff is made once per issue identity; a comment makes none; a post found `posted` only by
   reconciling gets a handoff on the next run; a failed send stays pending and is sent again; a delivered message
   whose answer was lost, sent again, makes one piece of work (`found task` answers with the first one), for a new
@@ -713,6 +714,20 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   patch list's issues (`fork/patches/`) with the installed build.
 - **Demo:** a scratch store: approve and file a problem to a fake repo, claim it, fail the first send, run again:
   one message, one task.
+- **As built:** `fork/bin/found` alone (sweep and send), `found task <issue>`, `found took <issue> --task <key>` and
+  `found installed <build>`, each one JSON line; its record is `~/.local/state/shepherdr-fork/found.json`, keyed
+  `owner/name#n` with the repo lower-cased. A handoff comes from a `posted` create on our repo, the current round's
+  or an earlier one's (`before`). The Assistant it sends to is this machine's in the space folder (`herdr-task
+  assistants --json`), never Everything's; with none running, it stays pending. A second `took` naming another task
+  is refused and names the first. A new task carries the issue's link in its brief, so `found task` finds a task
+  added before a lost `took` (by that link, in the space's `herdr-task list`); a repeated reply lands in the same
+  running task. The issue's text stays as approved: the shaping goes in the brief. With no `--folder`, the space is
+  the git repo `found` itself is in, so a filing Assistant in another space still hands off here. The daily caller is every run of the upstream-sync skill (its step 7), both
+  schedules. `found installed` reads the patch list at that commit and each issue's "Device check:" lines with `gh
+  issue view`; an issue it can't read goes without Try it words. `agents.feedback_note` was already read by slice 4
+  (the sheet and the chat draft); this slice adds its Everywhere-only row and save in the service's settings and its
+  line in docs/settings.md. Like Feedback repo, the web app's Settings shows no row for it: it lives in the settings
+  file.
 
 ### Later, not planned yet
 

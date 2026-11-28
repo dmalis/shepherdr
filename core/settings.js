@@ -102,7 +102,8 @@ export function upgradeReactions(cfg) {
 }
 // Feedback offers (herdr-task's feedback.py, SHEP-78): an agent that hits a problem in Shepherdr itself offers once to
 // file it as a GitHub issue, filed only on your yes. Kept as agents.feedback (on unless turned off) and, Everywhere's
-// only, agents.feedback_repo (the repo it files to; empty: upstream Shepherdr's).
+// only, agents.feedback_repo (the repo it files to; empty: upstream Shepherdr's) and agents.feedback_note (one line File
+// it… shows above Post it, and the chat's draft ends with; empty by default; #94).
 export const FEEDBACK = {
   title: "Feedback offers",
   about: "When Shepherdr itself misbehaves, agents offer once to file it as a GitHub issue, only with your yes.",
@@ -110,6 +111,9 @@ export const FEEDBACK = {
   repoAbout: "Where feedback issues go, as owner/name. Empty: Shepherdr's own repo.",
   repo: "eliasstravik/shepherdr",
   bad: "Write it as owner/name, like eliasstravik/shepherdr.",
+  noteTitle: "Feedback note",
+  noteAbout: "One line shown with every feedback post before you say Post it, such as what posting also starts. Empty: none.",
+  noteMax: 200,
 };
 // owner/name from what was typed (owner/name or a github.com link), "" for empty, null when it isn't one.
 export function feedbackRepo(v) {

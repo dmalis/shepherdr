@@ -197,7 +197,7 @@ test("Agents and Tasks say the window's words: the model button, Other CLI, Must
   s.start();
   s.choices = C.choicesFrom({ claude: { model: "opus[1m]", effort: "high", per: {} }, codex: { models: [{ id: "gpt-5", label: "GPT-5", efforts: ["low", "high"] }] } });
   const agents = s.sections(null).find((x) => x.name === "Agents" && x.level === "all")!;
-  expect(agents.rows.map((r) => r.label)).toEqual(["Assistant", "Workers", "Reviewer", "Backup agent", "Reactions", "Suggested replies", "Feedback offers", "Feedback repo"]);
+  expect(agents.rows.map((r) => r.label)).toEqual(["Assistant", "Workers", "Reviewer", "Backup agent", "Reactions", "Suggested replies", "Feedback offers", "Feedback repo", "Feedback note"]);
   expect(agents.rows[0].value).toBe("Opus 5.5 · 1M · High");
   expect(agents.rows[2]).toMatchObject({ value: "Other CLI (Codex)", agent: { unset: true, other: false } });
   const tasks = s.sections(null).find((x) => x.name === "Tasks" && x.level === "all")!;
@@ -270,6 +270,24 @@ test("Feedback offers and its repo", () => {
   expect(() => s.set("agents.feedback_repo", "nope nope", "all")).toThrow();
   expect(() => s.set("agents.feedback_repo", "acme/x", "sp7", sp)).toThrow();
   s.set("agents.feedback_repo", "", "all");
+  expect(JSON.parse(readFileSync(file, "utf8")).everywhere?.agents).toBeUndefined();
+});
+
+// #94, slice 9: the line File it… shows above Post it (and the chat's draft ends with), Everywhere's only, empty by default
+test("Feedback note: one line, Everywhere's only", () => {
+  writeFileSync(file, "{}");
+  const s = new Settings();
+  s.start();
+  const sp = { id: "sp7", name: "shop", machine: null, folder: "/shop" };
+  const row = (level: string) => s.sections(null, [sp]).find((x) => x.name === "Agents" && x.level === level)!.rows;
+  expect(row("all").find((r) => r.key === "agents.feedback_note")).toMatchObject({ label: "Feedback note", value: "", text: true });
+  expect(row("sp7").find((r) => r.key === "agents.feedback_note")).toBeUndefined();
+  s.set("agents.feedback_note", "  Posting also\n starts a fix here. ", "all");
+  expect(JSON.parse(readFileSync(file, "utf8")).everywhere.agents).toEqual({ feedback_note: "Posting also starts a fix here." });
+  expect(row("all").find((r) => r.key === "agents.feedback_note")!.value).toBe("Posting also starts a fix here.");
+  expect(() => s.set("agents.feedback_note", "x", "sp7", sp)).toThrow();
+  expect(() => s.set("agents.feedback_note", "x".repeat(201), "all")).toThrow();
+  s.set("agents.feedback_note", "", "all");
   expect(JSON.parse(readFileSync(file, "utf8")).everywhere?.agents).toBeUndefined();
 });
 

@@ -13,8 +13,11 @@ way. That may be their way, upstream's, or a third.
 it at once with `herdr-task feedback` (FORK.md: "Record it at once"), so it waits under Found on the Feedback page.
 In the same reply, say the fix in one or two plain lines: what went wrong, the fix for every user, and whether it
 would be a patch. Ask "File it and fix it?" only when it hurts now. "I'll do better next time" is never the whole
-answer. When the person picks it on the Feedback page or says yes, shape it here like any other request: filing
-means an issue on dmalis/shepherdr, never upstream.
+answer. Filing means an issue on dmalis/shepherdr, never upstream, and the person's yes is for the exact draft: Post
+it on the Feedback page, or a yes to a question card that showed the draft. `fork/bin/found` then hands the issue to
+this space's Assistant, once (FORK.md: "Every post becomes work here, once"). Shape it here like any other request:
+`fork/bin/found task <issue>` first, and `fork/bin/found took <issue> --task <key>` once the work is in a task (a
+new one carries the issue's link in its brief). The issue's text stays as approved: your shaping goes in the brief.
 
 ## 1. Find the need behind the ask
 
