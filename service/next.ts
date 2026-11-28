@@ -26,6 +26,7 @@ export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault
   { id: "diff", name: "Diff viewer", offByDefault: true },
   { id: "feedback", name: "Feedback" },
   { id: "triage", name: "Triage" },
+  { id: "radar", name: "Radar (prototype)", offByDefault: true },
 ];
 
 function file(): any { try { return readSettings(); } catch { return {}; } }

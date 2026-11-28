@@ -3,6 +3,7 @@
 // looked at, and compared with the design, without a single agent running.
 import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList, TriageBatchItem, TriageView } from '../shared/types.ts'
 import { demoFacts, outOfFileSlots } from './machine-facts.ts'
+import { radarDay, radarTriage } from './radar.ts'
 import * as CW from '../../core/checks-wait.js'
 import { plainSuggests } from '../../core/plain-suggests.js'
 
@@ -385,6 +386,10 @@ const cardsDay = (s: Snapshot): Snapshot => ({ ...s, tasks: [...s.tasks,
   ...MORE_READY.map((name, i) => task(`SHOP-4${i}`, name, P.shop, 'ready', { needsAt: NOW - (90 - i * 20) * min, repo: 'branch', summary: `${name}: done and checked.`, waitsWhy: 'Waits for you to merge it: in this repo, tasks merge only when you say so.' })),
   ...MORE_STOPPED.map((name, i) => task(`SHOP-5${i}`, name, P.shop, 'need', { needsAt: NOW - (70 - i * 15) * min, stopped: { by: 'error', why: 'its session ended' }, report: { msg: 'Working on it', progress: 40, paused: true } }))] })
 
+// ?case=radar (dmalis/shepherdr "Radar: one place for work coming in"): the clickable prototype's day (radar.ts). Its
+// one card that needs you is a Triage card in #shop's chat, so Needs you counts it as every other card
+const radarDayOf = (s: Snapshot): Snapshot => ({ ...s, triage: radarTriage(NOW, P.shop), radar: radarDay(NOW) } as Snapshot)
+
 const HANDUP: Record<string, Partial<Task>> = {
   'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },
   'EV-14': { status: 'need', state: 'need', needsAt: NOW - 6 * min, agent: { chat: 'EV-14/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Should locked levels count in the cart?' },
@@ -393,7 +398,8 @@ const HANDUP: Record<string, Partial<Task>> = {
     wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
 }
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' | 'radar' = 'normal'): Snapshot {
+  if (mode === 'radar') return radarDayOf(snapshot('normal'))
   if (mode === 'triage') return triageDay(snapshot('normal'))
   if (mode === 'drafts') return draftsDay(snapshot('triage'))
   if (mode === 'cards') return cardsDay(snapshot('drafts'))

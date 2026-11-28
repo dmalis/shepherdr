@@ -1,0 +1,21 @@
+{
+  "issue": 406,
+  "name": "Radar: clickable prototype in the demo",
+  "files": [
+    "web/plugins/radar/client.tsx",
+    "web/plugins/radar/row.tsx",
+    "web/plugins/radar/page.tsx",
+    "web/plugins/radar/model.ts",
+    "web/plugins/radar/say.ts",
+    "web/plugins/radar/radar.css",
+    "web/plugins.json",
+    "service/next.ts",
+    "web/demo/radar.ts",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "docs/plugins.md"
+  ],
+  "tests": [
+    "web/plugins/radar/radar.test.tsx"
+  ]
+}
