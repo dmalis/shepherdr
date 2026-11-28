@@ -243,7 +243,8 @@ the person didn't see.
   “<line>”" with a hidden `<hc feedback id="…" rev="N"/>` line, the way a reply carries `<hc reply-to>`
   (`core/send.js`, hidden by `core/chat-log.js`). It is the person's own message, sent by their tap, as a
   suggested-reply bubble is.
-- **In chat:** the Assistant shows the draft (`--dry-run`) in its question card's words, with where it goes and the
+- **In chat:** the Assistant shows the draft (`--file` writes it and answers with it; `--dry-run` shows one without
+  keeping it) in its question card's words, with where it goes and the
   Settings line (`agents.feedback_note`) when one is set, and asks. The command's draft output always ends with that
   line, so both paths say the same before the yes.
   Yes: `--approve <rev> --by chat`, then files. An agent records a chat approval only right after the person's yes to a
@@ -260,15 +261,15 @@ the person didn't see.
   1. Before the request: `post.state = posting`, saved.
   2. Answer with a link: `posted`, approval used up, `outcome` set.
   3. A clear refusal before anything was written (gh not signed in, no permission, a 4xx answer): `refused`, with its
-     words; Post it again uses the same approval.
-  4. Anything else (no answer, a timeout, a crash, a `posting` older than 10 minutes found by the next `--list` or
-     `--track`): `unsure`. An unsure post is never posted again, by anyone: another write is allowed only after a
+     words; **Post it again** on the row sends the person's message again, with the same approval.
+  4. Anything else (no answer, a timeout, a crash, a `posting` older than 10 minutes: every read, the page's too,
+     shows it as `unsure`, and the next `--file` or `--reconcile` writes it so): `unsure`. An unsure post is never posted again, by anyone: another write is allowed only after a
      failure known to have happened before anything was written (step 3). Reconciling reads GitHub directly, not its
      search index (which can lag or miss), and reads everything since the attempt began, page by page: the
      person's own issues in the target repo created since then (`gh api "repos/<repo>/issues?creator=<login>&state=all&since=<started>"
      --paginate`), or the target issue's comments since then (`gh api "repos/<repo>/issues/<n>/comments?since=<started>"
      --paginate`), looking for the marker. Found: `posted`. Not found: it stays `unsure`, and the row says
-     "Couldn't tell whether it was posted" with **Check on GitHub ›** and **Check again**, both read-only. If the
+     "Couldn't tell whether it was posted" with **Check on GitHub ›** and **Check again** (`--reconcile`), both read-only. If the
      person sees it isn't there, they can only start over: Never on this row, and a new report. Posting twice in
      public is worse than asking them to look once.
 - **Not now, Never** (the service: `--later <when>`, `--no`, refused in an agent's terminal; the Assistant's existing

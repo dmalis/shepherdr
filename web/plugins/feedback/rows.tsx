@@ -132,7 +132,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
       </>
     )
   }
-  // after the person's yes (slice 4): Send again while it waits or GitHub said no (the yes is kept); a post that may
+  // after the person's yes (slice 4): Send again while it waits, Post it again once GitHub said no (the yes is kept); a post that may
   // have gone out is never posted again: Check on GitHub, Check again (a read), or Never
   function postBtns() {
     const s = r.post?.state ?? 'waiting'
@@ -148,7 +148,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     const rev = r.approved ?? r.post?.rev
     return (
       <>
-        {rev && <Btn small disabled={!!busy} className={cx(busy === 'again' && 'going')} onClick={() => void run('again', () => sendPost(snap, r, rev), false)}>{W.sendAgain}</Btn>}
+        {rev && <Btn small disabled={!!busy} className={cx(busy === 'again' && 'going')} onClick={() => void run('again', () => sendPost(snap, r, rev), false)}>{s === 'refused' ? W.postAgain : W.sendAgain}</Btn>}
         {never}
       </>
     )

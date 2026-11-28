@@ -73,14 +73,14 @@ test('a yes the service refuses sends nothing, and says why', async () => {
   expect(T.toasts().at(-1)?.text).toContain('The draft changed')
 })
 
-test('each step after the yes: waiting and refused offer Send again, a post in doubt offers Check on GitHub and Check again', () => {
+test('each step after the yes: waiting offers Send again, refused Post it again, a post in doubt offers Check on GitHub and Check again', () => {
   const html = page(snap())
   const waiting = rowOf(html, 'Dictation stops')
   expect(waiting).toContain('Waiting to post: its chat posts it next')
   expect(waiting).toContain(`>${W.W.sendAgain}<`)
   const refused = rowOf(html, 'A task row forgets')
   expect(refused).toContain('Couldn&#x27;t post: gh is not signed in: run gh auth login. Your yes is kept')
-  expect(refused).toContain(`>${W.W.sendAgain}<`)
+  expect(refused).toContain(`>${W.W.postAgain}<`)
   const unsure = rowOf(html, 'The Tasks panel loses')
   expect(unsure).toContain('Couldn&#x27;t tell whether it was posted, so it won&#x27;t be posted again')
   expect(unsure).toContain('href="https://github.com/example/shepherdr/issues?q=is%3Aissue%20author%3A%40me"')

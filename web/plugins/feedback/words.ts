@@ -40,6 +40,7 @@ export const W = {
   postIt: 'Post it',
   postSent: 'Post it sent to',
   sendAgain: 'Send again',
+  postAgain: 'Post it again',
   sendAgainHint: 'Your yes is kept: Send again on its row.',
   checkGitHub: 'Check on GitHub',
   checkAgain: 'Check again',
@@ -131,7 +132,7 @@ export function postWords(r: Pick<FeedbackRow, 'post' | 'approved' | 'url'>): st
   if (s === 'waiting') return 'Waiting to post: its chat posts it next'
   if (s === 'posting') return 'Posting…'
   if (s === 'refused') return `Couldn't post${r.post?.why ? `: ${r.post.why}` : ''}. Your yes is kept`
-  if (s === 'unsure') return "Couldn't tell whether it was posted, so it won't be posted again. Check on GitHub"
+  if (s === 'unsure') return "Couldn't tell whether it was posted, so it won't be posted again"
   return null
 }
 

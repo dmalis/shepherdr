@@ -1,6 +1,6 @@
 {
   "issue": 94,
-  "name": "friction loop: every feedback report is kept (1), the Feedback page (2), shape and check (3)",
+  "name": "friction loop: every feedback report is kept (1), the Feedback page (2), shape and check (3), the yes for the exact text, posted once (4)",
   "files": [
     "mods/tasks/bin/herdr_task/feedback.py",
     "mods/tasks/bin/herdr_task/feedback_page.py",
@@ -22,7 +22,13 @@
     "web/plugins/feedback/feedback.css",
     "web/demo/data.ts",
     "web/demo/tap-check.ts",
-    "docs/plugins.md"
+    "docs/plugins.md",
+    "mods/tasks/bin/herdr_task/feedback_post.py",
+    "core/send.js",
+    "core/chat-log.js",
+    "web/plugins/feedback/confirm.tsx",
+    "web/demo/serve.ts",
+    "web/demo/feedback-row.tsx"
   ],
   "tests": [
     "test/test_feedback_found.py",
@@ -32,6 +38,10 @@
     "web/plugins/feedback/feedback.test.tsx",
     "test/test_feedback_check.py",
     "test/test_herdr_task.py::AssistantSettings",
-    "web/plugins/feedback/check.test.tsx"
+    "web/plugins/feedback/check.test.tsx",
+    "test/test_feedback_post.py",
+    "service/feedback-post.test.ts",
+    "core/feedback-line.test.js",
+    "web/plugins/feedback/post.test.tsx"
   ]
 }
