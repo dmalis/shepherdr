@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { canDictate, clock, dictate, dictSample, SAY, warmMic, type Dictation } from './dictation.ts'
 import { IDLE, insertAt, step, type DictEvent, type DictState } from './dictstate.ts'
-import { getState, has, holdReload, openSettings, useUI } from './kernel.ts'
+import { getState, has, holdReload, openSettings, useUI, type SetText } from './kernel.ts'
 import { escapeFirst } from './overlay.tsx'
 import { cx, I } from './ui.tsx'
 import { Wave } from './wave.tsx'
@@ -65,7 +65,7 @@ export const dictatedInto = new Set<string>()
 /** One dictation into a box (setText: the box's whole new text; the words go in at its cursor, what was typed stays).
  *  anchor: an element inside the box (.cbox), to find its text. Escape cancels; leaving the chat cancels; it can't
  *  start during a voice call. */
-export function useDictation(setText: (value: string) => void, scope: string | undefined, anchor: () => Element | null) {
+export function useDictation(setText: SetText, scope: string | undefined, anchor: () => Element | null) {
   const landed = useRef<number | null>(null)
   // where the cursor was in the box when dictation started (null: the box wasn't being typed in, so at its end)
   const at = useRef<{ start: number; end: number } | null>(null)
@@ -73,8 +73,10 @@ export function useDictation(setText: (value: string) => void, scope: string | u
   const boxOf = () => anchor()?.closest('.cbox')?.querySelector<HTMLTextAreaElement>('textarea') ?? null
   const [s, dispatch] = useDictState((text) => {
     const box = boxOf()
-    const r = insertAt(box?.value ?? '', at.current, text)
-    setText(r.value)
+    const value = box?.value ?? ''
+    const r = insertAt(value, at.current, text)
+    // what it replaced: what was selected, else nothing at the end (fork #186: a folded paste keeps its place)
+    setText(r.value, at.current ? { from: at.current.start, to: at.current.end } : { from: value.length, to: value.length })
     if (scope) dictatedInto.add(scope)
     landed.current = r.caret
   })
@@ -293,7 +295,7 @@ export function SlotsView({ at, round, on }: { at: Slots; round: boolean; on: { 
 }
 
 /** Feedback's box: the mic, and while it records the same two places as a chat's box, the call's place for Cancel */
-export function DictateButton({ setText, scope }: { setText: (value: string) => void; scope?: string }) {
+export function DictateButton({ setText, scope }: { setText: SetText; scope?: string }) {
   const el = useRef<HTMLSpanElement>(null)
   const d = useDictation(setText, scope, () => el.current)
   const call = useUI((u) => u.call)

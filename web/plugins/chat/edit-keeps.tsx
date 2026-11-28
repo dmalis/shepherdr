@@ -30,9 +30,10 @@ export function holdSuggestion(key: string, t: string, q: Quote | undefined, box
   const was = getState().ui.reply[key]
   const put = (reply: boolean) => {
     const text = getDraft(key)
-    const at = box && placed ? insertAt(text, box.selectionStart, box.selectionEnd, t) : insertAt(text, text.length, text.length, t)
+    const [from, to] = box && placed ? [box.selectionStart, box.selectionEnd] : [text.length, text.length]
+    const at = insertAt(text, from, to, t)
     if (reply && q) setUI((ui) => ({ reply: { ...ui.reply, [key]: q } }))
-    setDraft(key, at.text, at.caret)
+    setDraft(key, at.text, { from, to })
     if (!box) return
     box.focus()
     // after React writes the new words, which puts the caret at their end

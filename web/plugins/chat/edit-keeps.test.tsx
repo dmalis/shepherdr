@@ -10,7 +10,7 @@ import { isValidElement, type ReactElement, type ReactNode } from 'react'
 const { getDraft, getState, setDraft, setUI } = await import('@client/kernel.ts')
 const { closeAll, layersNow } = await import('@client/overlay.tsx')
 const { holdSuggestion, insertAt } = await import('./edit-keeps.tsx')
-const { addPaste, dropPaste, getPastes, joined, setPastes, shifted } = await import('./fold.ts')
+const { addPaste, dropPaste, editRange, getPastes, joined, outgoing, putBack, setPastes, typedEdit } = await import('./fold.ts')
 const { DRAG_GONE_MS, DRAG_LEFT_MS, watchFileDrag } = await import('./attach.tsx')
 
 const root = join(import.meta.dir, '../../..')
@@ -123,54 +123,110 @@ test('a bubble opens to edit from the keyboard: Shift+Enter, said to a screen re
 
 const LOG = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n')
 
+/** `s` typed at `at` (over `to` when a selection) as the box reports it: what it replaced */
+function type(at: number, s: string, to = at) {
+  const t = getDraft(KEY)
+  setDraft(KEY, t.slice(0, at) + s + t.slice(to), { from: at, to })
+}
+const sent = () => joined(getDraft(KEY), getPastes(KEY))
+
 test('a paste in the middle is sent in the middle, after more typing before and after it', () => {
   setDraft(KEY, 'Why does this fail? It worked yesterday.')
   addPaste(KEY, LOG, 'Why does this fail?'.length)
-  // typing before it, after it, and right where it sits (the caret is after a paste once it is pasted)
-  setDraft(KEY, 'So, why does this fail? It worked yesterday.', 'So, w'.length)
-  setDraft(KEY, 'So, why does this fail? It worked yesterday, on main.', 'So, why does this fail? It worked yesterday, on main'.length)
-  setDraft(KEY, 'So, why does this fail? Here: It worked yesterday, on main.', 'So, why does this fail? Here:'.length)
-  const text = getDraft(KEY)
-  expect(joined(text, getPastes(KEY))).toBe(`So, why does this fail?\n\n${LOG}\n\nHere: It worked yesterday, on main.`)
+  // before it, after it, and right where it sits (the caret is after a paste once it is pasted)
+  type(0, 'So: ')
+  type(getDraft(KEY).length, ' On main.')
+  type('So: Why does this fail?'.length, ' Here:')
+  expect(sent()).toBe(`So: Why does this fail?\n\n${LOG}\n\nHere: It worked yesterday. On main.`)
 })
 
-test('deleting around a paste keeps it at its place; deleting what held its place puts it where that was', () => {
-  setDraft(KEY, 'abc def')
+test('the same words again before a paste: the edit says which copy it is, not a guess', () => {
+  // a suggestion, dictation or Held's Edit puts "Go" in front of "Go again" with the paste after the first "Go"
+  setDraft(KEY, 'Go again')
+  addPaste(KEY, LOG, 2)
+  type(0, 'Go ')
+  expect(sent()).toBe(`Go Go\n\n${LOG}\n\nagain`)
+})
+
+test('a selection replaced, a Backspace before the paste, an undo: the paste stays with its words', () => {
+  setDraft(KEY, 'old')
   addPaste(KEY, LOG, 3)
-  setDraft(KEY, 'ab def', 2)
-  expect(getPastes(KEY)[0]!.at).toBe(2)
-  setDraft(KEY, 'x', 1)
+  // select all, type "other": letter by letter, never split
+  type(0, 'o', 3)
+  for (const [i, c] of [...'ther'].entries()) type(1 + i, c)
+  expect(sent()).toBe(`other\n\n${LOG}`)
+  // a Backspace just before it, then letters typed there: they go before it, as you write on
+  setDraft(KEY, 'othe', typedEdit('other', 'othe', { start: 5, end: 5 }, 4))
+  type(4, 'rs')
+  expect(sent()).toBe(`others\n\n${LOG}`)
+  // replaced up to it, then undone: back after its words
+  setDraft(KEY, 'x', { from: 0, to: 6 })
+  expect(getPastes(KEY)[0]!.at).toBe(1)
+  setDraft(KEY, 'others', { undo: true })
+  expect(sent()).toBe(`others\n\n${LOG}`)
+  // a part with the paste inside replaced: it goes where that part was; undone: back between its words
+  setDraft(KEY, 'abc def')
+  setPastes(KEY, (ps) => ps.map((p) => ({ ...p, at: 3 })))
+  setDraft(KEY, 'x', { from: 0, to: 7 })
   expect(getPastes(KEY)[0]!.at).toBe(0)
-  expect(joined(getDraft(KEY), getPastes(KEY))).toBe(`${LOG}\n\nx`)
+  setDraft(KEY, 'abc def', { undo: true })
+  expect(sent()).toBe(`abc\n\n${LOG}\n\ndef`)
 })
 
-test('repeated letters: the caret says on which side of a paste a letter went', () => {
-  // "xbb" with the paste between the two b's; a b typed after the x
-  expect(shifted(2, 'xbb', 'xbbb', 2)).toBe(3)
-  // without the caret, the plain difference
-  expect(shifted(2, 'xbb', 'xbbb')).toBe(2)
-  // a caret that doesn't fit the edit is not used
-  expect(shifted(2, 'xbb', 'xbbb', 0)).toBe(2)
+test('what a typed edit replaced: the selection, or the letters a Backspace or Delete took', () => {
+  expect(typedEdit('abcd', 'aXd', { start: 1, end: 3 }, 2)).toEqual({ from: 1, to: 3 })
+  expect(typedEdit('abc', 'ab', { start: 3, end: 3 }, 2)).toEqual({ from: 2, to: 3 })
+  expect(typedEdit('abc', 'ac', { start: 1, end: 1 }, 1)).toEqual({ from: 1, to: 2 })
+  expect(typedEdit('ab', 'aXb', { start: 1, end: 1 }, 2)).toEqual({ from: 1, to: 1 })
+  // an edit that doesn't fit the words is not used: the plain difference
+  expect(editRange('xbb', 'xbbb', { from: 0, to: 0 })).toEqual({ from: 3, to: 3, added: 1 })
+  expect(editRange('xbb', 'xbbb', { from: 1, to: 1 })).toEqual({ from: 1, to: 1, added: 1 })
 })
 
-test('pastes kept from before have no place: they go after the words, as they did', () => {
+test('pastes kept from before have no place: they go after the words, as they did, through edits', () => {
   expect(joined('Look', [{ text: LOG }, { text: 'x'.repeat(3000) }])).toBe(`Look\n\n${LOG}\n\n${'x'.repeat(3000)}`)
-  // two at one place keep their order
+  setDraft(KEY, 'Look')
+  setPastes(KEY, () => [{ id: 'old', text: LOG }])
+  type(4, ' at this.')
+  expect(getPastes(KEY)[0]!.at).toBeUndefined()
+  expect(sent()).toBe(`Look at this.\n\n${LOG}`)
+  // two at one place keep their order; a place past the words is their end
   expect(joined('ab', [{ text: 'P1', at: 1 }, { text: 'P2', at: 1 }])).toBe('a\n\nP1\n\nP2\n\nb')
-  // a place past the words (an edit while the box was away) is their end
   expect(joined('ab', [{ text: 'P', at: 9 }])).toBe('ab\n\nP')
 })
 
-test("a paste's Edit puts it back where it was pasted, a blank line around it as it is sent", () => {
+test('a line after a paste keeps its indent, sent or put back', () => {
+  const code = 'Summary\n    return x'
+  expect(joined(code, [{ text: 'P', at: 8 }])).toBe('Summary\n\nP\n\n    return x')
+  expect(putBack(code, 8, 'P')).toEqual({ text: 'Summary\n\nP\n\n    return x', from: 8, to: 8, end: 10 })
+  // words on its line lose only the spaces next to it
+  expect(putBack('see  this', 4, 'P')).toEqual({ text: 'see\n\nP\n\nthis', from: 3, to: 5, end: 6 })
+  expect(joined('see  this', [{ text: 'P', at: 4 }])).toBe('see\n\nP\n\nthis')
+})
+
+test('a paste never makes a message a ! command: one that would start it goes after your words', () => {
+  expect(outgoing('Can you explain this?', [{ text: '!pwd\nls', at: 0 }])).toBe('Can you explain this?\n\n!pwd\nls')
+  expect(outgoing('Can you explain this?', [{ text: LOG, at: 0 }])).toBe(`${LOG}\n\nCan you explain this?`)
+  // a command you typed stays one
+  expect(outgoing('!ls', [])).toBe('!ls')
+  const chat = readFileSync(join(root, 'web/plugins/chat/client.tsx'), 'utf8')
+  expect(chat).toContain('const t = outgoing(text, pastes)')
+})
+
+test("a paste's Edit puts it back where it was pasted, the pastes beside it in their order", () => {
   const chat = readFileSync(join(root, 'web/plugins/chat/client.tsx'), 'utf8')
   const edit = chat.slice(chat.indexOf('const editPaste = '), chat.indexOf('const drag = useFileDrag'))
-  expect(edit).toContain('const at = Math.min(p.at ?? text.length, text.length)')
-  expect(edit).toContain("setText(tail ? `${put}\\n\\n${tail}` : put)")
-  expect(edit).toContain('box.setSelectionRange(put.length, put.length)')
+  expect(edit).toContain('const r = putBack(text, p.at ?? text.length, p.text)')
+  expect(edit).toContain('setText(r.text, { from: r.from, to: r.to })')
+  expect(edit).toContain('place.set(x.id, j < i ? r.from : r.end)')
+  expect(edit).toContain('box.setSelectionRange(r.end, r.end)')
   // a long paste folds where the caret is, over a selection
   expect(chat).toContain('addPaste(key, t, at)')
-  // each typed letter says where the caret is
-  expect(chat).toContain('if (!echo) setDraft(key, e.target.value, e.target.selectionEnd)')
+  // each typed edit says what it replaced, from the selection as it began; an undo says so
+  expect(chat).toContain("box.addEventListener('beforeinput', note)")
+  expect(chat).toContain('typedEdit(text, e.target.value, b, e.target.selectionEnd)')
+  // Held's Edit puts the held words in front
+  expect(chat).toContain('setDraft(key, editedDraft(o.text, now), { from: 0, to: now.trim() ? 0 : now.length })')
   dropPaste(KEY, 'none')
 })
 

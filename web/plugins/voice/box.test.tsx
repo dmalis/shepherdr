@@ -105,7 +105,7 @@ test('the round button and Enter send only what is in the box; a suggested reply
   const go = chat.slice(chat.indexOf('const go = '), chat.indexOf('const sendSug = '))
   // the box's words and its folded long pastes, nothing else
   // fork #186: each paste where it was pasted
-  expect(go).toContain('const t = joined(text, pastes)')
+  expect(go).toContain('const t = outgoing(text, pastes)')
   expect(go).not.toMatch(/sug\.texts/)
   expect(chat).toContain('const filled = !!text.trim() || !!files?.length || !!pastes.length')
   // no greyed suggestion in the box, no Tab chip

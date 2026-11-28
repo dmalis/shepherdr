@@ -33,7 +33,7 @@ import { KindLine, KindName } from './kind.tsx'
 import { taskKind } from '@shared/kinds.ts'
 import { modelTyped, useSlash } from './slash.tsx'
 import { dropped, pasted } from './paste.ts'
-import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPastes, sizeOf, usePastes, type Paste } from './fold.ts'
+import { addPaste, dropPaste, getPastes, isLongMessage, isLongPaste, outgoing, peekOf, putBack, setPastes, sizeOf, typedEdit, usePastes, type Paste } from './fold.ts'
 import { fineOnly, touch } from './clip.ts'
 import { AddButtons } from './attach.tsx'
 import { useFileDrag } from './attach.tsx'
@@ -917,7 +917,7 @@ function Held({ thread }: { thread: Thread }) {
             <span className="hs">{o.waitsFor === 'answer' ? afterOf(chat) : 'Queued'}</span>
           </span>
           {o.waitsFor !== 'answer' && <button type="button" className="fold" onClick={() => void tryAct({ type: 'held-now', cid: o.cid } as never)}>Send now</button>}
-          <button type="button" className="fold" onClick={() => take(o, () => { setDraft(key, editedDraft(o.text, getDraft(key) ?? '')); focusBox(key) })}>Edit</button>
+          <button type="button" className="fold" onClick={() => take(o, () => { const now = getDraft(key) ?? ''; setDraft(key, editedDraft(o.text, now), { from: 0, to: now.trim() ? 0 : now.length }); focusBox(key) })}>Edit</button>
           <IB icon="x" label="Remove" onClick={() => take(o)} />
         </div>
       ))}
@@ -1137,6 +1137,17 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   // fork #186: the chat whose words the caret was put in (a held suggestion goes there; before that, after the words)
   const placed = useRef<string | null>(null)
+  // fork #186: what was selected as an edit began, so a folded paste moves with exactly what it replaced
+  const pre = useRef<{ start: number; end: number; undo: boolean; ime: boolean } | null>(null)
+  useEffect(() => {
+    const box = ref.current
+    if (!box) return
+    const note = (e: InputEvent) => {
+      pre.current = { start: box.selectionStart, end: box.selectionEnd, undo: e.inputType.startsWith('history'), ime: e.inputType.includes('Composition') }
+    }
+    box.addEventListener('beforeinput', note)
+    return () => box.removeEventListener('beforeinput', note)
+  }, [])
   const boxId = useId()
   // #1538: what Send just sent, so the keyboard writing it back into the empty box is dropped
   const sentRef = useRef<Sent | null>(null)
@@ -1189,7 +1200,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const go = (wait = false) => {
     if (getState().ui.call && !TEXT_IN_CALL) return
     // a long paste folded into a chip goes as text, exactly as pasted, where it was pasted (fork #186)
-    const t = joined(text, pastes)
+    const t = outgoing(text, pastes)
     if (!t && !files?.length) return
     if (mode === 'cant') return
     if (sg) spent.add(sg.id)
@@ -1242,16 +1253,19 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   /** a paste's chip opened to edit: its text goes back into the box where it was pasted, a blank line around it as it
    *  is sent (fork #186), the caret after it */
   const editPaste = (p: Paste) => {
-    const at = Math.min(p.at ?? text.length, text.length)
-    const head = text.slice(0, at).trimEnd()
-    const tail = text.slice(at).trimStart()
-    const put = head ? `${head}\n\n${p.text}` : p.text
+    const r = putBack(text, p.at ?? text.length, p.text)
+    // the other pastes at its place stay before or after it, as they were
+    const ps = getPastes(key)
+    const i = ps.findIndex((x) => x.id === p.id)
+    const place = new Map<string, number>()
+    ps.forEach((x, j) => j !== i && x.at !== undefined && x.at === p.at && place.set(x.id, j < i ? r.from : r.end))
     dropPaste(key, p.id)
-    setText(tail ? `${put}\n\n${tail}` : put)
+    setText(r.text, { from: r.from, to: r.to })
+    if (place.size) setPastes(key, (now) => now.map((x) => (place.has(x.id) ? { ...x, at: place.get(x.id)! } : x)))
     const box = ref.current
     if (!box) return
     box.focus()
-    requestAnimationFrame(() => box.setSelectionRange(put.length, put.length))
+    requestAnimationFrame(() => box.setSelectionRange(r.end, r.end))
   }
   // fork #186: while a file is dragged over the page, the box shows where it goes
   const cbox = useRef<HTMLDivElement>(null)
@@ -1352,8 +1366,11 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
           onChange={(e) => {
             const echo = isEcho(sentRef.current, text, e.target.value, Date.now())
             sentRef.current = null
-            // where the caret is says where the edit was (fork #186: a folded paste keeps its place)
-            if (!echo) setDraft(key, e.target.value, e.target.selectionEnd)
+            // what the edit replaced (fork #186: a folded paste keeps its place)
+            const b = pre.current
+            pre.current = null
+            const edit = !b || b.ime ? undefined : b.undo ? ({ undo: true } as const) : typedEdit(text, e.target.value, b, e.target.selectionEnd)
+            if (!echo) setDraft(key, e.target.value, edit)
           }}
           onFocus={(e) => {
             ment.box.onFocus()
@@ -1375,7 +1392,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
             // fork #186: it folds where it was pasted, over what was selected, as a paste replaces a selection
             const box = e.currentTarget
             const at = box.selectionStart
-            if (box.selectionEnd > at) setDraft(key, text.slice(0, at) + text.slice(box.selectionEnd), at)
+            if (box.selectionEnd > at) setDraft(key, text.slice(0, at) + text.slice(box.selectionEnd), { from: at, to: box.selectionEnd })
             addPaste(key, t, at)
             requestAnimationFrame(() => box.setSelectionRange(at, at))
           }}

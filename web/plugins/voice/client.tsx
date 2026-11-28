@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { canStartCall, DictRow, SlotsView, TEXT_IN_CALL, useDictation } from '@client/dictate.tsx'
 import type { Sample } from '@client/meter.ts'
 import { boxPart } from '@client/commands.ts'
-import { definePlugin, getState, go, launchHref, notice, openArtifact, openSettings, openTask, setUI, tryAct, useStore, useUI, type Thread } from '@client/kernel.ts'
+import { definePlugin, getState, go, launchHref, notice, openArtifact, openSettings, openTask, setUI, tryAct, useStore, useUI, type SetText, type Thread } from '@client/kernel.ts'
 import { closeTop as closeLayer } from '@client/overlay.tsx'
 import { isEverything, placeOf, taskOf } from '@shared/view.ts'
 import { callPhase, callSample, muteCall, sendWhere, startCall, stopCall, type Nav, type NavAck } from './call.ts'
@@ -192,7 +192,7 @@ function demoSample(): Sample {
  *  empty, Send once it has words or files. The same two buttons serve a call (Mute, End call) and a dictation (Done,
  *  Cancel); the call's wave or the recording takes the place of + and the agent line, so the buttons never move. In a
  *  call the box takes no text (TEXT_IN_CALL), its draft kept for after. */
-function BoxEnd({ thread, setText, filled, send, later }: { thread: Thread; setText: (value: string) => void; filled: boolean; send: () => void; later?: () => void }) {
+function BoxEnd({ thread, setText, filled, send, later }: { thread: Thread; setText: SetText; filled: boolean; send: () => void; later?: () => void }) {
   const el = useRef<HTMLSpanElement>(null)
   const d = useDictation(setText, thread.chat, () => el.current)
   const call = useUI((u) => u.call)

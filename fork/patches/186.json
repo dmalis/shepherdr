@@ -10,6 +10,8 @@
     "web/plugins/typing/typing.css",
     "web/src/kernel.ts",
     "web/src/draft.ts",
+    "web/src/dictate.tsx",
+    "web/plugins/voice/client.tsx",
     "web/demo/edit-check.ts",
     ".github/workflows/check.yml",
     "docs/design.md"
@@ -19,6 +21,7 @@
     "web/plugins/chat/fold.test.tsx",
     "web/plugins/chat/attach.test.tsx",
     "web/plugins/typing/typing.test.ts",
-    "web/plugins/voice/box.test.tsx"
+    "web/plugins/voice/box.test.tsx",
+    "web/src/draft.test.ts"
   ]
 }
