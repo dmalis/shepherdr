@@ -34,7 +34,7 @@ import { shortcutOf, shortcutRow, ShortcutBtn } from './shortcut.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { ChecksCard } from './checks-card.tsx'
 import { UrgentMark, UrgentTag, UrgentWord, urgentRows } from './urgent.tsx'
-import { explainClick, explainHold, HeadRing } from './marks.tsx'
+import { explainAt, explainHeld, HeadRing } from './marks.tsx'
 import { urgentFirst } from '@shared/urgent.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
@@ -637,13 +637,13 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
   // left shows its safe actions (swipe.tsx), and a press held still opens its menu, as a message's does
   // dmalis/shepherdr#415: a press held on its ring or urgent mark says what it means, elsewhere opens its menu; the lift's
   // click is already swallowed (swallowClick), so the next tap on the row opens it again
-  const { on, slide, armed, skip, moving, sliding, tray } = useSlide(() => replyToTask(t), { acts: down ? [] : swipeActs(snap, t), hold: (el) => { skip.current = false; explainHold(el, t) || taskMenu(el, t, 'row') } })
+  const { on, slide, armed, skip, moving, sliding, tray } = useSlide(() => replyToTask(t), { acts: down ? [] : swipeActs(snap, t), hold: (el) => { skip.current = false; explainHeld(el) || taskMenu(el, t, 'row') } })
   // fork UI 14: the one shortcut its state calls for, with a mouse (rows.css)
   const sc = down ? null : shortcutOf(snap, t)
   return (
     <div className={cx('rowx tsl', sliding && 'sl')} data-task-row={t.id} {...on}>
       <SlideHint slide={slide} armed={armed} />
-      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={(e) => (skip.current ? void (skip.current = false) : explainClick(e, t) || open(t))}>
+      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={(e) => (skip.current ? void (skip.current = false) : explainAt(e.target, e.currentTarget) || open(t))}>
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
           <span className="l1"><UrgentMark t={t} />{t.name}</span>

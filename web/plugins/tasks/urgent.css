@@ -18,12 +18,10 @@
 .hline>.hring::after{content:"";position:absolute;inset:-15px -6px}
 .hline>.hring>.tring{width:14px}.hline>.hring>.tring>.i{width:14px;height:14px}
 
-/* its popover: the mark and its words, as a folder's whole path shows at its menu's top (ds.css .fwhere) */
-.pop .mexp{min-width:0;max-width:260px}
-.pop:has(>.mexp:only-child){min-width:0}
-.pop .mexp>.mic{flex:none;display:flex;margin-top:calc((var(--secl) - var(--ic)) / 2)}
-.pop .mexp>.mic>.i{margin-top:0;color:var(--fg)}
-.pop .mexp .tring>.i{margin-top:0;color:inherit}
+/* its popover (marks.tsx): a menu with only its top line, the mark's words, read in the text's own colour and only as
+   wide as they are */
+.pop:has(>.cap:only-child){min-width:0;max-width:260px}
+.pop>.cap:only-child{padding:4px 8px;color:var(--fg)}
 
 /* the header's facts line: "Urgent ·" first, the word in the text's colour; it never gives way to the line after it */
 .hline>.hurg{flex:none;display:inline-flex;align-items:center;gap:4px;color:var(--fg);font-weight:500;overflow:visible}
