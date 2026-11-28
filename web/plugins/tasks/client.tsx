@@ -24,7 +24,7 @@ import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
-import { showsAgent, TaskWhere } from './where.tsx'
+import { fromSpace, showsAgent, TaskWhere } from './where.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { ChecksCard } from './checks-card.tsx'
 import { readyWords } from '@shared/ready-words.ts'
@@ -91,10 +91,12 @@ export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
   if (!words) return null
   // its name stands out on a row, its machine stays quiet (dmalis/shepherdr#100)
   const name = workName(t)
+  // started by a space in another folder: it says that space, so "#shop only" listing it reads right (dmalis/shepherdr#131)
+  const from = fromSpace(snap, t)
   const branch = onBranch(t)
   const st = prState(t)
   const n = t.pr?.number
-  const spoken = [words, branch ? 'own branch' : t.repo === 'folder' ? 'in the folder' : '', st === 'merged' ? `merged, pull request ${n}` : t.pr ? `pull request ${n}, ${PR_WORDS[st!]}` : ''].filter(Boolean).join(', ')
+  const spoken = [from ? `${name} from ${from}${words.slice(name.length)}` : words, branch ? 'own branch' : t.repo === 'folder' ? 'in the folder' : '', st === 'merged' ? `merged, pull request ${n}` : t.pr ? `pull request ${n}, ${PR_WORDS[st!]}` : ''].filter(Boolean).join(', ')
   const go = (e: { stopPropagation: () => void }) => {
     e.stopPropagation()
     openAtStrip(t)
@@ -103,7 +105,7 @@ export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
     <span className="l2 rline" role="link" aria-label={`${spoken}: show its branch`} onClick={go}>
       <I n={branch ? 'branch' : 'folder'} />
       <span className="rn">{name}</span>
-      {words !== name && <span className="rm">{words.slice(name.length)}</span>}
+      {from ? <span className="rs">· from {from}{words.slice(name.length)}</span> : words !== name && <span className="rm">{words.slice(name.length)}</span>}
       {t.pr && <span aria-hidden="true">·</span>}
       {st === 'merged' && <><I n="merged" /><span className="pn">Merged #{n}</span></>}
       {t.pr && st !== 'merged' && <><span className="pn">PR #{n}</span><ChecksMark st={st} /></>}
@@ -598,7 +600,8 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
             </>
           ) : sub && <span className="l2">{sub}</span>}
           <TaskAgentSummary t={t} className="l2" quiet />
-          {tag && t.work && <RepoLine snap={snap} t={t} />}
+          {/* one repo picked leaves the line out, unless it says the space it came from (dmalis/shepherdr#131) */}
+          {(tag || !!fromSpace(snap, t)) && t.work && <RepoLine snap={snap} t={t} />}
         </span>
         {when && <span className="v">{when}</span>}
       </button>

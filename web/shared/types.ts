@@ -97,6 +97,8 @@ export interface Place {
   where?: string
   /** its folder, the whole path on its machine (SHEP-302) */
   folder?: string
+  /** dmalis/shepherdr#131: its folder's real path (symlinks resolved), when that differs; this machine's spaces only */
+  real?: string
   /** the folder its Assistant works in now, as the window's pane header shows it (`where` until it has one) */
   cwd?: string
   /** where its artifacts are kept (its repo's main folder, else its own) and that folder's name, as the window's

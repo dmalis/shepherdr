@@ -31,6 +31,7 @@ const CLI_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex
 import * as MNc from "../core/menus.js";
 const { machineLabel } = MNc as any;
 import { HOME, appHome } from "./paths.ts";
+import { realFolder } from "./real-folder.ts";
 const { spaceName } = SPc as any;
 import type { Where } from "./worktree.ts";
 import { answeredLine, holdForPrompts, markAnswered, whyHeld } from "./prompts.ts";
@@ -447,7 +448,13 @@ export class Compat {
     // what its row says it is in, as the window's Tasks: the space working in its list's folder, else the list's name
     // in the home folder here: Everything's, never this computer's own ~ space beside it (3.2.8) unless that one started it
     const tildeId = SPc.tildeOf(spaces, HOME)?.id;
-    const inFolder = (r: Row) => spaces.find((s) => s.id !== tildeId && (s.machine ?? null) === (r.machine ?? null) && s.folder === r.folder);
+    // dmalis/shepherdr#131: a space made at a symlink holds its folder by its real path too, the path herdr-task keeps
+    // (this machine's spaces: another's can't be resolved here); a space at the exact path comes first
+    const sameFolder = (s: (typeof spaces)[number], f: string | null | undefined) => !!f && (s.folder === f || (!s.machine && realFolder(s.folder) === f));
+    const inFolder = (r: Row) => {
+      const mine = spaces.filter((s) => s.id !== tildeId && (s.machine ?? null) === (r.machine ?? null) && sameFolder(s, r.folder));
+      return mine.find((s) => s.folder === r.folder) ?? mine[0];
+    };
     const placeName = (r: Row) => places.find((p) => p.id === inFolder(r)?.id)?.name ?? r.list ?? "";
     const spaceIds = new Set(spaces.map((s) => s.id));
     const placeOf = (r: Row) => (spaceIds.has(r.space) ? r.space : inFolder(r)?.id ?? "");
@@ -459,7 +466,7 @@ export class Compat {
       }
     }
     // SHEP-325: the spaces working in its folder on its machine: their Tasks list it too (the window's rule, core inSpace)
-    const folderSpaces = (r: Row) => (r.folder ? spaces.filter((s) => (s.machine ?? null) === (r.machine ?? null) && s.folder === r.folder).map((s) => s.id) : []);
+    const folderSpaces = (r: Row) => (r.folder ? spaces.filter((s) => (s.machine ?? null) === (r.machine ?? null) && sameFolder(s, r.folder)).map((s) => s.id) : []);
 
     const places: Place[] = spaces.map((s) => {
       const key = placeKey(s.id);
@@ -477,7 +484,7 @@ export class Compat {
       // machine's too, as its own window shows it); the space's folder until it has one
       const live = ak?.foreground?.cwd ?? ak?.cwd;
       const cwd = live ? (s.machine ? SPc.tilde(live) : shortHome(live)) : null;
-      return { id: s.id, name, ...(!s.name || s.name === "~" ? { unnamed: true } : {}), ...(s.icon ? { emoji: s.icon } : {}),...(s.git ? { git: s.git.linked ? "linked" : "main", repo: s.git.repo, gitName: s.git.name, branch: s.git.branch ?? null } : {}), ...(s.git?.linked ? { worktree: true } : {}), machine: s.machine ?? host, level: 0, status: AGENT[s.assistantStatus] ?? "idle", chat: key, header, where, folder: s.folder, ...(cwd ? { cwd } : {}), store: artifactStore(s as any), ...((s as any).changedAt ? { changedAt: (s as any).changedAt } : {}), ...((a) => (a ? { agent: a } : {}))(this.placeAgent(s, key)) };
+      return { id: s.id, name, ...(!s.name || s.name === "~" ? { unnamed: true } : {}), ...(s.icon ? { emoji: s.icon } : {}),...(s.git ? { git: s.git.linked ? "linked" : "main", repo: s.git.repo, gitName: s.git.name, branch: s.git.branch ?? null } : {}), ...(s.git?.linked ? { worktree: true } : {}), machine: s.machine ?? host, level: 0, status: AGENT[s.assistantStatus] ?? "idle", chat: key, header, where, folder: s.folder, ...((r) => (r ? { real: r } : {}))(s.machine ? null : realFolder(s.folder)), ...(cwd ? { cwd } : {}), store: artifactStore(s as any), ...((s as any).changedAt ? { changedAt: (s as any).changedAt } : {}), ...((a) => (a ? { agent: a } : {}))(this.placeAgent(s, key)) };
     });
 
     // every agent's own helper agents (SHEP-54): their chats open by t:<address>
