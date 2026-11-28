@@ -69,7 +69,6 @@ RAW_MONO = {
 # a layer's z-index written as a number instead of a --z- token (ds.css held 4)
 RAW_LAYERS = {
     "web/src/styles.css": 5,
-    "web/plugins/chat/mentions.css": 1,
 }
 
 NAMES = "white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|navy|teal|maroon|olive|lime|aqua|fuchsia"

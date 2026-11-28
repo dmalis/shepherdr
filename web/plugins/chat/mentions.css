@@ -1,6 +1,8 @@
-/* the # and @ list over the message box (mentions.tsx) */
+/* the # and @ list over the message box (mentions.tsx), and the / list (slash.tsx) */
 .cbox{position:relative}
-.mlist{left:0;right:0;bottom:calc(100% + 6px);max-width:none;max-height:min(22rem,40dvh);overflow-y:auto;overscroll-behavior:contain;z-index:20;display:grid;gap:1px;align-content:start}
+/* as tall as the room left above the box (--room, list-fit.ts: up to the pane's header, with the keyboard up too), at
+   most 22rem; its chosen row is kept in view by script, so the list scrolls only itself */
+.mlist{left:0;right:0;bottom:calc(100% + 6px);max-width:none;max-height:min(22rem,var(--room,40dvh));overflow-y:auto;overscroll-behavior:contain;z-index:var(--z-layer);display:grid;gap:1px;align-content:start}
 .mlist .lab{padding-top:4px}
 .mlist .hint{padding:4px 8px 8px}
 .mlist .row[aria-selected="true"]{background:var(--control);color:var(--fg)}
