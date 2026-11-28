@@ -89,7 +89,9 @@ test("Write it up for another machine's row stays on that machine: its home spac
 test("an unreachable machine's rows show as of their last read, with their buttons off", () => {
   const html = page(snapshot('machines'))
   const row = rowOf(html, 'A schedule run shows no news when the machine was asleep')
-  expect(row).toContain('on pi')
+  // its space's name already says its machine: said once
+  expect(row).toMatch(/in ~ on pi · 1\s?h ago/u)
+  expect(row).not.toContain('on pi · on pi')
   expect(row).toContain('pi can&#x27;t be reached: as it was 50 min ago')
   expect(row).not.toContain('<button')
   expect(html).toContain('pi can&#x27;t be reached: its problems show as they were 50 min ago')

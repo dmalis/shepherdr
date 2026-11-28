@@ -426,6 +426,8 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
   const s = sectionsOf(list)
   const any = (list?.rows.length ?? 0) > 0
   const place = at ?? (ui.at || everything(snap)?.id || '')
+  // other machines that can't be read or acted on now (slice 8): one without Shepherdr always, the rest while they have rows
+  const machineNotes = (list?.machines ?? []).filter((m) => m.state === 'none' || list!.rows.some((r) => r.machine === m.name))
   return (
     <PaneFrame
       scrollKey="feedback"
@@ -439,9 +441,11 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
           </p>
         )}
         {list?.error && <p className="fb-banner">{W.stale}</p>}
-        {(list?.machines ?? []).filter((m) => m.state === 'none' || list!.rows.some((r) => r.machine === m.name)).map((m) => (
-          <p key={m.name} className="fb-banner">{machineWords(m, machineLabel(snap, m.name), now)}</p>
-        ))}
+        {machineNotes.length > 0 && (
+          <ul className="fb-banner fb-machines" aria-label={W.machinesLabel}>
+            {machineNotes.map((m) => <li key={m.name}>{machineWords(m, machineLabel(snap, m.name), now)}</li>)}
+          </ul>
+        )}
         {!any ? (
           <Empty title={W.empty}>{W.emptySub}</Empty>
         ) : (

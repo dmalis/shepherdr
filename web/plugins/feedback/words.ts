@@ -16,6 +16,7 @@ export const W = {
   offAll: 'Feedback offers are off for every space: agents note nothing new.',
   offAllLink: 'Open Settings',
   stale: "Couldn't read the newest list just now: showing the last one.",
+  machinesLabel: 'Other machines',
   found: 'Found',
   filed: 'Filed',
   later: 'Not now',
@@ -107,7 +108,10 @@ export function fromWords(r: Pick<FeedbackRow, 'from'>): string {
 
 /** the row's quiet line: who, where, on which machine (another one's, slice 8: its name), when, how often */
 export function metaOf(r: FeedbackRow, where: string, now = Date.now(), machine = ''): string {
-  const bits = [fromWords(r), ...(where && !r.from?.task ? [`in ${where}`] : []), ...(machine ? [`on ${machine}`] : []), agoWords(r.at, now)]
+  const inWhere = where && !r.from?.task ? `in ${where}` : ''
+  // a space there is already named with its machine ("~ on pi"): said once
+  const on = machine && !inWhere.endsWith(` on ${machine}`) ? `on ${machine}` : ''
+  const bits = [fromWords(r), ...(inWhere ? [inWhere] : []), ...(on ? [on] : []), agoWords(r.at, now)]
   if (r.count > 1) bits.push(`${r.count}\u00a0reports`)
   return bits.join(' · ')
 }
