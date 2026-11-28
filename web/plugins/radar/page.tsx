@@ -14,7 +14,7 @@ import { attentionOf } from '@shared/attention.ts'
 import type { IconName } from '@client/icons.ts'
 import type { Snapshot } from '@shared/types.ts'
 import { liveOf, radarOf } from './row.tsx'
-import { addItem, clock, dayOf, edit, editProject, itemsAt, needsYou, open, reset, setView, useRadar, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
+import { addItem, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, setView, useRadar, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
 import { levelWords, queue, SOURCE, stateWords, when, WORKFLOWS } from './say.ts'
 import './radar.css'
 
@@ -50,6 +50,10 @@ function Proto({ view }: { view: View }) {
       <div className="rd-pr">
         <span className="rd-pl">Clock</span>
         <Pick label="Clock" values={[['now', 'Today'], ['later', 'A week later']]} value={view.later ? 'later' : 'now'} onChange={(v) => setView({ later: v === 'later' })} />
+      </div>
+      <div className="rd-pr">
+        <span className="rd-pl">Fixture</span>
+        <Pick label="Fixture" values={[['day', 'Today’s day'], ['fresh', 'A new install']]} value={view.fresh ? 'fresh' : 'day'} onChange={(v) => setView({ fresh: v === 'fresh', tab: 'overview', project: null, item: null })} />
         <Btn small onClick={reset}>Start over</Btn>
       </div>
     </section>
@@ -156,7 +160,8 @@ function Pain({ c }: { c: Ctx }) {
   const rows = WORKFLOWS.map((w) => {
     const of = mine.filter((i) => i.workflow === w)
     const days = Array.from({ length: 14 }, (_, d) => of.reduce((n, i) => n + (i.days![d] ?? 0), 0))
-    const top = [...of].filter((i) => i.state !== 'shipped' || i.shipped?.how !== 'live').sort((a, b) => (b.tasks ?? 0) - (a.tasks ?? 0))[0] ?? of[0]
+    const sum = (i: RadarItem) => i.days!.reduce((a, b) => a + b, 0)
+    const top = [...of].sort((a, b) => sum(b) - sum(a))[0]
     return { w, days, total: days.reduce((a, b) => a + b, 0), top }
   })
   const level = (n: number) => (n === 0 ? 0 : n === 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 3 : 4)
@@ -268,7 +273,7 @@ function NextUp({ c }: { c: Ctx }) {
               <div className="rd-paused">
                 <p><b>What stops:</b> reading issues and findings, scoring, posting, and new fixes. Nothing merges or installs on its own.</p>
                 {running.length > 0 && <p><b>Still running:</b> {running.map((i) => `“${i.task}”`).join(', ')} finishes its work, then waits for your review.</p>}
-                {next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Its draft stays ready.</p>}
+                {next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Nothing new starts until you Resume.</p>}
               </div>
             )}
             {running.length > 0 && <List label="Being fixed">{running.map((i) => <ItemRow key={i.id} i={i} c={c} sub={`Task: ${i.task}`} />)}</List>}
@@ -321,15 +326,15 @@ function Shipped({ c }: { c: Ctx }) {
 /* ---------- an item ---------- */
 
 function laterMenu(anchor: Element, i: RadarItem, now: number) {
-  const park = (days: number, trigger: string) => () => {
-    edit(i.id, { state: 'later', later: { until: now + days * DAY, trigger, returned: days <= 7 ? 'Came back: the week you set is up.' : 'Came back: 3 more reports since you parked it.' } })
+  const park = (days: number, trigger: string, returned: string, soon?: number) => () => {
+    edit(i.id, { state: 'later', later: { until: now + days * DAY, trigger, returned, ...(soon ? { soon: now + soon * DAY } : {}) } })
     setView({ item: null })
     notice('Parked. It comes back by itself.', { tone: 'ok', act: { label: 'Undo', run: () => edit(i.id, { state: i.state, later: i.later }) } })
   }
   openMenu(anchor, [
-    { icon: 'clock', label: 'For a week', run: park(7, 'Back in a week') },
-    { icon: 'clock', label: 'For 30 days, or sooner if 3 more report it', run: park(30, 'Back in 30 days, or sooner if 3 more report it') },
-    { icon: 'clock', label: 'Until the next release', run: park(10, 'Back with the next release') },
+    { icon: 'clock', label: 'For a week', run: park(7, 'Back in a week', 'Came back: the week you set is up.') },
+    { icon: 'clock', label: 'For 30 days, or sooner if 3 more report it', run: park(30, 'Back in 30 days, or sooner if 3 more report it', 'Came back early: 3 more tasks reported it since you parked it.', 5) },
+    { icon: 'clock', label: 'Until the next release', run: park(10, 'Back with the next release', 'Came back: the next release is out.') },
   ], { label: 'Park it' })
 }
 
@@ -346,7 +351,8 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
   const red = needsYou(i, c.live)
   // the card where it waits: the app's own link to it, as a tap in Needs you opens it
   const need = red ? attentionOf(c.snap).actions.find((a) => a.card === i.needs!.card) : undefined
-  const shown = i.sightings?.slice(0, 5) ?? []
+  const [all, setAll] = useState(false)
+  const shown = (all ? i.sightings : i.sightings?.slice(0, 5)) ?? []
   const act = (patch: Partial<RadarItem>, words: string, undo = true) => {
     const was = { state: i.state, task: i.task, later: i.later }
     edit(i.id, patch)
@@ -380,7 +386,7 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
           <h3 className="rd-h">Why it’s held</h3>
           <p>{i.held.words}</p>
           <p className="rd-q">{i.held.mover}</p>
-          <div className="rd-acts"><Btn small kind={i.held.why === 'cap' ? 'pri' : undefined} onClick={() => (i.held!.why === 'cap' ? act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`) : notice(i.held!.why === 'stale' ? 'Checked: still no answer from the release list' : `Opens that task ${PROTO}`, { tone: 'ok' }))}>{i.held.act}</Btn></div>
+          {!(p.paused && i.held.why === 'cap') && <div className="rd-acts"><Btn small kind={i.held.why === 'cap' ? 'pri' : undefined} onClick={() => (i.held!.why === 'cap' ? act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`) : notice(i.held!.why === 'stale' ? 'Checked: still no answer from the release list' : `Opens that task ${PROTO}`, { tone: 'ok' }))}>{i.held.act}</Btn></div>}
         </section>
       )}
       {i.shipped && (
@@ -419,14 +425,14 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
           <ul className="rd-sights">
             {shown.map((s, k) => <li key={k}><b>{s.who}</b><span>{s.note}</span><time className="num">{when(s.at, c.now)}</time></li>)}
           </ul>
-          {i.sightings!.length > shown.length && <p className="rd-q">and {i.sightings!.length - shown.length} more</p>}
+          {i.sightings!.length > shown.length && <div><Btn small onClick={() => setAll(true)}>Show all {i.sightings!.length}</Btn></div>}
         </section>
       )}
 
       <div className="rd-acts">
         {(i.state === 'new' || i.state === 'next' || i.state === 'held') && !red && (
           <>
-            {i.held?.why !== 'cap' && <Btn kind="pri" onClick={() => act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`)}>Fix now</Btn>}
+            {!p.paused && (!i.held || i.held.why === 'stale') && <Btn kind="pri" onClick={() => act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`)}>Fix now</Btn>}
             <Btn onClick={(e) => laterMenu(e.currentTarget, i, c.now)}>Park it…</Btn>
             <Btn onClick={() => { act({ state: 'declined' }, 'Moved to Not doing'); setView({ item: null }) }}>Not doing</Btn>
           </>
@@ -521,7 +527,7 @@ export function RadarPage() {
   const snap = useSnap()
   const phone = useUI((u) => u.phone)
   const { view } = useRadar()
-  const day = dayOf(radarOf(snap))
+  const day = shownDay(dayOf(radarOf(snap)), view)
   if (!snap) return null
   // the address lost the demo's ?case=radar (a reload): the prototype has no day to show
   if (!day) return <PaneFrame scrollKey="radar" head={(sc) => <Hd back={{ label: 'Back', run: () => setUI({ page: null }) }} title="Radar" scrolled={sc} />}><Empty title="Radar is a prototype">It shows only in the demo opened with ?case=radar.</Empty></PaneFrame>
@@ -549,7 +555,7 @@ export function RadarPage() {
         )}
         <div className="rd-body">
           {!full && <div className="rd-main">{body}</div>}
-          {item && <Detail i={item} c={c} narrow={full} />}
+          {item && <Detail key={item.id} i={item} c={c} narrow={full} />}
         </div>
       </div>
     </PaneFrame>

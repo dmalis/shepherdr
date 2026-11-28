@@ -6,7 +6,8 @@
 .rdp{display:grid;gap:16px;padding-block:8px 32px;container-type:inline-size}
 /* an open item takes a second column: the page grows past the chat's width to hold both, as Linear's inbox does */
 .chat .scroll[data-scroll="radar"]:has(>.rdp.open){padding-inline:max(var(--gut),calc((100% - 1120px)/2))}
-.app.phone .device:has(.rdp)>.bar{display:none}
+/* grid and flex children may shrink, so only a tab row scrolls sideways and the page keeps its width */
+.rdp>*,.rd-bar>*{min-width:0}
 
 /* the prototype's own bar: dashed, so it never reads as the app's */
 .rd-proto{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 12px;border:1px dashed var(--edge);border-radius:12px}

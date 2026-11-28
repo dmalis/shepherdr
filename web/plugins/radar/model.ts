@@ -35,7 +35,8 @@ export interface RadarItem {
   /** the queue's order inside a project */
   rank?: number
   held?: { why: 'cap' | 'stale' | 'checks'; words: string; mover: string; act: string }
-  later?: { until: number; trigger?: string; returned?: string }
+  /** parked: back at `until`, or at `soon` when more report it first (the prototype's later clock stands in for them) */
+  later?: { until: number; trigger?: string; returned?: string; soon?: number }
   shipped?: { how: 'live' | 'merged' | 'reverted'; at: number; words: string; after?: string }
   /** a task working on it now */
   task?: string
@@ -84,10 +85,12 @@ export interface View {
   tab: Tab
   project: string | null
   item: string | null
+  /** the prototype's fixture: today's day, or a new install (only the project not set up, nothing found yet) */
+  fresh: boolean
 }
 
 interface Store { day: RadarDemo | null; seed: RadarDemo | null; view: View; v: number }
-const fresh = (): View => ({ opening: 'since', later: false, tab: 'overview', project: null, item: null })
+const fresh = (): View => ({ opening: 'since', later: false, tab: 'overview', project: null, item: null, fresh: false })
 const s: Store = { day: null, seed: null, view: fresh(), v: 0 }
 const subs = new Set<() => void>()
 const emit = () => { s.v++; subs.forEach((f) => f()) }
@@ -99,12 +102,18 @@ export function dayOf(seed: RadarDemo | undefined): RadarDemo | null {
   if (s.seed !== seed && !s.day) { s.seed = seed; s.day = structuredClone(seed) }
   return s.day
 }
+/** the day the prototype shows: the whole day, or the new install's (only the projects not set up, and no items) */
+export function shownDay(d: RadarDemo | null, v: Pick<View, 'fresh'>): RadarDemo | null {
+  if (!d || !v.fresh) return d
+  const none = new Set(d.projects.filter((p) => p.level === 'none').map((p) => p.id))
+  return { ...d, projects: d.projects.filter((p) => none.has(p.id)), items: d.items.filter((i) => none.has(i.project)) }
+}
 export function useRadar(): { day: RadarDemo | null; view: View } {
   useSyncExternalStore(sub, () => s.v, () => s.v)
   return { day: s.day, view: s.view }
 }
 export function setView(p: Partial<View>) { s.view = { ...s.view, ...p }; emit() }
-export function reset() { s.day = s.seed ? structuredClone(s.seed) : null; s.view = { ...fresh(), opening: s.view.opening }; emit() }
+export function reset() { s.day = s.seed ? structuredClone(s.seed) : null; s.view = { ...fresh(), opening: s.view.opening, fresh: s.view.fresh }; emit() }
 /** change one item (or a project) in this page's copy */
 export function edit(id: string, patch: Partial<RadarItem>) {
   if (!s.day) return
@@ -131,7 +140,7 @@ export const clock = (now: number, v: Pick<View, 'later'>) => now + (v.later ? 7
 /** an item as it is at this clock: a parked one whose date passed (or whose trigger came) is back, with why; one whose
  *  card was answered is approved (a fix being built, waiting for your merge) or not done */
 export function at(i: RadarItem, now: number, live?: Live): RadarItem {
-  if (i.state === 'later' && i.later && i.later.until <= now) return { ...i, state: 'new', reason: i.later.returned ?? 'Its parked time is up.', later: { ...i.later, returned: i.later.returned ?? 'Its parked time is up.' } }
+  if (i.state === 'later' && i.later && (i.later.until <= now || (i.later.soon ?? Infinity) <= now)) return { ...i, state: 'new', reason: i.later.returned ?? 'Its parked time is up.', later: { ...i.later, returned: i.later.returned ?? 'Its parked time is up.' } }
   const a = i.needs && live && !live.cards.has(i.needs.card) ? live.answers[i.needs.card] : undefined
   if (a === 'yes') return { ...i, approved: true, state: 'running', task: i.task ?? 'Fix: ' + i.title }
   if (a === 'no') return { ...i, needs: undefined, state: 'declined', reason: 'You said no on its card.' }
@@ -144,13 +153,14 @@ export const needsYou = (i: RadarItem, live: Live) => !!i.needs && !i.approved &
 
 /** open items: what waits for work or for a decision. Parked, running, shipped and declined ones are out */
 export const open = (i: RadarItem) => i.state === 'new' || i.state === 'next' || i.state === 'held'
+/** what the grey count counts: new and next, what could become work now (held ones wait on something else) */
+export const waiting = (i: RadarItem) => i.state === 'new' || i.state === 'next'
 
-/** the sidebar row: red when something needs the person (the same Needs you item), else the grey count of open
- *  items; with neither, the name alone */
+/** the sidebar row: red when something needs the person (the same Needs you item), else the grey count of what waits
+ *  (new and next); with neither, the name alone */
 export function rowCount(d: RadarDemo | null, live: Live, now: number): { n: number; red: boolean } {
   if (!d) return { n: 0, red: false }
   const items = itemsAt(d, now, live)
   const red = items.filter((i) => needsYou(i, live)).length
-  return red ? { n: red, red: true } : { n: items.filter(open).length, red: false }
+  return red ? { n: red, red: true } : { n: items.filter(waiting).length, red: false }
 }
-

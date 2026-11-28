@@ -7,7 +7,7 @@ import type { RadarDemo, RadarItem, Sighting } from '../plugins/radar/model.ts'
 
 const min = 60_000, hour = 60 * min, day = 24 * hour
 
-const WHO = ['Sticker book', 'Search migration', 'Thumbnails', 'Gift cards at checkout', 'Order history export', 'Dark mode for code blocks', 'Stock alerts by email', 'Address autocomplete', 'Coupon page redesign']
+const WHO = ['Sticker book', 'Search migration', 'Thumbnails', 'Gift cards at checkout', 'Order history export', 'Dark mode for code blocks', 'Stock alerts by email', 'Address autocomplete', 'Coupon page redesign', 'Invoice PDFs', 'Wishlist sharing', 'Review reminders']
 const seen = (now: number, n: number, note: string, every = 5 * hour): Sighting[] => Array.from({ length: n }, (_, i) => ({ who: WHO[i % WHO.length]!, at: now - 40 * min - i * every, note }))
 
 export const RADAR_REPO = 'example/shop'
@@ -67,6 +67,9 @@ export function radarDay(now: number): RadarDemo {
       shipped: { how: 'reverted', at: now - day - 3 * hour, words: 'Reverted yesterday: the fix hid Merge on a narrow card.', after: 'It is open again as a new item, linked to this one.' }, reason: 'Reverted.' },
     ...Array.from({ length: 7 }, (_, i): RadarItem => ({ id: `r-old${i}`, project: 'shepherdr', kind: 'problem', title: ['Search misses a task by its key', 'The terminal loses its size on rotate', 'A chip’s Remove is hard to hit', 'Done today counts yesterday’s', 'Copy drops the last line', 'The drawer opens under the keyboard', 'The schedule’s next run shows UTC'][i]!, sources: ['agents'], state: 'shipped', tasks: 2 + (i % 3),
       shipped: { how: 'live', at: now - (2 + i * 0.6) * day, words: 'Installed and checked healthy.' }, reason: 'Fixed.' })),
+    // a fresh finding from today's tasks, not sorted yet
+    { id: 'r-new', project: 'shepherdr', kind: 'problem', title: 'Copy misses the last line of a code block', sources: ['agents'], state: 'new', tasks: 1, workflow: 'Chat',
+      days: days([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), sightings: seen(now, 1, 'Copied a block, pasted it without its last line'), reason: 'New today: one task noted it. Not sorted yet.' },
     { id: 'r-no', project: 'shepherdr', kind: 'idea', title: 'A second inbox for support requests', sources: ['you'], state: 'declined', reason: 'Not doing: no one owns support intake yet.' },
     // shop: the one red item (its card waits in #shop's chat and under Needs you)
     { id: 'r-err', project: 'shop', kind: 'error', title: 'Checkout fails on an empty cart', sources: ['sentry'], state: 'new', events: '48 times since 09:10 · 31 visitors', workflow: 'Start',
@@ -76,12 +79,14 @@ export function radarDay(now: number): RadarDemo {
     // garden-app: paused, one parked idea
     { id: 'r-garden', project: 'garden', kind: 'idea', title: 'Water reminders by weather', sources: ['you'], state: 'later', reason: 'Parked until spring.', later: { until: now + 90 * day, trigger: 'Back on 1 Mar' } },
   ]
+  // each sighting's task: as many distinct tasks as the item says hit it
+  for (const i of items) if (i.sightings && i.tasks) i.sightings = i.sightings.map((x, k) => ({ ...x, who: WHO[k % i.tasks!]! }))
   return {
     looked: now - 20 * hour,
     projects: [
       { id: 'shepherdr', name: 'Shepherdr', repo: 'example/shepherdr', folder: '~/dev/shepherdr', machine: 'mac-mini', level: 'fix', fixes: { used: 2, cap: 2 }, next: '15:00',
         sources: [{ name: 'Agents', ok: true, words: 'Agents’ findings, read 2 min ago' }, { name: 'GitHub', ok: true, words: 'Issues, read 12 min ago' }, { name: 'Upstream', ok: false, words: 'Releases, no answer since yesterday 18:00' }] },
-      { id: 'shop', name: 'shop', repo: RADAR_REPO, folder: '~/dev/shop', machine: 'mac-mini', level: 'score', next: '15:00',
+      { id: 'shop', name: 'shop', repo: RADAR_REPO, folder: '~/dev/shop', machine: 'mac-mini', level: 'fix', fixes: { used: 0, cap: 1 }, next: '15:00',
         sources: [{ name: 'Agents', ok: true, words: 'Agents’ findings, read 2 min ago' }, { name: 'GitHub', ok: true, words: 'Issues, read 8 min ago' }, { name: 'Sentry', ok: true, words: 'Errors, read 4 min ago' }] },
       { id: 'blog', name: 'blog', repo: 'example/blog', folder: '~/dev/blog', machine: 'mac-mini', level: 'none', sources: [] },
       { id: 'garden', name: 'garden-app', repo: 'example/garden-app', folder: '~/dev/garden-app', machine: 'vm', level: 'score', paused: now - 26 * hour,

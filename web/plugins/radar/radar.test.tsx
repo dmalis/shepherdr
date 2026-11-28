@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot } from '@shared/types.ts'
 import { projectAttention } from '@shared/attention.ts'
 import { snapshot } from '../../demo/data.ts'
-import { clock, itemsAt, open, rowCount, type RadarDemo } from './model.ts'
+import { at, clock, itemsAt, rowCount, setView, shownDay, type RadarDemo } from './model.ts'
 import { liveOf, RadarRow } from './row.tsx'
 
 const root = join(import.meta.dir, '..', '..', '..')
@@ -63,11 +63,14 @@ test('the demo case loads: its four projects, and its one card counted under Nee
   const s = day()
   const r = radarOf(s)!
   expect(r.projects.map((p) => p.name)).toEqual(['Shepherdr', 'shop', 'blog', 'garden-app'])
-  expect(r.projects.map((p) => p.level)).toEqual(['fix', 'score', 'none', 'score'])
+  expect(r.projects.map((p) => p.level)).toEqual(['fix', 'fix', 'none', 'score'])
   expect(r.projects.find((p) => p.id === 'garden')!.paused).toBeNumber()
   // the fixtures: held for each reason, parked ones that come back, and the three ways a fix ships
   expect(r.items.filter((i) => i.state === 'held').map((i) => i.held!.why).sort()).toEqual(['cap', 'checks', 'stale'])
   expect(new Set(r.items.filter((i) => i.shipped).map((i) => i.shipped!.how))).toEqual(new Set(['live', 'merged', 'reverted']))
+  // a sighting is a task: as many distinct ones as the item says hit it
+  const trust = r.items.find((i) => i.id === 'r-trust')!
+  expect(new Set(trust.sightings!.map((x) => x.who)).size).toBe(trust.tasks!)
   const now = Date.now()
   expect(itemsAt(r, now).filter((i) => i.later?.returned && i.state === 'new')).toHaveLength(0)
   expect(itemsAt(r, clock(now, { later: true })).filter((i) => i.later?.returned && i.state === 'new').map((i) => i.id).sort()).toEqual(['r-theme', 'r-voice'])
@@ -78,16 +81,32 @@ test('the demo case loads: its four projects, and its one card counted under Nee
   expect(liveOf(s).cards.has(CARD)).toBe(true)
 })
 
-test('the row is red while the card asks, grey once it is answered, with the count in words', () => {
+test('the row is red while the card asks, grey 3 once it is answered, the name alone on a new install', () => {
   const red = renderToStaticMarkup(<RadarRow snap={day()} />)
   expect(red).toContain('aria-label="Radar, 1 needs you"')
   expect(red).toMatch(/class="cnt needs">1</)
-  const s = answered(true)
-  const open5 = itemsAt(radarOf(s)!, Date.now(), liveOf(s)).filter(open).length
-  const grey = renderToStaticMarkup(<RadarRow snap={s} />)
-  expect(grey).toContain(`aria-label="Radar, ${open5} open"`)
-  expect(grey).toMatch(new RegExp(`class="cnt">${open5}<`))
+  // grey counts what could become work now (new and next): Shepherdr's three
+  const grey = renderToStaticMarkup(<RadarRow snap={answered(true)} />)
+  expect(grey).toContain('aria-label="Radar, 3 waiting"')
+  expect(grey).toMatch(/class="cnt">3</)
   expect(grey).not.toContain('needs')
+  // the prototype's new install: one project not set up, nothing found, so the row is the plain name
+  setView({ fresh: true })
+  try {
+    const plain = renderToStaticMarkup(<RadarRow snap={answered(true)} />)
+    expect(plain).toContain('aria-label="Radar"')
+    expect(plain).not.toContain('class="cnt')
+    expect(shownDay(radarOf(day())!, { fresh: true })!.projects.map((p) => p.level)).toEqual(['none'])
+  } finally {
+    setView({ fresh: false })
+  }
+})
+
+test('parked for 30 days or until 3 more report it: back a week later, saying why', () => {
+  const now = Date.now(), DAY = 86400_000
+  const i = { ...radarOf(day())!.items.find((x) => x.id === 'r-trust')!, state: 'later' as const, later: { until: now + 30 * DAY, soon: now + 5 * DAY, returned: 'Came back early: 3 more tasks reported it since you parked it.' } }
+  expect(at(i, now).state).toBe('later')
+  expect(at(i, clock(now, { later: true }))).toMatchObject({ state: 'new', reason: 'Came back early: 3 more tasks reported it since you parked it.' })
 })
 
 test('a Yes on the card makes the item approved and waiting for your merge; a No moves it to Not doing', () => {

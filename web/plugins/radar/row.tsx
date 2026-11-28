@@ -1,11 +1,11 @@
 // Radar's row in the list (the clickable prototype): it comes only where the demo sent a Radar day, so the first
-// screen carries none of it. A grey count while items wait and none of them needs you, a red one (the Needs you
+// screen carries none of it. A grey count while items wait (new and next) and none of them needs you, a red one (the Needs you
 // colour) when one does, the name alone at zero; never a bare icon, as Tasks' own counts.
 import { getState, setUI, useUI } from '@client/kernel.ts'
 import { Row } from '@client/ui.tsx'
 import { attentionOf } from '@shared/attention.ts'
 import type { Snapshot } from '@shared/types.ts'
-import { clock, dayOf, rowCount, setView, useRadar, type Live, type RadarDemo } from './model.ts'
+import { clock, dayOf, rowCount, setView, shownDay, useRadar, type Live, type RadarDemo } from './model.ts'
 
 export const PAGE = 'radar'
 
@@ -27,9 +27,9 @@ export function openRadar(item?: string) {
 
 export function RadarRow({ snap }: { snap: Snapshot }) {
   const { view } = useRadar()
-  const day = dayOf(radarOf(snap))
+  const day = shownDay(dayOf(radarOf(snap)), view)
   const on = useUI((u) => u.page === PAGE)
   const { n, red } = rowCount(day, liveOf(snap), clock(Date.now(), view))
-  const words = !n ? 'Radar' : red ? `Radar, ${n} ${n === 1 ? 'needs' : 'need'} you` : `Radar, ${n} open`
+  const words = !n ? 'Radar' : red ? `Radar, ${n} ${n === 1 ? 'needs' : 'need'} you` : `Radar, ${n} waiting`
   return <Row icon="pulse" label="Radar" current={on || undefined} aria-label={words} end={n ? <span className={red ? 'cnt needs' : 'cnt'}>{n}</span> : null} onClick={() => openRadar()} />
 }
