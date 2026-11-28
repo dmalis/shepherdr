@@ -70,7 +70,8 @@ What a row, a card or a header shows. Leave out what doesn't help the person dec
 - **A task's header:** the name, then the status in words, then its pull request and the agent. A status beats a
   model: when the line runs short, the model leaves first, then the pull request, each whole or not at all, and the
   status stays whole (`rows.css`).
-- **A card that asks something:** the question or decision first, what happens when you answer, then the buttons.
+- **A card that asks something:** the question or decision first, what happens when you answer (and why it waits for
+  you), then the buttons.
 - **Where:** a task lives in the space that asked for it and works in a folder, a repo on a machine. Where those
   differ, both are named (`from #space`), and the machine is named when it tells two apart.
 - **Reading order** matches what the eye sees and what Tab reaches. Drawing a quiet line above the name it belongs to
@@ -277,8 +278,11 @@ Use these before making anything new; each has its states in `ds.css`.
   in the value's place while the row is hovered or reached by the keyboard, as Gmail's and Linear's row actions; on
   touch it is in the menu (`.tsc`, `web/plugins/tasks/rows.css`).
 - **Cards** (`.card`): the question or title, at most two quiet lines, the content, then its buttons (`.acts`, a row
-  at the end that wraps). Target: on a phone, a card's two or more buttons share its width, the primary last, as a
-  sheet's do.
+  at the end that wraps). A quiet line that says why a card waits is a sentence naming what waits on you ("Waits for
+  you to merge it: in this repo, tasks merge only when you say so"), never a setting's name and value. On a phone, and
+  in a narrow card (a task's pane), the review card's two buttons share its width, the primary last, as a sheet's do:
+  side by side when both fit, else each the card's whole width (`web/plugins/tasks/review-card.css`). Target: every
+  card's buttons do.
 - **Chips** (`.chip`): suggested replies and choices.
 - **Counts** (`.cnt`): quiet; `.needs` is red.
 - **Banners** (`.banner`): its words first, one button. On a phone the words wrap to two lines and the button goes

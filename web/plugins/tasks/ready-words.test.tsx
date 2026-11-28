@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot, Task } from '@shared/types.ts'
 import { doneWords } from '@shared/view.ts'
@@ -18,7 +19,7 @@ const ready = { id: 'SHOP-9', name: 'Check the coupon bug', place: snap.places[0
 const text = (t: Partial<Task>, ctx: 'chat' | 'thread' = 'thread') => renderToStaticMarkup(<ReviewCard t={{ ...ready, ...t }} ctx={ctx} />).replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/\s+/g, ' ')
 
 test('nothing to merge: the decision is to close it, and the button says nothing changes', () => {
-  const why = 'Waits for you: Merge in this repo is When I mark it as done.'
+  const why = 'Waits for you to close it: it has nothing to merge, and in this repo tasks finish only when you say so.'
   for (const ctx of ['thread', 'chat'] as const) {
     const s = text({ repo: 'branch', base: 'main', nothingToMerge: true, summary: 'Already fixed upstream.', waitsWhy: why }, ctx)
     expect(s).toContain("This task changed nothing, so there's nothing to merge. Close it?")
@@ -54,8 +55,34 @@ test('closed by its Merge setting: one quiet line with what it found', () => {
 })
 
 test('new files left uncommitted: the card says closing deletes them', () => {
-  const s = text({ repo: 'branch', nothingToMerge: true, leftFiles: ['research.md'], waitsWhy: 'Waits for you: it committed nothing but left new files (research.md); closing it deletes them.' })
+  const s = text({ repo: 'branch', nothingToMerge: true, leftFiles: ['research.md'], waitsWhy: "Waits for you to close it: closing deletes the new files it left and didn't commit (research.md)." })
   expect(s).toContain("left new files it didn't commit. Close it and delete them?")
   expect(s).toContain('Close, delete its files')
   expect(s).not.toContain('Close, nothing changes')
+})
+
+// fork UI 15 (dmalis/shepherdr#184): the why line is a sentence naming the card's own action, never a setting's name
+// and value; on a phone or in a narrow card its buttons share the card's width, the primary last (review-card.css).
+test('the why line says what waits on you, right under the question', () => {
+  const why = 'Waits for you to merge it: in this repo, tasks merge only when you say so.'
+  const s = text({ repo: 'branch', base: 'main', summary: 'Faster search.', waitsWhy: why })
+  expect(s.indexOf('Merge its changes into main?')).toBeLessThan(s.indexOf(why))
+  expect(s.indexOf(why)).toBeLessThan(s.indexOf('Faster search.'))
+  // the demo's cards speak the new way: no line a setting's name and value
+  for (const t of snap.tasks.filter((x) => x.waitsWhy)) {
+    expect(t.waitsWhy).toStartWith('Waits for you to ')
+    expect(t.waitsWhy).not.toContain(' is When I mark it as done')
+  }
+})
+
+test('its buttons: Not now first, the primary last, in a card that can share its width', () => {
+  const html = renderToStaticMarkup(<ReviewCard t={{ ...ready, repo: 'branch', base: 'main', summary: 'x' }} ctx="thread" />)
+  expect(html).toContain('class="card rvcard"')
+  const acts = html.slice(html.indexOf('class="acts"'))
+  expect(acts.indexOf(LATER)).toBeLessThan(acts.indexOf('Merge into main'))
+  const css = readFileSync(new URL('./review-card.css', import.meta.url), 'utf8')
+  expect(css).toContain('.card.rvcard{container:rvcard/inline-size}')
+  expect(css).toContain('.app.phone .card.rvcard>.acts>.btn{flex:1 1 0;min-width:fit-content')
+  expect(css).toContain('@container rvcard (max-width:420px)')
+  expect(readFileSync(new URL('./client.tsx', import.meta.url), 'utf8')).toContain("import './review-card.css'")
 })

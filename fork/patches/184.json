@@ -1,0 +1,17 @@
+{
+  "issue": 184,
+  "name": "Tasks: the review card says what happens",
+  "files": [
+    "mods/tasks/bin/herdr_task/waits.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/tasks/review-card.css",
+    "web/demo/data.ts",
+    "docs/design.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py::MergedOnlyWithOwnWork",
+    "web/plugins/tasks/ready-words.test.tsx",
+    "fork/tests/test_nothing_to_merge.py"
+  ]
+}

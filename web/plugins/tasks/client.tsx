@@ -38,6 +38,7 @@ import { cantCheck, tierLabel } from '@shared/needs-words.ts'
 import { AskRow, listNeeds, needsAsks } from '@client/needs-count.tsx'
 import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, GROUPS, groupNarrows, NO_FILTER, pickView, toggle, type GroupKey, type TaskFilter, type View } from '@shared/task-filter.ts'
 import { Views } from './views.tsx'
+import './review-card.css'
 
 export { StatusIcon }
 
@@ -367,7 +368,7 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
   // keeps its first sentence and folds the rest)
   const said = saidWords({ summary: t.summary ?? ev?.summary, details: t.details ?? ev?.details }) as { summary: string; details: string }
   return (
-    <div className="card" data-card={`review:${t.id}`}>
+    <div className="card rvcard" data-card={`review:${t.id}`}>
       {ctx === 'chat' && <span className="t tw"><StatusIcon t={t} time="none" /><KindName t={t} name={t.name} /></span>}
       {/* the decision first, then why it waits for you (dmalis/shepherdr#29); what its agent said follows as evidence */}
       <span className={ctx === 'chat' ? undefined : 't'}>{rw.ask}</span>
@@ -400,7 +401,7 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
         </div>
       )}
       {t.mergeFailed && <span className="s c-red">{t.mergeFailed}</span>}
-      {later.has(t.id) && <span className="s">Still here when you want it. Say what to change in the box below.</span>}
+      {later.has(t.id) && <span className="s">It stays under Needs you until you answer. Say what to change in the box below.</span>}
       {down ? (
         <span className="s">Can't reach {down.name}: this waits until the link is back</span>
       ) : (
