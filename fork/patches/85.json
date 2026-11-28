@@ -32,7 +32,6 @@
     "web/plugins/chat/kind.test.tsx",
     "service/push.test.ts",
     "service/glance.test.ts",
-    "web/plugins/tasks/ready-words.test.tsx",
-    "web/demo/fit-check.ts"
+    "web/plugins/tasks/ready-words.test.tsx"
   ]
 }

@@ -38,7 +38,7 @@ test("a card's column and a done row stay inside the chat's column", () => {
   const chat = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
   expect(chat).toContain('<span className="kline"><KindLine text={line} />')
   const tasks = readFileSync(join(import.meta.dir, '../tasks/client.tsx'), 'utf8')
-  expect(tasks).toMatch(/<DoneRow>\s*<span className="kline">\s*<KindName t=\{t\} name=\{t\.name\} state=\{statusWord\(t\)\.word\} \/>/)
+  expect(tasks).toMatch(/<DoneRow>\s*<span className="kline">\s*<KindName t=\{t\} name=\{t\.name\} state=\{word\} \/>/)
 })
 
 test('every place a chat names a task uses it (pins the call sites in upstream files)', () => {
@@ -55,8 +55,8 @@ test('every place a chat names a task uses it (pins the call sites in upstream f
   expect(read('../../../service/push.ts')).toContain('fitWho(who, String(a.title ?? ""), 60)')
   expect(read('mentions.tsx')).toContain('<KindWord t={task} />')
   expect(read('markdown.tsx')).toContain("if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))")
-  // the review card's Done line and the stopped card's line; the Needs your hands card's line
-  expect(read('../tasks/client.tsx').split('<KindName t={t} name={t.name} state={statusWord(t).word} />').length).toBe(3)
+  // the stopped card's line (the review card's Done line keeps only its state's first word: the test above); the Needs your hands card's line
+  expect(read('../tasks/client.tsx').split('<KindName t={t} name={t.name} state={statusWord(t).word} />').length).toBe(2)
   expect(read('../tasks/client.tsx')).toContain('<StatusIcon t={t} time="none" /><KindName t={t} name={t.name} />')
   expect(read('../screens/client.tsx')).toContain('<KindName t={t} name={t.name} state={statusWord(t).word} />')
 })

@@ -1,14 +1,15 @@
 // Fit check (Fix: phone card buttons fit): on a phone, everything in a chat stays inside its column. A review card's
-// buttons once reached past the card's border (a button's fit-content widened the card's grid column to the whole
-// label) and a done task's row ran off the screen (its name and its words were two flex items that couldn't wrap),
-// with every other check green.
+// buttons once reached past the card's border (a task's name on one line sized the card's grid column, and the
+// buttons stretched to it) and a done task's row ran off the screen (its name and its words were two flex items that
+// couldn't wrap), with every other check green.
 //
 // Opens the built demo in a headless Chrome whose only pointer is a finger, at 320 and 390 px, at Chat text size
 // Default and Larger, in Everything, each demo space's chat and two tasks' threads, and measures as painted:
-//   - every row, card and bubble in the chat (.msgs's children) ends inside the chat's column and the screen;
+//   - every row, card and bubble in the chat (.msgs's children) sits inside the chat's column and the screen;
 //   - everything inside a card or a news row (a done row, a task's line, a fold), each element and each run of text,
-//     ends inside that card or row; what a clipping box (overflow hidden or scrolling, e.g. a code block) cuts is
-//     not drawn past it, so it isn't counted.
+//     sits inside that card or row, on both sides. Only two kinds of clipping box excuse what they cut: a scroller (a
+//     code block, a wide table) and a one-line ellipsis (a task's name); anything else cut off counts.
+//   - the case that broke is there to measure: #blog's review card and its done row.
 // A scene reports every break it finds, not only the first.
 //
 //   bun run build && bun web/demo/fit-check.ts [--shots <dir>]
@@ -50,19 +51,24 @@ const breaks = () => {
     return `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}${words ? ` "${words}"` : ''}`
   }
   const col = msgs.getBoundingClientRect()
-  const edge = Math.min(col.right, innerWidth) + 0.5
+  const right = Math.min(col.right, innerWidth) + 0.5
+  const left = Math.max(col.left, 0) - 0.5
   for (const box of msgs.children) {
     const b = box.getBoundingClientRect()
     if (!b.width) continue
-    if (b.right > edge) out.push(`${say(box)} ends at ${b.right.toFixed(0)}, past the column (${col.right.toFixed(0)}) or the screen (${innerWidth})`)
+    if (b.right > right) out.push(`${say(box)} ends at ${b.right.toFixed(0)}, past the column (${col.right.toFixed(0)}) or the screen (${innerWidth})`)
+    if (b.left < left) out.push(`${say(box)} starts at ${b.left.toFixed(0)}, before the column (${col.left.toFixed(0)}) or the screen`)
     if (!box.matches('.card, .donerow, .ref, .fold')) continue
-    // inside it: each element and each run of text, unless a clipping box between cuts it
-    const clipped = (n: Node) => {
-      for (let p = n.parentElement; p && p !== box; p = p.parentElement) if (getComputedStyle(p).overflowX !== 'visible') return true
+    // inside it: each element and each run of text, unless a scroller or a one-line ellipsis between cuts it on purpose
+    const excused = (n: Node) => {
+      for (let p = n.parentElement; p && p !== box; p = p.parentElement) {
+        const cs = getComputedStyle(p)
+        if (cs.overflowX === 'auto' || cs.overflowX === 'scroll') return true
+        if (cs.overflowX !== 'visible' && cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap') return true
+      }
       return false
     }
     const walk = document.createTreeWalker(box, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT)
-    const inner = b.right + 0.5
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       let r: DOMRect
       if (n instanceof Text) {
@@ -74,7 +80,9 @@ const breaks = () => {
         if (!(n as Element).getClientRects().length) continue
         r = (n as Element).getBoundingClientRect()
       }
-      if (r.width && r.right > inner && !clipped(n)) out.push(`${say(n as Element | Text)} ends at ${r.right.toFixed(0)}, past its ${say(box).split(' ')[0]} (${b.right.toFixed(0)})`)
+      if (!r.width || excused(n)) continue
+      if (r.right > b.right + 0.5) out.push(`${say(n as Element | Text)} ends at ${r.right.toFixed(0)}, past its ${say(box).split(' ')[0]} (${b.right.toFixed(0)})`)
+      if (r.left < b.left - 0.5) out.push(`${say(n as Element | Text)} starts at ${r.left.toFixed(0)}, before its ${say(box).split(' ')[0]} (${b.left.toFixed(0)})`)
     }
   }
   return out
@@ -95,6 +103,12 @@ async function check(browser: Browser, base: string, s: Scene) {
       await page.waitForLoadState('networkidle')
       await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
       for (const f of await page.evaluate(breaks)) fails.push(`${where}: ${f}`)
+      // the case that broke, so a changed demo can't leave nothing to measure
+      if (where === 'place=p:mac-mini:blog') {
+        const msgs = page.locator('.chat > .scroll > .msgs >> visible=true').first()
+        if (!(await msgs.locator(':scope > .card.rvcard', { hasText: 'Fix typo on the About page' }).count())) fails.push(`${where}: no review card for "Fix typo on the About page" to measure`)
+        if (!(await msgs.locator(':scope > .donerow', { hasText: 'Check the broken RSS link' }).count())) fails.push(`${where}: no done row for "Check the broken RSS link" to measure`)
+      }
       if (shots) await page.screenshot({ path: `${shots}/${`${s.width} ${s.text} ${where}`.replace(/[^\w]+/g, '-')}.png` })
     }
     return { name, fails }
