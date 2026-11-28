@@ -28,7 +28,7 @@ DS = "web/src/ds.css"
 SCALE = {12, 13, 14, 16, 18, 20, 24}
 
 COLOURS = {
-    "web/src/styles.css": 22,
+    "web/src/styles.css": 21,
     "web/src/settings-look.css": 15,
     "web/src/sheets.css": 1,
     "web/plugins/installed/installed.css": 1,

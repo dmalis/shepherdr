@@ -1,0 +1,20 @@
+{
+ "issue": 152,
+ "name": "Demo: artifacts readable in dark and night",
+ "files": [
+  "web/src/styles.css",
+  "web/plugins/artifacts/client.tsx",
+  "web/demo/serve.ts",
+  "web/demo/artifact-check.ts",
+  "web/demo/artifact-check.test.ts",
+  "docs/design.md",
+  ".github/workflows/check.yml",
+  "test/test_design.py",
+  "web/src/artifact-frame.test.ts"
+ ],
+ "tests": [
+  "web/demo/artifact-check.test.ts",
+  "test/test_design.py",
+  "web/src/artifact-frame.test.ts"
+ ]
+}
