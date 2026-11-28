@@ -56,9 +56,17 @@ def _memory():
     return total, max(0, total - free) if total else 0
 
 
+def _share(used, avail):
+    """used over what an ordinary user could have, unrounded (0-1), or None when it keeps no count"""
+    return used / (used + avail) if used + avail > 0 else None
+
+
 def _disks():
     """Home and /tmp, once each when they're one disk: % full as df counts it (used over what an
-    ordinary user could have)."""
+    ordinary user could have), of its space or of its file slots (inodes, as df -i), whichever is
+    fuller: a disk with no file slots left takes no new file however much space it has. `by` says
+    which ("space" or "files"), chosen before rounding; a filesystem that keeps no count of files (0)
+    is read by space, one with no size (a tmpfs with size=0) by its files alone, without space numbers."""
     out, seen = [], set()
     for path in (HOME, "/tmp"):
         try:
@@ -70,16 +78,30 @@ def _disks():
         seen.add(dev)
         used = (st.f_blocks - st.f_bfree) * st.f_frsize
         avail = st.f_bavail * st.f_frsize
-        if used + avail <= 0:
+        space = _share(used, avail)
+        files = _share(max(0, st.f_files - st.f_ffree), max(0, st.f_favail)) if st.f_files > 0 else None
+        if space is None and files is None:
             continue
-        out.append({"path": "home" if path == HOME else path, "pct": round(used * 100 / (used + avail)),
-                    "free_gb": round(avail / 2 ** 30), "free": avail, "used": used, "size": st.f_blocks * st.f_frsize})
+        by = "files" if files is not None and (space is None or files > space) else "space"
+        d = {"path": "home" if path == HOME else path, "pct": round(100 * (files if by == "files" else space)), "by": by}
+        if space is not None:
+            d.update(free_gb=round(avail / 2 ** 30), free=avail, used=used, size=st.f_blocks * st.f_frsize, space_pct=round(100 * space))
+        if files is not None:
+            d["files_pct"] = round(100 * files)
+        d["_full"] = files if by == "files" else space
+        out.append(d)
+    # the fullest by its unrounded share leads where two round alike (a /tmp out of file slots over a home at 99.6%)
+    full = max(out, key=lambda d: d["_full"], default=None)
+    for d in out:
+        d.pop("_full")
+        if d is full:
+            d["fullest"] = True
     return out
 
 
 def sample():
     """{at, cores, load, cpu, mem_total, mem_used, memory, disk, disks}: cpu is the 1-minute load
-    over the cores (%), memory in use (%), disk the fullest (%)."""
+    over the cores (%), memory in use (%), disk the fullest (%, of its space or its file slots)."""
     cores = os.cpu_count() or 1
     load = os.getloadavg()[0]
     total, used = _memory()
@@ -143,6 +165,10 @@ def hold_reason(h, limits=None):
     if lim["start_load"] is not None and h["load"] > lim["start_load"] * h["cores"]:
         return "CPU is %d%% busy" % h["cpu"]
     if lim["start_disk"] is not None and h["disk"] > lim["start_disk"]:
+        disks = h.get("disks") or []
+        full = next((d for d in disks if d.get("fullest")), None) or max(disks, key=lambda d: d["pct"], default={})
+        if full.get("by") == "files":
+            return "disk is %d%% full (%s's file slots)" % (h["disk"], full["path"])
         return "disk is %d%% full" % h["disk"]
     return None
 

@@ -327,7 +327,8 @@ def judge(was, h):
 
 
 def meters_words(h):
-    disks = " · ".join(f"{d['path']} {d['pct']}% ({d['free_gb']} GB free)" for d in h.get("disks") or [])
+    disks = " · ".join(f"{d['path']} {d['pct']}%{' of its file slots' if d.get('by') == 'files' else ''}"
+                       + (" (%s GB free)" % d["free_gb"] if "free_gb" in d else "") for d in h.get("disks") or [])
     return (f"CPU {h['cpu']}% (load {h['load']} on {h['cores']} cores) · Memory {h['memory']}% · Disk {h['disk']}%"
             + (f" [{disks}]" if disks else ""))
 
