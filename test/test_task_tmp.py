@@ -489,11 +489,25 @@ class RunInATasksTemp(unittest.TestCase):
         self.write(os.path.join(run, "tmp", "a"))
         self.assertRefused(os.path.join(shared, "other", "x"))
 
-    def test_only_a_folder_deeper_than_a_guarded_one_or_a_runs_own_counts(self):
-        for shared in (self.home, os.path.join(self.home, ".cache"), os.path.join(self.home, ".config", "shepherdr")):
+    def test_only_one_tasks_temp_folder_or_a_runs_own_counts(self):
+        h = self.home
+        service = os.path.join(h, ".local", "state", "shepherdr", "service")
+        os.makedirs(service)
+        link = os.path.join(h, ".cache", "shepherdr", "tmp", "sd-3-link")  # a task-looking name that leads to state
+        os.symlink(service, link)
+        forged = os.path.join(self.shared, f"{home_guard.RUN_PREFIX}9-forged")  # a run's name that leads to the home
+        os.symlink(h, forged)
+        for shared in (h, os.path.join(h, ".cache"), os.path.join(h, ".cache", "shepherdr"),
+                       os.path.join(h, ".cache", "shepherdr", "tmp"), os.path.join(h, ".config", "shepherdr"),
+                       service, link):
             home_guard.own(shared=shared)
-        home_guard.own(run=os.path.join(self.home, ".config", "shepherdr"))  # not a run's folder by its name
-        self.assertRefused(os.path.join(self.home, ".config", "shepherdr", "settings.json"))
+        for run in (os.path.join(h, ".config", "shepherdr"), forged):  # not a run's folder where it leads
+            home_guard.own(run=run)
+        self.assertEqual(home_guard.OWN, [])
+        for p in (".config/shepherdr/settings.json", ".cache/shepherdr/tmp/sd-2-efgh/x",
+                  ".local/state/shepherdr/service/token"):
+            with self.subTest(p=p):
+                self.assertRefused(os.path.join(h, p))
 
     def test_a_program_the_run_starts_keeps_its_run_folder(self):
         """A program a test starts imports the guard again with RUN_VAR set: that run's folder is its own too."""

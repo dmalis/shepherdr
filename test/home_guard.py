@@ -60,18 +60,23 @@ def touches(path):
 
 # The run's own temp folders, the only other real-home paths a test may open. A task's TMPDIR is its own folder under
 # ~/.cache/shepherdr/tmp (#216), so a run in a task makes its shep-run-* folder inside a guarded folder. Kept here:
-# the temp folder the run started from, only when it lies deeper than a guarded folder (never a whole one, never the
-# home), and the shep-run-* folder the run made, named in RUN_VAR for the programs it starts.
+# the temp folder the run started from, only when it is one task's folder (where its links lead: right inside
+# ~/.cache/shepherdr/tmp, never that folder, another guarded one or the home), and the shep-run-* folder the run made
+# (where its links lead), named in RUN_VAR for the programs it starts.
 OWN = []
+CACHE = os.path.join(".cache", "shepherdr")  # task_tmp.root(): the cache root's tmp/<task>
 
 
 def own(shared=None, run=None):
     if shared:
         p = os.path.realpath(shared)
-        if any(p.startswith(d + os.sep) for d in REAL_DIRS):
+        tasks = [os.path.join(d, "tmp") for d in REAL_DIRS if d.endswith(os.sep + CACHE)]
+        if os.path.dirname(p) in tasks:
             OWN.append(p)
-    if run and os.path.basename(os.path.normpath(run)).startswith(RUN_PREFIX):
-        OWN.append(os.path.realpath(run))
+    if run:
+        p = os.path.realpath(run)
+        if os.path.basename(p).startswith(RUN_PREFIX):
+            OWN.append(p)
 
 
 # The person's installed commands (herdr-task's zipapp and the links beside it): a test may read them, never write
