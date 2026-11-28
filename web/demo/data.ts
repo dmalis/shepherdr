@@ -563,3 +563,53 @@ export const chats: Record<string, Chat> = Object.fromEntries(
 )
 void byPay
 void byPhoto
+
+// New space's folder list: each machine's home, recent folders and folders (/api/newspace, /api/folders). A folder
+// marked * is a git repo; one not listed has no subfolders. On ?case=down the vm can't be reached.
+const HOMES: Record<string, string> = { 'mac-mini': '/Users/sam', vm: '/home/sam', studio: '/Users/sam', pi: '/home/sam' }
+const TREES: Record<string, Record<string, string[]>> = {
+  'mac-mini': {
+    '/': ['Applications', 'Library', 'Users', 'opt'],
+    '/Users': ['sam', 'Shared'],
+    '/Users/sam': ['Desktop', 'dev', 'Documents', 'Downloads', 'notes', 'Pictures'],
+    '/Users/sam/dev': ['blog*', 'docs*', 'landing-page*', 'old-site*', 'portfolio*', 'recipes*', 'shop*', 'shop-admin*', 'shipping-labels', 'sketches'],
+    '/Users/sam/dev/shop': ['api', 'design', 'scripts', 'web'],
+    '/Users/sam/Documents': ['Invoices', 'Taxes 2026'],
+  },
+  vm: {
+    '/': ['etc', 'home', 'srv', 'var'],
+    '/home/sam': ['clients', 'dev', 'backups'],
+    '/home/sam/dev': ['garden-app*', 'scrapers', 'tools*'],
+    '/home/sam/clients': ['acme'],
+    '/home/sam/clients/acme': ['shop*', 'customer-portal-and-billing-redesign*'],
+  },
+}
+// shop, blog, notes and the vm's shop and garden-app have their spaces already, so they aren't offered
+const RECENT: Record<string, string[]> = { 'mac-mini': ['/Users/sam/dev/shop', '/Users/sam/dev/recipes', '/Users/sam/dev/blog', '/Users/sam/dev/portfolio', '/Users/sam/notes'], vm: ['/home/sam/dev/garden-app', '/home/sam/clients/acme/customer-portal-and-billing-redesign', '/home/sam/clients/acme/shop'] }
+
+/** what /api/newspace answers for a machine; null: it can't be reached */
+export function newSpaceInfo(machine: string, down = false) {
+  const home = HOMES[machine]
+  if (!home || (down && machine === 'vm')) return null
+  return { home, recent: RECENT[machine] ?? [], start: home }
+}
+
+/** what /api/folders answers for a folder on a machine (its subfolders from home as ~) */
+export function foldersOf(machine: string, path: string) {
+  const home = HOMES[machine] ?? '/home/sam'
+  // as typed ("~/dev/shop/"): no trailing /, and a relative one from home
+  const full = path === '~' ? home : path.startsWith('~/') ? home + path.slice(1) : path.startsWith('/') ? path : `${home}/${path}`
+  const abs = full.replace(/\/+$/, '') || '/'
+  const tilde = (p: string) => (p === home ? '~' : p.startsWith(home + '/') ? `~${p.slice(home.length)}` : p)
+  const tree = TREES[machine] ?? {}
+  const there = abs in tree || Object.entries(tree).some(([d, ks]) => ks.some((k) => `${d === '/' ? '' : d}/${k.replace(/\*$/, '')}` === abs))
+  const kids = there ? tree[abs] ?? [] : null
+  const entries = (kids ?? []).map((k) => { const name = k.replace(/\*$/, ''); return { name, path: tilde(`${abs === '/' ? '' : abs}/${name}`), repo: k.endsWith('*') } })
+  // the git repo it is in: the nearest folder up from it marked *
+  let repo: string | null = null
+  for (let d = abs; d !== '/' && !repo; d = d.replace(/\/[^/]+$/, '') || '/') {
+    const up = d.replace(/\/[^/]+$/, '') || '/', name = d.slice(d.lastIndexOf('/') + 1)
+    if (tree[up]?.includes(`${name}*`)) repo = tilde(d)
+  }
+  return { path: tilde(abs), exists: !!kids, dir: !!kids, repo, entries }
+}
