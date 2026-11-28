@@ -16,7 +16,7 @@ import { pluginOn } from "./next.ts";
 import { readSettings } from "./settings.ts";
 import { spawn } from "./spawn.ts";
 import { FeedbackMachines, isMachine, spaceThere } from "./feedback-machines.ts";
-import { FENCED, destination, fenced, keepYes } from "./triage.ts";
+import { FENCED, keepYes, legacyFenced } from "./triage.ts";
 
 type Ran = { code: number; stdout: string; stderr: string };
 export type Runner = (args: string[]) => Promise<Ran>;
@@ -383,7 +383,7 @@ export class Feedback {
       // reports stay on this machine
       if (!isMachine(b.machine) || b.do === "report") return { ok: false, error: "That machine isn't linked any more." };
       // Triage is the repo's only publisher (#235, turning it on, step 2): another machine's Post it would post there
-      if (b.do === "approve" && fenced(destination(this.settings()), dirname(this.file()))) return { ok: false, error: `${FENCED}.` };
+      if (b.do === "approve" && legacyFenced(this.settings(), dirname(this.file()))) return { ok: false, error: `${FENCED}.` };
       const why = this.there.refusal(b.machine);
       if (why) return { ok: false, error: why };
       r = await this.there.run(b.machine, args);

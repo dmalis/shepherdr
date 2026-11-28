@@ -127,11 +127,12 @@ def change(ps, key, p, later, undo, no, expect=None):
     if no:
         if p.get("decision") == "declined":
             return {"changed": False, "state": "declined"}, "Already said no."
-        ps[key] = {**p, "state": "declined", "decision": "declined", "until": None, "was": was, "decided": {"at": now(), "by": "page"}}
+        ps[key] = {**p, "state": "declined", "decision": "declined", "until": None, "was": was, "decided": {"at": now(), "by": "page"},
+                   "unyes": now()}  # Triage's yes (the app's, #235) made before this no longer counts, Undo or not
         return {"changed": True, "state": "declined"}, "Said no: it won't be offered again."
     until = later_until(later)
     if p.get("state") == "declined":
         return {"changed": False, "state": "declined"}, "The person said no to this one: Undo first."
     ps[key] = {**p, "decision": "later", "until": until, "was": p.get("was") if p.get("decision") == "later" else was,
-               "decided": {"at": now(), "by": "page"}}
+               "decided": {"at": now(), "by": "page"}, "unyes": now()}
     return {"changed": True, "until": until}, "Not now: it comes back " + ("when it happens again." if until is None else "on its own.")

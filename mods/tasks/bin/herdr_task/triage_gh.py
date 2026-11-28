@@ -34,11 +34,17 @@ RETRY_AFTER = re.compile(r"(?i)retry-after:\s*(\d+)")
 
 
 def runner(argv):
-    """gh itself, never raising (a gh that can't start answers as a refusal). Tests replace this."""
+    """gh itself, never raising. A gh that can't start answers as a refusal (nothing went out); one cut off by the time
+    limit as an unknown (it may have written: never a refusal, so its post is reconciled, never sent again). Tests
+    replace this."""
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.SubprocessError) as e:
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", "gh timed out after 120 s: whether it went out isn't known")
+    except OSError as e:
         return subprocess.CompletedProcess(argv, 127, "", f"gh can't start: {e}")
+    except subprocess.SubprocessError as e:
+        return subprocess.CompletedProcess(argv, 125, "", f"gh stopped ({type(e).__name__}): whether it went out isn't known")
 
 
 def sleep(ms):
@@ -62,6 +68,34 @@ def _write(d):
     os.replace(tmp, STATE)
 
 
+class _state:
+    """STATE read, changed and written under its own short lock (a read and a write finishing at once both count)."""
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        self._f = open(STATE + ".rw", "a")
+        fcntl.flock(self._f, fcntl.LOCK_EX)
+        self.d = _read()
+        return self.d
+
+    def __exit__(self, kind, *_):
+        try:
+            if kind is None:
+                _write(self.d)
+        finally:
+            self._f.close()
+
+
+def _destination_refusal(repo):
+    """A write goes only to the destination in the settings file, read now (never upstream's: destination fails closed)."""
+    from .settings import read_settings
+    from .triage import destination
+    dest = destination(read_settings())
+    if not dest or dest.lower() != str(repo or "").lower():
+        return "Triage writes only to agents.feedback_repo, our own repo: nothing sent"
+    return None
+
+
 def waiting():
     """When Triage's own wait for GitHub ends (ms), or None: a secondary limit's, or the budget gate's."""
     until = max(int(_read().get("until") or 0), ghbudget.reset_at() or 0)
@@ -82,10 +116,12 @@ def creates_left(d, repo, at=None):
     return min(CREATES_HOUR - len([t for t in made if at - t < HOUR_MS]), CREATES_DAY - len(made))
 
 
-def call(args, *, repo, text=None, body=None, write=False, create=False, yes=False, ctx=None):
+def call(args, *, repo, text=None, body=None, write=False, create=False, yes=False, ctx=None, still=None):
     """One gh call: args after `gh` (a body goes in a file, `--body-file`, byte for byte). text: the free text it sends
     (title and body, or a comment), checked with every rule; yes: that text is what the person said yes to in the app.
-    ctx: {"deny", "known", "redact"} for the check. -> Result (sent says whether gh was asked at all)."""
+    ctx: {"deny", "known", "redact"} for the check. still: for a write, whether it may still go (the caller's pause,
+    level and destination), asked again right before gh, after the write lock and the pace's wait, with the destination
+    and GitHub's limit. -> Result (sent says whether gh was asked at all)."""
     ctx = ctx or {}
     argv_text = "\n".join(str(a) for a in args)
     fixed = public.check(argv_text, ctx.get("deny"), hits_only=True)
@@ -95,6 +131,10 @@ def call(args, *, repo, text=None, body=None, write=False, create=False, yes=Fal
         free = public.check(text, ctx.get("deny"), ctx.get("known"), ctx.get("redact"))
         if free["verdict"] != "pass" and not yes:
             return Result(False, why=free["verdict"], found=free)
+    if write:
+        why = _destination_refusal(repo)
+        if why:
+            return Result(False, why="stop", err=why)
     if ghbudget.held(args) or waiting():
         return Result(False, why="limit", err=ghbudget.held_err(waiting() or ghbudget.held(args) or now()))
     path = None
@@ -110,6 +150,12 @@ def call(args, *, repo, text=None, body=None, write=False, create=False, yes=Fal
             gap = APART_MS - (now() - int(d.get("last_write") or 0))
             if gap > 0:
                 sleep(gap)
+            # what changed while it waited for the lock and the pace: a pause, the level, the destination, a limit
+            why = _destination_refusal(repo) or (None if still is None or still() else "Triage stopped meanwhile: nothing sent")
+            if why:
+                return Result(False, why="stop", err=why)
+            if ghbudget.held(args) or waiting():
+                return Result(False, why="limit", err=ghbudget.held_err(waiting() or ghbudget.held(args) or now()))
         if body is not None:
             with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8", newline="") as f:
                 f.write(body)
@@ -117,22 +163,23 @@ def call(args, *, repo, text=None, body=None, write=False, create=False, yes=Fal
             args = [*args, "--body-file", path]
         r = runner([GH, *args])
         err = (r.stderr or "").strip()
-        d = _read()
         if r.returncode != 0 and ghbudget.limited(err or r.stdout):
             ghbudget.refused(args, err)
-            if ghbudget.secondary(err):
+        with _state() as d:
+            if r.returncode != 0 and ghbudget.limited(err or r.stdout) and ghbudget.secondary(err):
                 step = min(SECONDARY_MAX_MS, max(SECONDARY_FIRST_MS, int(d.get("step") or 0) * 2))
                 m = RETRY_AFTER.search(err + "\n" + (r.stdout or ""))
-                d.update(step=step, until=now() + (int(m.group(1)) * 1000 if m else step))
-        elif r.returncode == 0:
-            d.pop("step", None)
-            d.pop("until", None)
-        if write:
-            d["last_write"] = now()
-            if create and r.returncode == 0:
-                made = [t for t in (d.get("creates") or {}).get(repo.lower(), []) if now() - t < DAY_MS]
-                d.setdefault("creates", {})[repo.lower()] = made + [now()]
-        _write(d)
+                d.update(step=step, until=max(int(d.get("until") or 0), now() + (int(m.group(1)) * 1000 if m else step)))
+            elif r.returncode == 0 and int(d.get("until") or 0) <= now():
+                # a call that worked once the wait was over ends the backoff; one that began before a hold set
+                # meanwhile doesn't lift it
+                d.pop("step", None)
+                d.pop("until", None)
+            if write:
+                d["last_write"] = now()
+                if create and r.returncode == 0:
+                    made = [t for t in (d.get("creates") or {}).get(repo.lower(), []) if now() - t < DAY_MS]
+                    d.setdefault("creates", {})[repo.lower()] = made + [now()]
         return Result(r.returncode == 0, r.stdout or "", err, sent=True, why=None if r.returncode == 0 else "failed")
     finally:
         if path:

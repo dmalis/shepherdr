@@ -46,6 +46,23 @@ export function fenced(repo: string | null, dir = store()): boolean {
   return !!d.repos?.[repo.toLowerCase()]?.fenced;
 }
 
+/** whether the old posting is fenced off here, whatever its target (herdr-task triage.legacy_fenced): Triage is on for
+ *  any repo in the settings file (kept in step on every machine, sync.ts), or its record fenced one. Once Triage files
+ *  findings the old way never posts again, so clearing or changing agents.feedback_repo can't reopen it (to upstream's
+ *  fallback either). An unreadable record counts as fenced. */
+export function legacyFenced(settings: any, dir = store()): boolean {
+  const repos = settings?.repos && typeof settings.repos === "object" ? settings.repos : {};
+  for (const r of Object.values<any>(repos)) {
+    const level = r?.triage?.level;
+    if (level != null && level !== "off") return true;
+  }
+  const path = join(dir, ".triage.json");
+  if (!existsSync(path)) return false;
+  const d = readJson(path);
+  if (!d || typeof d !== "object") return true;
+  return Object.values<any>(d.repos ?? {}).some((r) => !!r?.fenced);
+}
+
 /** a draft's body as the person reads it: without its hidden marker (herdr-task feedback_post.shown) */
 export const shown = (body: unknown) =>
   String(body ?? "").replace(/\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+(?: [0-9a-f]{8,32})? -->\s*$/, "").replace(/\s+$/, "");

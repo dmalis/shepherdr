@@ -34,6 +34,7 @@ import herdr_task.triage_gh as tgh  # noqa: E402
 import herdr_task.triage_public as public  # noqa: E402
 import herdr_task.triage_publish as tpub  # noqa: E402
 
+REAL_RUNNER = tgh.runner  # before any test replaces it with the fake gh
 REPO = "acme/shepherdr"
 LINE = "The reply bubble doesn't show which message it answers"
 ASSISTANT = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1", "herdr.agent": "claude"}, "name": "assistant"}
@@ -85,6 +86,8 @@ class Hub:
         if a[:2] == ["issue", "create"]:
             labels = [a[i + 1] for i, x in enumerate(a) if x == "--label"]
             n = self.add(a[a.index("--title") + 1], labels, body, self.login)
+            if self.mode == "timeout":  # written on GitHub, then cut off by triage_gh.runner's time limit
+                return fail("gh timed out after 120 s: whether it went out isn't known", 124)
             return fail("stream error: connection reset") if self.mode == "lose" else done(self.issues[n]["html_url"] + "\n")
         if a[:2] == ["issue", "edit"]:
             n = int(a[2])
@@ -344,9 +347,10 @@ class Filing(Triaged):
         # nothing in herdr-task writes the yes file: only service/triage.ts does
         for name in os.listdir(os.path.join(BIN, "herdr_task")):
             if name.endswith(".py"):
-                text = open(os.path.join(BIN, "herdr_task", name), encoding="utf-8").read()
-                self.assertNotRegex(text, r"open\(\s*YES\s*,\s*['\"][wa]", name)
-        self.assertIn(".triage-yes.json", open(os.path.join(ROOT, "service", "triage.ts")).read())
+                with open(os.path.join(BIN, "herdr_task", name), encoding="utf-8") as f:
+                    self.assertNotRegex(f.read(), r"open\(\s*YES\s*,\s*['\"][wa]", name)
+        with open(os.path.join(ROOT, "service", "triage.ts"), encoding="utf-8") as f:
+            self.assertIn(".triage-yes.json", f.read())
 
     # ---- the pace -----------------------------------------------------------------------------
 
@@ -558,7 +562,149 @@ class Scoring(Triaged):
         code, out = self.triage("set", "level", "fix")
         self.assertIn("later step", out)
         self.assertEqual(self.triage("set", "fixes_per_day", "4")[0], 0)
-        self.assertEqual(json.load(open(self.file))["repos"][self.folder]["triage"]["fixes_per_day"], 4)
+        with open(self.file) as f:
+            self.assertEqual(json.load(f)["repos"][self.folder]["triage"]["fixes_per_day"], 4)
+
+
+class Hardened(Triaged):
+    """The first review round's findings (#235), each as it would have gone wrong."""
+
+    def other_space_draft(self):
+        key = self.report()
+        self.report(caller=OTHER, fix="Show the quoted message above the reply")
+        self.assertEqual(tpub.publish()["waits"], 1)
+        return key
+
+    def test_the_yes_is_judged_under_the_lock_that_reserves_the_post(self):
+        key = self.other_space_draft()
+        pub = tri.publisher()
+        self.assertEqual(tpub.post_one(key, False, pub, tri.ctx_for(self.folder, REPO)), "waits")  # no yes: never sent
+        self.app_yes(key)
+        with fb.problems() as ps:  # the draft replaced after the yes (another pass, a shape): same revision, new text
+            ps[key]["draft"] = {**ps[key]["draft"], "title": "Jane's other words"}
+        self.assertEqual(tpub.post_one(key, False, pub, tri.ctx_for(self.folder, REPO)), "waits")
+        self.assertEqual(self.hub.writes(), [])
+
+    def test_a_timed_out_create_is_unsure_then_found_by_its_marker_never_sent_twice(self):
+        key = self.report()
+        self.hub.mode = "timeout"
+        self.assertEqual(tpub.publish()["unsure"], 1)
+        self.assertEqual(fb.problems_read()[key]["post"]["state"], "unsure")
+        self.hub.mode = "ok"
+        out = tpub.publish()
+        self.assertEqual((out["posted"], len(self.hub.creates())), (1, 1), out)
+
+    def test_the_real_runner_reports_a_timeout_as_unknown_and_only_a_failed_start_as_a_refusal(self):
+        with mock.patch.object(tgh.subprocess, "run", side_effect=subprocess.TimeoutExpired(["gh"], 120)):
+            r = REAL_RUNNER(["gh", "issue", "create"])
+        self.assertEqual(r.returncode, 124)
+        self.assertIsNone(tpub.fpost.REFUSED.search(r.stderr))
+        with mock.patch.object(tgh.subprocess, "run", side_effect=FileNotFoundError("gh")):
+            r = REAL_RUNNER(["gh", "issue", "create"])
+        self.assertIsNotNone(tpub.fpost.REFUSED.search(r.stderr))
+
+    def test_scoring_and_every_write_go_only_to_the_pinned_destination(self):
+        n = self.hub.add("Stuck worker")
+        subprocess.run(["git", "-C", self.folder, "remote", "set-url", "origin", "https://github.com/eliasstravik/shepherdr.git"], check=True)
+        self.assertIn("no longer", tri.stopped(self.folder))
+        self.assertNotEqual(self.triage("score", "-")[0], 0)
+        r = tgh.call(["issue", "edit", str(n), "--repo", "eliasstravik/shepherdr", "--add-label", "score:3"],
+                     repo="eliasstravik/shepherdr", write=True, ctx={})
+        self.assertEqual((r.sent, r.why), (False, "stop"))
+        r = tgh.call(["issue", "edit", str(n), "--repo", "acme/other", "--add-label", "score:3"], repo="acme/other", write=True, ctx={})
+        self.assertEqual((r.sent, r.why), (False, "stop"))
+        self.assertEqual(self.hub.writes(), [])
+
+    def test_clearing_the_destination_keeps_the_old_posting_fenced(self):
+        key = self.report()
+        self.caller = ASSISTANT
+        for agents in ({}, {"feedback_repo": ""}, {"feedback_repo": "acme/elsewhere"}):
+            self.settings({**self.base, "everywhere": {"agents": agents}})
+            code, out = self.say("--key", key, "--file", "--happened", "It shows no quote.", "--json")
+            self.assertEqual(json.loads(out)["why"], "triage", agents)
+        self.assertEqual((self.gh, self.hub.writes()), ([], []))
+
+    def test_triage_on_anywhere_fences_the_old_posting_on_a_linked_machine(self):
+        os.remove(tri.RECORD)  # this machine's record never fenced anything: a linked machine's view
+        d = {"here": "vm-b", "everywhere": {"agents": {"feedback_repo": REPO}},
+             "repos": {"vm-test:/srv/shepherdr": {"triage": {"level": "score"}}}}
+        self.assertTrue(tri.legacy_fenced(d))
+        self.assertFalse(tri.legacy_fenced({"repos": {"vm-test:/srv/shepherdr": {"triage": {"level": "off"}}}}))
+        self.settings(d)
+        key = self.report()
+        self.caller = ASSISTANT
+        self.assertIn("Triage files this repo's findings", self.say("--key", key, "--file", "--rev", "1")[1])
+
+    def test_a_title_from_another_space_takes_its_source(self):
+        key = self.report()
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp2", "herdr.agent": "claude"}, "name": "a2"}
+        self.say("--key", key, "Reply bubbles lose their quote in another space's words")
+        p = fb.problems_read()[key]
+        self.assertEqual(p["line"], "Reply bubbles lose their quote in another space's words")
+        self.assertEqual(p["sources"]["line"], "sp2")
+        self.assertEqual(tpub.publish()["posted"], 0)
+        self.assertEqual(self.hub.writes(), [])
+
+    def test_a_finding_that_came_back_after_its_issue_is_never_filed_again(self):
+        self.seed({"b1": {"id": "b1", "line": LINE, "state": "found", "at": tri.now(), "space": "sp1", "details": "Again.",
+                          "sources": {"line": "sp1", "details": "sp1"}, "back": {"at": 1, "why": "again"},
+                          "before": [{"url": f"https://github.com/{REPO}/issues/7", "state": "filed",
+                                      "post": {"state": "posted", "rev": 1}}]}})
+        out = tpub.publish()
+        self.assertEqual((out["posted"], self.hub.creates()), (0, []))
+
+    def test_a_write_waiting_for_its_turn_stops_on_a_pause_or_a_limit_set_meanwhile(self):
+        n = self.hub.add("Stuck worker")
+        args = ["issue", "edit", str(n), "--repo", REPO, "--add-label", "score:3"]
+        r = tgh.call(args, repo=REPO, write=True, ctx={}, still=lambda: False)
+        self.assertEqual((r.sent, r.why), (False, "stop"))
+        tgh.call(args, repo=REPO, write=True, ctx={})  # a write: the next one waits out the pace
+        with mock.patch.object(tgh, "sleep", lambda ms: tgh._write({**tgh._read(), "until": tri.now() + 60000})):
+            r = tgh.call(args, repo=REPO, write=True, ctx={})
+        self.assertEqual((r.sent, r.why), (False, "limit"))
+        self.assertEqual(len(self.hub.writes()), 1)
+        tgh._write({"until": tri.now() + 60000, "step": 60000})
+        before = tgh._read()["until"]
+        with mock.patch.object(tgh, "waiting", lambda: None):  # a read that began before the hold, ending after it
+            self.assertTrue(tgh.read(["api", "user", "--jq", ".login"], repo=REPO).ok)
+        self.assertEqual(tgh._read().get("until"), before)  # its success doesn't lift the hold
+
+    def test_the_digest_starts_no_run_without_a_check_that_reached_github(self):
+        import datetime
+        monday = int(datetime.datetime(2026, 11, 30, 8, 0).timestamp() * 1000)
+        with tri.record() as d:
+            d["repos"][REPO.lower()]["last_score"] = monday - 3600000
+        self.hub.mode = "down"
+        with mock.patch.object(tri, "now", lambda: monday):
+            self.assertEqual(self.triage("due")[0], 1)
+            self.assertEqual(len(self.alerts), 1)
+            self.assertIn("failing", self.record()["repos"][REPO.lower()])
+            with store.Store(store.locate(self.folder)) as s:
+                with self.assertRaises(tri.Fail):  # Run now too, until a check works again
+                    autos.fire(s, tri.schedule_in(s), "run now")
+            self.hub.mode = "ok"
+            self.assertEqual(self.triage("due")[0], 0)
+            self.assertNotIn("failing", self.record()["repos"][REPO.lower()])
+
+    def test_not_now_and_never_take_back_the_apps_yes_even_once_undone(self):
+        key = self.other_space_draft()
+        self.app_yes(key)
+        self.caller = {}
+        for decide in (["--later", "tomorrow"], ["--no", "--person"]):
+            self.assertEqual(self.say("--key", key, *decide, "--json")[0], 0, decide)
+            self.assertEqual(self.say("--key", key, "--undo", "--json")[0], 0)
+            self.assertEqual(tpub.publish()["posted"], 0, decide)
+        self.assertEqual(self.hub.writes(), [])
+        with open(tri.YES) as f:  # a new yes, after the decision, counts again
+            y = json.load(f)
+        y["yes"][0]["at"] = tri.now() + 1
+        with open(tri.YES, "w") as f:
+            json.dump(y, f)
+        self.assertEqual(tpub.publish()["posted"], 1)
+
+    def test_a_copy_of_another_machines_row_has_a_marker_the_reconciler_reads(self):
+        mark = tpub.fpost.marker("vm-b:b1", 1, "ab12cd34")
+        self.assertEqual(tpub.fpost.mark_of("body\n\n" + mark), mark)
 
 
 class Privacy(unittest.TestCase):
@@ -601,7 +747,8 @@ class Privacy(unittest.TestCase):
 
     def test_its_patterns_stay_in_step_with_the_forks_public_check(self):
         path = os.path.join(ROOT, "fork", "sync", "public.py")
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
         for name in ("HOME_PATH", "TILDE_PATH", "EMAIL", "TAILNET", "MDNS", "IPV4"):
             m = re.search(rf"^{name} = re\.compile\((r[\"'].*?[\"'])(?:, re\.I)?\)", src, re.M)
             self.assertIsNotNone(m, f"{name} moved in fork/sync/public.py: port it to triage_public.py")

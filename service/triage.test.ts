@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Feedback, type Runner } from "./feedback.ts";
-import { destination, fenced, keepYes, PUBLISH_EVERY, Publisher, shown, yesHash } from "./triage.ts";
+import { destination, fenced, keepYes, legacyFenced, PUBLISH_EVERY, Publisher, shown, yesHash } from "./triage.ts";
 
 const REPO = "acme/shepherdr";
 const SETTINGS = { everywhere: { agents: { feedback_repo: REPO } } };
@@ -57,6 +57,16 @@ test("a record that can't be read counts as fenced", () => {
   writeFileSync(join(dir, ".triage.json"), "{not json");
   expect(fenced(REPO, dir)).toBe(true);
   expect(fenced(null, dir)).toBe(false);
+});
+
+test("the old posting stays fenced whatever the destination: Triage on anywhere, or any repo its record fenced", () => {
+  const off = store({ fenced: false });
+  expect(legacyFenced({}, off)).toBe(false);
+  expect(legacyFenced({ repos: { "vm-a:/srv/x": { triage: { level: "score" } } } }, off)).toBe(true);  // a linked machine's
+  expect(legacyFenced({ repos: { "/srv/x": { triage: { level: "off" } } } }, off)).toBe(false);
+  expect(legacyFenced({ everywhere: { agents: {} } }, store())).toBe(true);                            // destination cleared
+  writeFileSync(join(off, ".triage.json"), "{not json");
+  expect(legacyFenced({}, off)).toBe(true);
 });
 
 test("the Feedback page: Post it keeps the app's yes here, and another machine's Post it is fenced off", async () => {

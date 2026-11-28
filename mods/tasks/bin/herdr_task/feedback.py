@@ -584,7 +584,8 @@ def cmd_feedback(args):
                        "The person follows an issue for this one on the Feedback page: nothing filed, nothing changed. Carry on.")
         if args.no:
             from .feedback_post import cleared  # a yes the person gave before is taken back (#94, slice 4)
-            ps[key] = {**cleared(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
+            ps[key] = {**cleared(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space,
+                       "unyes": now()}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
@@ -651,6 +652,8 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
              **({"agent": agent_of(k)} if agent_of(k) and not assistant else {})}
     if args.details:
         entry = sourced(entry, space, "details")
+    if line != (p or {}).get("line"):  # this report's words are now the title: its source goes with them
+        entry = sourced(entry, space, "line")
     if assistant:
         if state == "offered" and recent(p):
             return ({"key": key, "offer": False, "why": "offered"}, "Already offered: don't offer it again."), None

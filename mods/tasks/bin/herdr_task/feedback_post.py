@@ -44,7 +44,9 @@ REFUSED = re.compile(r"(?i)\bHTTP 401\b|gh auth login|not logged in|authenticati
 
 def marker(key, rev, tag=None):
     """The hidden line every post ends with: how a post whose answer was lost is found again, never posted twice. Its
-    tag, random per revision, keeps two stores' posts with one id and revision apart."""
+    tag, random per revision, keeps two stores' posts with one id and revision apart. A key with other characters (Triage's
+    copy of another machine's row, "<machine>:<id>") is written with `_` for them, so MARK still reads it."""
+    key = re.sub(r"[^0-9A-Za-z_-]", "_", str(key))
     return f"<!-- shepherdr-feedback {key} rev {rev}{' ' + tag if tag else ''} -->"
 
 
@@ -346,13 +348,23 @@ def posting_call(args, assistant):
     return None
 
 
+def triage_fenced(d):
+    """Triage files findings (#235): the old posting is fenced off here, whatever its target (triage.legacy_fenced)."""
+    from .triage import legacy_fenced
+    return legacy_fenced(d)
+
+
+def triage_refusal(key):
+    from .triage import FENCED
+    return ({"key": key, "kept": False, "filed": False, "why": "triage"},
+            f"{FENCED}: nothing drafted or posted here. The person's yes is on the Feedback page; Triage posts it. Carry on.")
+
+
 def file_or_draft(args, key, line, d, agent, space=None):
     """--file: with --rev, the approved draft posted once; without, the draft written (nothing posted), with any open
     issue like it named (advisory: the person decides). -> (data, words)"""
-    from .triage import FENCED, fenced
-    if fenced(feedback_repo(d)):  # Triage is that repo's only publisher (#235, turning it on, step 2)
-        return ({"key": key, "kept": False, "filed": False, "why": "triage"},
-                f"{FENCED}: nothing drafted or posted here. The person's yes is on the Feedback page; Triage posts it. Carry on.")
+    if triage_fenced(d):  # Triage is the only publisher (#235, turning it on, step 2)
+        return triage_refusal(key)
     if getattr(args, "rev", None) is not None:
         if getattr(args, "dry_run", False):
             raise Fail("--dry-run shows a draft without keeping it; it never goes with --rev, which posts. Nothing posted.")
@@ -393,6 +405,8 @@ def file_rev(key, rev, d):
         why = refusal(p, rev, d)  # again, under the lock: two --file calls at once post once
         if why:
             return {"key": key, "filed": False, "why": why[0]}, why[1]
+        if triage_fenced(d):  # Triage was switched on meanwhile: its turn-on (prepare) fences under this same lock
+            return triage_refusal(key)
         dr = p["draft"]
         post = {"state": "posting", "rev": rev, "target": dr["target"], "started": now(),
                 "mark": mark_of(dr["body"]) or marker(key, rev)}

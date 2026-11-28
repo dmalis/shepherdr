@@ -64,12 +64,23 @@ def own_space(p, space):
     return all(src.get(f) and "/" not in str(src[f]) and bare(src[f]) == bare(space) for f in fields_of(p))
 
 
+def filed_before(p):
+    """The finding already has an issue: a receipt, or an earlier round that was posted, followed or filed."""
+    if p.get("receipt"):
+        return True
+    rounds = p.get("before") if isinstance(p.get("before"), list) else [p.get("before")]
+    return any(isinstance(x, dict) and (x.get("url") or (x.get("post") or {}).get("state") in ("posted", "posting", "unsure")
+                                        or x.get("state") == "filed") for x in rounds)
+
+
 def eligible(p):
     """A finding Triage may draft and post (its own state, not GitHub's): not filed, not in doubt, not Never, Follow or Not
     now, its origin's Feedback offers on."""
     from .feedback_page import snoozed
     post = p.get("post") or {}
     if p.get("state") in ("filed", "declined") or post.get("state") in ("posted", "posting", "unsure"):
+        return False
+    if filed_before(p):  # it came back after a fix (feedback_ship.back): its issue exists, never a second create
         return False
     if p.get("decision") in DONE_DECISIONS or snoozed(p):
         return False
@@ -164,9 +175,11 @@ def post_args(dr):
     return argv
 
 
-def post_one(key, copy, pub, ctx, yes):
-    """Posts one row's stored draft once. -> "posted", "refused", "unsure", "waits" (didn't go out: the check, the pace or
-    GitHub's limit) or "stop" (the level, the destination or the pause changed: nothing more this pass)"""
+def post_one(key, copy, pub, ctx):
+    """Posts one row's stored draft once. -> "posted", "refused", "unsure", "waits" (didn't go out: no yes for this very
+    text, the check, the pace or GitHub's limit) or "stop" (the level, the destination or the pause changed: nothing
+    more this pass). Whether it may go (the app's yes for this exact draft, or every field from the repo's space and the
+    privacy check) is decided under the same lock that reserves the post: a draft replaced meanwhile is judged as it is."""
     with rows_lock(copy) as ps:
         p = ps.get(key)
         d = read_settings()
@@ -177,6 +190,9 @@ def post_one(key, copy, pub, ctx, yes):
         dr = p["draft"]
         if str(dr["target"].get("repo") or "").lower() != pub["repo"].lower():
             return "waits"
+        yes = tri.yes_for(key, p, pub["repo"])
+        if not yes and not auto_ok(p, dr, pub, ctx):
+            return "waits"
         post = {"state": "posting", "rev": dr["rev"], "target": dr["target"], "started": now(),
                 "mark": fpost.mark_of(dr["body"]) or fpost.marker(key, dr["rev"]), "by": "triage"}
         ps[key] = {**p, "post": post}
@@ -184,7 +200,8 @@ def post_one(key, copy, pub, ctx, yes):
     text = (dr["title"] + "\n" if dr["target"]["action"] == "create" else "") + fpost.shown(dr["body"])
     try:
         res = tgh.call(argv, repo=pub["repo"], text=text, body=dr["body"], write=True,
-                       create=dr["target"]["action"] == "create", yes=yes, ctx=ctx)
+                       create=dr["target"]["action"] == "create", yes=yes, ctx=ctx,
+                       still=lambda: tri.publisher() == pub)
     except Exception as e:  # noqa: BLE001  (anything else: nobody knows whether it went out)
         res = tgh.Result(False, err=f"{type(e).__name__}: {e}", sent=True, why="failed")
     if not res.sent:
@@ -308,6 +325,12 @@ def waiting_rows():
     target}] (the service's cards read this, and the digest counts it)."""
     pub = tri.publisher()
     out = []
+    ctx = []  # read once, only when an own-space draft needs its check
+
+    def posts_by_itself(p, dr):
+        if not ctx:
+            ctx.append(tri.ctx_for(pub["folder"], pub["repo"]))
+        return auto_ok(p, dr, pub, ctx[0])
     for copy, rows in ((False, fbm.problems_read()), (True, (tri.record_read().get("copies") or {}))):
         for key, p in rows.items():
             if not isinstance(p, dict) or not eligible(p) or p.get("joined"):
@@ -315,8 +338,8 @@ def waiting_rows():
             dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
             if not dr or (pub and str(dr["target"].get("repo") or "").lower() != pub["repo"].lower()):
                 continue
-            if dr.get("by") == "triage" and not copy and pub and own_space(p, pub["space"]):
-                continue  # posts by itself unless its check says otherwise: not counted as waiting
+            if dr.get("by") == "triage" and not copy and pub and own_space(p, pub["space"]) and posts_by_itself(p, dr):
+                continue  # posts by itself: not waiting (one its privacy check holds back waits for the yes)
             body = fpost.shown(dr["body"])
             out.append({"key": key, "copy": copy, "rev": dr["rev"], "title": dr["title"], "body": body,
                         "target": dr["target"], "hash": tri.yes_hash(dr["target"], dr["title"], body)})
@@ -351,14 +374,7 @@ def publish(there=None):
                 r = reconcile(key, copy, pub["repo"], ctx)
                 out["posted" if r == "posted" else "unsure"] += r in ("posted", "unsure")
                 continue
-            with rows_lock(copy) as ps:
-                p = dict(ps.get(key) or {})
-            dr = p.get("draft") or {}
-            yes = tri.has_yes(key, dr.get("rev"), tri.yes_hash(dr.get("target"), dr.get("title"), fpost.shown(dr.get("body"))), pub["repo"])
-            if not yes and not auto_ok(p, dr, pub, ctx):
-                out["waits"] += 1
-                continue
-            r = post_one(key, copy, pub, ctx, yes)
+            r = post_one(key, copy, pub, ctx)
             if r == "stop":
                 out["why"] = "Stopped: the level, the destination, the pause or GitHub's limit or pace changed."
                 return out

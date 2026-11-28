@@ -219,6 +219,23 @@ def fenced(repo, rec=None):
     return bool(((rec.get("repos") or {}).get(repo.lower()) or {}).get("fenced"))
 
 
+def legacy_fenced(d=None):
+    """Whether the old posting (feedback --file) is fenced off here, whatever its target: Triage is on for any repo in
+    the settings file (kept in step on every machine, service/sync.ts, so a linked machine's Assistant is fenced too), or
+    Triage's record here fenced one. Once Triage files findings the old way never posts again, so clearing or changing
+    agents.feedback_repo can't reopen it (to upstream's fallback either). An unreadable record counts as fenced."""
+    d = read_settings() if d is None else d
+    for r in (d.get("repos") or {}).values() if isinstance(d.get("repos"), dict) else []:
+        t = r.get("triage") if isinstance(r, dict) else None
+        if isinstance(t, dict) and t.get("level") not in (None, "off"):
+            return True
+    try:
+        rec = record_read()
+    except Unreadable:
+        return True
+    return any(isinstance(r, dict) and r.get("fenced") for r in (rec.get("repos") or {}).values())
+
+
 def yes_hash(target, title, body):
     """The hash the app's yes is bound to: the draft's whole target, title and body as the person read it."""
     t = target or {}
@@ -238,9 +255,22 @@ def yeses():
     return [y for y in rows if isinstance(y, dict) and y.get("by") == "app"] if isinstance(rows, list) else []
 
 
-def has_yes(key, rev, h, repo):
+def has_yes(key, rev, h, repo, after=0):
+    """The app's yes for this draft's exact text, made after `after` (ms: the row's last Not now or Never, `unyes`,
+    which takes back an earlier yes even once undone or over)."""
     return any(y.get("kind") == "draft" and y.get("key") == key and y.get("rev") == rev and y.get("hash") == h
-               and str(y.get("repo") or "").lower() == repo.lower() for y in yeses())
+               and str(y.get("repo") or "").lower() == repo.lower() and int(y.get("at") or 0) > int(after or 0)
+               for y in yeses())
+
+
+def yes_for(key, p, repo):
+    """Whether the row's stored draft, as it is now, has the app's yes (read under the row's lock by the caller)."""
+    from .feedback_post import shown
+    dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
+    if not dr:
+        return False
+    return has_yes(key, dr.get("rev"), yes_hash(dr.get("target"), dr.get("title"), shown(dr.get("body"))), repo,
+                   p.get("unyes") or 0)
 
 
 # ---- the repo, its checkout and its schedule ------------------------------------------------
@@ -290,6 +320,12 @@ def stopped(folder, d=None, a=None):
         return "Triage has no schedule in this repo yet."
     if paused(a):
         return "Triage is paused for this repo."
+    pinned = str((a.get("triage") or {}).get("repo") or "")
+    dest = destination(d)
+    if not dest or pinned.lower() != dest.lower():
+        return "Triage files and scores only in agents.feedback_repo, our own repo, and this repo isn't it now."
+    if str(github_of(folder) or "").lower() != pinned.lower():
+        return f"This checkout's origin is no longer {pinned}, the repo Triage was switched on for."
     return None
 
 
@@ -341,6 +377,16 @@ def fire_refusal(s, a):
         return "Triage is paused for this repo: nothing is scored, Run now included. Resume it first."
     if keys(read_settings(), s.loc["folder"])["level"] == "off":
         return "Triage is off for this repo: nothing is scored."
+    why = stopped(s.loc["folder"], a=a)
+    if why:
+        return why + " Nothing is scored."
+    try:
+        failing = ((record_read().get("repos") or {}).get(str(a["triage"].get("repo") or "").lower()) or {}).get("failing")
+    except Unreadable:
+        failing = {"why": "its record can't be read"}
+    if failing:
+        # Run now skips a schedule's check (docs/settings.md); Triage's still waits for one that works
+        return "Triage can't check its repo now (you were told why): Run now waits until its hourly check works again."
     return None
 
 
@@ -450,7 +496,11 @@ def prepare(folder, repo=None):
     repo = repo or github_of(folder)
     if not repo:
         raise Fail("This checkout has no GitHub remote (origin): Triage works on a GitHub repo.")
-    with record() as d:
+    from . import feedback as fbm
+    # under the feedback record's lock, the one an old --file takes to reserve its post (feedback_post.file_rev, which
+    # checks the fence again there): a post either was reserved before this (reconciled below, or by the publisher once
+    # it's stale) or never goes out
+    with fbm.problems(), record() as d:
         r = repo_rec(d, repo)
         if not r.get("fenced"):
             r["fenced"] = {"at": now(), "folder": folder}
@@ -819,24 +869,27 @@ def due_cmd(args):
         return 1
     reasons = []
     due, _ = digest_due(r)
+    score_due = now() - int(r.get("last_score") or 0) >= SCORE_EVERY_MS
+    if not due and not score_due:
+        print("Nothing to do.")
+        return 1
+    # any run reads GitHub first (a 304 costs nothing): a run never starts on a check that didn't reach it, and only a
+    # read that worked clears the failure
+    try:
+        n, tag = waiting_count(repo, r, ctx_for(folder, repo))
+    except Fail as e:
+        check_failed(repo, str(e))
+        print(f"Triage can't check: {e}")
+        return 1
+    with record() as rec:
+        x = repo_rec(rec, repo)
+        x.pop("failing", None)
+        if tag:
+            x["etag"] = {"needs-triage": tag, "count": n}
     if due:
         reasons.append("Monday's digest")
-    if now() - int(r.get("last_score") or 0) >= SCORE_EVERY_MS:
-        try:
-            n, tag = waiting_count(repo, r, ctx_for(folder, repo))
-        except Fail as e:
-            check_failed(repo, str(e))
-            print(f"Triage can't check: {e}")
-            return 1
-        with record() as rec:
-            x = repo_rec(rec, repo)
-            x.pop("failing", None)
-            if tag:
-                x["etag"] = {"needs-triage": tag, "count": n}
-        if n:
-            reasons.append(f"{n} issue{'' if n == 1 else 's'} to score")
-    else:
-        check_worked(repo)
+    if score_due and n:
+        reasons.append(f"{n} issue{'' if n == 1 else 's'} to score")
     if not reasons:
         print("Nothing to do.")
         return 1
