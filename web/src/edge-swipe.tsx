@@ -21,7 +21,7 @@ const LATE_MS = 350
 /** a touch at the edge let go within this is a tap (a message's hold menu opens at 450 ms, chat/press.ts HOLD_MS) */
 const TAP_MS = 400
 /** the list sliding in by its button, and back out after a tap on the shade */
-const OPEN_MS = 320
+const OPEN_MS = 300
 const SHUT_MS = 260
 
 /** iOS and iPadOS, whose web view starts its own Back from a touch at the left edge unless the touch is held back */

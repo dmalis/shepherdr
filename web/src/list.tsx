@@ -17,7 +17,7 @@ import { attr } from './attr.ts'
 import { copyText } from './copy.ts'
 import { DictateButton } from './dictate.tsx'
 import { press, pressing } from './drag.ts'
-import { buzz, IOS, still } from './motion.ts'
+import { buzz, calm, IOS } from './motion.ts'
 import { swapRow } from './sides.ts'
 import { NameWithIcon, SpaceIcon } from './space-icon.tsx'
 import { markSpacesRead, spaceUnread } from './read-marks.ts'
@@ -546,9 +546,6 @@ export function headHold(key: string) {
     },
   }
 }
-
-/** reduced motion, the device's or Settings' */
-const calm = () => still() || document.documentElement.dataset.motion === 'reduced'
 
 /** Fold or unfold a machine: its rows go or come, and the rows under them glide to their new place (short; none with
  *  reduced motion). Kept on this device (ui.shut, beside the groups'). */

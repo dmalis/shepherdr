@@ -14,7 +14,8 @@ Two kinds of line here:
 
 `test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale, endless animations,
 hover outside `@media (hover: hover)`, a monospace stack written out and a z-index layer written as a number may only
-get fewer in stylesheets and inline styles, and the grey of second lines passes contrast on its main surfaces.
+get fewer in stylesheets and inline styles, the grey of second lines passes contrast on its main surfaces, and whatever
+moves stops under each reduced-motion switch alone.
 
 People keep Shepherdr open all day, on a phone between other things and on a desktop beside their editor. They come
 back to ask four things: what needs me, what is stuck, what just landed, what is going on in this project. The app
@@ -50,6 +51,7 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - at 390 px with touch, a touch tablet (820 px) and a desktop (1440 px);
   - in light, dark and night, at a larger Chat text size and at Zoom 150%;
   - with the keyboard alone, and with Motion › Reduced;
+  - anything that moves: `bun web/demo/motion-check.ts` (either reduced-motion switch alone stops it);
   - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
   - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`; a task or
     artifact by `?task=<id>` or `?artifact=<id>`;
@@ -316,9 +318,9 @@ Motion shows where something came from or went. It is short, it stops, and it ne
 
 - **Durations:** 120 to 200 ms for a press, a fade, a small change or a menu (a menu grows from its button in 180 ms
   with `OUT`), from the tokens: `--dur-s` 120 ms (a fade, something leaving), `--dur-m` 180 ms (a menu, a toast, a
-  small change), `--dur-l` 240 ms (something that arrives on its own, the working sign); `PUSH_MS` and `SHEET_MS` (`web/src/motion.ts`) only for a screen pushed in or a sheet coming up. Target:
-  what a tap starts many times a day stays near 200 to 300 ms. What a finger drags follows it, can be let go of or
-  taken back mid-way, and settles from its own speed.
+  small change), `--dur-l` 240 ms (something that arrives on its own, the working sign); `PUSH_MS` and `SHEET_MS` (`web/src/motion.ts`, 300 ms) only for a screen pushed in or a sheet coming up, which go out in 240.
+  What a tap starts many times a day stays within 200 to 300 ms: the spaces list slides in by its button in 300. What
+  a finger drags follows it, can be let go of or taken back mid-way, and settles from its own speed.
 - **A press shows at once** on every control, by finger, mouse or keyboard, with no transition: one press style
   (`ds.css`, after the touch reset). A control drawn as a surface (a row, an icon button, a tab, a tile) lays `--press`
   over its own fill, whatever that fill is (`--control2`, or a dark bar's own), as a state layer does (a sheet's rows
@@ -335,9 +337,12 @@ Motion shows where something came from or went. It is short, it stops, and it ne
   (`.psk`), and its picture fades in over it once loaded. `web/demo/still-check.ts` holds it: no running animation and
   almost no style work on a still page while pictures are blocked, hung or served, and nothing moved as they come in.
 - **Reduced motion:** when the device asks for less (`prefers-reduced-motion`) or Settings › General › Motion is
-  Reduced (`html[data-motion="reduced"]`), nothing slides, grows or spins: the change is instant or a short fade. In
-  script, check `calm()`, which reads both, never `still()` alone. Target: every CSS animation and transition is covered
-  by both; today many check only the device's setting.
+  Reduced (`html[data-motion="reduced"]`), nothing slides, grows or spins: the change is instant or a short fade. Each
+  switch alone is enough. In CSS, a rule that moves something (a transform, or a box's size or place) has a rule that
+  stops it under each: an `@media (prefers-reduced-motion: reduce)` one and an `html[data-motion="reduced"]` one with
+  the same selectors, beside it. In script, ask `calm()` (`web/src/motion.ts`), which reads both; the device's own
+  query stays inside it. `test/test_design.py` holds both in the source, and `web/demo/motion-check.ts` plays a menu,
+  a sheet, the spaces list, a fold, a drag and a suggested reply under each switch alone and finds nothing moving.
 
 ## Haptics and sounds
 

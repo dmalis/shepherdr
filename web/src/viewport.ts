@@ -2,6 +2,7 @@
 // the app's 100dvh follows in the same frame, so nothing is set from here there. iOS doesn't: it slides the whole page
 // up, under the status bar. There the app takes the height of what's visible (window.visualViewport), keeps the page
 // from scrolling, and tells the layout when the keyboard is up, so the message box sits on the keyboard.
+import { calm } from './motion.ts'
 
 /** Returning to a tab or WebView, including a page restored without mounting it again. */
 export function onPageReturn(reopen: () => void) {
@@ -79,7 +80,7 @@ export function watchViewport(onKeyboard: (up: boolean) => void) {
     // the keyboard coming or going (not the phone turning): what moves glides
     const turned = vv.width !== width
     width = vv.width
-    if (now !== was && !turned && !matchMedia('(prefers-reduced-motion: reduce)').matches) glide(vv, apply)
+    if (now !== was && !turned && !calm()) glide(vv, apply)
     else apply()
     if (now !== was) onKeyboard((was = now))
   }

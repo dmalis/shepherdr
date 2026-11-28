@@ -5,7 +5,7 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { attr } from './attr.ts'
-import { still } from './motion.ts'
+import { calm } from './motion.ts'
 
 /** how long a finger holds a row before it can be dragged */
 const HOLD_MS = 450
@@ -112,7 +112,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     o.lift?.()
     for (const [i, b] of blocks.entries())
       for (const x of b.els) {
-        x.style.transition = i === from ? 'none' : still() ? 'none' : EASE
+        x.style.transition = i === from ? 'none' : calm() ? 'none' : EASE
         if (i === from) x.dataset.dragging = o.level
       }
     if (mouse) document.documentElement.style.cursor = 'grabbing'
@@ -203,13 +203,13 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     const now = Math.min(...me.els.map((x) => x.getBoundingClientRect().top))
     for (const x of me.els) Object.assign(x.style, { transition: 'none', transform: `translateY(${at - now}px)` })
     void el.offsetHeight
-    for (const x of me.els) Object.assign(x.style, { transition: still() ? 'none' : EASE, transform: '' })
+    for (const x of me.els) Object.assign(x.style, { transition: calm() ? 'none' : EASE, transform: '' })
     setTimeout(() => {
       for (const x of me.els) {
         delete x.dataset.dragging
         x.style.transition = ''
       }
-    }, still() ? 0 : 170)
+    }, calm() ? 0 : 170)
   }
 
   /** held near the list's top or bottom edge, the list scrolls, faster the closer it is */
