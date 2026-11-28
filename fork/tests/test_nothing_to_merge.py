@@ -33,9 +33,31 @@ class Seams(unittest.TestCase):
         self.assertIn("quiet", inspect.signature(github.finish).parameters)
 
     def test_finalize_keeps_why_a_ready_task_waits(self):
-        src = inspect.getsource(commands.finalize)
-        self.assertIn("if local:", src)
-        self.assertEqual(src.count('t["waits_why"] = waits_why('), 2)
+        """finalize as ready calls it: a task with nothing to merge, and one whose pull request waits for the person,
+        each keep waits_why's words; Proof on and none found (dmalis/shepherdr#215), the proof's words instead."""
+        from unittest import mock
+        from herdr_task import proof_hold
+
+        class Store:
+            dirty, loc = False, {}
+
+            def name(self, t):
+                return f'"{t["title"]}"'
+
+        def ready(merge, proof=False, **t):
+            t = {"id": 1, "title": "Login", "state": "running", "mode": "worktree", "worktree": ROOT, **t}
+            pr = {"number": 7, "url": "https://example.com/pr/7"}
+            with mock.patch.object(commands, "merge_policy", lambda s, t: merge), \
+                    mock.patch.object(commands, "waits_why", lambda s, t, policy: f"why: {policy}"), \
+                    mock.patch.object(commands, "github", lambda s: "o/r"), \
+                    mock.patch.object(commands, "pr_open", lambda s, t, repo, summary=None: t.setdefault("pr", pr)), \
+                    mock.patch.object(proof_hold, "asked", lambda s, t: proof):
+                commands.finalize(Store(), t)
+            return t["state"], t.get("waits_why")
+
+        self.assertEqual(ready("auto", nothing_to_merge=True), ("ready", "why: auto"))  # whatever Merge says
+        self.assertEqual(ready("ask"), ("ready", "why: ask"))
+        self.assertEqual(ready("auto", proof=True), ("ready", proof_hold.WHY))
         self.assertIn('"waits_why", "closed_alone"', inspect.getsource(commands.cmd_state))
 
     def test_the_sources_and_merge_names_it_reads(self):
