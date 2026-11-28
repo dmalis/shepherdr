@@ -1,0 +1,14 @@
+{
+  "issue": 150,
+  "name": "Design system: tokens for what is written by hand",
+  "files": [
+    "web/src/ds.css",
+    "web/src/sheets.css",
+    "docs/design.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "test/test_design.py::DesignTokens",
+    "test/test_design.py::Checks"
+  ]
+}

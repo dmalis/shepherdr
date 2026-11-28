@@ -12,8 +12,9 @@ Two kinds of line here:
   [fork/specs/ui-polish.md](../fork/specs/ui-polish.md). A change doesn't have to build a target, but never moves away
   from one.
 
-`test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale and endless animations in
-stylesheets and inline styles may only get fewer, and the grey of second lines passes contrast on its main surfaces.
+`test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale, endless animations,
+hover outside `@media (hover: hover)`, a monospace stack written out and a z-index layer written as a number may only
+get fewer in stylesheets and inline styles, and the grey of second lines passes contrast on its main surfaces.
 
 People keep Shepherdr open all day, on a phone between other things and on a desktop beside their editor. They come
 back to ask four things: what needs me, what is stuck, what just landed, what is going on in this project. The app
@@ -93,6 +94,7 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 | Header | `--hd` 48 | 56 | 52 |
 | Fields | `--field` 32 | 44 | as `.tap` |
 | Icons | `--ic` 16 | 20 | as `.tap` |
+| Code | `--code` 13/20 (`--codel`) | 14/20 | as `.tap` |
 | Side gutter | `--gut` 16 | 16 | 16 |
 
 - **Which step applies:** `.app.phone` is the phone layout, up to 767 px wide (moved by Zoom, `widthUpTo()` in
@@ -107,6 +109,10 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   (`web/zoom-css.ts`); `rem` scales through the root. So sizes are written in px. An uppercase `PX` is left alone on
   purpose (the message box's 16 px floor, which keeps iOS from zooming). Sizes set from script are outside it: measure
   the page instead, and use `--app-h` (`web/src/viewport.ts`) for the visible height.
+- **Icons by role:** `--ic` for a control's or a row's icon; `--ic-sm` (14, 16 on touch: the second line's height less
+  4) for an icon inside a second line, a chip or a strip; `--ic-xs` (12, 14 on touch) for a mark inside a small control,
+  a checkbox's tick or a remove ×; `--ic-chat` (16, every size) for the chat's icon column. The `.i.s16`, `.s20` and
+  `.s22` classes are for an icon whose size is the point (an empty state, a picture's mark).
 - The chat column is `--chat-w` wide (Settings › General › Chat width): 720, 880 or 1040 px.
 
 ## Type
@@ -121,8 +127,10 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   more never gets less than 1.4.
 - **Numbers that change** (counts, times, sizes) use tabular figures: `.num` (which also sets their weight) and
   `.cnt` have them.
-- **Monospace** is 13/20 today. Code is a `--well` block with a `--line` edge and its own sideways scroll; inline code
-  is a `--control` pill. Target: 14/20 on touch, a Copy on every block, a diff's 12/18 only on a desktop.
+- **Monospace** is `--mono` (the system's monospace), never the stack written out, at `--code`/`--codel`: 13/20, 14/20
+  on touch. A terminal keeps its own metrics, and a small output (a job's lines, a key cap) 12. Code is a `--well` block
+  with a `--line` edge and its own sideways scroll; inline code is a `--control` pill. Target: a reply's code
+  (`styles.css`'s `.md`) moves to `--code` too, with a Copy on every block, and a diff's 12/18 only on a desktop.
 - **Headings in a reply** step down (Target: today h1 to h4 look the same in a chat).
 - **Measure:** in the main chat a bubble stops at 560 px, about 70 characters, whatever the chat width; in a task's
   pane bubbles and cards take 92% of its width. A page the app writes (a proof, a plan) keeps prose to about 72
@@ -209,6 +217,20 @@ lighter than the page, but they are roles, not a strict ladder (Night's overlay 
   `--muted` unless they carry a status. An icon button's name is its `aria-label`; an icon alone never stands for
   something the person hasn't seen named.
 
+## Layers
+
+What sits over other parts of the page takes a layer from the scale in `ds.css` (`:root`), never a number of its
+own. Inside a component, 1 to 3 (and -1 behind) order its own pieces.
+
+| Layer | Token | What |
+|---|---|---|
+| A dragged row | `--z-drag` 5 | a row or a machine's heading lifted above its list |
+| An edge | `--z-edge` 15 | a pane's or the terminal's resize handle |
+| A floating chip | `--z-float` 19 | a chip over the chat, under every layer |
+| Menus, sheets, dialogs | `--z-layer` 20 | `.layer` and the lists over the message box |
+| Full screen | `--z-full` 30 | a screen shown full size |
+| Toasts | `--z-toast` 60 | toasts, and a leaving part's still copy (`motion.ts`) |
+
 ## Components
 
 Use these before making anything new; each has its states in `ds.css`.
@@ -270,10 +292,17 @@ The message box is where people spend their day. It never loses words, never lag
 Motion shows where something came from or went. It is short, it stops, and it never delays the next tap.
 
 - **Durations:** 120 to 200 ms for a press, a fade, a small change or a menu (a menu grows from its button in 180 ms
-  with `OUT`); `PUSH_MS` and `SHEET_MS` (`web/src/motion.ts`) only for a screen pushed in or a sheet coming up. Target:
+  with `OUT`), from the tokens: `--dur-s` 120 ms (a fade, something leaving), `--dur-m` 180 ms (a menu, a toast, a
+  small change), `--dur-l` 240 ms (something that arrives on its own, the working sign); `PUSH_MS` and `SHEET_MS` (`web/src/motion.ts`) only for a screen pushed in or a sheet coming up. Target:
   what a tap starts many times a day stays near 200 to 300 ms. What a finger drags follows it, can be let go of or
   taken back mid-way, and settles from its own speed.
-- **A press shows at once** on every control.
+- **A press shows at once** on every control, by finger, mouse or keyboard, with no transition: one press style
+  (`ds.css`, after the touch reset). A control drawn as a surface (a row, an icon button, a tab, a tile) lays `--press`
+  over its own fill, whatever that fill is (`--control2`, or a dark bar's own), as a state layer does (a sheet's rows
+  and its Cancel too); a filled round button, a chip or a picture dims to .6; a word that rests quiet (`--muted`,
+  `--sub`) lifts to `--fg`, as its hover does, so it keeps 4.5:1 while held. `.btn` and `.chip` darken and shrink a
+  touch (to .97), by `--press-scale`, which is 1 (no shrink) under either reduced-motion switch. A new control joins one of the three lists,
+  never a press of its own.
 - **Easings** come from `web/src/motion.ts` (`OUT`, `AWAY`, `IOS`, `SPRING`), not new curves.
 - **Only transform and opacity move.** No animated colour, size, shadow or layout (Target: an attachment chip still
   fades its colour, `web/plugins/chat/attach.css`). A transition names its properties, never `all`, and a new tap or
@@ -301,8 +330,10 @@ something that arrives, reorders or retries on its own.
 
 ## Touch, gestures and keys
 
-- **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Target: hover
-  styles sit under `@media (hover: hover)`, so a tap never leaves one lit.
+- **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Hover styles
+  sit under `@media (hover: hover)`, so a tap never leaves one lit, and a touch screen sees the press instead.
+  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css`, the inbox and the task's
+  place line) to their count.
 - **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. Today a row slides
   right to reply. Target: left shows one or two of the row's actions that are safe to undo, each tapped to act; merging,
   stopping, allowing and deleting are never on a swipe. A swipe locks to sideways before it takes over, so the list

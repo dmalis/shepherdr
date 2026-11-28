@@ -33,12 +33,10 @@
 .sheet[data-kind="menu"] .row{min-height:52px;gap:16px;padding:0 12px;border-radius:12px;color:var(--fg)}
 .sheet[data-kind="menu"] .row .i:not([class*="c-"]){color:var(--sub)}
 .sheet[data-kind="menu"] .row.danger,.sheet[data-kind="menu"] .row.danger .i{color:var(--red)}
-.sheet[data-kind="menu"] .row:active{background:var(--control)}
 .sheet>hr,.sheet>div>hr{margin:6px 12px}
 .sheet>.cap{padding:0 12px 6px}
 /* iOS: Cancel on its own, last, as an action sheet's */
 .sheet>.scancel{justify-content:center;min-height:52px;margin-top:8px;border-radius:12px;background:var(--control);color:var(--fg);font-weight:600}
-.sheet>.scancel:active{background:var(--control2)}
 /* a dialog as a sheet: its buttons share the width and are a thumb's height */
 .sheet.form>.acts,.sheet>.pk>.acts{flex-wrap:nowrap}
 .sheet.form>.acts>.btn,.sheet>.pk>.acts>.btn{flex:1;height:var(--hit)}
