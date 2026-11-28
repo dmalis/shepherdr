@@ -11,6 +11,7 @@ import { readyWords } from "../web/shared/ready-words.ts";
 import { fitWho } from "../web/shared/kinds.ts";
 import { excerpt } from "../web/shared/excerpt.ts";
 import { unread } from "../web/shared/needs-you.ts";
+import { attentionOf, needId } from "../web/shared/attention.ts";
 import { DEFAULT_LEVEL, levelOf, OFF, PUSH_TTL_S, REACH, type Reach } from "../web/shared/reach.ts";
 
 /** a push alert; its buttons (SHEP-243) and what each does: answer a card, accept a task, reply in its chat */
@@ -50,18 +51,35 @@ export function needAlert(snap: any, n: any, whole = false): Out {
 
 export function alertsOf(snap: any, said: (chat: string) => string | undefined = () => undefined): Map<string, Out> {
   const now = new Map<string, Out>();
+  // fork Needs you 5/6: what may reach a device is the person's open actions (web/shared/attention.ts), the same ones
+  // every count counts: a wait Shepherdr handles first sends nothing. One from a machine that can't be read now is kept
+  // quiet: it sends nothing new until that machine is read again
+  const att = attentionOf(snap);
+  const mine = att.actions.filter((a) => a.owner === "you");
+  const stale = new Set(mine.filter((a) => a.stale).map((a) => a.id));
+  const sends = new Set(mine.filter((a) => a.need).map((a) => needId(a.need!)));
   for (const n of snap.needs ?? []) {
-    if (n.assistantFirst) continue;
+    if (!sends.has(needId(n))) continue;
     // fork Needs you 3/6: a muted space's (Notify Off) stays in the bell, quiet
-    const quiet = snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined });
+    const quiet = (snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined })) || stale.has(needId(n));
     now.set(needKey(n), { ...needAlert(snap, n, true), ...(quiet ? { muted: true as const } : {}) });
   }
+  // a wait Shepherdr would handle that is the person's (no Shepherdr running in its space) with no need record of its
+  // own (a task stopped by an error): as a Needs you alert of its task. (Other alerts come from need records, as before.)
+  for (const a of mine) if (a.kind === "wait" && a.up && !a.need && a.task) {
+    const quiet = (snap.settings && !notifies(snap, { go: { place: a.place }, task: true })) || a.stale;
+    now.set(a.id, { title: T.toastTitle(taskWho(snap, a.task), T.NEEDS_YOU), body: a.what, tag: a.task, topic: "needs", place: a.place, waits: true, url: alertUrl({ place: a.place, task: a.task }),
+      ...(quiet ? { muted: true as const } : {}) });
+  }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
-  // core/tasks.js readyWait), the same Accept as the Tasks panel's
-  for (const t of snap.tasks ?? []) if (t.status === "ready" && !t.archived)
+  // core/tasks.js readyWait), the same Accept as the Tasks panel's: its review action
+  const reviews = new Set(mine.filter((a) => a.kind === "review").map((a) => a.task));
+  const staleReady = new Set(mine.filter((a) => a.kind === "review" && a.stale).map((a) => a.task));
+  // (one being accepted keeps its alert, as before: the yes was given, nothing new to send)
+  for (const t of snap.tasks ?? []) if (reviews.has(t.id) || (t.status === "ready" && !t.archived && t.accepting))
     now.set(`ready:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), T.FINISHED), body: t.summary || "Tap to look at it.", tag: t.id, topic: "ready", place: t.place, waits: true, url: alertUrl({ place: t.place, task: t.id }),
       // the card's own button, saying what it does (web/shared/ready-words.ts, dmalis/shepherdr#29): Close, Merge into main
-      actions: [{ ...ACCEPT, title: readyWords(t).go }], accept: { task: t.id } });
+      actions: [{ ...ACCEPT, title: readyWords(t).go }], accept: { task: t.id }, ...(staleReady.has(t.id) ? { muted: true as const } : {}) });
   // a finished task ("Everything" on a device adds these); a schedule's run that found nothing to do sends none
   // nor one its Merge setting closed with nothing to merge (its line stays in the chat)
   for (const t of snap.tasks ?? []) if (t.status === "done" && !t.archived && t.quiet !== "nothing" && !t.closedAlone)

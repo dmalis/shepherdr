@@ -5,28 +5,31 @@ import { expect, test } from "bun:test";
 import { Compat } from "./compat.ts";
 import { glanceOf } from "./glance.ts";
 import { alertsOf } from "./push.ts";
+import { attentionOf } from "../web/shared/attention.ts";
 
 const card = { id: "scr-t7-1", addr: "t7", cli: "Claude Code", state: "open", opened: 1000, words: "Quick safety check",
   all: "/home/me/dev/shop\n\nQuick safety check: Is this a project you created or one you trust?\n\n   1. Yes, I trust this folder\n   2. No, exit",
   choices: [{ label: "Yes, I trust this folder" }, { label: "No, exit" }], at: 0 };
-const snapOf = (terms: any[] = [], cards = [card], section = "needs", needs = "asks") => {
+const snapOf = (terms: any[] = [], cards = [card], section = "needs", needs = "asks", shepherdr = false) => {
   const c = new Compat() as any;
   c.terminalsOf = (a: string) => terms.find((k) => k.address === a) ?? null;
   c.terminalsAll = () => terms;
   c.agents = { cached: () => null, fresh: () => ({ sel: null, words: "", label: "", effort: "" }) };
   c.assistantPick = () => null;
   c.watch = { openCards: () => cards, openCard: () => null, cardsOf: () => [] };
-  const spaces = [{ id: "sp1", name: "shop", folder: "/home/me/dev/shop", machine: null, assistant: null }];
+  const spaces = [{ id: "sp1", name: "shop", folder: "/home/me/dev/shop", machine: null, assistant: shepherdr ? "t1" : null, ...(shepherdr ? { assistantStatus: "idle" } : {}) }];
   const rows = [{ ref: "SHOP-1", slug: "dev-shop", id: 1, title: "Fix the cart", section, needs, sub: "Asks to trust this folder", machine: null,
     folder: "/home/me/dev/shop", list: "shop", kind: "repo", space: "sp1", worker: "t7", started: 500 }];
   return { c, snap: c.snapshot({ host: "mini", user: "me", machines: [], spaces, sections: [], rows }) };
 };
 
-test("an inferred wait stays visible while a handoff alerts for that task", () => {
-  const { snap } = snapOf([], [], "needs", "reply");
+test("an inferred wait is Shepherdr's, quiet, until a handoff alerts for that task", () => {
+  const { snap } = snapOf([], [], "needs", "reply", true);
   expect(snap.needs).toMatchObject([{ task: "SHOP-1", assistantFirst: true }]);
   expect(alertsOf(snap).size).toBe(0);
-  expect(glanceOf(snap, alertsOf(snap), 2000).items).toMatchObject([{ task: "SHOP-1", alert: false }]);
+  // fork Needs you 5/6: the space's Shepherdr handles it first: not in the person's list, shown only on its task
+  expect(glanceOf(snap, alertsOf(snap), 2000).items).toEqual([]);
+  expect(attentionOf(snap).actions.find((a) => a.task === "SHOP-1")).toMatchObject({ owner: "shepherdr", kind: "wait" });
   snap.alerts = [{ id: "handoff", task: "SHOP-1", at: 1900, place: "sp1", title: "Approve the cost?", body: "The store asks for payment.", notify: true }];
   const alerts = alertsOf(snap);
   expect(alerts.get("alert:handoff")?.url).toBe("./?place=sp1&task=SHOP-1");
@@ -78,4 +81,11 @@ test("an in-session dialog makes its own terminal-only Needs you card", () => {
   const { snap } = snapOf([], [dialog], "working");
   expect(snap.tasks[0]).toMatchObject({ status: "need", sub: "Claude Code is waiting for an answer" });
   expect(snap.needs[0].question).toMatchObject({ press: true, screen: dialog.words, choices: dialog.choices });
+});
+
+test("fork Needs you 5/6: an inferred wait where no Shepherdr chat runs is the person's at once", () => {
+  const { snap } = snapOf([], [], "needs", "reply");
+  expect(snap.places[0].shepherdr).toBe("none");
+  expect(attentionOf(snap).actions.find((a) => a.task === "SHOP-1")).toMatchObject({ owner: "you", kind: "wait", up: "no-shepherdr" });
+  expect([...alertsOf(snap).keys()]).toEqual(["need:SHOP-1/worker:attention"]);
 });

@@ -178,19 +178,28 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
       progress: typeof t.report?.progress === "number" ? Math.max(0, Math.min(100, Math.round(t.report.progress))) : null, left: t.left ?? null };
   };
   const tasks = new Map<string, any>((snap.tasks ?? []).map((t: any) => [t.id, t]));
+  // a space's own Shepherdr asking: its row names the space
+  const chatRow = (place?: string) => { const sp = spaceOf(place); return { name: clip(sp?.name ?? "", 60), space: sp?.name ?? "", machine: sp?.machine ?? null }; };
   const taskItem = (t: any, kind: Kind, at?: number): Item => ({ key: `task:${t.id}`, kind, type: "task", tag: t.id, task: t.id,
     title: clip(watchTitle(`${kindWho(taskKind(t), t.name)} · ${kind === "working" ? "Working" : kind === "done" ? "Done" : "Needs you"}`), WATCH_TITLE), body: clip(t.name, WATCH_BODY), ...taskRow(t), ...(at ? { at } : {}), alert: false, url: urlOf(t.place, t.id) });
-  // Needs you: what the web app's Tasks panel lists there, in its order (web/shared/needs-you.ts, SHEP-250): tasks only
-  // (SHEP-255). Each says what its push alert says; one that isn't pushed (its space's Notify keeps it quiet) lists
-  // without alerting
+  // Needs you: what the web app's Tasks panel lists there, in its order (web/shared/needs-you.ts, SHEP-250). fork Needs
+  // you 5/6: each of the person's open actions once (web/shared/attention.ts), the same ones the app's counts and badge
+  // count, a space's own Shepherdr asking among them; a wait Shepherdr handles is none. Each says what its push alert
+  // says; one that isn't pushed (its space's Notify keeps it quiet) lists without alerting
   const waits = needsYou(snap, now);
   for (const w of waits) {
-    const t = tasks.get(w.task);
-    if (w.type === "task") { items.push({ ...taskItem(t, "needs", w.at || undefined), ...textOf(t.sub ?? t.report?.msg ?? t.summary) }); continue; }
+    const t = w.task ? tasks.get(w.task) : undefined;
+    if (w.type === "task" && t) {
+      const sent = alerts.get(w.action.id);
+      items.push({ ...taskItem(t, "needs", w.at || undefined), ...textOf(w.action.kind === "wait" ? w.action.what : t.sub ?? t.report?.msg ?? t.summary), alert: !!sent && !sent.muted });
+      continue;
+    }
     const pushed = alerts.get(w.key);
-    const a: any = pushed ?? (w.need ? needAlert(snap, w.need) : { title: w.alert!.title, body: w.alert!.body, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) });
+    const a: any = pushed ?? (w.need ? needAlert(snap, w.need) : w.alert ? { title: w.alert.title, body: w.alert.body, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) }
+      // a space's own Shepherdr asking with no record of its own
+      : { title: `${spaceOf(w.place)?.name ?? "Shepherdr"} · Needs you`, body: w.action.what, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) });
     const it: Item = { key: w.key, kind: "needs", type: w.type, tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY),
-      task: t.id, ...taskRow(t), ...(w.at ? { at: w.at } : {}), alert: !!pushed && !pushed.muted,
+      ...(t ? { task: t.id, ...taskRow(t) } : chatRow(w.place)), ...(w.at ? { at: w.at } : {}), alert: !!pushed && !pushed.muted,
       url: a.url ?? (a.place ?? w.place ? urlOf(a.place ?? w.place) : "./"), ...textOf(w.need ? needText(w.need) : w.alert?.body ?? a.body) };
     if (w.alert?.ops) it.ops = true;
     if (a.accept) it.accept = a.accept;

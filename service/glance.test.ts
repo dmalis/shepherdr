@@ -172,7 +172,7 @@ test("only what the app shows: no alert from a finished terminal, a done task, d
   expect(shown([al({ chat: "shep-3-review", task: "HERD-3" })])).toBe(1);
 });
 
-test("only tasks need you: a task's card lists, with a task's alert; an Assistant's card, alert and message are Chat's", () => {
+test("Needs you: a task's card lists, with a task's alert, and the Assistant's own card; its alert and message are Chat's", () => {
   const notifyOff = [{ name: "Notify", level: "sp1", rows: [{ key: "notify", value: "Off" }] }];
   const snap = snapOf({ settings: notifyOff, tasks: [{ id: "HERD-3", name: "Tidy the docs", status: "work", place: "sp1", at: NOW - 7000 }, { id: "HERD-6", name: "Logo", status: "work", place: "sp1", at: NOW - 7000 }],
     needs: [{ id: "q8", chat: "HERD-6/worker", place: "sp1", task: "HERD-6", at: NOW - 100, question: q({ id: "q8" }) }, { id: "q9", chat: "sp1", place: "sp1", at: NOW - 100, question: q({ id: "q9" }) }],
@@ -182,9 +182,11 @@ test("only tasks need you: a task's card lists, with a task's alert; an Assistan
   const need = g.items.find((i) => i.key === "need:HERD-6/worker:q8");
   expect(need).toMatchObject({ kind: "needs", type: "need", task: "HERD-6" });
   expect(need.answer.choices.length).toBe(3);
-  // SHEP-255: the Assistant's question and alert are not here; SHEP-253: its new message is Chat's (unread)
-  expect(g.items.filter((i) => i.kind === "needs").map((i) => i.key).sort()).toEqual(["alert:a1", "need:HERD-6/worker:q8"]);
-  expect(g.counts.needs).toBe(2);
+  // fork Needs you 5/6: the Assistant's own question is the person's too, as in the app's counts and the badge (one
+  // list); its alert is a moment of Chat's (SHEP-255) and its new message Chat's (unread, SHEP-253)
+  expect(g.items.filter((i) => i.kind === "needs").map((i) => i.key).sort()).toEqual(["alert:a1", "need:HERD-6/worker:q8", "need:sp1:q9"]);
+  expect(g.items.find((i) => i.key === "need:sp1:q9")).toMatchObject({ type: "need", space: "Home" });
+  expect(g.counts.needs).toBe(3);
   expect(g.unread).toBe(1);
 });
 

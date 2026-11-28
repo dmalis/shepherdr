@@ -92,8 +92,9 @@ test("look here: the app, a call with Shepherdr, what is on screen, and how much
   expect(a).toContain("the Shepherdr app on a phone");
   expect(a).toContain("It is with Shepherdr, not one agent");
   expect(a).toContain('the task "Voice reads the new app" (Working), in the space #shop on box');
-  // the Tasks button's own count (needsCount): three tasks under Needs you, one chat asking
-  expect(a).toContain("Overall: 5 need the person (1 ready for review), 1 working.");
+  // the Tasks button's own count (needsCount): the tasks under Needs you, one chat asking (fork Needs you 5/6: the one
+  // stopped at its plan's limit is its space's Shepherdr's first, under Working)
+  expect(a).toContain("Overall: 4 need the person (1 ready for review), 1 working.");
   expect(await look({ what: "here" }, { client: "web", device: "desktop", place: "home", tab: "artifacts" })).toContain("The app shows Everything, Artifacts.");
 });
 
@@ -128,13 +129,14 @@ test("look chat gives the newest agent reply whole, older messages cut short (#7
 
 test("look tasks: as Tasks › Now groups them, each row in the screen's own words", async () => {
   const all = await look({ what: "tasks" });
-  expect(all).toMatch(/^6 tasks: 4 need you, 1 working, 1 up next\./);
+  expect(all).toMatch(/^6 tasks: 3 need you, 2 working, 1 up next\./);
   // Needs you first, then Working, then Up next; Done only when asked
   expect(all.indexOf("Outbound list")).toBeLessThan(all.indexOf("Voice reads"));
   expect(all.indexOf("Voice reads")).toBeLessThan(all.indexOf("Later work"));
   expect(all).toContain('"Voice reads the new app" in #shop: Working, 10 min left. Writing tests');
   expect(all).toContain('"Fast switch in the picker" in #shop: Ready for review, for 2h. The Fast switch is back');
-  expect(all).toContain('"Nightly links" in #shop: Stopped, for 2m. It hit its plan\'s limit.');
+  // fork Needs you 5/6: a stop at its plan's limit is its space's Shepherdr's first: quiet, no time
+  expect(all).toContain('"Nightly links" in #shop: With Shepherdr. It hit its plan\'s limit.');
   expect(all).toContain('"Sign in to the store" in #shop: Needs you, for 1m. Needs your hands: Sign in to the store');
   expect(all).toContain('"Later work" in #shop: Up next. Starts after Voice reads the new app');
   expect(all).not.toContain("Old thing");
@@ -143,7 +145,7 @@ test("look tasks: as Tasks › Now groups them, each row in the screen's own wor
   const ready = await look({ what: "tasks", query: "ready for review" });
   expect(ready).toContain("Fast switch");
   expect(ready).not.toContain("Voice reads");
-  expect(await look({ what: "tasks", query: "stopped" })).toMatch(/^1 task: 1 needs you\.\n"Nightly links"/);
+  expect(await look({ what: "tasks", query: "stopped" })).toMatch(/^1 task: 1 working\.\n"Nightly links"/);
   const doneOnes = await look({ what: "tasks", query: "done" });
   expect(doneOnes).toContain('"Old thing" in #shop: Done and merged');
   expect(doneOnes).toContain('"Check the links" in #shop: Done, nothing to do');
@@ -168,15 +170,15 @@ test("look task: by words of its title or 'this'; a Ready one with what Mark as 
   expect(need).toContain("It asks: Which list? (choices: Sweden, Norway).");
   expect(await look({ what: "task", id: "sign in" })).toContain("It needs your hands on its Screen: Sign in to the store.");
   expect(await look({ what: "task", id: "check the links" })).toContain("Done, nothing to do");
-  expect(await look({ what: "task", id: "nightly links" })).toContain("Stopped, It hit its plan's limit.");
+  expect(await look({ what: "task", id: "nightly links" })).toContain("With Shepherdr, It hit its plan's limit.");
 });
 
 test("look needs: every question, command, step for the person's hands, review and stop, each once", async () => {
   const needs = await look({ what: "needs" });
-  expect(needs).toMatch(/^5 need the person:/);
+  expect(needs).toMatch(/^4 need the person:/);
   expect(needs).toContain('"Outbound list" in #garden asks: Which list? (choices: Sweden, Norway)');
   expect(needs).toContain('"Fast switch in the picker" in #shop: Ready for review');
-  expect(needs).toContain('"Nightly links" in #shop: Stopped');
+  expect(needs).not.toContain('Nightly links');
   expect(needs).toContain("Needs your hands: Sign in to the store");
   expect(needs).toContain("#garden wants to run a command: npm test");
   expect(needs.match(/Sign in to the store"/g)).toHaveLength(1);
@@ -184,8 +186,8 @@ test("look needs: every question, command, step for the person's hands, review a
 
 test("look spaces, machines, news, schedules", async () => {
   const spaces = await look({ what: "spaces" });
-  expect(spaces).toContain("Everything, the root chat: 5 need you in all.");
-  expect(spaces).toContain("On box: #shop: 3 need you, 1 working.");
+  expect(spaces).toContain("Everything, the root chat: 4 need you in all.");
+  expect(spaces).toContain("On box: #shop: 2 need you, 1 working.");
   expect(spaces).toContain("On Mac mini (can't reach it): #garden: 2 need you; its home space (~).");
   expect(spaces).toContain("Archived: #attic.");
   const machines = await look({ what: "machines" });

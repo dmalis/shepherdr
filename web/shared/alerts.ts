@@ -4,7 +4,8 @@
 import { excerpt } from './excerpt.ts'
 import { machineName, splitFacts, taskChatId, type Alert, type Chat, type Message, type Question, type Snapshot } from './types.ts'
 import * as T from '../../core/toasts.js'
-import { needsYou, waitingTasks, type NeedsSnap } from './needs-you.ts'
+import { type NeedsSnap } from './needs-you.ts'
+import { yours } from './attention.ts'
 import { cutKindTitle, kindWho, taskKind } from './kinds.ts'
 import { canonical, spaceAlertsOf, type SpaceAlertsSnap } from './reach.ts'
 
@@ -34,18 +35,15 @@ export function taskWho(snap: Pick<Snapshot, 'machines'> & { tasks?: { id: strin
 /** the tag of a coordinator's open question: one alert per coordinator, as one per task */
 export const askTag = (place: string) => `ask:${place}`
 
-/** what waits on you everywhere: the count the app icon shows (Needs you's items, web/shared/needs-you.ts, and each Ready
- *  task not in it: the glance feed's needs and ready counts added up) and the tag of each thing, so alerts about what no
- *  longer waits can go */
+/** what waits on you everywhere: the count the app icon shows (fork Needs you 5/6: the person's open actions,
+ *  web/shared/attention.ts, the same as Everything's count and the glance feed's needs and ready added up) and the tag
+ *  of each thing, so alerts about what no longer waits can go */
 export function waiting(snap: NeedsSnap & Pick<Snapshot, 'asks'>, now = Date.now()): { count: number; tags: string[] } {
   const places = new Set(snap.places.map((p) => p.id))
-  const tasks = snap.tasks.filter((t) => places.has(t.place) && !t.archived && (t.status === 'need' || t.status === 'ready')).map((t) => t.id)
+  const mine = yours(snap, undefined, now)
+  const tags = mine.map((a) => a.task ?? a.need?.chat ?? a.chat ?? askTag(a.place))
   const asks = Object.keys(snap.asks ?? {}).filter((p) => places.has(p) && snap.asks[p]).map(askTag)
-  const needs = needsYou(snap, now)
-  const held = waitingTasks(needs)
-  const ready = snap.tasks.filter((t) => !t.archived && t.status === 'ready' && !held.has(t.id))
-  const queued = needs.filter((w) => w.need?.question?.queued).map((w) => w.task)
-  return { count: needs.length + ready.length, tags: [...new Set([...tasks, ...queued, ...asks])] }
+  return { count: mine.length, tags: [...new Set([...tags, ...asks])] }
 }
 
 /** the tags of the alerts that may stay: what still waits on you, less the chats on screen right now (a task's, a
