@@ -498,7 +498,8 @@ export function lastWords(a: any, now = Date.now()): string {
   if (!at) return "";
   const d = new Date(at), days = Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
   const day = days === 0 ? "today" : days === 1 ? "yesterday" : days < 7 ? d.toLocaleDateString("en", { weekday: "long" }) : `${d.getDate()} ${d.toLocaleDateString("en", { month: "short" })}`;
-  const how = run?.error ? "did not start" : ENDED[run?.ended] ?? "";
+  // dmalis/shepherdr#229: a run its check settled started no task
+  const how = run?.error ? "did not start" : run?.check_failed ? "its check failed" : run?.nothing === "check" ? "checked, nothing to do" : ENDED[run?.ended] ?? "";
   return `${day} ${clock(d)}${how ? ` · ${how}` : ""}`;
 }
 
@@ -529,7 +530,8 @@ export function schedulesOf(list: any[], spaces: any[], everything: string | und
     const s = named ?? spaces.find((x) => (x.machine ?? null) === machine && x.folder === a.folder);
     const place = s?.id ?? everything ?? "";
     const once = a.every?.kind === "once";
-    const runs = (Array.isArray(a.runs) ? a.runs : []).map((r: any) => ({ at: Number(r.at) || 0, ...(r.task ? { task: machine ? `${machine}:${r.task}` : String(r.task) } : {}), ...(r.error ? { error: String(r.error).slice(0, 200) } : {}) }));
+    const runs = (Array.isArray(a.runs) ? a.runs : []).map((r: any) => ({ at: Number(r.at) || 0, ...(r.task ? { task: machine ? `${machine}:${r.task}` : String(r.task) } : {}), ...(r.error ? { error: String(r.error).slice(0, 200) } : {}),
+      ...(r.nothing === "check" ? { checked: true } : {}), ...(r.check_failed ? { checkFailed: String(r.check_failed).slice(0, 200) } : {}) }));
     const overrides = a.set ?? {};
     const base = defaults?.(a.folder, machine);
     const agent = a.agent && typeof a.agent === "object" && a.agent.agent ? a.agent

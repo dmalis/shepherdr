@@ -1,0 +1,19 @@
+{
+  "issue": 229,
+  "name": "Schedules: a check before the agent, and one run at a time",
+  "files": [
+    "mods/tasks/bin/herdr_task/schedule_gate.py",
+    "mods/tasks/bin/herdr_task/automations.py",
+    "mods/tasks/bin/herdr_task/cli.py",
+    "service/next.ts",
+    "web/shared/types.ts",
+    "web/plugins/schedules/client.tsx",
+    "docs/settings.md",
+    "service/schedule-check.test.ts"
+  ],
+  "tests": [
+    "service/schedule-check.test.ts",
+    "test/test_herdr_task.py::ScheduleCheck",
+    "test/test_herdr_task.py::ScheduleFold"
+  ]
+}

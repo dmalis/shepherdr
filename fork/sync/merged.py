@@ -461,6 +461,22 @@ def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
     return left
 
 
+def ci_glance(p, repo, now=time.time, runs_of=None):
+    """dmalis/shepherdr#230: no run waits on CI after its install any more (an open run would hold back the next
+    install). Each later run's settle or select reads it once instead, when an install of ours has no verdict yet: one
+    ci_read, no waiting, so the recovery point moves on. A red or missing one it finds is told once in that run's
+    `finish` words, as `ci` told it: Shepherdr's own main-red notice may tell a red main first, but nothing here can
+    see that it was delivered (its watch ends after a few hours, and GitHub may be down meanwhile), so it is never
+    taken as told. It never stops the run: a read that fails is left for the next."""
+    try:
+        with state.locked(p) as st:
+            if not ci_unresolved(st) and not late(st, now()):
+                return None
+        return ci_read(p, repo, now=now, runs_of=runs_of)
+    except Exception:  # noqa: BLE001  (a CI read never stops an install)
+        return None
+
+
 def recovery(st):
     """The newest install whose CI on main passed: a release sync's (its checks passed before it installed) or one of
     ours that CI has since passed. The person can ask to go back to it."""

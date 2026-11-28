@@ -69,11 +69,13 @@ function history(x: Schedule) {
         <>
           <h2>{x.name}</h2>
           <p>Earlier runs</p>
-          <div>
+          {/* min-width 0: a long line (a reason it failed) ends in an ellipsis instead of widening the dialog */}
+          <div style={{ minWidth: 0 }}>
             {runs.map((r) => {
               const t = taskOf(snap, r.task)
-              const how = r.error ? `Did not start · ${r.error}` : t ? (tstate(t) === 'done' || tstate(t) === 'archived' ? doneWords(t) : taskLine(t) || statusWord(t).word) : 'Done'
-              return <Row key={r.at} icon="check" label={clock(r.at)} sub={how} end={t ? <I n="right" c="s16" /> : undefined} disabled={!t} onClick={() => { close(); if (t) openTask(t.id) }} />
+              // dmalis/shepherdr#229: a run its check settled started no task
+              const how = r.error ? `Did not start · ${r.error}` : r.checkFailed ? `Check failed · ${r.checkFailed}` : r.checked ? 'Nothing to do · checked first' : t ? (tstate(t) === 'done' || tstate(t) === 'archived' ? doneWords(t) : taskLine(t) || statusWord(t).word) : 'Done'
+              return <Row key={r.at} icon={r.checkFailed ? 'warn' : 'check'} label={clock(r.at)} sub={how} end={t ? <I n="right" c="s16" /> : undefined} disabled={!t} onClick={() => { close(); if (t) openTask(t.id) }} />
             })}
             {!runs.length && <div className="empty"><span>It has not run yet.</span></div>}
           </div>

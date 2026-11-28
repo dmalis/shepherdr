@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""fork/bin/watch-check: the "Watch upstream issues" schedule's check (fork/specs/fewer-runs.md; Part of #230), run by
+the scheduler in this space's folder before the watch's agent starts (`herdr-task auto edit … --check`).
+
+It says whether anything the watch looks at moved, from a few light reads, and leaves judging it to the agent:
+- upstream's issues updated since its checkpoint (one gh call): a watched one newer than the watch's view, or an issue
+  by the person the view doesn't have;
+- upstream's tags and commits (git fetch, no API call): a `v*` tag after the view's upstream head, or a commit since it
+  that names a watched issue;
+- our open issues updated since its checkpoint (one gh call): one the view hasn't seen, not opened by a task or the
+  pipeline (labels patch, pipeline, handover).
+
+Exit 0 with one line per thing that moved (the agent starts on them), 1 when nothing did, 255 when a read failed (a failed
+check: the scheduler says it). It compares with the watch agent's own view, `.private/upstream-watch.json`, which the
+agent writes only after a run that worked, and keeps its own last good checkpoint, `.private/upstream-watch-check.json`
+({"since": the start of the last check that worked and found nothing}). A check that finds work or fails leaves the
+checkpoint as it was, so what moved during an outage, or before a run that failed, is found by the next check that
+works. Read-only on GitHub; both files are git-ignored and never committed."""
+import argparse
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
+
+from sync.release import UPSTREAM  # noqa: E402
+from sync.state import REPO  # noqa: E402
+
+SKIP_LABELS = {"patch", "pipeline", "handover"}
+VIEW, CHECKPOINT = "upstream-watch.json", "upstream-watch-check.json"
+
+
+class Failed(Exception):
+    pass
+
+
+def gh(*args):
+    try:
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Failed(f"gh {args[0]} didn't answer ({e.__class__.__name__})")
+    if r.returncode != 0:
+        raise Failed(f"gh {args[0]} failed: {((r.stderr or '').strip().splitlines() or ['no message'])[-1][:160]}")
+    return r.stdout
+
+
+def git(repo, *args, ok=False):
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=120)
+    if r.returncode != 0 and not ok:
+        raise Failed(f"git {args[0]} failed: {((r.stderr or '').strip().splitlines() or ['no message'])[-1][:160]}")
+    return r.stdout if r.returncode == 0 else None
+
+
+def lines_of(out):
+    """gh --jq '… | @json' prints one JSON object a line."""
+    return [json.loads(x) for x in out.splitlines() if x.strip()]
+
+
+def issues_since(repo, since, state):
+    return lines_of(gh("api", "--paginate", f"repos/{repo}/issues?state={state}&since={since}&per_page=100", "--jq",
+                       '.[] | {number, updated_at, user: .user.login, pr: (.pull_request != null), '
+                       'labels: [.labels[].name]} | @json'))
+
+
+def iso(at):
+    return at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+    except ValueError:
+        raise Failed(f"{os.path.basename(path)} can't be read")
+
+
+def moved(view, since, repo, fetch=True):
+    """What moved since `since` that the view doesn't have: [line]."""
+    out, watched = [], {str(k): v for k, v in (view.get("issues") or {}).items()}
+    me = gh("api", "user", "--jq", ".login").strip()
+    for i in issues_since(UPSTREAM, since, "all"):
+        n, kept = str(i["number"]), watched.get(str(i["number"]))
+        if kept is not None:
+            if i["updated_at"] > str(kept.get("updatedAt") or ""):
+                out.append(f"upstream {n} updated {i['updated_at']}")
+        elif i["user"] == me and not i["pr"]:
+            out.append(f"upstream {n} is new, by the person")
+    if fetch:
+        git(repo, "fetch", "-q", "upstream", "--tags")
+    head = view.get("upstream_head")
+    if head and git(repo, "cat-file", "-e", f"{head}^{{commit}}", ok=True) is None:
+        out.append(f"upstream head {head[:12]} isn't known here")
+    elif head:
+        at_head = set((git(repo, "tag", "--points-at", head) or "").split())
+        tags = [t for t in (git(repo, "tag", "-l", "v*", "--contains", head) or "").split() if t not in at_head]
+        out += [f"new upstream tag {t}" for t in tags]
+        log = git(repo, "log", f"{head}..upstream/main", "--format=%h %s%n%b%x00")
+        for n in watched:
+            hits = [c.split(None, 1)[0] for c in log.split("\0") if c.strip() and re.search(rf"(?<!\d){n}(?!\d)", c)]
+            if hits:
+                out.append(f"upstream commit {hits[0]} names {n}")
+    seen = {int(x) for x in view.get("fork_seen") or []}
+    for i in issues_since(REPO, since, "open"):
+        if not i["pr"] and int(i["number"]) not in seen and not SKIP_LABELS & set(i["labels"]):
+            out.append(f"fork issue {i['number']} is new")
+    return out
+
+
+def main(argv=None, now=None):
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p.add_argument("--dir", default=".private", help="where the watch's view and this check's checkpoint are")
+    p.add_argument("--repo", default=".", help="the git checkout with the upstream remote")
+    p.add_argument("--no-fetch", action="store_true", help="tests: upstream's refs as they are")
+    a = p.parse_args(argv)
+    start = now or datetime.datetime.now(datetime.timezone.utc)
+    try:
+        view = load(os.path.join(a.dir, VIEW))
+        if view is None:
+            print("no view yet: the watch's first run records everything")
+            return 0
+        since = (load(os.path.join(a.dir, CHECKPOINT)) or {}).get("since")
+        since = since or max((str(v.get("updatedAt") or "") for v in (view.get("issues") or {}).values()), default="")
+        if not since:
+            print("no time to compare from: the watch's view keeps none")
+            return 0
+        found = moved(view, since, a.repo, fetch=not a.no_fetch)
+    except Failed as e:
+        print(f"the check couldn't read: {e}", file=sys.stderr)
+        return 255
+    if found:
+        print("\n".join(found))
+        return 0
+    tmp = os.path.join(a.dir, CHECKPOINT + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump({"since": iso(start)}, f)
+    os.replace(tmp, os.path.join(a.dir, CHECKPOINT))
+    print(f"nothing moved since {since}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

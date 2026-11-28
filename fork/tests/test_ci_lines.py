@@ -54,7 +54,7 @@ class CiLines(syncworld.World):
             return merged.ci_read(self.p, self.wt)
 
     def finish_then_ci(self):
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out.get("next")), (0, "ci"), out)
         return self.sync("ci", paths_ok=True)
 
@@ -68,7 +68,7 @@ class CiLines(syncworld.World):
         checks = {s: CANCELLED for s in shas}
         checks[shas[-1]] = RUNNING
         self.set_gh(checks=checks)
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         n = len(self.gh_calls())
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (1, "wait"), out)
@@ -129,7 +129,7 @@ class CiLines(syncworld.World):
         self.install(a, 300, "ours-3.2.21-1")
         reset = int(time.time()) + 1200
         self.set_gh(checks={a: RUNNING}, rate_limited=reset)
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         n = len(self.gh_calls())
         code, out = self.sync("ci", paths_ok=True, env={"FORK_SYNC_CI_POLL_S": "60"})
         at = time.strftime("%H:%M", time.localtime(reset))
@@ -206,7 +206,7 @@ class CiLines(syncworld.World):
         with state.locked(self.p) as st:
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
             st["run"] = {"key": "SYNC-2", "folder": self.space, "path": "nothing", "start": self.start}
-        code, out = self.sync("finish", run="SYNC-2", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", run="SYNC-2", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "nothing"), out)
         self.assertNotIn("told", out)
 

@@ -249,6 +249,7 @@ def select(a, p):
         baseline = (st.get("baseline") or {}).get("sha")
         bad = {q.get("sha") for q in st.get("quarantine") or []}
     got = release.select(repo, baseline, quarantined=lambda sha: sha in bad)
+    merged.ci_glance(p, repo)  # #230: the last installs' CI, read once (no run waits for it)
     start = release.rev(repo, "HEAD")
     with state.locked(p) as st:
         state.owns_lease(st, a.run, a.folder)
@@ -339,11 +340,14 @@ def rollback(a, p):
 
 
 def finish(a, p):
-    return gate.finish(p, a.run, a.folder, os.path.abspath(a.repo), says=a.says, cfg_hostname=hostname(p))
+    return gate.finish(p, a.run, a.folder, os.path.abspath(a.repo), says=a.says, cfg_hostname=hostname(p),
+                       wait_ci=a.wait_ci)
 
 
 def settle(a, p):
-    return merged.settle(p, a.run, a.folder, os.path.abspath(a.repo))
+    out = merged.settle(p, a.run, a.folder, os.path.abspath(a.repo))
+    merged.ci_glance(p, os.path.abspath(a.repo))  # #230: the last installs' CI, read once (no run waits for it)
+    return out
 
 
 def ci(a, p):
@@ -417,6 +421,8 @@ def part_of_args(c):
 def finish_args(c):
     run_args(c)
     c.add_argument("--says", help="what's new, for an install's --told (the rest of the words are the state's)")
+    c.add_argument("--wait-ci", action="store_true", help="hand this run to `ci`, which waits for main's CI on its "
+                                                          "installs (#230: by default no run waits; a later one reads it)")
 
 
 COMMANDS = [
