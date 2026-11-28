@@ -1,6 +1,6 @@
 {
   "issue": 94,
-  "name": "friction loop: every feedback report is kept (1), the Feedback page (2), shape and check (3), the yes for the exact text, posted once (4), follow the issue (5), on this machine (6), report from a failed action (7)",
+  "name": "friction loop: every feedback report is kept (1), the Feedback page (2), shape and check (3), the yes for the exact text, posted once (4), follow the issue (5), on this machine (6), report from a failed action (7), every machine's problems (8)",
   "files": [
     "mods/tasks/bin/herdr_task/feedback.py",
     "mods/tasks/bin/herdr_task/feedback_page.py",
@@ -33,7 +33,8 @@
     "mods/tasks/bin/herdr_task/feedback_track.py",
     "service/jobs.ts",
     "mods/tasks/bin/herdr_task/feedback_ship.py",
-    "bin/shepherdr"
+    "bin/shepherdr",
+    "service/feedback-machines.ts"
   ],
   "tests": [
     "test/test_feedback_found.py",
@@ -56,6 +57,8 @@
     "test/test_feedback_ship.py",
     "test/test_install.py::InstalledBuild",
     "service/feedback-ship.test.ts",
-    "web/plugins/feedback/ship.test.tsx"
+    "web/plugins/feedback/ship.test.tsx",
+    "service/feedback-machines.test.ts",
+    "web/plugins/feedback/machines.test.tsx"
   ]
 }

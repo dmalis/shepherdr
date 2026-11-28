@@ -105,9 +105,9 @@ export function fromWords(r: Pick<FeedbackRow, 'from'>): string {
   return 'Noted by an agent'
 }
 
-/** the row's quiet line: who, where, when, how often */
-export function metaOf(r: FeedbackRow, where: string, now = Date.now()): string {
-  const bits = [fromWords(r), ...(where && !r.from?.task ? [`in ${where}`] : []), agoWords(r.at, now)]
+/** the row's quiet line: who, where, on which machine (another one's, slice 8: its name), when, how often */
+export function metaOf(r: FeedbackRow, where: string, now = Date.now(), machine = ''): string {
+  const bits = [fromWords(r), ...(where && !r.from?.task ? [`in ${where}`] : []), ...(machine ? [`on ${machine}`] : []), agoWords(r.at, now)]
   if (r.count > 1) bits.push(`${r.count}\u00a0reports`)
   return bits.join(' · ')
 }
@@ -247,6 +247,19 @@ export function doneWords(what: 'later' | 'no' | 'undo', when?: string): string 
 export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep'): string {
   if (why === 'asleep') return `No chat runs in ${where} now: Write it up goes to Everything`
   return why === 'gone' ? 'Its space is gone: Write it up goes to Everything' : `${where} can't be reached: Write it up goes to Everything`
+}
+
+/** a row another machine kept that can't be acted on now (slice 8): out of reach since its last read, or older */
+export function lockWords(why: 'stale' | 'old', machine: string, at: number | undefined, now = Date.now()): string {
+  if (why === 'old') return `Update Shepherdr on ${machine} to act on this here`
+  return at ? `${machine} can't be reached: as it was ${agoWords(at, now)}` : `${machine} can't be reached: as it was last seen`
+}
+
+/** the page's line about a linked machine whose list isn't read as it is now (slice 8) */
+export function machineWords(m: NonNullable<FeedbackList['machines']>[number], name: string, now = Date.now()): string {
+  if (m.state === 'none') return `Shepherdr isn't set up on ${name}, so its problems can't show here`
+  if (m.state === 'old') return `${name} has an older Shepherdr: its problems show, and updating it lets you act on them here`
+  return `${name} can't be reached: its problems show as they were ${agoWords(m.at, now)}`
 }
 
 export const offWords = (where: string) => `Feedback offers are off in ${where || 'its space'}: nothing more happens to it`

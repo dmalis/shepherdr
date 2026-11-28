@@ -1527,8 +1527,14 @@ export interface FeedbackRow {
   section: 'found' | 'filed' | 'later' | 'declined' | 'fixed'
   /** herdr-task's own state (filing: being filed now) */
   state: string
-  /** its origin: the bare space id of its first report */
+  /** its origin: the bare space id of its first report (another machine's: "vm/sp1", as its places are named) */
   space?: string
+  /** the linked machine that kept it (slice 8), its name in herdr-core; none: this machine. Rows are told apart by
+      machine and id: one id on two machines is two problems */
+  machine?: string
+  /** its machine's list can't be acted on now (slice 8): stale (out of reach: its rows as of the last read), old (its
+      Shepherdr is older than this page: its record read as it is). Shown, with no buttons */
+  readOnly?: 'stale' | 'old'
   /** who noticed it first, never a key */
   from?: { task?: string; chat?: true; person?: true; action?: string; agent?: true }
   count: number
@@ -1600,6 +1606,9 @@ export interface FeedbackList {
   error?: string
   /** Everywhere's agents.feedback_note: the line File it… shows above Post it (what a post also starts, say) */
   note?: string
+  /** each linked machine whose list isn't read as it is now (slice 8): out of reach (stale, at: its last read), older
+      (old), or without Shepherdr (none: nothing is installed there from here) */
+  machines?: { name: string; state: 'stale' | 'old' | 'none'; at: number }[]
 }
 
 export type Action =

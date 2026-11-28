@@ -679,6 +679,14 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   machine's rows are stale and their actions off; an older machine's rows are read-only; an action goes to its row's
   machine; no call uses `herdr-task --on`.
 - **Demo:** two throwaway cores (AGENTS.md: "Two throwaway cores on one VM"), a report on each, both on the page.
+- **As built:** the reader lives in its own module, `service/feedback-machines.ts`, which `feedback.ts` calls; it runs
+  the command through the service's herdr-core link (`machine.exec`, what `hc exec --on` does). Other machines are read
+  every half minute only while a page is open, and again right after a call on one of their rows. An older herdr-task's
+  own `--list` rewrites and prunes its record, so an older machine (its herdr-task refuses `--list --all`) has its record
+  read as a file (`cat`, by the layout's own path), never through that command. A machine out of reach that was never
+  read shows nothing; one with rows says so at the top and on each row. The box's reports stay on this machine. Not
+  built here: following another machine's filed issues (`--track` there), which still runs only where the service runs.
+  The demo's `?case=machines` shows every machine's state.
 
 ### Slice 9 (fork): file it and fix it
 

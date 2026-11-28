@@ -9,7 +9,7 @@ import { openDialog } from '@client/overlay.tsx'
 import { Btn } from '@client/ui.tsx'
 import type { FeedbackDraft, FeedbackRow, Snapshot } from '@shared/types.ts'
 import { spaceLabel } from '@shared/view.ts'
-import { call, writeUpTo } from './rows.tsx'
+import { call, whose, writeUpTo } from './rows.tsx'
 import { postText, W, whereWords } from './words.ts'
 
 type Answer = { ok?: boolean; error?: string }
@@ -31,7 +31,7 @@ export async function sendPost(snap: Snapshot, r: FeedbackRow, rev: number): Pro
 
 /** Post it: the yes kept first (nothing is sent without it), then the message */
 export async function postIt(snap: Snapshot, r: FeedbackRow, d: FeedbackDraft): Promise<boolean> {
-  const a = await call({ do: 'approve', key: r.id, rev: d.rev })
+  const a = await call({ do: 'approve', ...whose(r), rev: d.rev })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false

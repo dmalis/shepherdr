@@ -510,6 +510,11 @@ let desktopsOf: () => string[] = () => (pluginOn("screens") ? screens.desktops()
 const chatsNow = () => new Set<string>(model.spaces.filter((s: any) => s.assistant && s.assistantStatus !== "stopped").map((s: any) => s.id));
 const withFeedback = (snap: Snapshot): Snapshot => { const f = pluginOn("feedback") ? feedback.list(Date.now(), chatsNow()) : null; return f ? { ...snap, feedback: f } : snap; };
 feedback.changed = () => model.rebuild();
+// every linked machine's problems too (slice 8): read there through herdr-core, only while a page is open
+feedback.there.exec = (m, argv, timeout) => exec(hub, argv, m, timeout);
+feedback.there.machines = async () => (await hub.call<{ machines: any[] }>("machine.list", {}, 8000)).machines ?? [];
+feedback.watched = () => live.anyone();
+live.onFirstPage(() => void feedback.readThere());
 feedback.start(); // reads only while the plugin is on
 const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withNext(compat.snapshot({
   host: me?.host ?? "this machine", user: me?.name ?? "You", spaces: b.spaces, sections: b.sections, rows: b.rows, artifacts: artifacts.list, automations: b.automations,

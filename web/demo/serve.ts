@@ -4,6 +4,7 @@
 // third warning (the warnings line coming back after it was closed); `?case=long` gives spaces, tasks and pages long names;
 // `?case=one` and `?case=five` show one machine only and five.
 // `?case=post` gives the Feedback page a draft (File it…) and each step of a post after the yes (#94, slice 4).
+// `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,9 +18,9 @@ import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -50,7 +51,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -375,7 +376,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)

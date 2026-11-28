@@ -98,6 +98,22 @@ export const feedbackShip: FeedbackList = {
   ],
 }
 
+/** `?case=machines` (friction loop slice 8, #94): every linked machine's problems too, each with its machine. studio's
+ *  are read now (one id is also kept here: two problems), pi is out of reach (its rows as of its last read, nothing to
+ *  act with), vm has an older Shepherdr (its record read as it is), and laptop has no Shepherdr at all */
+export const feedbackMachines: FeedbackList = {
+  ...feedback,
+  found: 6,
+  machines: [{ name: 'laptop', state: 'none', at: NOW - 2 * min }, { name: 'pi', state: 'stale', at: NOW - 50 * min }, { name: 'vm', state: 'old', at: NOW - 2 * min }],
+  rows: [
+    { id: 'a1f0c2', machine: 'studio', line: "The reply bubble doesn't show which message it answers", section: 'found', state: 'found', space: 'studio/site', from: { task: 'Site footer' }, count: 1, at: NOW - 40 * min },
+    { id: 'j1b0a2', machine: 'pi', readOnly: 'stale', line: 'A schedule run shows no news when the machine was asleep', fix: 'Say the run was missed, with its time', kind: 'miss', section: 'found', state: 'found', space: 'pi/home', from: { agent: true }, count: 1, at: NOW - 70 * min },
+    feedback.rows[0],
+    { id: 'k2c1b3', machine: 'vm', readOnly: 'old', line: 'Approving a merge on the phone needs two taps', section: 'found', state: 'told', space: 'vm/shop', from: { chat: true }, count: 2, at: NOW - 20 * hour },
+    ...feedback.rows.slice(1),
+  ],
+}
+
 /** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
 const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
 export const inbox: InboxItem[] = [
@@ -299,7 +315,7 @@ const fiveMachines = (s: Snapshot): Snapshot => ({
   places: [...s.places, { ...s.places.find((p) => p.machine === 'pi')!, id: 'p:laptop:home', chat: 'p:laptop:home', machine: 'laptop' }, { ...s.places.find((p) => p.machine === 'studio' && !p.home)!, id: 'p:laptop:notes', chat: 'p:laptop:notes', machine: 'laptop', name: 'notes' }],
 })
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' = 'normal'): Snapshot {
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))
@@ -358,7 +374,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     config,
     // the bell's list (fork #37): what the push alerts said this week, some read, some still waiting
     inbox: empty ? [] : inbox,
-    feedback: empty ? { rows: [], found: 0, off: false } : mode === 'post' ? feedbackPost : mode === 'ship' ? feedbackShip : feedback,
+    feedback: empty ? { rows: [], found: 0, off: false } : mode === 'post' ? feedbackPost : mode === 'ship' ? feedbackShip : mode === 'machines' ? feedbackMachines : feedback,
     warnings: empty ? [] : down ? [{ id: 'm:vm', kind: 'machine', text: "Can't reach vm · last seen 14:02" }] : [{ id: 'u:elevenlabs', kind: 'usage', text: "You've used 76% of your ElevenLabs plan" }, { id: 'm:vm', kind: 'machine', text: 'vm: disk nearly full' }, ...(mode === 'more' ? [{ id: 'm:mini', kind: 'machine' as const, text: 'mac-mini: memory nearly full' }] : [])],
     screens: empty ? {} : {
       'task:SHOP-17': { b: { url: 'https://billing.example.com/login' }, d: { of: 'mac-mini', own: false, busy: 'Bigger checkout button on phones' }, active: true, driver: 'agent', hands: { what: 'Enter the sign-in code' } },

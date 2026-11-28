@@ -10,11 +10,16 @@ import { DictateButton } from '@client/dictate.tsx'
 import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
-import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, W, writeUpText } from './words.ts'
+import { everything, isEverything, machineLabel, spaceLabel } from '@shared/view.ts'
+import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lockWords, lookUrl, machineWords, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
+
+/** which problem a call is for: its id, and the linked machine that kept it (slice 8; none: this one) */
+export const whose = (r: Pick<FeedbackRow, 'id' | 'machine'>) => ({ key: r.id, ...(r.machine ? { machine: r.machine } : {}) })
+/** a row's own name on the page: one id on two machines is two rows */
+export const rowKey = (r: Pick<FeedbackRow, 'id' | 'machine'>) => `${r.machine ?? ''}/${r.id}`
 
 /** one of the person's calls, answered (never thrown): the service's own words when it says no */
 export async function call(b: Record<string, unknown>): Promise<Answer> {
@@ -38,7 +43,7 @@ export async function saveBox(text: string, chat: string, setText: (v: string) =
 
 /** Not now, Never or Undo on a row; its toast offers Undo (Gmail's and Linear's pattern) */
 export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string, expect?: 'later' | 'declined' | 'following'): Promise<boolean> {
-  const a = await call({ do: what, key: r.id, ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
+  const a = await call({ do: what, ...whose(r), ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -50,7 +55,7 @@ export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when
 /** Follow this one (slice 3): the row follows an issue its check found and moves to Filed; nothing is posted. Its
  *  toast offers Undo, as Not now's does */
 export async function follow(r: FeedbackRow, m: FeedbackMatch): Promise<boolean> {
-  const a = await call({ do: 'follow', key: r.id, url: m.url })
+  const a = await call({ do: 'follow', ...whose(r), url: m.url })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -76,7 +81,7 @@ function CheckView({ r, busy, onFollow }: { r: FeedbackRow; busy: boolean; onFol
             <p className="fb-mw">
               {w.lead}: <a className="fb-ml" href={m.url} target="_blank" rel="noreferrer">“{m.title}”</a>{w.open ? ' (open)' : ''}
             </p>
-            <Btn small disabled={busy} aria-label={`${W.follow}: ${m.title}`} onClick={() => onFollow(m)}>{W.follow}</Btn>
+            {!r.readOnly && <Btn small disabled={busy} aria-label={`${W.follow}: ${m.title}`} onClick={() => onFollow(m)}>{W.follow}</Btn>}
           </li>
         )
       })}
@@ -162,6 +167,8 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
   const later = (el: HTMLElement) =>
     openMenu(el, LATER.map((x) => ({ label: x.label, run: () => void run('later', () => decide(r, 'later', x.when), true) })), { label: W.notNow })
   const btns = () => {
+    // a machine out of reach or on an older Shepherdr (slice 8): shown as it was, nothing to act with but its issue's link
+    if (r.readOnly) return r.section === 'filed' && r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
     if (r.section === 'filed' && postWords(r)) return postBtns()
     const gh = r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
     // its fix is here (slice 6): Works is the row's one primary; Still broken sends it back under Found
@@ -213,13 +220,15 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     : r.section === 'filed' ? filedWords(r)
     : r.section === 'fixed' ? ''
     : r.off ? offWords(where)
-    : r.section === 'found' && o.why ? elsewhereWords(where, o.why) : ''
+    : r.section === 'found' && o.why && !r.readOnly ? elsewhereWords(where, o.why) : ''
+  const on = r.machine ? machineLabel(snap, r.machine) : ''
+  const lock = r.readOnly ? lockWords(r.readOnly, on, snap.feedback?.machines?.find((m) => m.name === r.machine)?.at, now) : ''
   return (
     <li className={cx('fb-row', leaving && 'leave')} inert={leaving || undefined}>
       <div className="fb-in">
         <p className="fb-line">{r.line}</p>
         <p className={cx('fb-fix', !r.fix && 'none')}>{r.fix ? <><span className="fb-k">Fix:</span> {r.fix}</> : W.noFix}</p>
-        <p className="fb-meta">{metaOf(r, where, now)}</p>
+        <p className="fb-meta">{metaOf(r, where, now, on)}</p>
         {r.back && r.section === 'found' && (
           <p className="fb-st back">
             <I n="reload" c="s16" />
@@ -229,6 +238,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
         {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
         {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} />}
+        {lock && <p className="fb-st fb-lock"><I n={r.readOnly === 'stale' ? 'clock' : 'info'} c="s16" /><span>{lock}</span></p>}
         <div className="fb-acts">{btns()}</div>
       </div>
     </li>
@@ -237,7 +247,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
 
 /** Check again: herdr-task looks on GitHub for the post's hidden line, and posts nothing */
 async function checkAgain(r: FeedbackRow): Promise<boolean> {
-  const a = await call({ do: 'reconcile', key: r.id })
+  const a = await call({ do: 'reconcile', ...whose(r) })
   notice(a.ok ? W.foundIt : a.error!, { tone: a.ok ? 'ok' : 'error' })
   return a.ok === true
 }
@@ -261,7 +271,7 @@ function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: 
   const [open, setOpen] = useState(!fold)
   const [gone, setGone] = useState<Set<string>>(new Set())
   // a row that left and came back (Undo in its toast) shows again: only rows still here can be leaving
-  const ids = rows.map((r) => r.id).join('\n')
+  const ids = rows.map(rowKey).join('\n')
   useEffect(() => setGone((g) => (g.size ? new Set([...g].filter((id) => ids.split('\n').includes(id))) : g)), [ids])
   if (!rows.length) return null
   const head = `fb-h-${id}`
@@ -281,8 +291,8 @@ function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: 
       {open && (
         <ul className="fb-list">
           {rows.map((r) => (
-            <RowView key={`${r.id}:${r.section}`} r={r} snap={snap} now={now} note={note} leaving={gone.has(r.id)}
-              leave={(on) => setGone((g) => { const n = new Set(g); if (on) n.add(r.id); else n.delete(r.id); return n })} />
+            <RowView key={`${rowKey(r)}:${r.section}`} r={r} snap={snap} now={now} note={note} leaving={gone.has(rowKey(r))}
+              leave={(on) => setGone((g) => { const n = new Set(g); if (on) n.add(rowKey(r)); else n.delete(rowKey(r)); return n })} />
           ))}
         </ul>
       )}
@@ -424,6 +434,9 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
           </p>
         )}
         {list?.error && <p className="fb-banner">{W.stale}</p>}
+        {(list?.machines ?? []).filter((m) => m.state === 'none' || list!.rows.some((r) => r.machine === m.name)).map((m) => (
+          <p key={m.name} className="fb-banner">{machineWords(m, machineLabel(snap, m.name), now)}</p>
+        ))}
         {!any ? (
           <Empty title={W.empty}>{W.emptySub}</Empty>
         ) : (
