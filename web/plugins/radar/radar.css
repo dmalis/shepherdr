@@ -102,6 +102,8 @@
 .rd-ee{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:var(--sec)}
 /* a narrow page: the words keep the room, the project leaves the line (the opened item names it) */
 @container (max-width:480px){.rd-ee{display:none}}
+/* an item open beside a narrow list (a desktop with a pane open): the same */
+@container (max-width:1040px){.rdp.open .rd-ee{display:none}}
 
 /* Since you last looked: a short account, one sentence a line */
 .rd-story{min-height:var(--row)}
