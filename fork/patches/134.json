@@ -1,0 +1,12 @@
+{
+  "issue": 134,
+  "name": "phone message box: an automatic check that types into it",
+  "files": [
+    "web/demo/phone-box-check.ts",
+    ".github/workflows/check.yml",
+    "docs/develop.md"
+  ],
+  "tests": [
+    "web/demo/phone-box-check.test.ts"
+  ]
+}
