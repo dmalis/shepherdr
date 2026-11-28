@@ -6,14 +6,16 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { PaneFrame } from '@client/App.tsx'
 import { definePlugin, dismissNotice, notice, setUI, togglePane, useSnap, useUI } from '@client/kernel.ts'
 import { confirm, openMenu } from '@client/overlay.tsx'
-import { Btn, cx, Empty, Hd, I, IB } from '@client/ui.tsx'
+import { cx, Empty, Failed, Hd, I, IB, Loading, Stale } from '@client/ui.tsx'
+import { LOADING, TRY_AGAIN, UNREACHABLE } from '@client/states.ts'
 import type { MenuRow } from '@client/kernel.ts'
 import { folderOf, isEverything, spaceLabel } from '@shared/view.ts'
-import { IMAGE, join, parentOf, sizeWords } from './paths.ts'
+import { IMAGE, join, keptOnError, parentOf, sizeWords } from './paths.ts'
 import './files.css'
 
 type Entry = { name: string; kind: 'dir' | 'file' | 'link'; size?: number }
-type Dir = { entries?: Entry[]; more?: boolean; error?: string }
+/** a folder as last asked: its entries and when they came (`at`); a refresh that failed keeps them, with its error */
+type Dir = { entries?: Entry[]; more?: boolean; error?: string; at?: number }
 
 /* ---------- what is open and loaded, per space (kept while the page is open) ---------- */
 
@@ -30,13 +32,13 @@ const openOf = (space: string) => { let s = opened.get(space); if (!s) opened.se
 const q = (space: string, what: string, path: string) => `api/files?space=${encodeURIComponent(space)}&what=${what}&path=${encodeURIComponent(path)}`
 async function ask<T>(url: string, init?: RequestInit): Promise<T & { error?: string }> {
   const r = await fetch(url, { ...init, headers: { 'x-shepherdr': '1', ...(init?.headers ?? {}) } }).catch(() => null)
-  if (!r) return { error: "Shepherdr can't be reached." } as T & { error?: string }
+  if (!r) return { error: UNREACHABLE } as T & { error?: string }
   return r.json().catch(() => ({ error: `It didn't work (${r.status}).` }))
 }
 
 async function load(space: string, path: string) {
   const d = await ask<Dir>(q(space, 'ls', path))
-  dirs.set(k(space, path), d)
+  dirs.set(k(space, path), keptOnError(dirs.get(k(space, path)), d, Date.now()))
   emit()
 }
 function toggle(space: string, path: string) {
@@ -243,13 +245,25 @@ function drop(ev: React.DragEvent, space: string, into: string, setTarget: (t: s
 
 function Level({ space, path, depth, target, setTarget }: { space: string; path: string; depth: number; target: string | null; setTarget: (t: string | null) => void }) {
   useStore()
+  const phone = useUI((u) => u.phone)
   const d = dirs.get(k(space, path))
+  const again = () => reload(space, path)
+  // the space's folder itself: the one empty, loading and failed layout every pane has (ui.tsx)
+  if (!depth) {
+    if (!d) return <Loading />
+    if (d.error && !d.entries) return <Failed title="Can't show this folder" why={d.error} again={again} />
+    if (!d.entries?.length)
+      return <Empty title="This folder is empty" act={{ label: 'Upload files', run: () => pickFiles(space, '') }}>{phone ? 'Files you upload go here.' : 'Drop files here, or upload them.'}</Empty>
+  }
+  // a folder opened in the tree: its note starts where its rows' names do
   const pad = { paddingLeft: 8 + depth * 14 + 22 }
-  if (!d) return <div className="ftnote" style={pad}>Loading…</div>
-  if (d.error) return <div className="ftnote" style={pad}>{d.error}</div>
-  if (!d.entries?.length) return <div className="ftnote" style={pad}>{depth ? 'Empty folder' : 'This folder is empty.'}</div>
+  if (!d) return <div className="ftnote" style={pad}>{LOADING}</div>
+  if (d.error && !d.entries)
+    return <div className="ftnote" style={pad}>{d.error} <button type="button" className="lk" onClick={again}>{TRY_AGAIN}</button></div>
+  if (!d.entries?.length) return <div className="ftnote" style={pad}>Empty folder</div>
   return (
     <div role="group">
+      {d.error && d.at && <div style={depth ? { paddingLeft: pad.paddingLeft - 8 } : undefined}><Stale at={d.at} why={d.error} again={again} /></div>}
       {d.entries.map((e) => <Row key={e.name} space={space} path={join(path, e.name)} e={e} depth={depth} target={target} setTarget={setTarget} />)}
       {d.more && <div className="ftnote" style={pad}>Only the first {d.entries.length} are shown.</div>}
     </div>
@@ -260,23 +274,19 @@ function Level({ space, path, depth, target, setTarget }: { space: string; path:
 
 function Viewer({ space, path }: { space: string; path: string }) {
   const [f, setF] = useState<{ path: string; size?: number; text?: string; binary?: boolean; cut?: boolean; error?: string } | null>(null)
+  const [n, setN] = useState(0)
   useEffect(() => {
     let live = true
     setF(null)
     if (IMAGE.test(path)) return
     void ask<{ size: number; text?: string; binary?: boolean; cut?: boolean }>(q(space, 'read', path)).then((r) => live && setF({ path, ...r }))
     return () => { live = false }
-  }, [space, path])
+  }, [space, path, n])
   if (IMAGE.test(path)) return <div className="ftimg"><img src={q(space, 'file', path)} alt={path.split('/').pop()} /></div>
-  if (!f || f.path !== path) return <Empty>Opening…</Empty>
-  if (f.error) return <Empty>{f.error}</Empty>
+  if (!f || f.path !== path) return <Loading />
+  if (f.error) return <Failed title="Can't show this file" why={f.error} again={() => setN((x) => x + 1)} />
   if (f.binary)
-    return (
-      <Empty>
-        This file can’t be shown here ({sizeWords(f.size ?? 0)}).{' '}
-        <Btn small onClick={() => void download(space, path, false)}>Download</Btn>
-      </Empty>
-    )
+    return <Empty title="Can't show this file here" act={{ label: 'Download', run: () => void download(space, path, false) }}>It isn’t text ({sizeWords(f.size ?? 0)}).</Empty>
   return (
     <>
       {f.cut && <div className="ftnote">Only the first 400 KB of {sizeWords(f.size ?? 0)} is shown. Download it for the rest.</div>}
@@ -297,11 +307,13 @@ function FilesPane() {
   const sp = snap?.places.find((p) => p.id === space)
   const every = !snap || !sp || isEverything(snap, space)
   useEffect(() => { if (!every && !dirs.has(k(space, ''))) void load(space, '') }, [space, every])
+  // the link to Shepherdr back: a folder that couldn't be read for it is asked again
+  useEffect(() => { if (!ui.offline && !every && dirs.get(k(space, ''))?.error) reload(space, '') }, [ui.offline])
   const close = !ui.phone && <IB icon="x" label="Close" onClick={() => togglePane(null)} />
   if (every)
     return (
       <PaneFrame head={(sc) => <Hd title="Files" pad={ui.phone ? 12 : 4} scrolled={sc}>{close}</Hd>}>
-        <Empty>Pick a space to see its folder.</Empty>
+        <Empty title="No folder here" act={ui.phone ? { label: 'Pick a space', run: () => setUI({ drawer: true }) } : undefined}>Everything has no folder of its own. Pick a space to see its files.</Empty>
       </PaneFrame>
     )
   const open = viewing.get(space) ?? null

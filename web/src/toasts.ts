@@ -1,6 +1,7 @@
 /* The app's toasts: small notices at the top, one shared behaviour for all of them. Each stays long enough to read
    (by its kind and its length), waits while it is hovered or focused and while the tab is in the background, has its
    own close button, and several stack instead of replacing each other. Drawn by App.tsx's Toasts. */
+import { say } from './live.ts'
 
 /** ok: a short confirmation ("Copied"); info: something to know; error: something went wrong */
 export type Tone = 'ok' | 'info' | 'error'
@@ -66,6 +67,8 @@ export function toast(text: string, o: ToastOpts = {}): number {
   while (live.length > MAX) dismiss(live[0].id, true)
   run(t)
   changed()
+  // said once to screen readers through the one live region (live.ts): the list itself is not a live region
+  say(o.sub ? `${text} ${o.sub}` : text)
   return t.id
 }
 

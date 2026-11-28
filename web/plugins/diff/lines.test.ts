@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Snapshot, Task } from '@shared/types.ts'
-import { hasFolder, lineKind, sourcesOf, splitPath } from './lines.ts'
+import { hasFolder, lineKind, settled, sourcesOf, splitPath } from './lines.ts'
 
 const task = (id: string, status: Task['status'], more: Partial<Task> = {}) => ({ id, name: `Task ${id}`, status, place: 'p1', ...more }) as Task
 const snap = {
@@ -31,4 +31,16 @@ test('diff lines and paths', () => {
     .toEqual(['meta', 'meta', 'meta', 'meta', 'hunk', 'add', 'del', 'ctx', 'meta'])
   expect(splitPath('web/src/App.tsx')).toEqual({ dir: 'web/src', name: 'App.tsx' })
   expect(splitPath('README.md')).toEqual({ dir: '', name: 'README.md' })
+})
+
+test('Changes keeps what it showed when a refresh fails, marked stale with when it was had', () => {
+  const first = settled<{ n: number }>(null, 'u', { n: 1 }, 100)
+  expect(first).toEqual({ url: 'u', v: { n: 1 }, at: 100 })
+  const stale = settled(first, 'u', { error: 'gone' }, 200)
+  expect(stale).toEqual({ url: 'u', v: { n: 1 }, at: 100, stale: { at: 100, why: 'gone' } })
+  // failing again keeps the first time; a good answer clears it; another address or a first failure is the error
+  expect(settled(stale, 'u', { error: 'still' }, 300).stale).toEqual({ at: 100, why: 'still' })
+  expect(settled(stale, 'u', { n: 2 }, 400)).toEqual({ url: 'u', v: { n: 2 }, at: 400 })
+  expect(settled(first, 'other', { error: 'gone' }, 500)).toEqual({ url: 'other', v: { error: 'gone' }, at: 500 })
+  expect(settled<{ n: number }>(null, 'u', { error: 'gone' }, 600).v).toEqual({ error: 'gone' })
 })

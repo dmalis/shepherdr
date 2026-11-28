@@ -12,8 +12,10 @@ import { apply, chatApply } from '@shared/patch.ts'
 import type { IconName } from './icons.ts'
 import { catchLink } from './applink.ts'
 import { heartbeatDue, OPEN_WITHIN, PONG_LATE, PONG_WITHIN, retryIn, SAY_LOST_AFTER } from './link.ts'
-import { expire, loadOutbox, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
+import { expire, loadOutbox, newlyFailed, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
 import { draftParts, keepDraft, keepEach, settleDrafts } from './draft.ts'
+import { say } from './live.ts'
+import { failedSendWords, LINK_BACK, LINK_LOST, LINK_UPDATING } from './states.ts'
 import { setupGuarded } from './guard.tsx'
 import { HttpError, wakeAll } from './uploads.ts'
 import { SHOW_AFTER } from './pending.ts'
@@ -474,6 +476,8 @@ export function setOutbox(fn: (out: Outgoing[]) => Outgoing[]): boolean {
 }
 function putOutbox(out: Outgoing[]): boolean {
   if (out === state.outbox) return true
+  // a send that just failed is said to a screen reader once (its bubble shows Not sent, with Retry and Remove)
+  for (const o of newlyFailed(state.outbox, out)) say(failedSendWords(o.error))
   state = { ...state, outbox: out }
   const kept = saveOutbox(out)
   // a box waiting on a send the outbox couldn't keep lets go of it once it is safe (draft.ts)
@@ -642,6 +646,17 @@ let tried = 0
 const sentChats = new Map<string, Chat>()
 /** when the link last heard from the server */
 let heard = 0
+/** a screen reader was told the link is gone (live.ts): it is told once it is back */
+let saidLost = false
+
+/** Try again on the line that says the link is gone: a new try now, its waits between tries started over. The line
+ *  stays until the link is back. */
+export function retryNow() {
+  if (ws?.readyState === WebSocket.OPEN) return
+  forget()
+  tries = 0
+  connect()
+}
 
 export function connect() {
   if (retrying) clearTimeout(retrying)
@@ -663,6 +678,7 @@ export function connect() {
     sentChats.clear()
     // the link is back: what waits to send goes now
     wakeAll()
+    if (saidLost) (saidLost = false, say(LINK_BACK))
     if (state.ui.offline) setUI({ offline: null })
     watchVisible()
   }
@@ -742,7 +758,10 @@ function forget() {
 function sayLater(at = Date.now()): ReturnType<typeof setTimeout> {
   return setTimeout(() => {
     if (Date.now() - at > SAY_LOST_AFTER + 1000) saying = sayLater()
-    else if (ws?.readyState !== WebSocket.OPEN) setUI({ offline: downSince })
+    else if (ws?.readyState !== WebSocket.OPEN) {
+      if (!saidLost) (saidLost = true, say(state.update?.state === 'restarting' ? LINK_UPDATING : LINK_LOST))
+      setUI({ offline: downSince })
+    }
   }, SAY_LOST_AFTER)
 }
 

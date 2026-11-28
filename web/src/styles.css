@@ -13,7 +13,8 @@
 .shell>.side,.shell>.col{grid-row:1}
 
 /* a thin line at the very top: the link to Shepherdr is gone */
-.tline{flex:none;padding:4px 16px;background:var(--raised);color:var(--sub);font-size:13px;line-height:18px;text-align:center}
+.tline{flex:none;display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:0 8px;padding:4px 16px;background:var(--raised);color:var(--sub);font-size:13px;line-height:18px;text-align:center}
+.tline .lk{padding:0;border:0;background:none;font:inherit}.tline .lk[aria-disabled]{cursor:default;color:var(--sub);text-decoration:none}
 .app.phone .tline:first-child{padding-top:calc(4px + env(safe-area-inset-top))}
 
 /* Motion › Reduced, like the device's own setting */

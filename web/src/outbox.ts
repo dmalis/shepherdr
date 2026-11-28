@@ -277,6 +277,13 @@ export function prune(out: Outgoing[], now: number, exists?: (chat: string) => b
   return next.length === out.length ? out : next
 }
 
+/** the sends that failed in `next` and hadn't in `prev`: each is said once (a failed one loaded from before, or one
+ *  still failed, is not said again) */
+export function newlyFailed(prev: Outgoing[], next: Outgoing[]): Outgoing[] {
+  const was = new Set(prev.filter((o) => o.state === 'failed').map((o) => o.cid))
+  return next.filter((o) => o.state === 'failed' && !was.has(o.cid))
+}
+
 /** how one you sent shows until the chat has it (SHEP-329): dimmed only while it is on its way or held on purpose for
  *  the agent's turn (or a menu, a start); once in the agent (its terminal, or its CLI's own queue, which takes it
  *  within seconds) it is sent, never a grey bubble that stays */

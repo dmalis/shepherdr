@@ -297,8 +297,16 @@ button.b{cursor:pointer}
 .agent-upd{position:relative}.agent-upd::after{content:"";position:absolute;top:calc(50% - 9px);right:calc(50% - 9px);width:6px;height:6px;border-radius:50%;background:var(--blue)}
 .send{display:grid;place-items:center;width:var(--send);height:var(--send);border-radius:50%;background:var(--fg);color:var(--canvas);flex:none}
 .chat>.foot,.pane>.foot{padding-bottom:12px}.pane>.foot{padding-inline:var(--gut)}
-.empty{display:grid;justify-items:center;gap:4px;padding:64px 24px;text-align:center;justify-self:stretch}
-.empty b{font-size:18px;line-height:24px;font-weight:600}.empty span{color:var(--muted);font-size:14px;line-height:20px}
+/* empty, loading, failed (ui.tsx Empty, Loading, Failed): one layout everywhere, centred: what it is, one quiet line,
+   the one thing to do. Loading shows only once it takes a moment, by a fade (opacity only: fine under Reduced too). */
+.empty{display:grid;justify-items:center;gap:4px;padding:64px 24px;text-align:center;justify-self:stretch;text-wrap:balance}
+.empty b{font-size:18px;line-height:24px;font-weight:600}.empty span{color:var(--muted);font-size:var(--ui);line-height:var(--uil);max-width:40ch}
+.empty>.ea{margin-top:12px}
+.empty.load{animation:fade var(--dur-m) ease-out .4s both}
+.device.boot{justify-content:center;background:var(--canvas)}
+/* saved from before: a refresh that failed keeps what was shown, and says so over it (ui.tsx Stale) */
+.stale{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin:0 0 8px;padding:8px;border-radius:8px;background:var(--well);color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.stale .lk{padding:0;border:0;background:none;font:inherit}
 
 /* terminal */
 .term{margin:0;padding:12px 16px;background:var(--term);color:#d4d4d4;font:13px/20px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-height:var(--term-h,140px)}

@@ -53,8 +53,9 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - with the keyboard alone, and with Motion › Reduced;
   - anything that moves: `bun web/demo/motion-check.ts` (either reduced-motion switch alone stops it);
   - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
-  - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`; a task or
-    artifact by `?task=<id>` or `?artifact=<id>`;
+  - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`,
+    `slowfiles` (Files loading; #notes is an empty folder, #blog's can't be read); a task or artifact by `?task=<id>`
+    or `?artifact=<id>`;
   - and on a real iPhone home-screen app for anything about the keyboard, gestures or the screen's edges.
 
 ## Information order
@@ -189,7 +190,8 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 - **Between:** rows in a list touch (their height is their rhythm); groups of rows sit under a `.lab` label (`--sec`).
   In a chat, a question and its choice chips are one group, set apart from the next message (Target).
 - **One left edge:** in a chat, bubbles, cards, news rows and folds share the same left edge, and so do their icons.
-  In a pane, content starts on one edge whatever pads it (Target: today some panes reach 16 px by different sums).
+  In a pane, content starts 16 px in: the scroll's 8 and the row's or block's own 8 (Files and Changes do; Target:
+  some other panes still reach it by different sums).
 - **The side gutter** is `--gut` (16) on every width; on a phone the safe areas are added to it, never instead of it.
 
 ## Surfaces
@@ -271,9 +273,15 @@ Use these before making anything new; each has its states in `ds.css`.
 - **Banners** (`.banner`): its words first, one button. Target: on a phone the words wrap to two lines and the button
   goes under them before the words are cut.
 - **Menus, sheets and dialogs:** one system (above, Making a change). Esc and a tap outside close them.
-- **Empty, loading, offline:** an empty place says what it is in one line and offers the one thing to do (`.empty`).
-  Loading, saved-from-before, offline and "try again" are each said in their own words. An error says what happened and
-  what to do. Offline, the last thing known stays, with when it was seen.
+- **Empty, loading, offline:** one layout for all of them, centred (`.empty`, `ui.tsx`): what it is (a title), one
+  quiet line on why or what to do, and the one thing to do as a small button. `Empty` for an empty place ("No tasks
+  yet", "This folder is empty" with Upload files), `Loading` while it loads (shown only after a moment, by a fade),
+  `Failed` for a load that failed (what couldn't be shown, why, Try again). Their words are in `web/src/states.ts`
+  and are the same everywhere: "Loading…", "Try again", "Can't reach Shepherdr.". A refresh that fails over what was
+  shown keeps it, with a `Stale` line over it ("… Last updated 14:02." and Try again): saved from before. Offline, the
+  last thing known stays, and the line at the top says since when ("Can't reach Shepherdr · last updated 14:02") with
+  Try again; a pane that failed for it asks again once the link is back. A first load never shows a blank page:
+  Loading…, then "Can't reach Shepherdr" with Try again. An error says what happened and what to do.
 - **Toasts:** one line, gone on their own, never the only record of something that needs the person. An Undo toast
   stays at least 5 seconds.
 - **Names for screen readers:** a row's name is its title; what else it shows (why, where, when) is its description
@@ -388,8 +396,10 @@ something that arrives, reorders or retries on its own.
 - **Taps are immediate** (Target: most controls don't yet): controls have `touch-action: manipulation` and the app's own press style instead of the
   browser's grey tap flash. Sheets, menus and panes that scroll keep their scroll to themselves
   (`overscroll-behavior: contain`).
-- **What changes on its own is announced** (Target): a toast, a failed send, a filter's new count reach screen readers through a
-  polite live region.
+- **What changes on its own is announced, once:** a toast, a failed send, the link going and coming back and the Tasks
+  filter's new count reach screen readers through the app's one polite live region: `say()` (`web/src/live.ts`) into
+  `LiveRegion` (`ui.tsx`), mounted once. Nothing else is a live region of its own for these (the toasts' list isn't),
+  so nothing is said twice. `web/demo/live-check.ts` checks it in a browser.
 - **Undo or confirm:** an action that loses something (delete, discard, close without merging) asks first or offers
   Undo. Target: one that can be undone (archive, mark read) offers Undo instead of asking.
 - **Standard keys keep their meaning** on every keyboard layout: Esc closes, Cmd/Ctrl K searches, ? shows the

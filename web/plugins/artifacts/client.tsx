@@ -322,7 +322,11 @@ function ArtifactsPane() {
           {grid(rest)}
         </>
       ) : (
-        <Empty>{q ? 'No artifact matches.' : 'Nothing made here yet.'}</Empty>
+        q ? (
+          <Empty title="No artifacts match" act={{ label: 'Clear search', run: () => setUI({ artq: '' }) }}>Nothing here matches “{ui.artq?.trim()}”.</Empty>
+        ) : (
+          <Empty title="No artifacts yet">Pages an agent makes for you, like a proof or a report, show here.</Empty>
+        )
       )}
     </PaneFrame>
   )
