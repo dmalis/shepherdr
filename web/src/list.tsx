@@ -13,7 +13,7 @@ import { Btn, I, IB, MenuGroup, Row, Tgl } from './ui.tsx'
 import { say } from './live.ts'
 import { NeedsCount, openNeeds } from './needs-count.tsx'
 import { needsItems } from '@shared/needs-open.ts'
-import { idleWords, spaceIdle } from '@shared/plain-ask.ts'
+import { IDLE, idleSaid, spaceIdle } from '@shared/plain-ask.ts'
 import { offersRepo, untilde } from '@core/newspace.js'
 import { attr } from './attr.ts'
 import { copyText } from './copy.ts'
@@ -468,7 +468,7 @@ function SpaceRow({ snap, p, sub, under, siblings, section, item }: { snap: Snap
   const idle = n || dim ? null : spaceIdle(p, snap.tasks)
   return (
     <div className="rowx" data-project={p.id} data-section={section} data-machine={p.machine} data-item={item} data-drop={under} onPointerDown={dragSpace(snap, p, under, siblings, item === p.id ? 'item' : 'project')}>
-      <Row lead={<SpaceIcon snap={snap} id={p.id} />} label={tilde ? '~' : p.name} {...(tilde ? { 'aria-label': `${spaceLabel(snap, p.id)}${idle ? `, ${idleWords(idle.todo)}` : ''}` } : {})} value={idle ? idleWords(idle.todo) : undefined} className={[sub ? 'sub' : '', dim ? 'dim' : '', fresh ? 'unread' : ''].join(' ')} current={at === p.id} onClick={() => go(p.id)} />
+      <Row lead={<SpaceIcon snap={snap} id={p.id} />} label={tilde ? '~' : p.name} {...(tilde || idle ? { 'aria-label': `${tilde ? spaceLabel(snap, p.id) : p.name}${idle ? `, ${idleSaid(idle.todo)}` : ''}` } : {})} value={idle ? IDLE : undefined} className={[sub ? 'sub' : '', dim ? 'dim' : '', fresh ? 'unread' : ''].join(' ')} current={at === p.id} onClick={() => go(p.id)} />
       <NeedsCount n={n} of={tilde ? spaceLabel(snap, p.id) : p.name} onOpen={() => openNeeds(needsItems(snap, p.id), [p.id], p.id)} />
       <IB
         icon="dots"

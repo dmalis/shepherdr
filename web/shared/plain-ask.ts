@@ -3,7 +3,7 @@
 // when it does, from Shepherdr's own chat (its newest words and their reply bubbles), and when a space has stopped with
 // work still to start. web/shared/attention.ts makes the ask one of the person's actions (red, counted in Needs you,
 // never pushed: it is read off words, and the message itself already reached the bell); the space's row shows the idle
-// one quietly (web/src/list.tsx).
+// one quietly (web/src/list.tsx), as "Idle".
 //
 // Precise on purpose (fork/specs/needs-you.md: too many alerts was the person's first complaint). Reply bubbles end
 // almost every reply, so bubbles alone are never an ask. It is one when Shepherdr's turn ended, its newest words are its
@@ -82,5 +82,7 @@ export function spaceIdle(p: Place, tasks: Task[]): { todo: number } | null {
   return todo ? { todo } : null
 }
 
-/** its words on the space's row */
-export const idleWords = (n: number) => `Idle · ${n} up next`
+/** its mark on the space's row: one short word, so a long space name keeps its room (the sidebar is narrow) */
+export const IDLE = 'Idle'
+/** what a screen reader hears after the space's name */
+export const idleSaid = (n: number) => `idle, ${n} ${n === 1 ? 'task' : 'tasks'} up next`

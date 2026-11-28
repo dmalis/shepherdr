@@ -304,6 +304,17 @@ const LONG_SECRETS = [
   v('POSTGRES_PASSWORD', 'machine'), v('CLOUDFLARE_R2_SECRET_ACCESS_KEY', 'everywhere'), v('MAILER_SMTP_PASSWORD', 'space', P.blog), v('S3_BUCKET_UPLOAD_SIGNING_SECRET', 'machine', 'vm'),
   v('GITHUB_TOKEN', 'space', P.shop), v('GOOGLE_MAPS_BROWSER_KEY', 'everywhere'), v('RELEASENOTESBOTTOKENFORTHECHANGELOG', 'everywhere'),
 ]
+/** ?case=asks (Shepherdr's asks in Needs you): #notes' Shepherdr finished everything and ended its turn on a choice in
+ *  plain words, with reply bubbles and no card; the portal space has nothing running and one task up next */
+export const NOTES_ASK = "Everything I started is finished and merged, and the next step on the quotes is your call.\n\n" +
+  "To keep things moving meanwhile, I'd start on the one that hurts most now: **the supplier sheet has old prices**."
+const asksDay = (s: Snapshot): Snapshot => ({
+  ...s,
+  last: { ...s.last, [P.notes]: 4 },
+  read: { ...s.read, [P.notes]: 4 },
+  places: s.places.map((p) => (p.id === P.notes ? { ...p, asks: { what: "To keep things moving meanwhile, I'd start on the one that hurts most now: the supplier sheet has old prices.", question: false, choices: 3, turn: 4 } } : p)),
+  tasks: s.tasks.map((t) => (t.id === 'NOTES-4' || t.id === 'vm:PORTAL-2' ? { ...t, status: 'done' as const, state: 'done' as const } : t)),
+})
 const longDay = (s: Snapshot): Snapshot => ({
   ...s,
   settings: s.settings?.map((x) => (x.name === 'Secrets' ? { ...x, vault: LONG_SECRETS } : x)),
@@ -402,7 +413,8 @@ const HANDUP: Record<string, Partial<Task>> = {
     wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
 }
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' | 'radar' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' | 'radar' | 'asks' = 'normal'): Snapshot {
+  if (mode === 'asks') return asksDay(snapshot('normal'))
   if (mode === 'radar') return radarDayOf(snapshot('normal'))
   if (mode === 'triage') return triageDay(snapshot('normal'))
   if (mode === 'drafts') return draftsDay(snapshot('triage'))

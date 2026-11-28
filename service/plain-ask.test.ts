@@ -9,7 +9,7 @@ import { PlainAsks } from "./plain-ask.ts";
 import { attentionOf } from "../web/shared/attention.ts";
 import { waiting } from "../web/shared/alerts.ts";
 import { needsChats, needsItems } from "../web/shared/needs-open.ts";
-import { asksYou, idleWords, plainAskOf, spaceIdle } from "../web/shared/plain-ask.ts";
+import { IDLE, asksYou, idleSaid, plainAskOf, spaceIdle } from "../web/shared/plain-ask.ts";
 import { needsCount } from "../web/shared/view.ts";
 
 const NOW = 1_800_000_000_000;
@@ -112,7 +112,7 @@ test("a question card of its own is the one action: the plain words add none", (
 test("the idle mark: nothing running and work to start, said quietly", () => {
   const p = place("p:box:shop") as any;
   expect(spaceIdle(p, [task("A", "p:box:shop", "todo"), task("B", "p:box:shop", "todo"), task("C", "p:box:shop", "done")] as any)).toEqual({ todo: 2 });
-  expect(idleWords(2)).toBe("Idle · 2 up next");
+  expect([IDLE, idleSaid(2), idleSaid(1)]).toEqual(["Idle", "idle, 2 tasks up next", "idle, 1 task up next"]);
   // something runs there (its own, or one of another space's working in it), or Shepherdr is at work: not idle
   expect(spaceIdle(p, [task("A", "p:box:shop", "todo"), task("B", "p:box:shop", "work")] as any)).toBeNull();
   expect(spaceIdle(p, [task("A", "p:box:shop", "todo"), task("B", "p:box:root", "merging", { also: ["p:box:shop"] })] as any)).toBeNull();
