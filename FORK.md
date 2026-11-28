@@ -220,8 +220,10 @@ author decides what goes into theirs.
   - **All UI work uses the UI skills** (the Skill tool), within Shepherdr's own design system (`web/src/ds.css`) and
     these standard patterns. Every task brief that touches UI says so.
     - **Read [docs/design.md](docs/design.md) first.** It is the one design document: tokens, sizes, surfaces,
-      colour roles, motion, writing, touch and the performance budgets. A change that breaks one of its rules updates
-      it in the same pull request, and `test/test_design.py`'s counts only go down.
+      colour roles, motion, writing, touch and the performance budgets. Its rules hold today and a change keeps to
+      them; its Target lines are where the app is going, built by fork/specs/ui-polish.md's slices. A deliberate
+      change to the shared design updates the page in the same pull request, never just to get around a rule, and
+      `test/test_design.py`'s counts only go down.
     - Always `frontend-design:frontend-design`.
     - Plus every one that fits the change: `better-ui` (surfaces, radii, shadows, icon states), `better-layout`
       (grouping, responsive, phone), `better-typography`, `better-colors` (tokens, contrast in light, dark and

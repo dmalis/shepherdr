@@ -4,7 +4,10 @@
   "files": [
     "docs/design.md",
     "fork/specs/ui-polish.md",
-    "test/test_design.py"
+    "test/test_design.py",
+    "web/demo/perf-check.ts",
+    "web/src/ds.css",
+    "FORK.md"
   ],
   "tests": [
     "test/test_design.py"
