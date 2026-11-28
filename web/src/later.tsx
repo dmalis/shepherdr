@@ -1,8 +1,9 @@
 // Parts of the app whose code comes when they are first used, not in the first screen's script (docs/design.md,
 // Performance: "Features you open load when opened"): voice and dictation, the screens, Settings, the agent picker.
-// Each plugin keeps its registrations, keys and switch; only the code behind them comes later. Once the first
-// screen is up, they are fetched one at a time while the page is idle, so opening one is usually instant. A part that
-// can't be fetched (offline, or this page is older than the app now served) says so, and is tried again on its next use.
+// Each plugin keeps its registrations, keys and switch; only the code behind them comes later. A second after the
+// first screen is up, they are fetched one at a time while the page is idle, so opening one is usually instant. A part
+// that can't be fetched (offline, or this page is older than the app now served) says so, and is tried again on its
+// next use.
 import { createElement, useEffect, useState, type FC } from 'react'
 import { notice } from './kernel.ts'
 
@@ -56,7 +57,7 @@ export function laterView<V extends FC<any>>(get: () => Promise<V>): V {
 
 type Idle = (f: () => void, o?: { timeout: number }) => number
 /** after the first screen: each part fetched in turn while the page is idle (Safari has no requestIdleCallback) */
-export function warmLater(wait = 3000) {
+export function warmLater(wait = 1000) {
   const idle: Idle = (globalThis as { requestIdleCallback?: Idle }).requestIdleCallback ?? ((f) => setTimeout(f, 50) as unknown as number)
   let i = 0
   const next = () => {
