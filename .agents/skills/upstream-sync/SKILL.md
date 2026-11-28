@@ -150,9 +150,9 @@ it found: report that, never a guess at why, and never repair `main` by force.
      names the install that first carried the fix, so a later install writes nothing there. The rest of the line
      stays as it is, but for the older words "not filed yet", which go. A fix's part "#m: building" becomes "#m:
      live" once #m runs, and "reverting in #m" becomes "reverted in #m" (fork-patch skill: "The record on GitHub").
-   - **Closes what is live:** an open issue in the patch list closes with one comment ("Live since `<tag>`:
-     closing. The fix stays carried (fork/patches/<n>.json).") once no fix of it is still building or reverting.
-     One with `device-check` or another waiting label (`KEEP_OPEN` in `fork/sync/issues.py`) stays open.
+   - **Closes what is live:** an open issue in the patch list closes, its status line saying since when, once no
+     fix of it is still building or reverting. One with a "Device check:" line that just landed, `device-check` or
+     another waiting label (`KEEP_OPEN` in `fork/sync/issues.py`) stays open.
    - **Labels follow the install and the line:** `live` on every issue in the patch list, off every other (open or
      closed). A `fixed-upstream` issue the list no longer has says "fixed upstream in `vX.Y.Z`, then dropped" and
      closes (a closed one stays closed); one whose last fix was reverted is labelled `reverted` and closes. A

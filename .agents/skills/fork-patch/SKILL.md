@@ -108,7 +108,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
   <one line>. Try it: <what to open or do, and what you should see>". On an older issue that already holds several
   fixes, it adds this pull request as "#m: building", with its own what and try-it.
 - The install that makes it live puts "live since `ours-…`" in front of that line (`fork/bin/sync issues`, never by
-  hand; later installs keep that first tag), labels it `live`, and closes the issue with one comment, since that
+  hand; later installs keep that first tag), labels it `live`, and closes the issue, since that
   pass runs only after a healthy install. An issue with a "Device check" line, or a label that waits (`later`,
   `pipeline` and the rest in `KEEP_OPEN`, `fork/sync/issues.py`), stays open.
 
