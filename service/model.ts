@@ -371,6 +371,8 @@ export class Model {
         // 3.2: the facts the app works a status out from (service/next.ts enrich), as herdr-task keeps them
         x: { mode: task.mode ?? null, merged: !!task.merged, quiet: task.quiet ?? null, told: task.told ?? null, automation: task.automation ?? null, stopped_by: task.stopped_by ?? null, stopped_why: task.stopped_why ?? null,
           merge_failed: task.merge_failed ?? null, attention_at: task.attention_at ?? null, after: task.after ?? null,
+          // fork "Needs you 6a": its inferred wait as herdr-task keeps it (service/wait-record.ts)
+          wait: task.wait ?? null,
           // another folder's or machine's tasks it still waits for, by title (dmalis/shepherdr#54: its Start dialog says so)
           after_ext: Array.isArray(task.after_ext) ? task.after_ext.filter((e: any) => e && e.state !== "done" && e.state !== "gone").map((e: any) => ({ title: String(e.title ?? e.ref ?? "") })) : null,
           closed_unmerged: !!task.closed_unmerged,

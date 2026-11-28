@@ -27,7 +27,7 @@ export type ActionKind = 'prompt' | 'question' | 'review' | 'alert' | 'wait' | '
 
 export interface Action {
   /** stable while it lasts, and new for a new question: need:<chat>:<prompt id>, review:<task>:<since>,
-   *  alert:<alert id>, wait:<task>:<since>, chat:<space>. Chats and tasks carry their machine, so the same task ref on
+   *  alert:<alert id>, wait:<wait id> (wait:<task>:<since> from a source that keeps no wait record), chat:<space>. Chats and tasks carry their machine, so the same task ref on
    *  two machines never merges */
   id: string
   owner: Owner
@@ -45,6 +45,10 @@ export interface Action {
   card: string | null
   need?: Need
   alert?: Alert
+  /** a wait's generation and when it is the person's if still open (ms), as herdr-task keeps them (fork "Needs you
+   *  6a", web/shared/types.ts WaitRecord): a wait from a source that keeps none has neither */
+  gen?: number
+  deadline?: number
   /** a wait Shepherdr would handle that is yours, and why: no Shepherdr chat runs in its space */
   up?: 'no-shepherdr'
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
@@ -223,12 +227,15 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   for (const t of snap.tasks) {
     if (!open(t) || t.status !== 'need' || theirs.has(t.id) || t.stopped?.by === 'you') continue
     const n = inferred.get(t.id)
-    const since = t.needsAt ?? n?.at ?? t.at ?? 0
+    // fork "Needs you 6a": the wait as herdr-task keeps it where it happens (its id, first seen and deadline: a new
+    // question is a new one, a restart keeps them); a source that keeps none yet, keyed by the task's own facts
+    const rec = t.wait
+    const since = rec?.first ?? t.needsAt ?? n?.at ?? t.at ?? 0
     const stale = staleOf(snap, t.on)
     const shepherds = !!n || !!t.stopped
     const up = shepherds && !stale && noShepherdr(snap, t.place)
-    add({ id: `wait:${t.id}:${since}`, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
-      card: t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}), ...(up ? { up: 'no-shepherdr' as const } : {}), ...(stale ? { stale } : {}) })
+    add({ id: rec ? `wait:${rec.id}` : `wait:${t.id}:${since}`, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
+      card: t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}), ...(rec ? { gen: rec.gen, deadline: rec.deadline } : {}), ...(up ? { up: 'no-shepherdr' as const } : {}), ...(stale ? { stale } : {}) })
   }
   return { at: now, actions: [...out.values()].sort(byAge) }
 }

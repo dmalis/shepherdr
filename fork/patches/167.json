@@ -1,0 +1,20 @@
+{
+  "issue": 167,
+  "name": "Needs you 6a/6: wait lifecycle",
+  "files": [
+    "mods/tasks/bin/herdr_task/wait_record.py",
+    "mods/tasks/bin/herdr_task/news.py",
+    "service/wait-record.ts",
+    "service/model.ts",
+    "service/next.ts",
+    "web/shared/attention.ts",
+    "web/shared/types.ts",
+    "fork/specs/needs-you.md"
+  ],
+  "tests": [
+    "test/test_wait_record.py",
+    "service/wait-record.test.ts",
+    "service/attention.test.ts",
+    "test/test_herdr_task.py::WaitChangesHands"
+  ]
+}
