@@ -19,7 +19,13 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 
 | `outcome` | Do |
 |---|---|
-| `wait` | Call the same step again at once. One call waits at most 9 minutes; the state keeps the clock. The step reads GitHub itself: never poll or watch GitHub by hand in between. |
+| `wait` | Call the same step again at once. One call waits at most 9 minutes; the state keeps the clock. The step reads GitHub itself, once a minute: never poll or watch GitHub by hand in between. |
+
+**Every wait on GitHub is gentle.** GitHub's request limit is one budget for every task and install on the
+account. A wait on GitHub is either `fork/bin/sync`'s own loop (`ci`, the gates: one call a minute) or, where no step
+waits for you, one `gh run watch <run id> --interval 60`. `gh run watch`'s default reads every 3 seconds, which
+alone ran the limit out. Never `gh run watch` without `--interval 60`, `gh pr checks --watch`, or a loop of
+`gh run list` or `gh api` of your own.
 | `held` | The run is **held** at the gate it names (`kind`, `gate`): [Held](#held). |
 | `failed` (install) | The update failed: run the step `next` names (`health` anyway, which leads to the rollback, or `rollback`). |
 | `rollback` (health) | Run `rollback`. |

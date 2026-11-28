@@ -40,7 +40,9 @@ FETCH_S = 60                            # main's fetch while the gate polls, kep
 
 
 def poll_s():
-    return float(os.environ.get("FORK_SYNC_POLL_S", "20"))
+    """How often a gate reads a commit's checks while they run: once a minute, one GitHub call each time. A run takes
+    minutes, and GitHub's request limit is shared by every task and install (a 3-second watch used it up)."""
+    return float(os.environ.get("FORK_SYNC_POLL_S", "60"))
 
 
 def call_wait_s():

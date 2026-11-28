@@ -230,5 +230,26 @@ class CiLines(syncworld.World):
         self.assertEqual(out["told"].count("The last install CI passed"), 1)
 
 
+class GentleWaits(unittest.TestCase):
+    """Every wait on GitHub in the pipeline reads once a minute: GitHub's request limit is one budget for every task
+    and install, and a watch at its 3-second default ran it out."""
+
+    def test_the_steps_read_github_once_a_minute(self):
+        from sync import gate
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual((gate.poll_s(), merged.ci_poll_s()), (60.0, 60.0))
+
+    def test_no_pipeline_code_watches_github_at_its_default_pace(self):
+        import re
+        bad = re.compile(r"run\W+watch(?![^\n]*--interval\W+60)|pr\W+checks[^\n]*--watch")
+        for d in ("bin", "sync"):
+            for root, _, files in os.walk(os.path.join(ROOT, "fork", d)):
+                for f in files:
+                    if f.endswith(".pyc"):
+                        continue
+                    with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
+                        self.assertIsNone(bad.search(fh.read()), os.path.join(d, f))
+
+
 if __name__ == "__main__":
     unittest.main()
