@@ -15,7 +15,8 @@ Two kinds of line here:
 `test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale, endless animations,
 hover outside `@media (hover: hover)`, a monospace stack written out and a z-index layer written as a number may only
 get fewer in stylesheets and inline styles, the grey of second lines and a control's edge pass contrast on their main
-surfaces, and whatever moves stops under each reduced-motion switch alone.
+surfaces, whatever moves stops under each reduced-motion switch alone, and every haptic goes through `haptic()` with
+no hidden switch.
 
 People keep Shepherdr open all day, on a phone between other things and on a desktop beside their editor. They come
 back to ask four things: what needs me, what is stuck, what just landed, what is going on in this project. The app
@@ -415,14 +416,24 @@ Motion shows where something came from or went. It is short, it stops, and it ne
 Rare, quiet and only for a moment the person caused, as in Messages. Never on scrolling, typing, a routine tap, or
 something that arrives, reorders or retries on its own.
 
+- **One setting:** Settings › General › Behaviour › **Haptics and sounds**, below Motion: Off, Haptics (the default) or
+  Haptics and sounds, kept on this device (`feel` in `web/src/prefs.ts`), as iOS's Sounds & Haptics. Its small print
+  says when the device can't do what it says: no haptics in this browser, or off while motion is reduced.
+- **One way in:** every haptic is `haptic()` and every sound `chime()`, from `web/src/feel.ts`; nothing else calls
+  `navigator.vibrate` or plays a sound of its own for these (`test/test_design.py` holds it).
 - **Haptics** only through documented web features: `navigator.vibrate` where the browser has it (Android). An iPhone
-  gives a haptic only when the person flips a native switch (`<input type="checkbox" switch>`, Safari 18). Never a
-  hidden control clicked by script to fake one (Target: `buzz()` in `web/src/motion.ts` still does).
-- **Where it fits:** a gesture crossing the point where it acts (the reply slide does, `tick()`), and as the plan adds
-  them, your send entering the outbox and a failed send.
-- **Sounds** are short and very quiet, follow the device's silent switch, and only play for your own send.
-- Reduced motion turns the app's own haptics off: the slides' and a held press's `tick()` (`web/plugins/chat/slide.tsx`)
-  checks `calm()`, both switches.
+  has no haptic a page can call; it gives one only when the person flips a native switch (`<input type="checkbox"
+  switch>`, Safari 18), which the app neither adds nor takes away. Never a hidden control clicked by script to fake
+  one.
+- **Where it fits:** a gesture crossing the point where it acts (the reply and swipe slides' `tick()`,
+  `web/plugins/chat/slide.tsx`), a hold that picks something up (a row to drag, a held button), your send entering the
+  outbox (`send()`, `web/src/send.ts`) and a failed send (a double tap, from the outbox's one place that marks it,
+  `putOutbox` in `web/src/kernel.ts`, where a screen reader hears it too).
+- **Sounds,** only with Haptics and sounds: one very quiet short tick on your own send and a lower one on a failed
+  send, synthesised (no file to load), under 120 ms and at most 5% loudness. They play as ambient audio where the
+  browser has an audio session (`navigator.audioSession.type = 'ambient'`, Safari), so an iPhone's silent switch mutes
+  them and they never stop what else is playing; never during a voice call, and never while the page is away.
+- Reduced motion, either switch, turns the app's haptics off (`haptic()` asks `calm()`); sounds stay as picked.
 
 ## Touch, gestures and keys
 

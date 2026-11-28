@@ -172,21 +172,3 @@ export function useMotion(ref: RefObject<HTMLElement | null>, m: Motion, comesIn
     }
   }, [])
 }
-
-/* ---------- a tap from the phone ---------- */
-
-/** a light tap from the phone: Android vibrates; iOS 18 and later tick when a switch flips, so one is flipped unseen.
- *  Only from a touch's own handler: a phone taps for the person touching it, not for the app. */
-export function buzz() {
-  if (navigator.vibrate) return void navigator.vibrate(8)
-  const label = document.createElement('label')
-  const box = document.createElement('input')
-  box.type = 'checkbox'
-  box.setAttribute('switch', '')
-  label.ariaHidden = 'true'
-  label.style.display = 'none'
-  label.append(box)
-  document.body.append(label)
-  label.click()
-  label.remove()
-}

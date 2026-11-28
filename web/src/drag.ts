@@ -5,6 +5,7 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { attr } from './attr.ts'
+import { haptic } from './feel.ts'
 import { calm } from './motion.ts'
 
 /** how long a finger holds a row before it can be dragged */
@@ -95,7 +96,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
     timer = setTimeout(() => {
       held = true
       if (o.hold) o.hold(el)
-      else navigator.vibrate?.(10)
+      else haptic(10)
     }, HOLD_MS)
 
   const rowsOf = (k: string) => [...el.parentElement!.children].filter((x): x is HTMLElement => x instanceof HTMLElement && x.dataset[o.level] === k)
@@ -116,7 +117,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: Press) {
         if (i === from) x.dataset.dragging = o.level
       }
     if (mouse) document.documentElement.style.cursor = 'grabbing'
-    navigator.vibrate?.(10)
+    haptic(10)
     return true
   }
   /** the group under the pointer, other than its own, where it may go */

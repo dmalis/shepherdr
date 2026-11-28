@@ -182,7 +182,8 @@ test('the hook: one row open, a second one’s touch puts it away, a scroll and 
   expect(src).toMatch(/if \(f\.way === 'scroll'\) \{[\s\S]*?if \(open\) close\(\)/)
   // with less motion nothing springs (calm(), both switches), and the haptic tick is off
   expect(src).toContain('const settle = () => setSettling(!calm())')
-  expect(src).toMatch(/export const tick = \(ms = 8\) => \{\s*if \(calm\(\)\) return/)
+  expect(src).toContain('export const tick = (ms = 8) => haptic(ms)')
+  // fork #196: haptic() itself stops under either switch and with Haptics and sounds Off (web/src/feel.test.ts)
   // a mouse never slides; a second finger is ignored
   expect(src).toContain("e.pointerType === 'mouse' || !e.isPrimary")
   // only the pointer that started it moves, ends or cancels it (a mouse's lift can't finish a finger's Archive), and a

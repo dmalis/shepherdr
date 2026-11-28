@@ -6,10 +6,13 @@
 //   classes, so it can't drift from the chat), then Zoom and Chat text size. It follows both as they change: Chat
 //   text size sets the chat's --chat tokens, and Zoom scales every px of the app. Cmd/Ctrl + = − 0 change the same Zoom.
 // - Layout: Chat width, and Sides beside a pane (no phone).
-// - Behaviour: Motion, and Keep the screen on where the browser can.
+// - Behaviour: Motion, Haptics and sounds (fork #196: Off, Haptics or Haptics and sounds, as iOS's Sounds & Haptics),
+//   and Keep the screen on where the browser can.
 import { canKeepAwake, setAwake, useAwake } from './awake.ts'
 import { Choice } from './choice.tsx'
-import { minZoom, MOTIONS, setPref, THEMES, usePrefs, WIDTHS, zoomNow, type Prefs } from './prefs.ts'
+import { canBuzz } from './feel.ts'
+import { calm } from './motion.ts'
+import { FEELS, minZoom, MOTIONS, setPref, THEMES, usePrefs, WIDTHS, zoomNow, type Prefs } from './prefs.ts'
 import { SidesRow, SRow } from './settings.tsx'
 import { useSides } from './sides.ts'
 import { Btn, IB, Tgl } from './ui.tsx'
@@ -70,6 +73,15 @@ export const Sample = () => (
   </div>
 )
 
+/** Haptics and sounds' small print, only when the device won't do what the value says: no haptics in this browser
+ *  (an iPhone, a desktop), or reduced motion turning them off */
+function feelNote(feel: Prefs['feel']) {
+  if (feel === 'Off') return null
+  if (!canBuzz()) return <small>{feel === 'Haptics' ? 'This browser has no haptics' : 'Sounds only: this browser has no haptics'}</small>
+  if (calm()) return <small>{feel === 'Haptics' ? 'Off while motion is reduced' : 'Sounds only while motion is reduced'}</small>
+  return null
+}
+
 export function Appearance() {
   const p = usePrefs()
   const sides = useSides()
@@ -97,6 +109,7 @@ export function Appearance() {
       <SidesRow {...sides} />
       <Here>Behaviour</Here>
       <SRow label="Motion"><Choice label="Motion" values={MOTIONS} value={p.motion} onChange={(v) => setPref('motion', v)} /></SRow>
+      <SRow label={<>Haptics and sounds{feelNote(p.feel)}</>}><Choice label="Haptics and sounds" values={FEELS} value={p.feel} onChange={(v) => setPref('feel', v)} /></SRow>
       {canKeepAwake() && <SRow label="Keep the screen on"><Tgl label="Keep the screen on" on={awake} onChange={setAwake} /></SRow>}
     </>
   )

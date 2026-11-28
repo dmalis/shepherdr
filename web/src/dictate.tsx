@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { canDictate, clock, dictate, dictSample, SAY, warmMic, type Dictation } from './dictation.ts'
 import { IDLE, insertAt, step, type DictEvent, type DictState } from './dictstate.ts'
+import { haptic } from './feel.ts'
 import { getState, has, holdReload, openSettings, useUI, type SetText } from './kernel.ts'
 import { escapeFirst } from './overlay.tsx'
 import { cx, I } from './ui.tsx'
@@ -270,7 +271,7 @@ export function SlotsView({ at, round, on }: { at: Slots; round: boolean; on: { 
           aria-label={b.label}
           onPointerDown={() => {
             hold.current.fired = false
-            if (later) hold.current.t = setTimeout(() => { hold.current.fired = true; navigator.vibrate?.(10); later() }, 500)
+            if (later) hold.current.t = setTimeout(() => { hold.current.fired = true; haptic(10); later() }, 500)
           }}
           onPointerUp={letGo}
           onPointerLeave={letGo}

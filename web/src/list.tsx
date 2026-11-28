@@ -18,7 +18,8 @@ import { attr } from './attr.ts'
 import { copyText } from './copy.ts'
 import { DictateButton } from './dictate.tsx'
 import { press, pressing } from './drag.ts'
-import { buzz, calm, IOS } from './motion.ts'
+import { haptic } from './feel.ts'
+import { calm, IOS } from './motion.ts'
 import { swapRow } from './sides.ts'
 import { NameWithIcon, SpaceIcon } from './space-icon.tsx'
 import { markSpacesRead, spaceUnread } from './read-marks.ts'
@@ -610,7 +611,7 @@ function MachineHead({ snap, m, keys, shut, needs, reorder }: { snap: Snapshot; 
           drop: (ids) => reorder(ids),
           hold: (el) => {
             el.dataset.held = ''
-            buzz()
+            haptic()
           },
           release: () => delete row.dataset.held,
           heldUp: (el) => hold.open(el),
