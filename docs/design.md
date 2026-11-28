@@ -54,6 +54,8 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - with the keyboard alone, and with Motion › Reduced;
   - anything that moves: `bun web/demo/motion-check.ts` (either reduced-motion switch alone stops it);
   - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
+  - a card or a row in a chat: `bun web/demo/fit-check.ts` (nothing reaches past its card, its row, the chat's column
+    or the screen at 320 and 390 px);
   - a row, a control or a status colour: `bun web/demo/contrast-check.ts` (dim rows, checkboxes, fields and the focus
     ring measured as painted, and red only under Needs you);
   - anything in a chat's scrolling: `bun web/demo/scroll-check.ts`, with `SCROLL_WEBKIT=<a Playwright server's

@@ -52,6 +52,10 @@ test('closed by its Merge setting: one quiet line with what it found', () => {
   expect(s).toContain('Already fixed upstream.')
   expect(s).not.toContain('Close, nothing changes')
   expect(doneWords({ ...ready, repo: 'branch', nothingToMerge: true })).toBe('Done · nothing to merge')
+  // Fix: phone card buttons fit: "Done" stays with the name; the rest wraps with what it found, never cut short
+  const html = renderToStaticMarkup(<ReviewCard t={{ ...ready, status: 'done', state: 'done', repo: 'branch', nothingToMerge: true, closedAlone: true, summary: 'Already fixed upstream.' }} ctx="chat" />)
+  expect(html).toContain('<span class="ks">Done</span></span><span class="kw">nothing to merge · Already fixed upstream.')
+  expect(html).not.toContain('class="kx"')
 })
 
 test('new files left uncommitted: the card says closing deletes them', () => {

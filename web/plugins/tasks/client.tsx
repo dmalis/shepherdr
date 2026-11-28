@@ -352,10 +352,21 @@ export function ReviewCard({ t, ctx }: { t: Task; ctx: 'chat' | 'thread' }) {
     // dmalis/shepherdr#48: what came after its merge, one line; in a space's chat with its offer (its own pane has the card)
     const am = afterMergeNote(t.afterMerge)
     const offer = ctx === 'chat' && offersAfterMerge(t) && !t.afterMerge?.onMain && !t.afterMerge?.followUp
+    // its state's first word stays with its name; the rest ("nothing to merge"), what it found and what came after are
+    // one line of words after it, wrapping as words do inside the chat's column (kind.css .kline), never cut
+    const [word, ...tail] = statusWord(t).word.split(' · ')
+    const said = [...tail, t.closedAlone && t.summary ? t.summary : '', am].filter(Boolean).join(' · ')
     return (
       <DoneRow>
-        <KindName t={t} name={t.name} state={statusWord(t).word} />{t.closedAlone && t.summary ? ` · ${t.summary}` : ''}{am ? ` · ${am}` : ''}
-        {offer && <> · <button type="button" className="lk" onClick={() => void tryAct({ type: 'follow-up', chat: taskChat(t) }, 'Follow-up started', 'Starting the follow-up…')}>Start a follow-up</button></>}
+        <span className="kline">
+          <KindName t={t} name={t.name} state={word} />
+          {said || offer ? (
+            <span className="kw">
+              {said}
+              {offer && <>{said ? ' · ' : ''}<button type="button" className="lk" onClick={() => void tryAct({ type: 'follow-up', chat: taskChat(t) }, 'Follow-up started', 'Starting the follow-up…')}>Start a follow-up</button></>}
+            </span>
+          ) : null}
+        </span>
       </DoneRow>
     )
   }

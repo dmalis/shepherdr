@@ -18,3 +18,13 @@
 .inbx-t>.knd>.kn{color:inherit}
 /* a quiet line that starts with a task (KindLine): what happened after its name, set apart the same way */
 .knd+.kw::before{content:"·" / "";margin-inline:4px;color:var(--muted)}
+/* A card's one column is the card's own width, never its widest content's: a task's name on one line (.t .knd) would
+   size ds.css's auto column to the whole name, and everything under it, buttons too, past the card's edge on a phone
+   (Fix: phone card buttons fit; web/demo/fit-check.ts) */
+.card{grid-template-columns:minmax(0,1fr)}
+/* a done row (ds.css .donerow) whose words follow a task's name: the row stays inside the chat's column, its words wrap
+   under the name and only the name is cut */
+.donerow{max-width:100%}
+.donerow>.kline{min-width:0}
+/* its mark stays on the first line when the words wrap */
+.donerow:has(>.kline)>.i{align-self:flex-start;margin-top:calc((var(--chat2l) - 16px) / 2)}

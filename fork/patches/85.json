@@ -19,13 +19,19 @@
     "service/compat.ts",
     "service/actions.ts",
     "web/plugins/artifacts/client.tsx",
-    "web/plugins/inbox/client.tsx"
+    "web/plugins/inbox/client.tsx",
+    "web/plugins/chat/kind.test.tsx",
+    "web/demo/fit-check.ts",
+    ".github/workflows/check.yml",
+    "docs/develop.md",
+    "docs/design.md"
   ],
   "tests": [
     "service/mention-picks.test.ts",
     "web/shared/kinds.test.ts",
     "web/plugins/chat/kind.test.tsx",
     "service/push.test.ts",
-    "service/glance.test.ts"
+    "service/glance.test.ts",
+    "web/plugins/tasks/ready-words.test.tsx"
   ]
 }

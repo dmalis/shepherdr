@@ -109,6 +109,10 @@ jobs:
         # fork #185: web/demo/swipe-check.ts opens, closes and full-slides rows with CDP touch events: one open at a
         # time, scrolling and the edge strip untouched, Archive's wait, Undo and failure, Reduced and Zoom
         run: bun web/demo/swipe-check.ts
+      - name: everything in a chat fits its column on a phone (the built demo, 320 and 390 px)
+        # fork #85: web/demo/fit-check.ts measures every card, row and bubble in the demo's chats, at Chat text Default
+        # and Larger: nothing inside a card or a news row reaches past it, nothing reaches past the column or the screen
+        run: bun web/demo/fit-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.
