@@ -25,6 +25,8 @@ function itemOf(snap: Snapshot, a: Action): NeedItem {
   return { ...(a.task ? { task: a.task } : {}), place: t?.place ?? a.place, card: a.card, ...(!a.task && a.kind === 'question' ? { title: a.what } : {}),
     // fork #235: a Triage card's row says its question, then what it is about
     ...(a.kind === 'triage' && a.triage ? { title: a.what, sub: a.triage.title } : {}),
+    // fork "Shepherdr's asks in Needs you": a space's Shepherdr asking in plain words: its row says the question
+    ...(a.kind === 'chat' && a.plain ? { sub: a.what } : {}),
     // a space's grouped drafts: one row, which opens their one card
     ...(a.kind === 'triage' && a.drafts ? { title: a.what, sub: a.batch ? `One Yes posts ${a.batch === a.drafts ? 'the ones you tick' : `${a.batch} of them`}` : 'Each waits for your yes or no' } : {}) }
 }
