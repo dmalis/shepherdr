@@ -14493,7 +14493,7 @@ class WorkersNeverStallProof(unittest.TestCase):
     def test_ready_tells_its_agent_what_to_do(self):
         from herdr_task import proof_hold
         self.assertIn("run ready again with --proof <its id>", proof_hold.TOLD)
-        self.assertIn("proof_hold.TOLD", open(os.path.join(BIN, "herdr_task", "commands.py")).read())
+        self.assertIn("proof_hold.TOLD", __import__("pathlib").Path(BIN, "herdr_task", "commands.py").read_text())
 
 
 class WorkersNeverStallRounds(unittest.TestCase):
@@ -14544,7 +14544,7 @@ class WorkersNeverStallRounds(unittest.TestCase):
         self.add("Edited", prompt="Fix it.", here=True)
         self.run_cmd(self.commands.cmd_edit, id="1", prompt="Fix it. At most 2 review rounds.", title=None, prompt_file=None)
         self.assertEqual(self.task(1)["set"]["review_rounds"], 2)
-        src = open(os.path.join(BIN, "herdr_task", "commands.py")).read()
+        src = __import__("pathlib").Path(BIN, "herdr_task", "commands.py").read_text()
         self.assertIn('brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before', src)
 
 
@@ -14629,7 +14629,7 @@ class WorkersNeverStallWait(unittest.TestCase):
             self.hw.cmd_wait_for(argparse.Namespace(name="other-9-review", timeout=5))
         self.assertIn("isn't yours", str(e.exception))
         self.assertIn("wait-for", launch.OWN)
-        self.assertIn("wait-for <its name> --timeout 600", open(settings.__file__).read())
+        self.assertIn("wait-for <its name> --timeout 600", __import__("pathlib").Path(settings.__file__).read_text())
 
     def test_hc_says_what_it_relies_on(self):
         """The seam: hc wait's own help says a terminal started with no launch task ends on idle (what wait-for works
