@@ -100,7 +100,10 @@ if [ "$role" = coordinator ]; then
       hc label "$w" "herdr.coordinator=$tab" >/dev/null 2>&1
       list+=" $w ($(hc get "$w" --json | jq -r '.name // .labels.where // ""'))"
     done
-    handoff+=" Workers the previous coordinator started, still running:$list. They report to $old: watch each with hc wait <t> and tell each to report to you from now on."
+    # dmalis/shepherdr#211: herdr-core sets a terminal's parent only as it starts, so these keep $old (or, for one an
+    # earlier coordinator started, that one) as their parent, and the new one's hc wait --children any returns at
+    # once without them. Say so, and how to watch them instead.
+    handoff+=" Workers the previous coordinator started, still running:$list. herdr-core keeps the coordinator that started each as its parent, so hc wait --children any doesn't cover them: watch each by its address with hc wait <t>, and tell each to report to you from now on."
   fi
 fi
 

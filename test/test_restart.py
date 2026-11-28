@@ -251,5 +251,73 @@ class BarePath(unittest.TestCase):
         self.assertEqual(ran.stdout.strip(), "claude ran --model sonnet", ran.stderr)
 
 
+# A coordinator (t2) in tab t1 with one worker it started (t5, its child) and one an earlier coordinator started (t6,
+# still the child of that one, t0, and found by the tab's herdr.coordinator label).
+INHERIT_HC = r"""#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FAKE_DIR/calls"
+case $1 in
+  get) case $2 in
+         t2) echo '{"address":"t2","cwd":"/tmp","template":"assistant","labels":{"herdr.space":"s1","herdr.tab":"t1","herdr.role":"coordinator"}}' ;;
+         *) echo "{\"address\":\"$2\",\"name\":\"worker $2\"}" ;;
+       esac ;;
+  ls) case "$*" in
+        *--label*) echo '{"terminals":[{"address":"t6","parent":"t0"},{"address":"t2"}]}' ;;
+        *) echo '{"terminals":[{"address":"t5","parent":"t2"},{"address":"t6","parent":"t0"},{"address":"t7","parent":"t3"}]}' ;;
+      esac ;;
+  run) printf '%s\n' "$@" >"$FAKE_DIR/run-args"
+       for a in "$@"; do f="$HOME/.config/herdr-core/templates/$a.md"; [ -f "$f" ] && cp "$f" "$FAKE_DIR/one.md"; done
+       echo '{"address":"t9","first_message":{"sent":true}}' ;;
+esac
+"""
+
+
+class InheritedWorkers(unittest.TestCase):
+    """dmalis/shepherdr#211: herdr-core sets a terminal's parent only as it starts (hc run --parent), and hc has no
+    way to move a live one, so the workers a restarted coordinator leaves keep the coordinator that started them as
+    their parent (it, or for one an earlier coordinator started, that one). The new coordinator's
+    hc wait --children any returns at once without them: its handoff names them, says so, and says how to watch
+    them (hc wait <t>)."""
+
+    def handoff(self):
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "bin"))
+        os.makedirs(os.path.join(d, ".config", "herdr-core", "templates"))
+        with open(os.path.join(d, "bin", "hc"), "w") as f:
+            f.write(INHERIT_HC)
+        os.chmod(os.path.join(d, "bin", "hc"), 0o755)
+        e = {"PATH": f"{d}/bin:/usr/bin:/bin", "HOME": d, "HERDR_APP_HOME": d, "FAKE_DIR": d}
+        r = subprocess.run(["bash", SCRIPT, "t2", json.dumps(["claude"])], env=e, capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "t9")
+        return read(os.path.join(d, "one.md")), read(os.path.join(d, "calls"))
+
+    def test_names_the_inherited_workers_and_how_to_wait_on_them(self):
+        msg, _ = self.handoff()
+        self.assertIn("still running: t5 (worker t5) t6 (worker t6).", msg)
+        self.assertNotIn("t7", msg, "another coordinator's child isn't this one's")
+        self.assertIn("herdr-core keeps the coordinator that started each as its parent, so hc wait --children any "
+                      "doesn't cover them: watch each by its address with hc wait <t>", msg)
+        self.assertNotIn("children of t2", msg, "t6 is t0's child, not t2's")
+
+    def test_they_keep_the_tab_label_the_next_restart_finds_them_by(self):
+        _, calls = self.handoff()
+        for w in ("t5", "t6"):
+            self.assertIn(f"label {w} herdr.coordinator=t1", calls)
+
+    def test_hc_still_has_no_way_to_move_a_child(self):
+        # The seam this relies on: if herdr-core gains a documented way to change a live terminal's parent (hc
+        # label is labels only), the restart should move its workers instead of explaining.
+        hc = shutil.which("hc")
+        if not hc:
+            self.skipTest("no hc here")
+        moves = re.compile(r"(?i)(\bre-?parent|\badopt|--parent\b)")
+        self.assertRegex("      --parent <PARENT>    Parent terminal", moves)   # the pattern does catch an option
+        for cmd in (["label", "--help"], ["--help"]):
+            r = subprocess.run([hc, *cmd], capture_output=True, text=True, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Usage", r.stdout, " ".join(cmd))
+            self.assertNotRegex(r.stdout, moves, " ".join(cmd))
+
+
 if __name__ == "__main__":
     unittest.main()

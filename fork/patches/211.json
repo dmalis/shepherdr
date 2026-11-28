@@ -1,0 +1,11 @@
+{
+  "issue": 211,
+  "name": "Handoff keeps its workers",
+  "files": [
+    "service/restart.sh",
+    "test/test_restart.py"
+  ],
+  "tests": [
+    "test/test_restart.py::InheritedWorkers"
+  ]
+}
