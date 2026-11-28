@@ -118,6 +118,9 @@ def cmd_add(args):
         # The person's setting wins: worktrees off for this repo means in the folder, --worktree or not.
         mode = "here" if args.here or not worktrees_on(s) else "worktree"
         t = s.new(args.title.strip(), prompt, mode)
+        if triage_fix.adding():
+            # dmalis/shepherdr#235: a fix Triage adds, linked in this same write (before its brief is read for settings)
+            t["triage_fix"] = dict(triage_fix.adding())
         space = bare(args.space) if args.space else (space_for_folder(s.loc["folder"], caller_space()) or caller_space())
         if space:
             # the space it is for, from the start (3.2: a task not started yet shows there, and `edit --space` moves it)
@@ -130,9 +133,6 @@ def cmd_add(args):
         take_pr(s, t, getattr(args, "pr", None))
         detached_refusal(s, t)
         set_notes(t, args)
-        from .triage_fix import adding
-        if adding():
-            t["triage_fix"] = dict(adding())  # dmalis/shepherdr#235: a fix Triage adds, linked in this same write
         urgent.mark(s, t, getattr(args, "urgent", None))  # dmalis/shepherdr#119
         if args.after:
             set_after(s, t, *parse_after(s, args.after))
@@ -496,6 +496,7 @@ def begin(s, t, argv, space, parent=None):
     # dmalis/shepherdr#48: a follow-up never does: its prepared branch is its work
     if t.get("mode") == "worktree" and not t.get("worktree") and not t.get("follows") and not worktrees_on(s, space):
         t["mode"] = "here"
+    triage_fix.mode_refusal(s, t)  # dmalis/shepherdr#235: a Triage fix works in a worktree, merged by pull request
     had = bool(t.get("mode") == "worktree" and t.get("worktree") and os.path.isdir(t["worktree"]))
     folder_for(s, t)
     # Settings > Tasks > Before the agent starts: run first in a new worktree, in the agent's terminal (launch.py).
@@ -1510,6 +1511,11 @@ def finalize(s, t):
                             f"{t.get('base') or 'main'}; failing checks: find out why), commit, then run ready again.")
                 return msg + (f" Merging it waits: {err}" if err else " Merged; done.")
             return msg + " It merges by itself once its checks pass."
+        if triage_fix.linked(t):
+            # dmalis/shepherdr#235: a Triage fix merges only through its pull request (its holds are there)
+            t.pop("auto_merge", None)
+            t["attention"], t["attention_at"] = triage_fix.NO_PR, now()
+            return msg + " " + triage_fix.NO_PR
         try:
             sent, started = tell(s, t, local_merge_msg(s, t), None)
             t["merge_requested"] = now()
@@ -2016,6 +2022,7 @@ def cmd_stop(args):
             out.append({"address": k["address"], "ok": r.returncode == 0, **({"outcome": got.get("outcome")} if isinstance(got, dict) and got.get("outcome") else {})})
         if not any(x["ok"] for x in out):
             raise Fail(f"Couldn't stop {s.name(t)}'s agent ({live[-1]['address']}): {(r.stderr or r.stdout).strip() or 'hc interrupt failed'}")
+        triage_fix.block(s, t, "you stopped it")  # dmalis/shepherdr#235: a stopped Triage fix, even a Ready one, is blocked
         if t["state"] == "running":
             t["stopped_by"], t["stopped_why"], t["stopped_at"] = "you", BY_YOU, now()
             # its agents' turns now: a later one is the person's next message, and it carries on (agents.carried_on)
@@ -2210,6 +2217,9 @@ def _merge_now(s, t, accept=False):
             # #1155: opened as a draft (ready --draft): the person's Accept takes it out of draft first; GitHub
             # merges no draft.
             gh("pr", "ready", n, "--repo", repo)
+        held = triage_fix.queue_hold(t, pinned(t, v))  # dmalis/shepherdr#235: at the exact commit it merges
+        if held:
+            return held
         ok, _, err = gh("pr", "merge", n, "--repo", repo, method, "--match-head-commit", pinned(t, v))
         # Merged, or only queued (or set to merge by itself)? Asked again; a one-off GitHub error can
         # also come after the merge went through.
@@ -2292,6 +2302,8 @@ def cmd_merge(args):
                 sent = merge_failed(s, t, error, args)
                 error += f" Its agent ({sent}) was asked to fix it and hand it in again." if sent else ""
         else:
+            if triage_fix.linked(t):
+                raise Fail(triage_fix.NO_PR)  # dmalis/shepherdr#235
             t["merge_requested"] = now()
             s.dirty = True
             sent, started = tell(s, t, local_merge_msg(s, t), args)
@@ -2396,6 +2408,8 @@ def cmd_accept(args):
                 t.pop("accepted_at", None)
                 sent = merge_failed(s, t, error, args)
                 error += f" Its agent ({sent}) was asked to fix it and hand it in again." if sent else ""
+        elif triage_fix.linked(t):
+            raise Fail(triage_fix.NO_PR)  # dmalis/shepherdr#235: never a local merge of a Triage fix
         elif merged_here(s, t) or in_base(s, t):
             # Its own work already in the base branch, or none of its own: nothing to merge.
             t["merged"] = merged_here(s, t)

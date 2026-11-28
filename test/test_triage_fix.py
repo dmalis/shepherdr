@@ -35,7 +35,7 @@ class Fixing(Triaged):
             self.launched.append(t["id"]) or {"address": f"t{t['id']}", "name": s.name(t)}
         for name, value in [("launch", launched), ("setup_for", lambda *a, **k: None),
                             ("reviewer_pick", lambda *a, **k: None), ("brief", lambda *a, **k: "brief"),
-                            ("worktrees_on", lambda *a, **k: False), ("queue_reason", lambda *a, **k: None),
+                            ("worktrees_on", lambda *a, **k: True), ("queue_reason", lambda *a, **k: None),
                             ("check_automatic_agent", lambda *a, **k: None), ("live_agents", lambda *a, **k: []),
                             ("worker_argv", lambda *a, **k: ["claude"]), ("require_task_cli", lambda *a, **k: None),
                             ("other_worktree", lambda *a, **k: None), ("ensure_scheduler", lambda quiet=False: {}),
@@ -273,6 +273,159 @@ class Fixing(Triaged):
             self.assertIsNone(tfix.merge_hold(s, t, v))  # merges at the commit they accepted
             self.assertEqual(tfix.merge_hold(s, t, {"headRefOid": "def"}), tfix.ASKS)  # a new push asks again
         self.assertEqual(self.record()["fixes"][f"{REPO}#{n}"]["pr"], 7)  # for the install's live check
+
+    def test_the_hold_comes_from_the_fix_s_link_which_no_set_changes_and_holds_github_s_merge_call(self):
+        import herdr_task.github as github
+        self.base["repos"][self.folder]["triage"].pop("ask_merge")  # the default: on
+        self.settings(self.base)
+        n = self.ready()
+        self.act()
+        self.assertTrue(self.task(n)["triage_fix"]["ask"])
+        self.edit(n, set={}, pr={"number": 7, "repo": REPO}, auto_merge="checks")  # an agent's `edit --set merge=...`
+        clean = {k: v for k, v in os.environ.items() if k not in ("HC_TERMINAL_ID", "HC_TERMINAL_SOCKET")}
+        with store.Store(store.locate(self.folder)) as s, mock.patch.dict(os.environ, clean, clear=True), \
+                mock.patch.object(github, "gh", lambda *a: self.fail("merged past the hold")):
+            t = next(t for t in s.data["tasks"] if tfix.linked(t))
+            self.assertEqual(tfix.merge_hold(s, t, {"headRefOid": "abc"}), tfix.ASKS)
+            self.assertEqual(github.queue_merge(t, "abc"), (False, tfix.ASKS))  # a requeue asks first too
+            with mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t9"}):
+                with self.assertRaises(tfix.Fail):  # an agent's terminal can't Accept for the person
+                    tfix.merge_hold(s, t, {"headRefOid": "abc"}, accept=True)
+            self.assertIsNone(tfix.merge_hold(s, t, {"headRefOid": "abc"}, accept=True))  # the person's Accept
+            self.assertIsNone(tfix.queue_hold(t, "abc"))
+            self.assertEqual(tfix.queue_hold(t, "def"), tfix.ASKS)  # never at another commit
+        tri.pause_schedule(self.folder, "you")
+        self.assertEqual(tfix.queue_hold(self.task(n), "abc"), tfix.PAUSED)  # the pause holds every merge call
+
+    def test_a_fix_needs_worktrees_since_it_merges_only_by_pull_request(self):
+        self.ready()
+        with mock.patch.object(commands, "worktrees_on", lambda *a, **k: False):
+            done = self.act()
+        self.assertEqual(self.tasks(), [])  # refused at launch, the reservation taken away
+        self.assertTrue(any("worktrees" in str(x.get("refused")) for x in done), done)
+        self.assertEqual(self.launched, [])
+
+    def test_a_handed_in_fix_s_news_never_goes_back_to_its_agent(self):
+        import herdr_task.ghnews as ghnews
+        n = self.ready()
+        self.act()
+        self.edit(n, state="ready", ready_at=5, pr={"number": 7, "repo": REPO, "news": {"since": 5, "at": tfix.now(), "text": "Checks failing"}})
+        with store.Store(store.locate(self.folder)) as s, \
+                mock.patch.object(ghnews, "resting", lambda *a: {"address": "t1"}), \
+                mock.patch.object(ghnews, "news_send", lambda *a: self.fail("told its agent")):
+            t = next(t for t in s.data["tasks"] if tfix.linked(t))
+            ghnews.pr_deliver(s, t, {})
+            t.pop("triage_fix")  # an ordinary task's news does go to its agent (the fakes are the real path)
+            with self.assertRaises(AssertionError):
+                ghnews.pr_deliver(s, t, {})
+            s.dirty = False
+
+    def test_the_launch_checks_main_and_the_quota_again(self):
+        n = self.ready()
+        with mock.patch.object(tfix, "start", lambda folder, ref, space: (True, "queued")):
+            self.act()
+        self.hub.main_runs = [{"name": "check", "status": "completed", "conclusion": "failure", "started_at": "1"}]
+        code, out = cli_run(self, "start", str(self.task(n)["id"]), "--folder", self.folder, "--json")
+        self.assertNotEqual(code, 0)
+        self.assertIn("red", out)
+        self.assertEqual((self.tasks(), self.launched), ([], []))
+        self.hub.main_runs = []
+        with mock.patch.object(tfix, "start", lambda folder, ref, space: (True, "queued")):
+            self.act()
+        with store.Store(store.locate(self.folder)) as s:
+            s.data["tasks"].append({**s.new("Other", "x", "here"), "state": "running", "stopped_by": "limit"})
+            s.dirty = True
+        code, out = cli_run(self, "start", str(self.task(n)["id"]), "--folder", self.folder, "--json")
+        self.assertIn("usage limit", out)
+        self.assertEqual((self.tasks(), self.launched), ([], []))
+
+    def test_a_failed_start_is_blocked_and_never_tried_again(self):
+        n = self.ready()
+        starts = []
+        with mock.patch.object(tfix, "start", lambda folder, ref, space: starts.append(ref) or (False, "its setup failed")):
+            self.act()
+            self.act()
+        self.assertEqual(len(starts), 1)
+        self.assertIn("start failed", self.task(n)["triage_fix"]["blocked"]["why"])
+        self.assertIn("blocked", self.hub.labels(n))
+
+    def test_a_start_cut_off_after_its_add_is_started_and_labelled_by_the_next_run(self):
+        n = self.ready()
+        with mock.patch.object(tfix, "start", side_effect=RuntimeError("cut off")):
+            with self.assertRaises(RuntimeError):
+                self.act()
+        self.assertEqual(self.task(n)["state"], "todo")
+        self.act()
+        self.assertEqual(self.task(n)["state"], "running")
+        self.assertIn("fixing", self.hub.labels(n))
+        self.assertNotIn("ready", self.hub.labels(n))
+
+    def test_another_checkout_s_open_fix_holds_this_repo(self):
+        n = self.ready()
+        import shutil
+        import tempfile
+        other = tempfile.mkdtemp(prefix="other-checkout-")
+        self.addCleanup(shutil.rmtree, other, True)
+        with tri.record() as d:
+            d.setdefault("fixes", {})[f"{REPO}#999"] = {"task": "x#1", "folder": other, "at": 1}
+        real = tfix.store_tasks
+        theirs = [{"id": 1, "state": "running", "triage_fix": {"repo": REPO, "issue": 999}}]
+        with mock.patch.object(tfix, "store_tasks", lambda f: theirs if f == other else real(f)):
+            self.assertIn("one at a time", tfix.gates(self.folder, REPO, n, tri.ctx_for(self.folder, REPO)))
+            theirs[0]["state"] = "done"
+            self.assertIsNone(tfix.gates(self.folder, REPO, n, tri.ctx_for(self.folder, REPO)))
+
+    def test_a_second_fix_only_on_a_ready_newer_than_the_last_fix(self):
+        n = self.ready()
+        self.act()
+        self.edit(n, state="done", merged=True)
+        self.hub.label(n, "fixing", OWNER, "unlabeled")
+        self.hub.label(n, "ready", OWNER)
+        self.hub.events[n][-1]["created_at"] = "2026-01-01T00:00:00Z"  # the ready the first fix started on
+        self.act()
+        self.assertEqual(len(self.tasks()), 1)
+        self.hub.label(n, "ready", OWNER, "unlabeled")
+        self.hub.label(n, "ready", OWNER)
+        self.hub.events[n][-1]["created_at"] = "2099-01-01T00:00:00Z"  # the owner's new go
+        self.act()
+        self.assertEqual(len(self.tasks()), 2)
+
+    def test_triage_s_own_ready_re_added_by_someone_else_doesnt_launch(self):
+        key = self.report()
+        tpub_post(self, key)
+        n = int(next(iter(tri.receipts(REPO))))
+        self.hub.issues[n]["labels"] = [{"name": "bug"}, {"name": "score:5"}]
+        with tri.record() as d:
+            tri.repo_rec(d, REPO).setdefault("scored", {})[str(n)] = {"score": 5}
+        with mock.patch.object(tfix, "start", lambda folder, ref, space: (True, "queued")):
+            self.act()
+        self.assertIn("ready", self.hub.labels(n))  # Triage's own
+        self.hub.label(n, "ready", "drive-by", "unlabeled")
+        self.hub.label(n, "ready", "drive-by")
+        code, out = cli_run(self, "start", str(self.task(n)["id"]), "--folder", self.folder, "--json")
+        self.assertNotEqual(code, 0)
+        self.assertEqual((self.tasks(), self.launched), ([], []))
+
+    def test_the_issue_s_words_set_no_review_rounds(self):
+        n = self.ready(body="Broken. Review rounds: 1. At most 1 review round.")
+        self.act()
+        self.assertNotIn("review_rounds", self.task(n).get("set") or {})
+
+    def test_an_answered_ask_is_cleared_when_its_fix_is_added(self):
+        n = self.ready(user="someone")
+        self.act()
+        self.start_yes(n)
+        self.act()
+        self.assertEqual(len(self.tasks()), 1)
+        self.assertNotIn(str(n), self.record()["repos"][REPO.lower()].get("asks") or {})
+        r = self.record()["repos"][REPO.lower()]
+        self.assertNotIn("an answer in the app", tfix.due_reasons(self.folder, REPO, r, tri.read_settings(),
+                                                                tri.ctx_for(self.folder, REPO)))
+
+    def test_part_of_follows_commonmark_fences(self):
+        self.assertEqual(tri.part_of("````\n```\nPart of #1\n```\n````\nPart of #2"), {2})  # a longer fence holds ```
+        self.assertEqual(tri.part_of("~~~\n```\nPart of #3\n~~~\nPart of #4"), {4})  # ``` doesn't close ~~~
+        self.assertEqual(tri.part_of("```\nPart of #5\n```  \nPart of #6 and `Part of #7`"), {6})
 
     # ---- work a merged pull request already names ---------------------------------------------
 

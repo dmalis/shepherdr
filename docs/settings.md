@@ -183,10 +183,15 @@ At Score and fix, each run ends by starting at most one fix, an ordinary task in
   under "Done? Close it".
 - **When:** only while main's required checks aren't red, no other fix of the repo is open, today's `fixes_per_day`
   aren't used, and no task here was stopped by a usage limit. The same checks hold again when it starts (a queued
-  start included); `ready` becomes `fixing`.
-- **Never retried:** a fix that stops, goes idle for a day, closes unmerged, or whose merge fails or conflicts gets the
-  issue labelled `blocked` and waits for you, asking before it merges. A usage limit also pauses Triage.
-- **Pause** holds its merges (they wait under Ready and merge on Resume) and our install of them.
+  start included); `ready` becomes `fixing`. A second fix for the same issue needs a `ready` newer than the last one.
+- **Needs worktrees:** each fix works in its own worktree and merges only by its pull request; with worktrees off for
+  the repo, nothing starts.
+- **Never retried:** a fix that stops (even a Ready one), goes idle for a day, closes unmerged, fails a check after its
+  hand-in, fails to start, or whose merge fails or conflicts gets the issue labelled `blocked` and waits for you,
+  asking before it merges. A usage limit also pauses Triage.
+- **Pause** holds its merges (they wait under Ready and merge on Resume), every merge call (a requeue included) and our
+  install of them. A fix that asks first merges only on your Accept, in the app, at the commit you accepted; no task
+  setting changes that.
 
 ## Where they are kept
 

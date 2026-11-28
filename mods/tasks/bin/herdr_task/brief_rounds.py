@@ -35,7 +35,10 @@ def named(brief):
 
 def apply(t, brief):
     """The task's Review rounds from its brief's cap, unless --set gave them (a value the brief set is t["brief_rounds"],
-    so an edited brief sets it again, or takes it back). The number set, or None."""
+    so an edited brief sets it again, or takes it back). The number set, or None. A fix Triage started (dmalis/shepherdr#235)
+    never: its brief quotes the issue, whose words set nothing; it keeps the repo's own rounds."""
+    if isinstance(t.get("triage_fix"), dict):
+        return None
     sets = t.get("set") or {}
     mine = t.get("brief_rounds")
     if sets.get("review") == "off" or ("review_rounds" in sets and sets["review_rounds"] != mine):

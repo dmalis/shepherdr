@@ -669,12 +669,17 @@ CODE = re.compile(r"(`+)[^`]*?\1")
 def part_of(body):
     """The issues a pull request's body names with `Part of #n`, outside its code (fork/sync/issues.py's rule: an
     example in a code block or span isn't a link)."""
-    out, fenced = set(), False
+    out, fence = set(), None  # CommonMark: a fence closes only on its own character, at least as long, alone on the line
     for line in str(body or "").split("\n"):
-        if re.match(r"^ {0,3}(```|~~~)", line):
-            fenced = not fenced
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None and m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+            fence = m.group(1)
             continue
-        if fenced or line.startswith(("    ", "\t")):
+        if fence is not None:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = None
+            continue
+        if line.startswith(("    ", "\t")):
             continue
         out |= {int(n) for n in PART_OF.findall(CODE.sub(" ", line))}
     return out

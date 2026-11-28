@@ -98,6 +98,8 @@ def _json(r):
         rows = tgh.pages(r.out)
     except ValueError:
         raise Fail("GitHub's answer couldn't be read.")
+    if not isinstance(rows, list) or any(not isinstance(x, dict) for x in rows):
+        raise Fail("GitHub's answer wasn't what Triage reads (a null or a stray value).")
     return rows
 
 
@@ -198,10 +200,11 @@ def main_red(repo, ctx):
     for page in _json(r):
         runs += [c for c in (page.get("check_runs") or []) if isinstance(c, dict)] if isinstance(page, dict) else []
     r = tgh.read(["api", f"repos/{repo}/commits/{base}/status"], repo=repo, ctx=ctx)
+    if not r.ok:  # a required check may report as a commit status: unread, main isn't known green
+        raise Fail("GitHub couldn't read the main branch's statuses: " + (r.err or r.why or "no answer")[:200])
     statuses = []
-    if r.ok:
-        for page in _json(r):
-            statuses += [c for c in (page.get("statuses") or []) if isinstance(c, dict)] if isinstance(page, dict) else []
+    for page in _json(r):
+        statuses += [c for c in (page.get("statuses") or []) if isinstance(c, dict)] if isinstance(page, dict) else []
     results = {}
     for c in runs:  # the newest run of each name
         name = str(c.get("name") or "")
@@ -215,6 +218,24 @@ def main_red(repo, ctx):
     return (bool(red), f"{base}'s checks are red at its tip ({', '.join(red)})" if red else None)
 
 
+def signed_in(repo, ctx):
+    """The GitHub account Triage writes as (its `ready` edits are this one's), lower case; unreadable: Fail."""
+    from . import triage_gh as tgh
+    r = tgh.read(["api", "user", "--jq", ".login"], repo=repo, ctx=ctx)
+    login = (r.out or "").strip()
+    if not r.ok or not re.fullmatch(r"[A-Za-z0-9-]+", login):
+        raise Fail("GitHub couldn't say who Triage is signed in as.")
+    return login.lower()
+
+
+def iso_ms(s):
+    """An ISO time from GitHub, in ms (0 if unreadable)."""
+    try:
+        return int(datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
 def quota_stopped(tasks):
     """A task here that a usage or quota limit stopped: nothing starts after one (it is never retried)."""
     return next((t for t in tasks if t.get("stopped_by") == "limit" and t.get("state") == "running"), None)
@@ -223,6 +244,26 @@ def quota_stopped(tasks):
 def open_fixes(tasks, repo):
     """The repo's linked fixes that are open and not blocked."""
     return [t for t in tasks if linked(t, repo) and t.get("state") != "done" and not linked(t).get("blocked")]
+
+
+def elsewhere(folder, repo):
+    """An open fix of this repo from another checkout of it (Triage's record names each fix's folder): still one at a
+    time. A folder whose tasks can't be read counts as open."""
+    try:
+        fixes = tri.record_read().get("fixes") or {}
+    except tri.Unreadable:
+        return True
+    others = {str(f.get("folder")) for k, f in fixes.items() if isinstance(f, dict) and f.get("folder")
+              and k.rsplit("#", 1)[0].lower() == repo.lower() and os.path.realpath(str(f["folder"])) != os.path.realpath(folder)}
+    for f in sorted(others):
+        if not os.path.isdir(f):
+            continue  # that checkout is gone, and its tasks with it
+        try:
+            if open_fixes(store_tasks(f), repo):
+                return True
+        except Exception:
+            return True
+    return False
 
 
 def started_today(rec, tasks, repo, at=None):
@@ -268,6 +309,9 @@ def candidates(folder, repo, rows, rec, d, ctx, done_by=None):
             if actor(e).lower() != who:
                 others.append({"issue": n, "by": actor(e)})
                 continue
+            had = (rec.get("fixes") or {}).get(fix_key(repo, n)) or {}
+            if had and iso_ms(e.get("created_at")) <= int(had.get("at") or 0):
+                continue  # the `ready` its last fix started on: another fix only on a newer one (never a retry)
             kind = "own" if str(n) in own else "owner" if author(x).lower() == who else "outside"
             c = {"issue": n, "kind": kind, "x": x, "at": str(e.get("created_at") or ""), "event": e.get("id")}
             if kind == "outside":
@@ -306,7 +350,7 @@ def gates(folder, repo, n, ctx, d=None, tasks=None):
     q = quota_stopped(tasks)
     if q:
         return "A task here was stopped by a usage limit: Triage starts nothing after one."
-    if open_fixes(tasks, repo):
+    if open_fixes(tasks, repo) or elsewhere(folder, repo):
         return "Another fix of this repo is open: one at a time."
     if any(linked(t, repo) and linked(t)["issue"] == n and t.get("state") != "done" and not linked(t).get("blocked")
            for t in tasks):
@@ -335,10 +379,14 @@ def still_ready(repo, c, ctx):
         return x, None
     if "ready" not in L:
         return x, f"`ready` is no longer on #{n}."
-    if c["kind"] == "own" and c.get("event") is None:
-        return x, None  # Triage's own ready, checked on the label read just now
     e = ready_event(events_of(repo, n, ctx))
-    if not e or actor(e).lower() != owner_of(repo).lower():
+    who = actor(e).lower() if e else ""
+    if c["kind"] == "own" and c.get("event") is None:
+        # Triage's own ready: the label's newest add is still Triage's (its signed-in account) or the owner's
+        if not e or who not in {owner_of(repo).lower(), signed_in(repo, ctx)}:
+            return x, f"The `ready` on #{n} is no longer Triage's nor the owner's."
+        return x, None
+    if not e or who != owner_of(repo).lower():
         return x, f"The owner's `ready` on #{n} no longer stands."
     if c["kind"] == "outside":
         h = text_hash(repo, n, x.get("title"), x.get("body"))
@@ -407,7 +455,8 @@ def reserve(folder, repo, c, x, ctx, d, space):
     n = c["issue"]
     ask = c["kind"] == "outside" or k["ask_merge"]
     title = "Fix: " + " ".join(str(x.get("title") or f"issue #{n}").split())[:80]
-    link = {"repo": repo, "issue": n, "kind": c["kind"], "at": now()}
+    # its folder (whose pause holds its merge) and whether it asks first, kept on the link: no --set changes them
+    link = {"repo": repo, "issue": n, "kind": c["kind"], "at": now(), "folder": folder, "ask": bool(ask)}
     if c.get("hash"):
         link["hash"] = c["hash"]
     argv = ["add", title, "--prompt", brief_text(repo, c, x, ctx), "--folder", folder, "--json"]
@@ -429,6 +478,7 @@ def reserve(folder, repo, c, x, ctx, d, space):
         r["starts"] = [s for s in r.get("starts") or [] if now() - int(s.get("at") or 0) < KEPT_STARTS] + \
             [{"issue": n, "task": v.get("id"), "ref": v["ref"], "at": now()}]
         rec.setdefault("fixes", {})[fix_key(repo, n)] = {"task": v["ref"], "folder": folder, "at": now(), "kind": c["kind"]}
+        (r.get("asks") or {}).pop(str(n), None)  # answered: no longer waiting for the app
     return v["ref"]
 
 
@@ -481,6 +531,8 @@ def launch_refusal(s, t):
     why = tri.stopped(folder, d)
     if not why and tri.keys(d, folder)["level"] != "fix":
         why = "Triage is at Score only for this repo: it starts no fixes."
+    if not why and quota_stopped([y for y in s.data["tasks"] if y is not t]):
+        why = "A task here was stopped by a usage limit: Triage starts nothing after one."
     x = None
     if not why:
         try:
@@ -488,15 +540,30 @@ def launch_refusal(s, t):
             c = {"issue": link["issue"], "kind": link.get("kind") or "owner", "hash": link.get("hash"),
                  "event": None if link.get("kind") == "own" and own_ready(repo, link["issue"]) else "check"}
             x, why = still_ready(repo, c, ctx)
+            if not why:
+                red, said = main_red(repo, ctx)
+                why = said + ": Triage starts nothing while main is red." if red else None
         except Fail as e:
             why = f"Triage couldn't check #{link['issue']} on GitHub ({e})"
     if not why:
         return None
     if x is not None and link.get("kind") == "outside" and "asks again" in why:
         ask(repo, link["issue"], x)
+    forget(s, t)
+    raise Refused(f"Triage didn't start this fix: {why} The task was taken away; nothing else changed.")
+
+
+def forget(s, t):
+    """A reservation that never launched, taken away: its task, and its fix in Triage's record (a later run may start
+    the same `ready` again; the day's count, kept in `starts`, still counts it)."""
+    link = linked(t)
     s.data["tasks"] = [y for y in s.data["tasks"] if y is not t]
     s.dirty = True
-    raise Refused(f"Triage didn't start this fix: {why} The task was taken away; nothing else changed.")
+    with tri.record() as rec:
+        key = fix_key(link["repo"], link["issue"])
+        f = (rec.get("fixes") or {}).get(key)
+        if isinstance(f, dict) and not f.get("pr") and f.get("task") in (s.ref(t), t.get("id")):
+            rec["fixes"].pop(key)
 
 
 class Refused(Fail):
@@ -535,6 +602,7 @@ def block(s, t, why):
     if link.get("blocked"):
         return True
     link["blocked"] = {"at": now(), "why": " ".join(str(why).split())[:300]}
+    link["ask"] = True
     t.setdefault("set", {})["merge"] = "ask"
     t.pop("auto_merge", None)
     t["attention"], t["attention_at"] = (f"Triage blocked this fix: {link['blocked']['why']} It waits for you (its merge "
@@ -573,18 +641,19 @@ def merge_hold(s, t, v=None, accept=False):
     link = linked(t)
     if not link:
         return None
+    if accept and asks_first(t) and tri.in_agent_terminal():
+        raise Fail("Only the person accepts a Triage fix that asks first: its Accept in the app (or a terminal outside "
+                   "Shepherdr). Nothing changed.")
     if (t.get("pr") or {}).get("number"):
         keep_pr(link["repo"], link["issue"], t)
-    why = tri.stopped(s.loc["folder"])
+    why = tri.stopped(link.get("folder") or s.loc["folder"])
     if why:
         t["waits_why"] = f"{PAUSED}: {why}"
         if accept and t.get("head"):
             link["accepted_head"] = t["head"]  # the commit it said ready at, pushed: it merges on Resume if still there
         s.dirty = True
         return PAUSED
-    if v is None:
-        return None
-    if ((t.get("set") or {}).get("merge") or "") != "ask":
+    if v is None or not asks_first(t):
         return None
     head = v.get("headRefOid")
     if accept:
@@ -597,6 +666,41 @@ def merge_hold(s, t, v=None, accept=False):
     t["waits_why"] = "Triage's fix waits for your Accept before it merges."
     s.dirty = True
     return ASKS
+
+
+def asks_first(t):
+    """A linked fix merges only on the person's Accept: Ask me before merging was on when it was added, it is for an
+    outside issue, or it was blocked. Kept on its link (`ask`), which no `--set` or edit changes; `set.merge=ask` too."""
+    link = linked(t) or {}
+    return bool(link.get("ask") or link.get("blocked") or link.get("kind") == "outside"
+                or ((t.get("set") or {}).get("merge") or "") == "ask")
+
+
+def queue_hold(t, head):
+    """At GitHub's merge call itself (github.queue_merge, commands._merge_now): a linked fix doesn't merge while Triage
+    is paused, nor, asking first, at any commit but the one the person accepted. -> the wait's words, or None."""
+    link = linked(t)
+    if not link:
+        return None
+    folder = link.get("folder") or ((tri.record_read().get("fixes") or {}).get(fix_key(link["repo"], link["issue"])) or {}).get("folder")
+    if not folder or tri.stopped(folder):
+        return PAUSED
+    if asks_first(t) and (not head or link.get("accepted_head") != head):
+        return ASKS
+    return None
+
+
+NO_PR = ("A Triage fix merges only through its pull request, and this one has none: it waits for you (merge it by "
+         "hand, or close it).")
+
+
+def mode_refusal(s, t):
+    """commands.begin, once its folder mode is known: a fix Triage starts works in its own worktree and merges by pull
+    request, where the pause and Accept hold it. Not so here: refused, and the reservation taken away."""
+    if linked(t) and t.get("mode") != "worktree":
+        forget(s, t)
+        raise Refused("Triage didn't start this fix: Score and fix needs this repo's tasks in their own worktrees (each "
+                      "fix is a pull request). Turn worktrees on for the repo, or set Triage to Score only.")
 
 
 def keep_pr(repo, n, t):
@@ -636,13 +740,12 @@ def reconcile(folder, repo, by_n, ctx):
             L = set(labels_of(x)) if x else set()
             if (t.get("pr") or {}).get("number"):
                 keep_pr(repo, n, t)
-            if t.get("state") in ("todo", "queued", "scheduled") and not t.get("started"):
+            if t.get("state") in ("todo", "queued", "scheduled") and not t.get("started") and not link.get("blocked"):
                 if not x or ("ready" not in L and not (link.get("kind") == "own" and "fixing" not in L and not L & set(tri.FLOW))):
-                    s.data["tasks"].remove(t)
-                    s.dirty = True
+                    forget(s, t)
                     out.append({"issue": n, "removed": "its ready went before it started"})
                 elif t["state"] == "todo":
-                    to_start.append(s.ref(t))
+                    to_start.append((s.ref(t), n))
                 continue
             if t.get("state") == "running" and "ready" in L and "fixing" not in L and not link.get("blocked"):
                 labels.append(("fixing", n, sorted(L)))
@@ -706,9 +809,10 @@ def act_fix(folder, repo, d=None):
     done, to_start = reconcile(folder, repo, by_n, ctx)
     _, a = tri.schedule_of(folder)
     space = (a or {}).get("space")
-    for ref in to_start:
+    for ref, n in to_start:
         ok, said = start(folder, ref, space)
         done.append({"task": ref, "restarted" if ok else "refused": said})
+        after_start(folder, repo, ref, n, ok, said, ctx)
     rec = tri.record_read()
     done_by = tri.merged_parts(repo, ctx)
     cands, notes = candidates(folder, repo, rows, rec, d, ctx, done_by)
@@ -755,10 +859,27 @@ def act_fix(folder, repo, d=None):
                 continue
         ok, said = start(folder, ref, space)
         done.append({"issue": n, "task": ref, "started" if ok else "refused": said})
-        if ok and said == "started":
-            to_fixing(repo, n, labels_of(issue_now(repo, n, ctx)), ctx)
+        after_start(folder, repo, ref, n, ok, said, ctx)
         break  # one start a run
     return done
+
+
+def after_start(folder, repo, ref, n, ok, said, ctx):
+    """Started: its `ready` becomes `fixing`. Failed, the task still there (not a launch Triage refused, which takes
+    it away): blocked, never tried again on the next run."""
+    if ok and said == "started":
+        try:
+            to_fixing(repo, n, labels_of(issue_now(repo, n, ctx)), ctx)
+        except Fail:
+            pass  # the next run's reconcile labels it
+        return
+    if ok:
+        return  # queued: its launch checks again when its turn comes
+    from .store import locate, Store
+    with Store(locate(folder)) as s:
+        t = next((y for y in s.data["tasks"] if linked(y, repo) and linked(y)["issue"] == n and s.ref(y) == ref), None)
+        if t is not None and t.get("state") == "todo":
+            block(s, t, f"its start failed: {said}")
 
 
 # ---- due: is there fix work? -----------------------------------------------------------------
@@ -775,16 +896,20 @@ def due_reasons(folder, repo, r, d, ctx):
         reasons.append("a fix stopped or went idle")
     if any(linked(t).get("blocked") and linked(t).get("labelled") != "blocked" for t in mine):
         reasons.append("a blocked fix to label")
-    if any(t.get("state") == "todo" and not t.get("started") for t in mine):
+    if any(t.get("state") == "todo" and not t.get("started") and not linked(t).get("blocked") for t in mine):
         reasons.append("a fix to start or take away")
     if any(t.get("state") == "running" and not linked(t).get("labelled") and not linked(t).get("blocked") for t in mine):
         pass  # its `fixing` edit comes with the next run that has other work
     asks = r.get("asks") or {}
-    if any(start_answer(repo, int(n), a.get("title"), a.get("body")) for n, a in asks.items() if str(n).isdigit()):
-        reasons.append("an answer in the app")
     rows = ready_rows(repo, r, ctx)
-    known = set(r.get("waiting_start") or []) | {int(n) for n in (r.get("others") or {})} | {int(n) for n in asks if str(n).isdigit()}
     linked_n = {linked(t)["issue"] for t in mine if t.get("state") != "done"}
+    open_ready = {x["number"] for x in rows}
+    # an answer to an ask still open: its issue still `ready` and no fix linked to it yet (a used one is no news)
+    if any(start_answer(repo, int(n), a.get("title"), a.get("body")) for n, a in asks.items()
+           if str(n).isdigit() and int(n) in open_ready and int(n) not in linked_n
+           and int(n) not in set(r.get("waiting_start") or [])):
+        reasons.append("an answer in the app")
+    known = set(r.get("waiting_start") or []) | {int(n) for n in (r.get("others") or {})} | {int(n) for n in asks if str(n).isdigit()}
     if any(x["number"] not in known and x["number"] not in linked_n and "fixing" not in labels_of(x) for x in rows):
         reasons.append("a new ready")
     if r.get("waiting_start") and not open_fixes(tasks, repo) and \
@@ -817,6 +942,8 @@ def ready_rows(repo, r, ctx):
         rows = json.loads(body or "[]")
     except ValueError:
         raise Fail("GitHub's answer couldn't be read.")
+    if not isinstance(rows, list):
+        raise Fail("GitHub's answer wasn't a list of issues.")
     rows = [{"number": x["number"], "labels": [{"name": l} for l in labels_of(x)]} for x in rows
             if isinstance(x, dict) and not x.get("pull_request") and isinstance(x.get("number"), int)]
     new = next((l.split(":", 1)[1].strip() for l in head.split("\n") if l.lower().startswith("etag:")), None)

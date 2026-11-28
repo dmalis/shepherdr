@@ -162,11 +162,18 @@ elif sys.argv[2] == "service":
     w = layout.Where(home=sys.argv[3], env=None if sys.argv[4] == "live" else {})
     print(json.dumps({"dir": w.path("service")}))
 elif sys.argv[2] == "triage":
-    from herdr_task import triage
+    from herdr_task import store, triage
     out = {}
     for f in sys.argv[3:]:
-        _, a = triage.schedule_of(f)
-        out[f] = bool(triage.plugin_off(triage.PLUGIN) or triage.paused(a))
+        if triage.plugin_off(triage.PLUGIN):
+            out[f] = True
+            continue
+        try:
+            d = store.read_list(store.store_path(store.locate(f)["folder"])[1])
+        except Exception:
+            d = None
+        a = next((a for a in (d or {}).get("automations") or [] if isinstance(a, dict) and isinstance(a.get("triage"), dict)), None) if isinstance(d, dict) else None
+        out[f] = None if a is None else bool(triage.paused(a))  # its schedule unreadable or gone: unknown
     print(json.dumps({"paused": out}))
 else:
     from herdr_task import base, scheduler
@@ -179,9 +186,16 @@ MERGED_PR = re.compile(r"(?:\(#(\d+)\)\s*$|^Merge pull request #(\d+)\b)")
 def triage_hold(s, repo, base, sha, links_path=None):
     """dmalis/shepherdr#235 (fork/specs/issue-loop.md, "Guards"): while Triage is paused, the install holds any Triage
     fix merged between the installed build and the candidate (blocker `triage-paused`). Triage's record unreadable, or
-    the pause unreadable: it holds too."""
+    the pause unreadable: it holds too. The record is the installed herdr-task's (its store); a fix is seen by its
+    squash or merge commit's subject (Shepherdr merges a fix by squash where the repo allows it)."""
     from . import issues
-    path = links_path or issues.default_links_path()
+    path = links_path
+    if not path:
+        store = (probe(s, "store") or {}).get("store")  # the installed herdr-task's store (triage.RECORD's folder)
+        if not isinstance(store, str) or not store:
+            raise Refused("the installed herdr-task can't say where its tasks are kept (Triage's record)",
+                          outcome="held", kind="install", gate="triage", blocker="triage-paused")
+        path = os.path.join(store, issues.TRIAGE_FILE)
     links = issues.triage_links(path)
     if links is None:
         raise Refused("Triage's record can't be read: whether a Triage fix is in this install can't be told",
@@ -943,6 +957,10 @@ def resume_checks(s, ins, repo, run_key, folder, env=None):
         return e.why
     if changed:
         return "the update would write " + " and ".join(HOOK_NAMES[f] for f in changed)
+    try:
+        triage_hold(s, repo, ins.get("baseline"), ins.get("sha"))  # a pause since the checks holds it too (#235)
+    except Refused as e:
+        return e.why
     if s.live:
         return may_ask(run_key, folder, env)
     return None
