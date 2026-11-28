@@ -36,14 +36,16 @@ test('in another folder: the folder first, then the space it came from, then the
   const t = { ...base, work: handbook }
   expect(fromSpace(all, t)).toBe('#shop')
   expect(text(row(one, t))).toBe('team-handbook· from #shop')
-  expect(text(row(all, t))).toBe('team-handbook· from #shop · mac-mini')
-  expect(row(all, t)).toContain('aria-label="team-handbook from #shop · mac-mini, own branch: show its branch"')
-  // the header over its title says the same, so the two agree
+  // fork UI 14: a row names a machine only where it tells two apart. team-handbook is on one machine, so no machine
+  // for it; the demo has a #shop on mac-mini and one on vm, so the space keeps its machine
+  expect(text(row(all, t))).toBe('team-handbook· from #shop on mac-mini')
+  expect(row(all, t)).toContain('aria-label="team-handbook from #shop on mac-mini, own branch: show its branch"')
+  // the header over its title has the room for its machine whenever there are several
   expect(text(head(all, t))).toBe('team-handbook· from #shop · mac-mini')
   expect(head(all, t)).toContain('aria-label="in team-handbook on mac-mini, from #shop: show its tasks"')
   // the space and the machine are one run of words, which gives way from its end on a narrow phone
   expect(row(one, t)).toContain('<span class="rs">· from #shop</span>')
-  expect(row(all, t)).toContain('<span class="rs">· from #shop · mac-mini</span>')
+  expect(row(all, t)).toContain('<span class="rs">· from #shop on mac-mini</span>')
   expect(head(one, t)).toContain('<span class="t0s">· from #shop</span>')
   expect(head(all, t)).toContain('<span class="t0s">· from #shop · mac-mini</span>')
 })

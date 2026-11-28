@@ -24,7 +24,8 @@ import { readable, words as saidWords } from '@core/accept.js'
 import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
-import { fromSpace, showsAgent, TaskWhere } from './where.tsx'
+import { fromSpace, rowWhere, TaskWhere } from './where.tsx'
+import { shortcutOf, shortcutRow, ShortcutBtn } from './shortcut.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { ChecksCard } from './checks-card.tsx'
 import { UrgentMark, UrgentWord, urgentRows } from './urgent.tsx'
@@ -88,19 +89,17 @@ export function openAtStrip(t: Task) {
   setUI({ jump: `strip:${t.id}` })
 }
 
-/** A row's repo line: where it works, the folder icon a branch one when it has its own branch (or worktree), and its
- *  pull request with one mark for its checks ("PR #1318 ×"), or "Merged #1314". A tap opens the task at its strip. */
+/** A row's repo line: where it works, quiet, the folder icon a branch one when it has its own branch (or worktree); its
+ *  machine only where it tells two apart, and the space it came from (rowWhere). Its pull request and model are in the
+ *  task's header (fork UI 14). A tap opens the task at its strip. */
 export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
-  const words = workWords(snap, t)
-  if (!words) return null
   // its name stands out on a row, its machine stays quiet (dmalis/shepherdr#100)
-  const name = workName(t)
+  const { name, machine, from } = rowWhere(snap, t)
+  if (!name) return null
   // started by a space in another folder: it says that space, so "#shop only" listing it reads right (dmalis/shepherdr#131)
-  const from = fromSpace(snap, t)
   const branch = onBranch(t)
-  const st = prState(t)
-  const n = t.pr?.number
-  const spoken = [from ? `${name} from ${from}${words.slice(name.length)}` : words, branch ? 'own branch' : t.repo === 'folder' ? 'in the folder' : '', st === 'merged' ? `merged, pull request ${n}` : t.pr ? `pull request ${n}, ${PR_WORDS[st!]}` : ''].filter(Boolean).join(', ')
+  const rest = `${from ? ` from ${from}` : ''}${machine ? ` · ${machine}` : ''}`
+  const spoken = [`${name}${rest}`, branch ? 'own branch' : t.repo === 'folder' ? 'in the folder' : ''].filter(Boolean).join(', ')
   const go = (e: { stopPropagation: () => void }) => {
     e.stopPropagation()
     openAtStrip(t)
@@ -109,10 +108,21 @@ export function RepoLine({ snap, t }: { snap: Snapshot; t: Task }) {
     <span className="l2 rline" role="link" aria-label={`${spoken}: show its branch`} onClick={go}>
       <I n={branch ? 'branch' : 'folder'} />
       <span className="rn">{name}</span>
-      {from ? <span className="rs">· from {from}{words.slice(name.length)}</span> : words !== name && <span className="rm">{words.slice(name.length)}</span>}
-      {t.pr && <span aria-hidden="true">·</span>}
-      {st === 'merged' && <><I n="merged" /><span className="pn">Merged #{n}</span></>}
-      {t.pr && st !== 'merged' && <><span className="pn">PR #{n}</span><ChecksMark st={st} /></>}
+      {from ? <span className="rs">· from {from}{machine && ` · ${machine}`}</span> : machine && <span className="rm">· {machine}</span>}
+    </span>
+  )
+}
+
+/** fork UI 14: an open task's pull request, in its header's status line: "PR #1318" with one mark for its checks, or
+ *  "Merged #1314". Plain words (the strip under the title links to GitHub); it never gives way before the model. */
+export function HeadPr({ t }: { t: Task }) {
+  const st = prState(t)
+  if (!t.pr || !st) return null
+  const n = t.pr.number
+  const spoken = st === 'merged' ? `merged, pull request ${n}` : `pull request ${n}, ${PR_WORDS[st]}`
+  return (
+    <span className="hpr" role="img" aria-label={spoken}>
+      <span aria-hidden="true">·</span>{st === 'merged' ? <><I n="merged" /><span className="pn">Merged #{n}</span></> : <><span className="pn">PR #{n}</span><ChecksMark st={st} /></>}
     </span>
   )
 }
@@ -208,6 +218,8 @@ export function taskRows(t: Task, where: 'row' | 'thread'): MenuRow[] | null {
     ...views,
     ...viewSwitch,
     ...(th ? [] : [
+      // fork UI 14: the row's shortcut (Reply, Open PR), first, so touch has it too
+      ...shortcutRow(snap, t),
       // Reply in chat quotes it in the space's chat, as a reply to a message: "status?" is then about this task. Writing
       // to its own agent is Open task.
       { icon: 'reply' as const, label: 'Reply in chat', run: () => replyToTask(t) },
@@ -233,14 +245,12 @@ export function taskRows(t: Task, where: 'row' | 'thread'): MenuRow[] | null {
 
 /* ---------- a task not started yet ---------- */
 
-/** its agent, model, effort and speed; quiet (a row, dmalis/shepherdr#100): only when they aren't its setting's */
-function TaskAgentSummary({ t, className, quiet }: { t: Task; className?: string; quiet?: boolean }) {
+/** its agent, model, effort and speed: in an open task's header (a row leaves it out, fork UI 14) */
+function TaskAgentSummary({ t, className }: { t: Task; className?: string }) {
   const agent = useStore((s) => s.chats[taskChat(t)]?.agent)
   const cat = useCatalog(t.on)
-  const snap = useSnap()
   const pick = reportedPick(agent ?? t.agent?.settings) ?? t.plannedAgent
   if (!pick) return null
-  if (quiet && snap && !showsAgent(snap, t, pick, cat)) return null
   return <span className={className}><PickSummary pick={pick} cat={cat} /></span>
 }
 
@@ -500,9 +510,13 @@ function TaskHead({ task: t, where, scrolled }: { task: Task; where: 'chat' | 'p
         <span className="hline">
           <UrgentWord t={live} />
           <StatusIcon t={live} time="none" />
-          <span>{big && snap ? `${line} · in ${spaceLabel(snap, t.place)}` : line}</span>
-          {/* waiting on its checks, its agent is done: the words what it waits for get the room (dmalis/shepherdr#42) */}
-          {!live.checksWait && <TaskAgentSummary t={live} className="head-agent" />}
+          {/* fork UI 14: its status whole, then its pull request; the model gives way first (rows.css) */}
+          <span className="hst">{big && snap ? `${line} · in ${spaceLabel(snap, t.place)}` : line}</span>
+          <span className="hmore">
+            <HeadPr t={live} />
+            {/* waiting on its checks, its agent is done: the words what it waits for get the room (dmalis/shepherdr#42) */}
+            {!live.checksWait && <TaskAgentSummary t={live} className="head-agent" />}
+          </span>
         </span>
       }
       scrolled={scrolled}
@@ -589,7 +603,7 @@ function TaskPane({ t }: { t: Task }) {
 
 /* ---------- the list ---------- */
 
-function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolean; alert?: Alert }) {
+export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolean; alert?: Alert }) {
   const cur = useUI((u) => u.task === t.id)
   const down = placeDown(snap, t.place)
   const s = tstate(t)
@@ -598,6 +612,8 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
   const when = down ? '' : taskWhen(t)
   // a slide to the right replies to it in the space's chat, as to a message (Reply in chat)
   const { on, slide, armed, skip, moving } = useSlide(() => replyToTask(t))
+  // fork UI 14: the one shortcut its state calls for, with a mouse (rows.css)
+  const sc = down ? null : shortcutOf(snap, t)
   return (
     <div className="rowx tsl" data-task-row={t.id} {...on}>
       <SlideHint slide={slide} armed={armed} />
@@ -605,18 +621,22 @@ function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag: boolea
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
           <span className="l1"><UrgentMark t={t} />{t.name}</span>
+          {/* fork UI 14: one line of what it needs or just did (an alert's kind, then its words) */}
           {alert && !down ? (
-            <>
-              <span className="l2 alw">{alertWhat(alert)}</span>
-              {alert.body && <span className="l2">{alert.body}</span>}
-            </>
-          ) : sub && <span className="l2">{sub}</span>}
-          <TaskAgentSummary t={t} className="l2" quiet />
+            <span className="l2 one"><span className="alw">{alertWhat(alert)}</span>{alert.body && <> · {alert.body}</>}</span>
+          ) : sub && <span className="l2 one">{sub}</span>}
           {/* one repo picked leaves the line out, unless it says the space it came from (dmalis/shepherdr#131) */}
           {(tag || !!fromSpace(snap, t)) && t.work && <RepoLine snap={snap} t={t} />}
         </span>
-        {when && <span className="v">{when}</span>}
+        {/* with a shortcut, the time's place holds its size too, so the shortcut over it never covers the name (rows.css) */}
+        {sc ? (
+          <span className="v vsc">
+            {when && <span className="vw">{when}</span>}
+            <span className="btn s vsz" aria-hidden="true"><I n={sc.icon} />{sc.label}</span>
+          </span>
+        ) : when && <span className="v">{when}</span>}
       </button>
+      {sc && <ShortcutBtn sc={sc} className={moving.className} style={moving.style} />}
       <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />
     </div>
   )

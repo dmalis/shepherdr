@@ -5,13 +5,14 @@ import type { ReactElement } from 'react'
 import type { Snapshot, Task } from '@shared/types.ts'
 import { snapshot } from '../../demo/data.ts'
 
-// SHEP-348: a task row's repo line says worktree and branch (its icon), and its pull request with one mark for its
-// checks; the task's page has a strip under its title with the rest; a tap on the line opens the task at that strip.
+// SHEP-348: a task row's repo line says worktree and branch (its icon); the task's page has a strip under its title
+// with the rest; a tap on the line opens the task at that strip. Fork UI 14: the pull request with one mark for its
+// checks moved from the row to the task's header (HeadPr), so a row reads in one look.
 
 // the formatted words need a browser (DOMPurify): here they are drawn as they are
 mock.module('@plugins/chat/markdown.tsx', () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, toHtml: (t: string) => t, linked: (t: string) => t, withLinks: (t: string) => [t] }))
 const { getState, setUI } = await import('@client/kernel.ts')
-const { GitStrip, RepoLine, openAtStrip, prState } = await import('./client.tsx')
+const { GitStrip, HeadPr, RepoLine, openAtStrip, prState } = await import('./client.tsx')
 const { IC } = await import('@client/icons.ts')
 
 const snap: Snapshot = { ...snapshot(), machines: [snapshot().machines[0]!] }
@@ -29,6 +30,7 @@ const SIX: Record<string, Task> = {
   research: { ...base, work: undefined },
 }
 const line = (t: Task) => renderToStaticMarkup(<RepoLine snap={snap} t={t} />)
+const head = (t: Task) => renderToStaticMarkup(<HeadPr t={t} />)
 const strip = (t: Task) => renderToStaticMarkup(<GitStrip t={t} />)
 const icon = (n: keyof typeof IC) => IC[n]
 const text = (html: string) => html.replace(/<[^>]+>/g, '')
@@ -40,32 +42,41 @@ test('own worktree and branch, no pull request: the branch icon before the repo,
   expect(text(html)).toBe('shop')
 })
 
-test('open pull request, checks running: "PR #1313" and the quiet running mark', () => {
-  const html = line(SIX.running!)
-  expect(html).toContain(icon('branch'))
-  expect(text(html)).toBe('shop·PR #1313')
+test('the row\'s line never carries the pull request (fork UI 14): it is in the header', () => {
+  for (const k of ['running', 'failed', 'merged'] as const) {
+    expect(text(line(SIX[k]!))).toBe('shop')
+    expect(line(SIX[k]!)).not.toContain('PR #')
+  }
+})
+
+test('header: open pull request, checks running: "PR #1313" and the quiet running mark', () => {
+  const html = head(SIX.running!)
+  expect(text(html)).toBe('·PR #1313')
+  expect(html).toContain('aria-label="pull request 1313, checks running"')
   expect(html).toContain(icon('checking'))
   expect(html).not.toContain('c-red')
   expect(html).not.toContain('c-ready')
 })
 
-test('checks failed: the mark is a red cross, the only colour on the line', () => {
-  const html = line(SIX.failed!)
-  expect(text(html)).toBe('shop·PR #1318')
+test('header: checks failed: the mark is a red cross, the only colour', () => {
+  const html = head(SIX.failed!)
+  expect(text(html)).toBe('·PR #1318')
   expect(html).toContain(`<svg class="i c-red" viewBox="0 0 20 20" aria-hidden="true">${icon('x')}</svg>`)
   expect(html.match(/c-(red|ready|ask|working)/g)).toEqual(['c-red'])
 })
 
-test('checks passed: a green check', () => {
-  const html = line({ ...SIX.running!, pr: pr({ checks: 'passed' }) })
+test('header: checks passed: a green check', () => {
+  const html = head({ ...SIX.running!, pr: pr({ checks: 'passed' }) })
   expect(html).toContain(`<svg class="i c-ready" viewBox="0 0 20 20" aria-hidden="true">${icon('check')}</svg>`)
 })
 
-test('merged: "Merged #1314" with the merged icon, no checks mark', () => {
-  const html = line(SIX.merged!)
-  expect(text(html)).toBe('shop·Merged #1314')
+test('header: merged: "Merged #1314" with the merged icon, no checks mark; nothing with no pull request', () => {
+  const html = head(SIX.merged!)
+  expect(text(html)).toBe('·Merged #1314')
   expect(html).toContain(icon('merged'))
   expect(html).not.toContain(icon('check'))
+  expect(head(SIX.branch!)).toBe('')
+  expect(head(SIX.here!)).toBe('')
 })
 
 test('works here, in the folder itself: the folder icon stays', () => {

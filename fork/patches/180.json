@@ -1,0 +1,21 @@
+{
+  "issue": 180,
+  "name": "Tasks: rows and headers that read in one look",
+  "files": [
+    "web/plugins/tasks/shortcut.tsx",
+    "web/plugins/tasks/rows.css",
+    "web/plugins/tasks/rows.test.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/tasks/where.tsx",
+    "web/plugins/tasks/where.css",
+    "web/plugins/tasks/urgent.css",
+    "docs/design.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "web/plugins/tasks/rows.test.tsx",
+    "web/plugins/tasks/repo-line.test.tsx",
+    "web/plugins/tasks/from-space.test.tsx",
+    "web/plugins/tasks/where.test.tsx"
+  ]
+}

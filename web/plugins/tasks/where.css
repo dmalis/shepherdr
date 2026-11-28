@@ -13,7 +13,7 @@
 /* a long machine name gives way first, with its own … (the line is as wide as its words, so no share of it is fixed) */
 .t0n{flex:0 1 auto}.t0m{flex:0 3 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.t0{cursor:pointer;border-radius:4px}
-button.t0:hover .t0n,button.t0:hover{color:var(--fg)}
+@media(hover:hover){button.t0:hover .t0n,button.t0:hover{color:var(--fg)}}
 button.t0:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
 /* a finger gets a taller hit area above it, none over the title */
 @media (pointer:coarse){button.t0::after{content:"";position:absolute;inset:-8px -6px 0}}
@@ -23,7 +23,7 @@ button.t0:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
 .row.tk>.n:has(>.rline){display:flex;flex-direction:column}
 .row.tk>.n>.rline{order:-1;margin-bottom:1px}
 .row.tk .rline .rn{color:var(--sub);font-weight:500}
-.row.tk .rline:hover .rn{color:var(--fg)}
+@media(hover:hover){.row.tk .rline:hover .rn{color:var(--fg)}}
 .rowx:has(>.row.tk>.n>.rline){--over:calc(var(--secl) + 1px)}
 .rowx:has(>.row.tk>.n>.rline)>.row.tk>.tring{margin-top:calc(var(--over) + (var(--uil) - var(--ic))/2)}
 .rowx:has(>.row.tk>.n>.rline)>.row.tk>.v{margin-top:var(--over)}

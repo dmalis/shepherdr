@@ -2,15 +2,14 @@ import { expect, mock, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReactElement } from 'react'
 import type { Snapshot, Task } from '@shared/types.ts'
-import { catalog, snapshot } from '../../demo/data.ts'
+import { snapshot } from '../../demo/data.ts'
 
-// dmalis/shepherdr#100: an open task's header names its project over its title, and a row says its model only when
-// it isn't the task's setting.
+// dmalis/shepherdr#100: an open task's header names its project over its title. (A row's model line went to the
+// header with fork UI 14: rows.test.tsx.)
 
 mock.module('@plugins/chat/markdown.tsx', () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, toHtml: (t: string) => t, linked: (t: string) => t, withLinks: (t: string) => [t] }))
-const { TaskWhere, showsAgent, taskSetting, whereWords } = await import('./where.tsx')
+const { TaskWhere, whereWords } = await import('./where.tsx')
 const { Hd } = await import('@client/ui.tsx')
-const { reportedPick } = await import('@client/picker.tsx')
 
 const all = snapshot()
 const one: Snapshot = { ...all, machines: [all.machines[0]!] }
@@ -55,32 +54,4 @@ test('the header puts the line after the title in the page (read "<title>, in <p
   expect(html).toContain('class="hd hd3"')
   expect(html.indexOf('class="t1"')).toBeLessThan(html.indexOf('class="t0"'))
   expect(renderToStaticMarkup(<Hd title="x" />)).toContain('class="hd"')
-})
-
-test('a row leaves its model out when it is the setting, and says it when it differs', () => {
-  const pick = reportedPick({ kind: 'claude', model: 'opus', modelLabel: 'Opus 5.5', effort: 'high', speed: 'fast' } as never)!
-  const blog = all.tasks.find((t) => t.id === 'BLOG-10')!
-  // blog's Tasks setting is Opus, high, fast: the same
-  expect(showsAgent(all, blog, pick, catalog('mac-mini'))).toBe(false)
-  // shop's own Tasks setting is Opus, extra high: another effort
-  const shopTask = all.tasks.find((t) => t.id === 'SHOP-12')!
-  expect(showsAgent(all, shopTask, pick, catalog('mac-mini'))).toBe(true)
-  expect(showsAgent(all, blog, { ...pick, fast: false }, catalog('mac-mini'))).toBe(true)
-  expect(showsAgent(all, blog, { ...pick, model: 'sonnet', label: 'Sonnet 5.5' }, catalog('mac-mini'))).toBe(true)
-  // before the catalog is read, it says it, as before
-  expect(showsAgent(all, blog, pick, undefined)).toBe(true)
-})
-
-test('the setting is the working folder\'s on its machine, as the service picks it, never the asking space\'s', () => {
-  const pick = reportedPick({ kind: 'claude', model: 'opus', modelLabel: 'Opus 5.5', effort: 'high', speed: 'fast' } as never)!
-  // asked for in Everything, works in shop on this machine: shop's setting (Opus, extra high), not Everywhere's
-  const ev = all.tasks.find((t) => t.id === 'EV-14')!
-  expect(taskSetting(all, ev)).toMatchObject({ model: 'opus', effort: 'xhigh' })
-  expect(showsAgent(all, ev, pick, catalog('mac-mini'))).toBe(true)
-  expect(showsAgent(all, ev, { ...pick, effort: 'xhigh', fast: false }, catalog('mac-mini'))).toBe(false)
-  // the same folder name on another machine is another repo: the vm's shop has its own setting
-  const vm = all.tasks.find((t) => t.id === 'vm:ACME-9')!
-  expect(taskSetting(all, vm)).toMatchObject({ model: 'opus', effort: 'high' })
-  // a task outside a repo or folder: Everywhere's
-  expect(taskSetting(all, { ...base, work: undefined })).toEqual(all.config!.all.agents.Tasks)
 })
