@@ -1,0 +1,16 @@
+/* fork #279: the sheet a group card opens (card-group.tsx): each card as it is in the chat, the dialog's full width,
+   one under the other; the dialog (a sheet on a phone) scrolls them. A card's line above
+   it (a task's name, ref) stays with it. Nothing here moves. */
+.cgrp-list{display:grid;gap:8px;min-width:0}
+.cgrp-item{display:grid;gap:4px;min-width:0}
+.cgrp-item>.card,.cgrp-item .card{width:auto;max-width:none}
+.cgrp-item>.ref{justify-self:start;max-width:100%}
+/* the group card's names line: the first of them, in the card's own text, at most two lines (a long name never pushes
+   Show them down) */
+.cgrp-peek{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.cgrp-items{display:grid;gap:8px;min-width:0}
+.cgrp-items>.hint{margin:0}
+/* the foot bar (Close, and a bulk action's button): it sticks at the content's foot, so it reaches down over the
+   dialog's own bottom padding (20, a phone's sheet 16 and the gesture bar) to hide the cards scrolling under it */
+.cgrp-foot{--pad:20px;position:sticky;bottom:calc(0px - var(--pad));display:grid;gap:8px;margin-top:8px;padding:12px 0 var(--pad);background:var(--overlay);box-shadow:0 -1px 0 var(--line)}
+.sheet .cgrp-foot{--pad:calc(16px + env(safe-area-inset-bottom))}

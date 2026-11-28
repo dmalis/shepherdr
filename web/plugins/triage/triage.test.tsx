@@ -151,7 +151,9 @@ test('150 drafts are one card and one Needs you row; the start card stays single
   const one = text(renderToStaticMarkup(<>{cards[0]!.node}</>))
   expect(one).toContain('150 findings wait to be posted to GitHub')
   expect(one).toContain('Show them')
-  expect(one).not.toContain('Finding 0')
+  // it names the first of them (the shared group card, fork #279), never lists all 150
+  expect(one).toContain('Finding 0, Finding 1 and 148 more')
+  expect(one).not.toContain('Finding 2')
   // Needs you: one row for the drafts, opening their card, and the start card's own; the count is 2, not 151
   const s2 = { ...snap, attention: projectAttention(snap, Date.now()) }
   const acts = s2.attention.actions.filter((a) => a.kind === 'triage')
@@ -231,12 +233,12 @@ test('the list is the batch review: every draft ticked by kind, one Yes for them
   // grouped by kind, Bugs first, each a checkbox row, ticked
   expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Confusing · 2'))
   expect(html.match(/role="checkbox" aria-checked="true"/g)!.length).toBe(5)
-  // the held ones: their own cards, Yes and No each, after the batch; one bar at the sheet's foot, after them all
+  // the held ones: their own cards, Yes and No each, after the batch; one bar at the sheet's foot, after them all (the shared group sheet's, fork #279)
   expect(html.match(/data-card="triage:draft:/g)!.length).toBe(2)
   expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Held 0'))
-  expect(html.match(/class="tri-foot"/g)).toHaveLength(1)
-  expect(html.lastIndexOf('Held 1')).toBeLessThan(html.indexOf('class="tri-foot"'))
-  expect(text(html.slice(html.indexOf('class="tri-foot"')))).toMatch(/Close.*Post all 4/)
+  expect(html.match(/class="cgrp-foot"/g)).toHaveLength(1)
+  expect(html.lastIndexOf('Held 1')).toBeLessThan(html.indexOf('class="cgrp-foot"'))
+  expect(text(html.slice(html.indexOf('class="cgrp-foot"')))).toMatch(/Close.*Post all 4/)
   expect(t).toContain('Your answer one by one · 2')
   expect(t).toContain('Yes, post it')
   // only a batch left: no held part

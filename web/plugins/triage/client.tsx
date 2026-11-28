@@ -7,11 +7,11 @@
 // No, as Linear's Triage accepts or declines one issue at a time; the answer is kept by the service only, bound to that
 // text's hash, so a changed text asks again. Switched off (Settings › Plugins), the page and the cards are gone and
 // Triage does nothing.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { act, attempt, definePlugin, notice, tryAct, useSnap } from '@client/kernel.ts'
 import { AppliesTo, useAppliesTo } from '@client/applies-to.tsx'
 import { Choice as Seg } from '@client/choice.tsx'
-import { openDialog } from '@client/overlay.tsx'
+import { GroupCard, GroupSheet } from '@client/card-group.tsx'
 import { Own, SRow } from '@client/settings-rows.tsx'
 import { ActBtn, ActError, Btn, I, Row, Tgl, useCardActs } from '@client/ui.tsx'
 import { TRIAGE_DRAFTS, triageAsk, triageCount, triageDraftsWords, triagePlace, triageShown } from '@shared/attention.ts'
@@ -260,89 +260,68 @@ function BatchPart({ b }: { b: Batch }) {
   )
 }
 
-/** the list behind the one card: first the batch (a tick per draft), then each held draft as its own card, answered one
- *  by one as before, and at the sheet's foot one bar that stays in view while it scrolls (Gmail's and GitHub's bulk bars):
- *  Close, and Post for the ticked ones. It reads the snapshot live, so what is answered leaves the list, and the list
- *  stays open while it empties */
+/** the list behind the one card (the shared group sheet, web/src/card-group.tsx): first the batch (a tick per draft),
+ *  then each held draft as its own card, answered one by one as before, and at the sheet's foot one bar that stays in
+ *  view while it scrolls (Gmail's and GitHub's bulk bars): Close, and Post for the ticked ones. It reads the snapshot
+ *  live, so what is answered leaves the list, and the list stays open while it empties */
 export function TriageDraftsList({ place, close }: { place: string; close: () => void }) {
   const snap = useSnap()
   const drafts = snap ? draftsIn(snap, place) : []
   const b = useBatch(snap ? batchIn(snap, place) : undefined)
   const batch = b.list && b.items.length ? b.list : undefined
   const n = drafts.length + (batch ? b.items.length : 0)
-  const box = useRef<HTMLDivElement>(null)
-  const done = useRef<HTMLDivElement>(null)
-  // the card that last held focus: an answer takes it away with its button, so focus goes on to the card now in its
-  // place (the next one), as a mail app moves to the next message once one is archived; the last answered, to Close
-  const at = useRef(-1)
-  const ids = drafts.map((c) => c.id).join(' ')
-  useLayoutEffect(() => {
-    const f = document.activeElement
-    if (at.current < 0 || (f && f !== document.body && f.isConnected)) return
-    const cards = box.current?.children
-    const next = cards?.[Math.min(at.current, cards.length - 1)]
-    ;(next?.querySelector<HTMLElement>('.tri-text') ?? done.current?.querySelector('button'))?.focus()
-  }, [ids])
   return (
-    <>
-      <h2>{n ? triageDraftsWords(n) : 'Nothing waits to be posted'}</h2>
-      <p>{!n ? 'Every finding here has its answer.' : batch ? 'Each goes public only when you say yes: the ticked ones with one Yes, the rest one by one.' : 'Each goes public only when you say yes. Answer them one by one, oldest first.'}</p>
-      {batch && <BatchPart b={b} />}
-      {drafts.length > 0 && (
-        <section className="tri-held" aria-labelledby="tri-held-h">
-          {batch && <div className="lab" id="tri-held-h">Your answer one by one · {drafts.length}</div>}
-          {batch && <p className="hint">The privacy check found something in these, or they can’t go in one Yes. Each has its own answer.</p>}
-          <div className="tri-list" ref={box} onFocus={(e) => void (at.current = [...e.currentTarget.children].findIndex((c) => c.contains(e.target)))}>
-            {drafts.map((c) => <TriageCardView key={c.id} c={c} />)}
-          </div>
-        </section>
+    <GroupSheet
+      title={n ? triageDraftsWords(n) : 'Nothing waits to be posted'}
+      note={!n ? 'Every finding here has its answer.' : batch ? 'Each goes public only when you say yes: the ticked ones with one Yes, the rest one by one.' : 'Each goes public only when you say yes. Answer them one by one, oldest first.'}
+      bulk={batch && <BatchPart b={b} />}
+      head={batch && (
+        <>
+          <div className="lab" id="tri-held-h">Your answer one by one · {drafts.length}</div>
+          <p className="hint">The privacy check found something in these, or they can’t go in one Yes. Each has its own answer.</p>
+        </>
       )}
-      <div className="tri-foot">
-        {b.error && <p className="tri-err" role="alert">{b.error}</p>}
-        {b.stale && <p className="tri-why" role="status"><I n="warn" />The list changed since you opened it. Look at the new one before you post.</p>}
-        <div className="acts" ref={done}>
-          <Btn onClick={close}>Close</Btn>
+      headId={batch ? 'tri-held-h' : undefined}
+      items={drafts.map((c) => ({ key: c.id, node: <TriageCardView c={c} /> }))}
+      foot={(b.error || b.stale) && (
+        <>
+          {b.error && <p className="tri-err" role="alert">{b.error}</p>}
+          {b.stale && <p className="tri-why" role="status"><I n="warn" />The list changed since you opened it. Look at the new one before you post.</p>}
+        </>
+      )}
+      actions={(b.stale || batch) && (
+        <>
           {b.stale && <Btn onClick={b.renew}>Show the new list</Btn>}
           {batch && <Btn kind="pri" disabled={b.busy || b.stale || !b.ticked.length} onClick={() => void b.post()}>{b.busy ? 'Saving…' : postWords(b.ticked.length, b.items.length)}</Btn>}
-        </div>
-      </div>
-    </>
+        </>
+      )}
+      close={close}
+    />
   )
 }
 
-/** the list closed after its one card went (answers left 3 or fewer, each its own card again): focus goes to the first
- *  of them, not lost with the button that opened it */
-function focusLeft(opener: Element | null) {
-  setTimeout(() => {
-    if (opener?.isConnected) return
-    document.querySelector<HTMLElement>('[data-card^="triage:draft:"] .tri-text')?.focus()
-  })
-}
-
-/** more drafts than TRIAGE_GROUP_OVER in a space, or any that one Yes can post: one card that says how many, and opens
- *  their list */
-export function TriageDraftsCard({ place, n, batch = 0 }: { place: string; n: number; batch?: number }) {
+/** more drafts than TRIAGE_GROUP_OVER in a space, or any that one Yes can post: one card (the shared group card) that
+ *  says how many and names the first of them, and opens their list; once it goes, focus goes to the first draft left */
+export function TriageDraftsCard({ place, n, batch = 0, peek }: { place: string; n: number; batch?: number; peek?: string[] }) {
   const held = n - batch
   const why = !batch ? 'Each goes public only when you say yes.'
     : held ? `One Yes posts the ${batch} that passed the privacy check, the ones you tick. ${held === 1 ? 'The other waits' : `The other ${held} wait`} for your answer one by one.`
     : `${batch === 1 ? 'It passed' : `All ${batch} passed`} the privacy check: one Yes posts the ones you tick.`
   return (
-    <section className="card tri-card" data-card={TRIAGE_DRAFTS} data-ask="" aria-labelledby="tri-drafts-q" aria-describedby="tri-drafts-why">
-      <span className="t" id="tri-drafts-q">{triageDraftsWords(n)}</span>
-      <span className="s" id="tri-drafts-why">{why}</span>
-      <div className="acts">
-        <Btn kind="pri" onClick={(e) => { const opener = e.currentTarget; openDialog((close) => <TriageDraftsList place={place} close={close} />, { wide: true, label: 'Findings to post', onClose: () => focusLeft(opener) }) }}>Show them</Btn>
-      </div>
-    </section>
+    <GroupCard id={TRIAGE_DRAFTS} title={triageDraftsWords(n)} peek={peek} sub={why} label="Findings to post" single='[data-card^="triage:draft:"]'
+      sheet={(close) => <TriageDraftsList place={place} close={close} />} />
   )
 }
+
+/** what a space's grouped drafts are about, oldest first: each held draft's title, a batch's each */
+const titlesOf = (drafts: TriageCard[]) => drafts.flatMap((c) => (c.kind === 'batch' ? (c.items ?? []).map((x) => x.title) : [c.title]))
 
 /** the cards in a space's own chat (its repo's, else Everything's), oldest first, where Needs you opens them: more
  *  drafts than TRIAGE_GROUP_OVER, or a batch, are one card (triageShown), start cards always single */
 export function triageCards(snap: Snapshot, thread: { place: string; task?: unknown }) {
   if (thread.task) return []
   const { drafts, single } = triageShown((snap.triage?.cards ?? []).filter((c) => triagePlace(snap, c) === thread.place))
-  const one = drafts.length ? [{ key: TRIAGE_DRAFTS, at: Math.min(...drafts.map((c) => c.at)), after: () => true, node: <TriageDraftsCard place={thread.place} n={triageCount(drafts)} batch={triageCount(drafts.filter((c) => c.kind === 'batch'))} /> }] : []
+  const one = drafts.length ? [{ key: TRIAGE_DRAFTS, at: Math.min(...drafts.map((c) => c.at)), after: () => true, node: <TriageDraftsCard place={thread.place} n={triageCount(drafts)} batch={triageCount(drafts.filter((c) => c.kind === 'batch'))} peek={titlesOf(drafts)} /> }] : []
   return [...one, ...single.map((c) => ({ key: `triage:${c.id}`, at: c.at, after: () => true, node: <TriageCardView c={c} /> }))]
 }
 

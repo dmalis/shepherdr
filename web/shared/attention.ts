@@ -15,6 +15,7 @@
 // The source facts are the snapshot's own: no model, no guess (docs/develop.md Rules).
 import type { HandUp, Need, Snapshot, Task, TriageCard } from './types.ts'
 import { urgentWaitsFirst } from './urgent.ts'
+import { GROUP_OVER } from './card-group.ts'
 
 export type Alert = NonNullable<Snapshot['alerts']>[number]
 
@@ -302,7 +303,7 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
 
 /** more held drafts than this in one space show as one card that opens their list, as GitHub and Slack group a run of
  *  notifications into one; start cards (an outside issue to fix) always stay single */
-export const TRIAGE_GROUP_OVER = 3
+export const TRIAGE_GROUP_OVER = GROUP_OVER
 /** the one card of a space's grouped drafts: its data-card (and its action's id, with the space after it) */
 export const TRIAGE_DRAFTS = 'triage:drafts'
 /** one space's Triage cards as they show: its drafts grouped (none: each single), the rest single, oldest first. The

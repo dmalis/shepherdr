@@ -5,12 +5,7 @@
 .tri-text b{font-weight:600;overflow-wrap:anywhere}
 .tri-text pre{margin:0;font:inherit;font-size:var(--sec);line-height:var(--secl);color:var(--sub);white-space:pre-wrap;overflow-wrap:anywhere}
 .tri-text:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
-/* the list a space's grouped drafts open (more than 3, or any one Yes can post, make one card): each held draft's own
-   card, the dialog's full width, one under the other; the dialog (a sheet on a phone) scrolls them */
-.tri-list{display:grid;gap:8px;min-width:0}
-.tri-list>.card{width:auto;max-width:none}
-.tri-held{display:grid;gap:8px;min-width:0}
-.tri-held>.hint,.tri-batch>.hint{margin:0}
+.tri-batch>.hint{margin:0}
 /* the batch part: the filter's checkbox rows in the dialog's own scroll (no scroll inside a scroll), each draft's text
    folded under its row; its Post button stays at the dialog's foot while the batch scrolls under it, and leaves with
    the batch once the held drafts come */
@@ -22,10 +17,6 @@
 .tri-item summary{width:fit-content;padding:2px 0;color:var(--muted);font-size:var(--sec);line-height:var(--secl);cursor:pointer}
 .tri-item summary:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:4px}
 .tri-item pre{margin:4px 0 0;padding:8px 12px;border-radius:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line);font:inherit;font-size:var(--sec);line-height:var(--secl);color:var(--sub);white-space:pre-wrap;overflow-wrap:anywhere}
-/* it sticks at the content's foot, so it reaches down over the dialog's own bottom padding (20, a phone's sheet 16 and
-   the gesture bar) to hide the rows scrolling under it */
-.tri-foot{--pad:20px;position:sticky;bottom:calc(0px - var(--pad));display:grid;gap:8px;margin-top:8px;padding:12px 0 var(--pad);background:var(--overlay);box-shadow:0 -1px 0 var(--line)}
-.sheet .tri-foot{--pad:calc(16px + env(safe-area-inset-bottom))}
 .tri-err{margin:0;color:var(--red);font-size:var(--sec);line-height:var(--secl)}
 .tri-why{display:flex;align-items:flex-start;gap:8px;margin:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .tri-why .i{flex:none;color:var(--amber);width:var(--ic-sm);height:var(--ic-sm);margin-top:2px}

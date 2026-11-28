@@ -377,6 +377,14 @@ export const backlog: TriageView['cards'] = [
 ]
 const draftsDay = (s: Snapshot): Snapshot => ({ ...s, triage: { ...s.triage!, cards: [...backlog, ...s.triage!.cards.filter((c) => c.kind === 'start')] } })
 
+// ?case=cards (fork #279): many of each kind of card in #shop's chat: Triage's 150 drafts, 5 tasks waiting for a review
+// and 4 stopped agents, each kind one card past 3
+const MORE_READY = ['Gift cards at checkout', 'Order history export', 'Faster image upload', 'Address autocomplete']
+const MORE_STOPPED = ['Stock alerts by email', 'Coupon page redesign', 'Shipping rates table', 'Returns form']
+const cardsDay = (s: Snapshot): Snapshot => ({ ...s, tasks: [...s.tasks,
+  ...MORE_READY.map((name, i) => task(`SHOP-4${i}`, name, P.shop, 'ready', { needsAt: NOW - (90 - i * 20) * min, repo: 'branch', summary: `${name}: done and checked.`, waitsWhy: 'Waits for you to merge it: in this repo, tasks merge only when you say so.' })),
+  ...MORE_STOPPED.map((name, i) => task(`SHOP-5${i}`, name, P.shop, 'need', { needsAt: NOW - (70 - i * 15) * min, stopped: { by: 'error', why: 'its session ended' }, report: { msg: 'Working on it', progress: 40, paused: true } }))] })
+
 const HANDUP: Record<string, Partial<Task>> = {
   'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },
   'EV-14': { status: 'need', state: 'need', needsAt: NOW - 6 * min, agent: { chat: 'EV-14/worker', role: 'worker', cli: 'claude', status: 'need', running: true, age: '', note: '' }, report: { msg: 'Should locked levels count in the cart?' },
@@ -385,9 +393,10 @@ const HANDUP: Record<string, Partial<Task>> = {
     wait: { id: 'w-shop21', gen: 1, kind: 'attention', first: NOW - 9 * min, deadline: NOW - 4 * min } },
 }
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards' = 'normal'): Snapshot {
   if (mode === 'triage') return triageDay(snapshot('normal'))
   if (mode === 'drafts') return draftsDay(snapshot('triage'))
+  if (mode === 'cards') return cardsDay(snapshot('drafts'))
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))

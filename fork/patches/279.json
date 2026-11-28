@@ -1,0 +1,20 @@
+{
+  "issue": 279,
+  "name": "Grouped cards for every kind: reviews, stopped agents and Triage on one shared card",
+  "files": [
+    "web/src/card-group.tsx",
+    "web/src/card-group.css",
+    "web/shared/card-group.ts",
+    "web/plugins/tasks/groups.ts",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/triage/client.tsx",
+    "web/shared/attention.ts",
+    "web/demo/data.ts",
+    "web/demo/serve.ts",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/src/card-group.test.tsx",
+    "web/plugins/triage/triage.test.tsx"
+  ]
+}
