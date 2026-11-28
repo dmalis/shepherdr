@@ -40,8 +40,6 @@ async function startDemo() {
 
 type Scene = { where: 'space' | 'task'; width: number; phone: boolean; dark?: boolean; reduced?: boolean; record?: boolean }
 
-const frames = (page: Page) => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
-
 /** what the page shows now: is it reading, the tabs, the box's height, the chat's height and place */
 const state = (page: Page) =>
   page.evaluate(() => {
@@ -62,17 +60,19 @@ const state = (page: Page) =>
     }
   })
 
-/** scrolls the chat by `dy` in small steps, as a finger's drag does */
+/** scrolls the chat by `dy` in small steps, as a finger's drag does: two frames a step, all inside the page (one
+ *  round trip a drag keeps the CI job inside its time) */
 async function drag(page: Page, dy: number) {
-  const step = dy < 0 ? -20 : 20
-  await page.evaluate(() => ((window as unknown as { __log: string[] }).__log.length = 0))
-  for (let moved = 0; Math.abs(moved) < Math.abs(dy); moved += step) {
-    await page.evaluate((s) => {
+  await page.evaluate(async (dy) => {
+    ;(window as unknown as { __log: string[] }).__log.length = 0
+    const step = dy < 0 ? -20 : 20
+    const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+    for (let moved = 0; Math.abs(moved) < Math.abs(dy); moved += step) {
       const sc = [...document.querySelectorAll<HTMLElement>(':is(.chat, .pane) > .scroll')].find((e) => e.getClientRects().length && e.parentElement!.querySelector(':scope > .foot > .cbox'))!
-      sc.scrollTop += s
-    }, step)
-    await frames(page)
-  }
+      sc.scrollTop += step
+      await frame()
+    }
+  }, dy)
   await page.waitForTimeout(400)
 }
 
@@ -211,8 +211,8 @@ const demo = await startDemo()
 const browser = await chromium.launch({ executablePath: chrome() })
 let failed = 0
 try {
-  for (const scene of SCENES) {
-    const { name, fails } = await check(browser, demo.url, scene)
+  // the scenes side by side, each in its own context and page process: the CI job has one time limit for all its steps
+  for (const { name, fails } of await Promise.all(SCENES.map((scene) => check(browser, demo.url, scene)))) {
     if (!fails.length) console.log(`ok    ${name}`)
     else {
       failed++
