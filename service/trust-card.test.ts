@@ -32,7 +32,8 @@ test("an inferred wait is Shepherdr's, quiet, until a handoff alerts for that ta
   expect(attentionOf(snap).actions.find((a) => a.task === "SHOP-1")).toMatchObject({ owner: "shepherdr", kind: "wait" });
   snap.alerts = [{ id: "handoff", task: "SHOP-1", at: 1900, place: "sp1", title: "Approve the cost?", body: "The store asks for payment.", notify: true }];
   const alerts = alertsOf(snap);
-  expect(alerts.get("alert:handoff")?.url).toBe("./?place=sp1&task=SHOP-1");
+  // fork Needs you 4/6: its link names its hand-up action, at its card
+  expect(alerts.get("alert:handoff")?.url).toBe("./?place=sp1&task=SHOP-1&focus=alert%3Ahandoff&action=alert%3Ahandoff");
   expect(glanceOf(snap, alerts, 2000).items).toMatchObject([{ task: "SHOP-1", title: "Approve the cost?", alert: true }]);
 });
 

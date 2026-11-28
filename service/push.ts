@@ -308,6 +308,11 @@ export class Push {
   quiet: (node: string | undefined) => boolean = () => false;
   /** a tailnet device with the app on screen now, whichever of its pages (live.ts looking, SHEP-338): no web push */
   looking: (node: string | undefined) => boolean = () => false;
+  /** fork Needs you 4/6: how long a tailnet device's phone app stream, dropped a moment ago, may still come back (ms; 0:
+   *  it's open, or gone for good). An alert waits that long for it, then goes by push if it didn't */
+  graceLeft: (node: string | undefined) => number = () => 0;
+  /** fork Needs you 4/6: the tags of the alerts made now: one that waited and is gone by then isn't sent */
+  made: Set<string> | null = null;
   /** fork Needs you 3/6: the spaces a tailnet device hears nothing from (muted on all its subscriptions), for its phone
    *  app's glance feed; none when it has no subscription here */
   mutedOn(node: string | null | undefined): string[] {
@@ -490,7 +495,17 @@ export class Push {
   async send({ full: _full, ...alert }: Record<string, unknown> & { topic?: string; place?: string }) {
     const payload = enc(JSON.stringify(alert));
     await Promise.all(this.subs.map(async (s) => {
-      if (this.visible.has(s.endpoint) || this.looking(s.node) || this.quiet(s.node) || !wants(s, alert)) return;
+      if (this.visible.has(s.endpoint) || this.looking(s.node) || !wants(s, alert)) return;
+      if (this.quiet(s.node)) {
+        // its phone app's stream is open: it says it. Dropped a moment ago: wait for it to come back, else push
+        const left = this.graceLeft(s.node);
+        if (left > 0 && !alert.clear && !alert.resolved) setTimeout(() => {
+          if (this.quiet(s.node) && this.graceLeft(s.node) === 0) return;
+          if (this.made && typeof alert.tag === "string" && !this.made.has(alert.tag)) return;
+          if (!this.visible.has(s.endpoint) && !this.looking(s.node) && this.subs.includes(s)) void this.deliver(s, payload).catch(() => 0);
+        }, left + 50);
+        return;
+      }
       // one device's alerts reach its push service in the order they were made
       const sent = (this.sending.get(s.endpoint) ?? Promise.resolve()).then(() => this.deliver(s, payload)).catch(() => 0);
       this.sending.set(s.endpoint, sent);

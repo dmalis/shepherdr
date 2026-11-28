@@ -172,6 +172,9 @@ inbox.onChange = () => model.rebuild();
 // that device gets no web push, never two notifications of one alert
 const glance = new GlanceFeed();
 push.quiet = (node) => glance.quiet(node);
+// fork Needs you 4/6: a phone app's stream dropped a moment ago may come back and say the alert itself; if it doesn't
+// within its grace, the push goes after all
+push.graceLeft = (node) => glance.graceLeft(node);
 // fork Needs you 3/6: a phone app follows its device's choice: nothing from a space it muted, its level (Off: nothing)
 glance.muted = (device) => push.mutedOn(device);
 glance.level = (device) => push.levelOn(device);
@@ -243,18 +246,7 @@ const newsOf = (key: string) => lastWords(key) ?? news.get(key)?.said ?? null;
 function alertNew(snap: any) {
   // their words: service/push.ts alertsOf
   const now = alertsOf(snap, lastSaid);
-  // the phone's and watch's glance, with these same words (service/glance.ts)
-  try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
   waitingNow = { count: waiting(snap).count, tags: waitingTags(now) };
-  // fork Needs you 4/6: each alert once per action, kept on disk before any is sent; how each closed action ended
-  const alerted = ledger.prior(now);
-  const out = alerted ? pushChanges(alerted, now, waitingNow.count, waitingNow.tags) : [];
-  if (snap.attention) ledger.track(snap.attention);
-  ledger.keep(now);
-  ledger.save();
-  // a device with the app on screen hears it there, as a notice of the app's own (none when its card is on screen);
-  // every other device by push
-  for (const { key, ...a } of out) { if (!BELL_ONLY.includes(a.topic)) live.alert(eventOf(key, a)); void push.send(a); }
   // fork #37: an open alert from a machine that can't be reached stays open until it can say what happened
   const off = new Set((snap.machines ?? []).filter((m: any) => m.status === "off").map((m: any) => m.machine));
   const away = (x: { task?: string; place?: string }) => {
@@ -263,6 +255,19 @@ function alertNew(snap: any) {
     const m = x.task?.includes(":") ? x.task.slice(0, x.task.indexOf(":")) : null;
     return !!m && (off.has(m) || !(snap.machines ?? []).some((q: any) => q.machine === m));
   };
+  // fork Needs you 4/6: each alert once per action, kept on disk before it goes anywhere (the glance feed, the app on
+  // screen, a push); how each closed action ended. One whose machine can't be read isn't closed (nor sent again later).
+  const alerted = ledger.prior(now);
+  let out = alerted ? pushChanges(alerted, now, waitingNow.count, waitingNow.tags) : [];
+  if (snap.attention) ledger.track(snap.attention, away);
+  ledger.keep(now);
+  if (!ledger.save()) { ledger.unsend(out.map((a) => a.key)); out = []; }
+  push.made = new Set([...now.values()].map((a) => a.tag).filter(Boolean) as string[]);
+  // the phone's and watch's glance, with these same words (service/glance.ts)
+  try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
+  // a device with the app on screen hears it there, as a notice of the app's own (none when its card is on screen);
+  // every other device by push
+  for (const { key, ...a } of out) { if (!BELL_ONLY.includes(a.topic)) live.alert(eventOf(key, a)); void push.send(a); }
   inbox.record(alerted as Map<string, any> | null, now, away);
 }
 compat.agents = new Agents(hub);
@@ -877,6 +882,8 @@ async function doAction(body: any): Promise<Response> {
       const card = body.card && typeof body.card.chat === "string" ? { address: asker ?? compat.addrOf(body.card.chat) ?? "" } : undefined;
       if (card && !card.address) throw new Error("That agent isn't here any more.");
       await secrets.keep(body.level, body.name, typeof body.value === "string" ? body.value : null, card);
+      // fork Needs you 4/6: that card was answered (a late tap on its alert says so)
+      if (body.card && typeof body.card.chat === "string" && typeof body.card.id === "string") ledger.touch([`${body.card.chat}#${body.card.id}`]);
       if (body.name === "ELEVENLABS_API_KEY") forgetKey();
       await refreshSecrets();
       return json({ ok: true });
@@ -955,8 +962,9 @@ async function doAction(body: any): Promise<Response> {
     const r = await act(hub, body, compat);
     // fork Needs you 4/6: the person answered there (a card, a message, an accept, keys in its terminal): an action of
     // that chat or task that closes now was answered, not moved on by itself (a late tap on its alert says so)
-    if ((r as any)?.ok !== false && ANSWERS.has(body?.type)) ledger.touch([typeof body.chat === "string" ? body.chat : null, typeof body.task === "string" ? body.task : null,
-      typeof body.chat === "string" && body.chat.includes("/") ? body.chat.slice(0, body.chat.lastIndexOf("/")) : null]);
+    // An answer names its card: only that card was answered.
+    if ((r as any)?.ok !== false && ANSWERS.has(body?.type)) ledger.touch(body.type === "answer" && typeof body.question === "string" && typeof body.chat === "string"
+      ? [`${body.chat}#${body.question}`] : [typeof body.chat === "string" ? body.chat : null, typeof body.task === "string" ? body.task : null]);
     // personal analytics: that it happened and how, never what was said (service/analytics.ts)
     if (body?.type === "send" && typeof body.chat === "string" && !body.was) note("message.sent", { chat: body.chat, how: howOf(body.how) });
     else if (body?.type === "answer" && typeof body.chat === "string")

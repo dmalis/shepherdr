@@ -1445,6 +1445,8 @@ export type WorktreeAsk = { task: string } & ({ what: 'dir'; path?: string } | {
 export interface InboxItem {
   /** the push alert it records (service/push.ts alertsOf's key): what resolves it */
   key?: string
+  /** fork Needs you 4/6: the open action it was about (its link names it too): a new round under the same key is a new row */
+  action?: string
   id: string
   at: number
   title: string

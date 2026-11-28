@@ -22,13 +22,13 @@ const snapOf = (o: { ask?: string; ready?: number; done?: boolean } = {}, now = 
 } as any, now);
 
 /** one tick of the service (main.ts alertNew): the alerts made, what goes out, what is kept */
-function tick(l: AlertLedger, snap: any) {
+function tick(l: AlertLedger, snap: any, away: (r: { task?: string }) => boolean = () => false) {
   const now = alertsOf(snap);
   const before = l.prior(now);
-  const out = before ? pushChanges(before as any, now, 1) : [];
-  l.track(snap.attention);
+  let out = before ? pushChanges(before as any, now, 1) : [];
+  l.track(snap.attention, away);
   l.keep(now);
-  l.save();
+  if (!l.save()) { l.unsend(out.map((a) => a.key)); out = []; }
   return out.map((a) => a.key);
 }
 
@@ -93,9 +93,9 @@ test("a closed action says how it ended: answered when the person acted on its c
   const l = new AlertLedger(fileIn(), () => at);
   tick(l, snapOf({ ask: "q1" }));
   expect(l.outcome("need:SHOP-1/worker:q1")).toBeNull();
-  // answered from its card
+  // answered from its card (main.ts: an answer touches its card)
   at += 1000;
-  l.touch(["SHOP-1/worker", "SHOP-1"]);
+  l.touch(["SHOP-1/worker#q1"]);
   at += 1000;
   tick(l, snapOf());
   expect(l.outcome("need:SHOP-1/worker:q1")).toMatchObject({ outcome: "answered", what: "Deploy now?", task: "SHOP-1", card: "q1", place: "sp1" });
@@ -140,4 +140,52 @@ test("a broken file starts as the first run (nothing is sent for what waits)", (
   const l = new AlertLedger(file, () => T0);
   expect(l.known).toBe(false);
   expect(tick(l, snapOf({ ask: "q1" }))).toEqual([]);
+});
+
+test("a card answered is answered; another card of the same task that went by itself moved on", () => {
+  let at = T0;
+  const l = new AlertLedger(fileIn(), () => at);
+  tick(l, snapOf({ ask: "q1" }));
+  at += 1000;
+  // the person answered another card (q0) of this chat, and accepted nothing: q1 went by itself
+  l.touch(["SHOP-1/worker#q0", "SHOP-1"]);
+  at += 1000;
+  tick(l, snapOf());
+  expect(l.outcome("need:SHOP-1/worker:q1")?.outcome).toBe("moved");
+  // a message in its chat answers what it asked
+  at += 1000;
+  tick(l, snapOf({ ask: "q2" }));
+  at += 1000;
+  l.touch(["SHOP-1/worker"]);
+  at += 1000;
+  tick(l, snapOf());
+  expect(l.outcome("need:SHOP-1/worker:q2")?.outcome).toBe("answered");
+});
+
+test("a machine away for long: its question isn't closed, nor sent again when it's back", () => {
+  let at = T0;
+  const l = new AlertLedger(fileIn(), () => at);
+  tick(l, snapOf());
+  expect(tick(l, snapOf({ ask: "q1" }))).toEqual(["need:SHOP-1/worker:q1"]);
+  // its machine can't be read: the snapshot lacks the question for an hour (a restart lost its last read too)
+  const away = () => true;
+  for (let i = 0; i < 6; i++) { at += GONE_GRACE_MS; tick(l, snapOf(), away); }
+  expect(l.outcome("need:SHOP-1/worker:q1")).toBeNull();
+  // back, the same question still waiting: nothing again
+  at += 1000;
+  expect(tick(l, snapOf({ ask: "q1" }))).toEqual([]);
+});
+
+test("nothing goes while what was sent can't be kept; it goes once it can", () => {
+  let at = T0;
+  const dir = mkdtempSync(join(tmpdir(), "ledger-"));
+  const l = new AlertLedger(join(dir, "alerted.json"), () => at);
+  tick(l, snapOf());
+  // the folder can't be written (a full disk, a read-only folder)
+  (l as any).file = join(dir, "missing", "alerted.json");
+  at += 1000;
+  expect(tick(l, snapOf({ ask: "q1" }))).toEqual([]);
+  (l as any).file = join(dir, "alerted.json");
+  at += 1000;
+  expect(tick(l, snapOf({ ask: "q1" }))).toEqual(["need:SHOP-1/worker:q1"]);
 });

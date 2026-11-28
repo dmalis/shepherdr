@@ -220,3 +220,15 @@ test("last seen is written every 10 minutes of steady use, not only after a gap"
   const disk = JSON.parse(readFileSync(file, "utf8"))[0].seen;
   expect(disk).toBeGreaterThanOrEqual(1_000_000 + 20 * 60_000);
 });
+
+// fork Needs you 4/6: the bell is passive, keyed as delivery is: a task Ready again (another review round) between two
+// reads closes the old row and adds a new one, whose link names the new round
+test("a task Ready again is a new row; the old round's row closes", () => {
+  const box = new Inbox(join(dir(), "inbox.json"));
+  const ready = (needsAt: number) => alertsOf({ ...snap({ ready: true }), tasks: snap({ ready: true }).tasks.map((t) => ({ ...t, needsAt })) } as any);
+  box.record(alertsOf(snap()), ready(1));
+  box.record(ready(1), ready(2));
+  const rows = box.list().filter((x) => x.key === "ready:HERD-4");
+  expect(rows.map((x) => [x.action, !!x.closed])).toEqual([["review:HERD-4:2", false], ["review:HERD-4:1", true]]);
+  expect(rows[0].url).toContain("action=review%3AHERD-4%3A2");
+});

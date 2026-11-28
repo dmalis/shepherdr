@@ -27,7 +27,7 @@ export const CLOSE_AFTER_MS = 20_000;
  *  it is gone (none: made now) */
 export type Kept = { action?: string; muted?: true; stale?: true; sent?: true; gone?: number };
 /** an action of the person's: what it was, since when this service knows it, and, once gone, since when and how */
-type Rec = { what: string; task?: string; place?: string; chat?: string; card: string | null; seen: number; missing?: number; closed?: number; outcome?: Outcome["outcome"] };
+type Rec = { what: string; kind?: string; task?: string; place?: string; chat?: string; card: string | null; seen: number; missing?: number; closed?: number; outcome?: Outcome["outcome"] };
 type File = { v: 1; sent: Record<string, Kept>; actions: Record<string, Rec>; touched: Record<string, number> };
 
 /** a made alert as push.ts alertsOf has it (only what is kept) */
@@ -56,14 +56,14 @@ export class AlertLedger {
   }
 
   /** the alerts before this snapshot's, as push.ts pushChanges and the bell compare: the ones made last (or kept from
-   *  before a restart) and the ones gone less than 10 minutes, less any whose key now names another action (a new
-   *  round). null: the first run ever, nothing is new. */
+   *  before a restart) and the ones gone less than 10 minutes, or longer while their action isn't known to be closed (a
+   *  machine away for long, read again with the same question: not new), less any whose key now names another action
+   *  (a new round). null: the first run ever, nothing is new. */
   prior(now: Map<string, Made>): Map<string, Kept> | null {
     if (!this.known && !this.primed) return null;
-    const at = this.clock();
     const out = new Map<string, Kept>();
     for (const [k, v] of this.sent) {
-      if (v.gone && at - v.gone >= GONE_GRACE_MS) continue;
+      if (this.expired(v)) continue;
       const a = now.get(k)?.action;
       if (a && v.action && a !== v.action) continue;
       out.set(k, v);
@@ -77,7 +77,7 @@ export class AlertLedger {
     const at = this.clock();
     for (const [k, v] of this.sent) if (!now.has(k)) {
       if (!v.gone) { this.sent.set(k, { ...v, gone: at }); this.dirty = true; }
-      else if (at - v.gone >= GONE_GRACE_MS) { this.sent.delete(k); this.dirty = true; }
+      else if (this.expired(v)) { this.sent.delete(k); this.dirty = true; }
     }
     for (const [k, a] of now) {
       const v: Kept = { ...(a.action ? { action: a.action } : {}), ...(a.muted ? { muted: true as const } : {}), ...(a.stale ? { stale: true as const } : {}), ...(a.sent ? { sent: true as const } : {}) };
@@ -88,7 +88,21 @@ export class AlertLedger {
     this.primed = true;
   }
 
-  /** the person acted on a chat or a task (POST /api/action: an answer, a message, an accept) */
+  /** an alert gone 10 minutes is gone, unless its action is still open: not seen closed (its machine away) */
+  private expired(v: Kept) {
+    if (!v.gone || this.clock() - v.gone < GONE_GRACE_MS) return false;
+    const r = v.action ? this.actions.get(v.action) : undefined;
+    return !r || !!r.missing || !!r.closed;
+  }
+
+  /** alerts made but not kept (the file couldn't be written): none of them went, so they are new next time */
+  unsend(keys: string[]) {
+    for (const k of keys) this.sent.delete(k);
+    this.dirty = true;
+  }
+
+  /** the person acted on a chat or a task (POST /api/action: an answer, a message, an accept), or on one card of a
+   *  chat (`<chat>#<card>`: its answer, its secret filled in) */
   touch(keys: (string | null | undefined)[]) {
     const at = this.clock();
     for (const k of keys) if (k) { this.touched.set(k, at); this.dirty = true; }
@@ -98,20 +112,26 @@ export class AlertLedger {
    *  20 seconds (a snapshot read while machines are still coming back can lack it a moment). How it ended is judged as
    *  it goes: answered if the person acted on its chat or task since it was first seen, else moved on. A machine that
    *  can't be read keeps its actions (Needs you 5/6's keepLast), so they don't close. */
-  track(att: Attention) {
+  track(att: Attention, away: (r: { task?: string; place?: string }) => boolean = () => false) {
     const at = this.clock();
     const open = new Set<string>();
     for (const a of att.actions) {
       if (a.owner !== "you") continue;
       open.add(a.id);
       const was = this.actions.get(a.id);
-      const rec: Rec = { what: a.what, ...(a.task ? { task: a.task } : {}), ...(a.place ? { place: a.place } : {}), ...(a.chat ? { chat: a.chat } : {}), card: a.card, seen: was && !was.closed ? was.seen : at };
+      const rec: Rec = { what: a.what, kind: a.kind, ...(a.task ? { task: a.task } : {}), ...(a.place ? { place: a.place } : {}), ...(a.chat ? { chat: a.chat } : {}), card: a.card, seen: was && !was.closed ? was.seen : at };
       if (!was || was.closed || was.missing || was.what !== rec.what || was.card !== rec.card || was.chat !== rec.chat) { this.actions.set(a.id, rec); this.dirty = true; }
     }
     for (const [id, r] of this.actions) {
       if (r.closed || open.has(id)) continue;
       if (!r.missing) {
-        const acted = [r.chat, r.task].some((k) => k && (this.touched.get(k) ?? 0) >= r.seen);
+        // its machine can't say now (away, still coming back): not gone, only unread
+        if (away(r)) continue;
+        // a card (a question, a permission) was answered on it, or by a message or keys in its chat; anything else of a
+        // task's by its chat or the task itself (an accept, a resume)
+        const card = r.kind === "prompt" || r.kind === "question";
+        const keys = card ? [r.chat && r.card ? `${r.chat}#${r.card}` : null, r.chat] : [r.chat, r.task];
+        const acted = keys.some((k) => k && (this.touched.get(k) ?? 0) >= r.seen);
         this.actions.set(id, { ...r, missing: at, outcome: acted ? "answered" : "moved" });
       } else if (at - r.missing >= CLOSE_AFTER_MS) this.actions.set(id, { ...r, closed: r.missing });
       else continue;
@@ -131,16 +151,20 @@ export class AlertLedger {
     return { id, outcome: r.outcome, at, what: r.what, ...(r.task ? { task: r.task } : {}), ...(r.place ? { place: r.place } : {}), ...(r.chat ? { chat: r.chat } : {}), card: r.card };
   }
 
-  /** written only when something changed; a failed write never fails an alert (the next change tries again) */
-  save() {
-    if (!this.dirty) return;
+  /** written only when something changed. False: it couldn't be; nothing may be sent then (it would go again) */
+  save(): boolean {
+    if (!this.dirty) return true;
     const f: File = { v: 1, sent: Object.fromEntries(this.sent), actions: Object.fromEntries(this.actions), touched: Object.fromEntries(this.touched) };
     try {
       const tmp = `${this.file}.tmp`;
       writeFileSync(tmp, JSON.stringify(f), { mode: 0o600 });
       renameSync(tmp, this.file);
       this.dirty = false;
-    } catch {}
+      return true;
+    } catch (err) {
+      console.error(`alerts: couldn't keep what was sent: ${(err as Error).message}`);
+      return false;
+    }
   }
 }
 

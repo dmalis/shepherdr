@@ -28,8 +28,10 @@ export async function fetchOutcome(id: string): Promise<Outcome | null> {
   }
 }
 
-/** where a link's action leads now: open (go to its live card), not judged yet (wait), or closed */
-export function resolveTap(snap: Snapshot, ui: Pick<UI, 'task' | 'max' | 'jump' | 'chatLink'>, id: string, waited: number):
+/** where a link's action leads now: open (go to its live card), not judged yet (wait), or perhaps closed (the service
+ *  says). Missing from a snapshot read before the tap (a page that was in the background) proves nothing: only one read
+ *  since (fresh), with its task listed and no machine still coming back, may say it went; or a long enough wait. */
+export function resolveTap(snap: Snapshot, ui: Pick<UI, 'task' | 'max' | 'jump' | 'chatLink'>, id: string, waited: number, fresh = true):
   | { open: { url: string | null; jump: string | null } }
   | { wait: true }
   | { closed: { task: string | null } } {
@@ -40,27 +42,49 @@ export function resolveTap(snap: Snapshot, ui: Pick<UI, 'task' | 'max' | 'jump' 
     const there = !a.task || a.task === ui.task || a.task === ui.max
     return { open: { url: there ? null : actionUrl(snap, a).replace(/&action=[^&]*/, ''), jump: a.card && a.card !== ui.jump ? a.card : null } }
   }
-  if (!settled(snap, task) && waited < WAIT_MS) return { wait: true }
+  if (!(fresh && settled(snap, task)) && waited < WAIT_MS) return { wait: true }
   return { closed: { task } }
 }
+
+/** the action the page was opened with (a cold start from an alert): every snapshot it has is read after that tap */
+let coldAction: string | null = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('action')
+
+/** since when this page is on screen (a page on screen and linked has a live snapshot; one just back has an old one) */
+let shownSince = Date.now()
+if (typeof document !== 'undefined')
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') shownSince = Date.now()
+  })
+/** a page on screen this long, linked, reads every change as it comes */
+const LIVE_MS = 3000
 
 /** the link's action, once the snapshot can say where it is */
 export function LinkResolver() {
   const snap = useSnap()
   const id = useUI((u) => u.action ?? null)
-  const since = useRef<{ id: string; at: number } | null>(null)
+  // the tap: its action, when, the snapshot the page had then (none: a cold start), and whether the service is being asked
+  const since = useRef<{ id: string; at: number; snap: Snapshot | null; asking: boolean } | null>(null)
   const [, tick] = useState(0)
   useEffect(() => {
-    if (!snap || !id) return
-    if (since.current?.id !== id) since.current = { id, at: Date.now() }
+    if (!id) return
+    if (since.current?.id !== id) {
+      // a cold start, or a tap on a page that was on screen and linked all along (a notice's Open): what it has is now
+      const live = document.visibilityState === 'visible' && Date.now() - shownSince > LIVE_MS && !getState().ui.offline
+      since.current = { id, at: Date.now(), snap: id === coldAction || live ? null : snap, asking: false }
+      coldAction = null
+    }
+    const tap = since.current
+    if (!snap || tap.asking) return
     const ui = getState().ui
-    const r = resolveTap(snap, ui, id, Date.now() - since.current.at)
-    if ('wait' in r) {
+    const waited = Date.now() - tap.at
+    const r = resolveTap(snap, ui, id, waited, snap !== tap.snap)
+    const again = () => {
       const t = setTimeout(() => tick((n) => n + 1), 1000)
       return () => clearTimeout(t)
     }
-    setUI({ action: null })
+    if ('wait' in r) return again()
     if ('open' in r) {
+      setUI({ action: null })
       if (r.open.url) openLink(r.open.url)
       else if (r.open.jump) {
         const task = ui.task ?? ui.max ?? null
@@ -68,7 +92,16 @@ export function LinkResolver() {
       }
       return
     }
-    void fetchOutcome(id).then((o) => notice(outcomeWords(o ?? { outcome: 'moved', what: '', task: r.closed.task ?? undefined })))
+    // the service says how it ended; it doesn't know yet (still open there, a snapshot behind): ask again a while
+    tap.asking = true
+    void fetchOutcome(id).then((o) => {
+      tap.asking = false
+      if (getState().ui.action !== id) return
+      if (!o && Date.now() - tap.at < WAIT_MS) return tick((n) => n + 1)
+      setUI({ action: null })
+      // never heard of (a link older than a week): its task or chat is open, nothing to add
+      if (o) notice(outcomeWords(o))
+    })
   })
   return null
 }
@@ -88,16 +121,17 @@ const taskOfUrl = (url?: string) => {
   }
 }
 
-/** is an alert's card on screen now: its task's chat open, or its space's chat for one with no task */
+/** is an alert's card on screen now: its task's chat open, or its space's chat for one with no task; not one shown as
+ *  its agent's terminal (View as terminal: no cards there) */
 export function cardOnScreen(snap: Snapshot, ui: UI, e: Pick<AlertEvent, 'task' | 'place' | 'url'>): boolean {
-  const shown = visibleChats(ui, snap)
+  const shown = (chat: string) => visibleChats(ui, snap).includes(chat) && !ui.aterm?.[chat]
   const task = e.task ?? taskOfUrl(e.url)
   if (task) {
     const t = taskOf(snap, task)
-    return !!t && shown.includes(taskChat(t))
+    return !!t && shown(taskChat(t))
   }
   const p = e.place ? snap.places.find((x) => x.id === e.place) : undefined
-  return !!p && ui.at === p.id && shown.includes(p.chat)
+  return !!p && ui.at === p.id && shown(p.chat)
 }
 
 /** each alert once on this screen (the service sends it once, the service worker hands over a push that lands anyway):

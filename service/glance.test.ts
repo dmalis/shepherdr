@@ -554,3 +554,63 @@ test("looking: a page on screen, visible but not focused, counts; hidden doesn't
   l.message(old.ws, JSON.stringify({ type: "watch", chats: [], term: null, visible: true, push: "https://push.example.test/old" }));
   expect(l.looking(MAC)).toBe(true);
 });
+
+// fork Needs you 4/6: one way per device. A done task said by the app on screen isn't said again by its phone app.
+test("a done task that came while the phone's page was on screen doesn't notify in its phone app either", () => {
+  const looking = new Set<string>();
+  const f = new GlanceFeed(() => NOW, 0);
+  f.looking = (d) => looking.has(d);
+  f.level = () => "Needs you and done";
+  f.stream(PHONE, true);
+  f.stream(MAC, true);
+  const base = snapOf();
+  f.set(doc(base));
+  looking.add(PHONE);
+  const done = { ...base, tasks: base.tasks.map((t: any, i: number) => (i === 0 ? { ...t, status: "done", doneAt: NOW - 1000 } : t)) };
+  f.set(doc(done));
+  const key = f.docFor(MAC)!.items.find((i: any) => i.kind === "done" && i.alert)?.key;
+  expect(key).toBeTruthy();
+  expect(alertOf(f.docFor(PHONE), key!)).toBe(false);
+});
+
+// fork Needs you 4/6: a phone app whose stream dropped a moment ago may come back and say it; if it doesn't within its
+// grace, the push goes after all (never nothing at all), unless the alert went meanwhile
+test("an alert while a phone app's stream is dropped waits out its grace, then goes by push if it didn't come back", async () => {
+  let now = NOW;
+  const f = new GlanceFeed(() => now, 0);
+  const p = new Push(() => "https://example.test", join(dir, `push-${Math.random()}.json`));
+  p.quiet = (n) => f.quiet(n);
+  p.graceLeft = (n) => f.graceLeft(n);
+  p.subscribe(await fakeSub(1), "Android", undefined, PHONE);
+  const s = await reader(f.stream(PHONE, true));
+  await s.cancel();
+  now += NATIVE_GRACE_MS - 100;
+  expect(f.graceLeft(PHONE)).toBe(100);
+  p.made = new Set(["t1", "t2"]);
+  await p.send({ title: "HERD-5 · Needs you", body: "x", topic: "needs", tag: "t1" });
+  expect(hits).toEqual([]);
+  now += 200;
+  await new Promise((r) => setTimeout(r, 250));
+  expect(hits).toEqual(["dev1"]);
+  // came back in time: its app says it, no push
+  hits = [];
+  now = NOW + 10 * NATIVE_GRACE_MS;
+  const s2 = await reader(f.stream(PHONE, true));
+  await s2.cancel();
+  now += NATIVE_GRACE_MS - 100;
+  await p.send({ title: "HERD-5 · Needs you", body: "x", topic: "needs", tag: "t2" });
+  const s3 = await reader(f.stream(PHONE, true));
+  now += 200;
+  await new Promise((r) => setTimeout(r, 250));
+  expect(hits).toEqual([]);
+  await s3.cancel();
+  // the alert went meanwhile (answered elsewhere): nothing late
+  now = NOW + 20 * NATIVE_GRACE_MS;
+  const s4 = await reader(f.stream(PHONE, true));
+  await s4.cancel();
+  now += NATIVE_GRACE_MS - 100;
+  await p.send({ title: "HERD-5 · Needs you", body: "x", topic: "needs", tag: "t3" });
+  now += 200;
+  await new Promise((r) => setTimeout(r, 250));
+  expect(hits).toEqual([]);
+});

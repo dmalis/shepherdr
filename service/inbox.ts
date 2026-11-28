@@ -11,7 +11,7 @@ export const KEEP_MS = 7 * 24 * 3600_000;
 export const KEEP_MAX = 200;
 
 /** what an alert (service/push.ts alertsOf) gives its record */
-export type Made = { title: string; body: string; tag: string; topic: string; place?: string; url?: string; waits?: true; full?: { title: string; body: string } };
+export type Made = { title: string; body: string; tag: string; topic: string; place?: string; url?: string; waits?: true; action?: string; full?: { title: string; body: string } };
 
 /** the task an alert opens: its link's task= */
 function taskOf(url: string | undefined) {
@@ -51,15 +51,19 @@ export class Inbox {
     let changed = this.prune();
     const at = this.clock();
     if (before) for (const [id, a] of now) {
-      if (before.has(id)) continue;
-      // still open from before (its machine was away a moment): the same alert, not a new one
-      if (this.items.some((x) => (x.key ?? x.id) === id && x.waits && !x.closed)) continue;
+      // fork Needs you 4/6: the same key about another action (a new round) is new
+      if (before.has(id) && (!a.action || !before.get(id)!.action || before.get(id)!.action === a.action)) continue;
+      // still open from before (its machine was away a moment): the same alert, not a new one. fork Needs you 4/6: one
+      // about another action under the same key (a task Ready again) closes the old row, and is a new one
+      const open = this.items.find((x) => (x.key ?? x.id) === id && x.waits && !x.closed);
+      if (open && (!open.action || !a.action || open.action === a.action)) continue;
+      if (open) open.closed = at;
       const task = taskOf(a.url);
       if (a.topic === "assistant") this.items = this.items.filter((x) => !(x.topic === "assistant" && x.tag === a.tag));
       let row = `${id}@${at}`;
       for (let n = 2; this.items.some((x) => x.id === row); n++) row = `${id}@${at}.${n}`;
       this.items.unshift({ id: row, key: id, at, title: a.full?.title ?? a.title, body: a.full?.body ?? a.body, topic: a.topic, tag: a.tag, ...(a.place ? { place: a.place } : {}), ...(task ? { task } : {}),
-        ...(a.url ? { url: a.url } : {}), ...(a.waits ? { waits: true as const } : {}) });
+        ...(a.url ? { url: a.url } : {}), ...(a.waits ? { waits: true as const } : {}), ...(a.action ? { action: a.action } : {}) });
       changed = true;
     }
     for (const x of this.items) {

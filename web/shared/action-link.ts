@@ -68,4 +68,3 @@ export function settled(snap: Pick<Snapshot, 'tasks' | 'machines'>, task: string
   if ((snap.machines ?? []).some((m) => m.connecting)) return false
   return !task || (snap.tasks ?? []).some((t) => t.id === task)
 }
-

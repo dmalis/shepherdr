@@ -386,7 +386,8 @@ export class GlanceFeed {
   /** a new alert (a key the doc before didn't have) is seen on each phone-app device whose page is on screen now; the
    *  first doc after a start marks nothing (what it lists was there before) */
   private mark(doc: Glance) {
-    const now = new Set([...doc.items, ...(doc.events ?? [])].filter((i) => i.alert).map((i) => i.key));
+    // fork Needs you 4/6: a done task too (a device on Needs you and done hears it, docFor): said on screen, not again
+    const now = new Set([...doc.items, ...(doc.events ?? [])].filter((i) => i.alert || (i as Item).kind === "done").map((i) => i.key));
     const fresh = this.keys ? [...now].filter((k) => !this.keys!.has(k)) : [];
     this.keys = now;
     if (fresh.length) for (const d of this.native.keys()) {
@@ -455,6 +456,14 @@ export class GlanceFeed {
     if (!device) return false;
     const n = this.native.get(device);
     return !!n && (n.open > 0 || this.clock() - n.closed < NATIVE_GRACE_MS);
+  }
+
+  /** fork Needs you 4/6: how long device D's native stream, dropped and none open, may still come back (ms; 0: one is
+   *  open, or none dropped lately) */
+  graceLeft(device: string | null | undefined) {
+    const n = device ? this.native.get(device) : undefined;
+    if (!n || n.open > 0) return 0;
+    return Math.max(0, n.closed + NATIVE_GRACE_MS - this.clock());
   }
 
   /** streams open now, for /api/health-like checks and tests */

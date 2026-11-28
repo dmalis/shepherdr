@@ -15,13 +15,18 @@
     "web/plugins/alerts/client.tsx",
     "web/plugins/alerts/links.tsx",
     "web/demo/serve.ts",
-    "docs/glance.md"
+    "docs/glance.md",
+    "service/inbox.ts",
+    "service/voice-data.ts"
   ],
   "tests": [
     "service/alert-ledger.test.ts",
     "service/push.test.ts",
     "service/glance.test.ts",
     "service/inbox.test.ts",
-    "web/plugins/alerts/links.test.tsx"
+    "web/plugins/alerts/links.test.tsx",
+    "service/trust-card.test.ts",
+    "service/voice-data.test.ts",
+    "web/plugins/alerts/space.test.tsx"
   ]
 }

@@ -49,8 +49,11 @@ test("a tap on a closed action waits while its task or a machine is still being 
   expect(resolveTap(snapOf({ listed: false }), ui({ task: 'SHOP-1' }), ID, 1000)).toEqual({ wait: true })
   // waited long enough: closed all the same
   expect(resolveTap(snapOf({ listed: false }), ui({ task: 'SHOP-1' }), ID, WAIT_MS)).toEqual({ closed: { task: 'SHOP-1' } })
-  // all read, the card gone: closed at once
+  // all read, the card gone: closed at once (the service then says how)
   expect(resolveTap(snapOf(), ui({ task: 'SHOP-1' }), ID, 0)).toEqual({ closed: { task: 'SHOP-1' } })
+  // a warm tap on the snapshot the page had in the background (not read since): it proves nothing yet
+  expect(resolveTap(snapOf(), ui({ task: 'SHOP-1' }), ID, 1000, false)).toEqual({ wait: true })
+  expect(resolveTap(snapOf(), ui({ task: 'SHOP-1' }), ID, WAIT_MS, false)).toEqual({ closed: { task: 'SHOP-1' } })
   expect(settled(snapOf(), 'SHOP-1')).toBe(true)
   expect(settled(snapOf(), null)).toBe(true)
 })
@@ -74,6 +77,8 @@ test("an alert's card is on screen only when its task's chat (or its space's, fo
   expect(cardOnScreen(s, ui({ max: 'SHOP-1' }), { url: './?place=sp1&task=SHOP-1&focus=q1' })).toBe(true)
   // the space is open, not the task: the person doesn't see the card
   expect(cardOnScreen(s, ui(), { task: 'SHOP-1' })).toBe(false)
+  // its chat shown as its agent's terminal: no cards there
+  expect(cardOnScreen(s, { ...ui({ task: 'SHOP-1' }), aterm: { 'SHOP-1/worker': true } }, { task: 'SHOP-1' })).toBe(false)
   // a space's own ask: its chat open
   expect(cardOnScreen(s, ui(), { place: 'sp1' })).toBe(true)
   expect(cardOnScreen(s, ui({ at: 'sp2' }), { place: 'sp1' })).toBe(false)

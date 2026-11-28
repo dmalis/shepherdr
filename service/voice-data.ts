@@ -32,6 +32,7 @@ export const SOURCES: Record<string, { about: string; arg?: "task" | "task-or-sp
 export const NOT_DATA: Record<string, string> = {
   "api:ws": "the live snapshot and chats: look data reads the snapshot, look chat the chats",
   "api:action": "the actions themselves (act; their read ones are SOURCES)",
+  "api:outcome": "fork Needs you 4/6: how a closed action a tapped alert names ended, said once as a notice on that tap",
   "api:dictate": "dictation turns speech into text, nothing shown",
   "api:upload": "uploads a file to send",
   "api:commands": "the agent's own commands, for the / list in the message box: voice says a command by itself",
