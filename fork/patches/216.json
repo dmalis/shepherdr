@@ -5,6 +5,9 @@
     "mods/tasks/bin/herdr_task/task_tmp.py",
     "mods/tasks/bin/herdr_task/github.py",
     "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/link.py",
+    "mods/tasks/bin/herdr_task/machine.py",
+    "mods/tasks/bin/herdr_task/queues.py",
     "mods/tasks/bin/herdr_task/tick.py",
     "mods/tasks/bin/herdr_task/commands.py",
     "mods/tasks/bin/herdr_task/automations.py",
@@ -20,12 +23,18 @@
     "docs/develop.md",
     "docs/agents-and-terms.md",
     "test/test_task_tmp.py",
+    "test/test_machine_disk_files.py",
     "service/shells-tmp.test.ts"
   ],
   "tests": [
     "test/test_task_tmp.py",
+    "test/test_task_tmp.py::TaskTmp",
+    "test/test_task_tmp.py::WhereTaskTmp",
+    "test/test_task_tmp.py::SystemdTmpfiles",
+    "test/test_task_tmp.py::SharedWords",
     "test/test_task_tmp.py::RunInATasksTemp",
-    "test/test_task_tmp.py::ShortTaskTmp",
+    "test/test_machine_disk_files.py",
+    "test/test_review_sandbox.py",
     "service/shells-tmp.test.ts",
     "test/test_herdr_task.py::CleanEnv",
     "test/test_herdr_task.py::DetachedActions",
@@ -33,6 +42,7 @@
     "test/test_herdr_task.py::ReviewerLine",
     "test/test_herdr_task.py::CodexBatch278",
     "test/test_herdr_task.py::SquashMergedWorktreesGo",
-    "test/test_herdr_task.py::DoneWorktreesGo"
+    "test/test_herdr_task.py::DoneWorktreesGo",
+    "test/test_herdr_task.py::DiskHoldSaysWhatFillsIt"
   ]
 }

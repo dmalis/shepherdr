@@ -140,7 +140,7 @@ lists the hosts it could try, and tries each once only with `--go`.
 ~/.local/share/shepherdr/     tasks/, artifacts/, secrets/ (owner-only), worktrees/, and Shepherdr's own code
 ~/.local/state/shepherdr/     service/ (its token and log), browser/ (the agents' sign-ins), secret-drop/
 ~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr)
-~/.shep-tmp/                  tasks' temp folders (owner-only, safe to delete when no task runs)
+/var/tmp/shepherdr/           tasks' temp folders on Linux, macOS: ~/.shep-tmp/ (owner-only, safe to delete when no task runs)
 ```
 
 `SHEPHERDR_HOME=<folder>` puts all four under `<folder>/{config,data,state,cache}`. Otherwise `XDG_CONFIG_HOME`,
@@ -154,22 +154,27 @@ there: at once when it finishes with its agents ended, else at the scheduler's n
 uncommitted changes, a terminal open in it, or commits after the merge that main doesn't have (offered as a follow-up)
 stays, and is looked at again every hour; one made Done by hand with its work unmerged stays until you remove it.
 
-Each task gets a temp folder of its own, `~/.shep-tmp/<task>` (on macOS too; `<task>` is a short code, like
-`k3x9q2`), made when its agent starts, or when you open the task's terminal first. It is kept short on purpose: tools
-make sockets in their temp folder (tmux, ssh, language servers, test runners), and a socket's path can't be longer
-than about 100 bytes, so a longer folder, like the cache folder copies before this used (`~/.cache/shepherdr/tmp`,
-macOS `~/Library/Caches/shepherdr/tmp`), made them fail. A task that still has one there moves to the short one at
-its next start (or when you open its terminal), and Shepherdr still removes the old ones. Only you can open
-`~/.shep-tmp`, and backup tools that honour `CACHEDIR.TAG` skip it. With `SHEPHERDR_HOME` set, it is
-`$SHEPHERDR_HOME/.shep-tmp` instead. It has room for a socket's name of 60 bytes with a home folder up to 26 bytes long
-(`/Users/` and a 19-letter name). Its agent and that terminal get it as `TMPDIR`,
-`TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust
-all use `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
-Shepherdr never deletes it while something uses it: the task's agents, their helpers, or its terminal in the web app.
-Otherwise it goes once the task is Done and its agents have ended, and at once when the task is removed. The scheduler
-also looks, when it starts and every 10 minutes after: it removes a Done task's folder once nothing uses it, and any
-other one nothing has used or changed for an hour, such as a removed task's or one a crash left behind (the task's
-next start makes a fresh one). Its reviewer gets it too: `hc run` has no way to set a variable, so the brief's
+Each task gets a temp folder of its own: `/var/tmp/shepherdr/<task>` on Linux (`<task>` is a short code, like
+`k3x9q2`), on disk where systemd keeps long-lived temporary files, since `/tmp` is often a tmpfs held in memory with
+file slots shared by everything. On macOS, on a machine whose `/var/tmp` isn't a local disk, and for an install with
+`SHEPHERDR_HOME` set, it is `~/.shep-tmp/<task>` (`$SHEPHERDR_HOME/.shep-tmp`). It is made on the machine that runs the
+task, when its agent starts or when you open the task's terminal first. Only you can open it, and backup tools that
+honour `CACHEDIR.TAG` skip it. It is kept short on purpose: tools make sockets there (tmux, ssh, language servers, test
+runners), and a socket's path can't be longer than about 100 bytes, so 60 bytes are left for a socket's name (in
+`~/.shep-tmp`, with a home folder up to 26 bytes long). Its agent and that terminal get it as `TMPDIR`, `TMP` and
+`TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust all use
+`TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
+Everything run for the task holds a lock on its folder while it runs (a shared `flock`): its agent, the shell its
+terminal keeps after it, its terminal in the web app and its background actions; one that can't take the lock (the
+folder is being removed) uses the machine's own temp folder instead. systemd-tmpfiles' clean-up of `/var/tmp` skips a
+locked folder, and ages an unlocked one's files after 30 days. Only Shepherdr removes a folder, and never while it is
+locked or herdr-core still lists a terminal of the task, its reviewer and helpers too, even after the task is
+removed: when the task is Done and its agents have ended, when it is removed, and by the scheduler, when it starts
+and every 10 minutes after, once its task is Done or gone and an hour has passed since it was last used. When that
+can't be told, it stays. A start held because a disk is full (its space or its file slots, on the home, `/tmp` or
+the disk the temp folders are on, which the Machines card shows too) has that clean-up run at once, then looks again. Folders older copies made (`~/.shep-tmp` on
+Linux, `~/.cache/shepherdr/tmp`) are removed where they are by the same rules; a task's next start gets a new one. Its
+reviewer gets it too: `hc run` has no way to set a variable, so the brief's
 Reviewer line passes it with `env`, and the worker template asks the same for any other helper the agent starts.
 
 ## Uninstall

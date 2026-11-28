@@ -273,6 +273,12 @@ def machine_hold():
         limits = _hold.get("limits") if _hold.get("limits") is not None else machine_limits(_hold.get("machine"))
         h = sample()
         why = hold_reason(h, limits)
+        if why and why.startswith("disk"):
+            # dmalis/shepherdr#216: task temp folders nothing needs go first (a safe sweep, rate-limited), then a new look
+            from .task_tmp import pressed
+            if pressed():
+                h = sample()
+                why = hold_reason(h, limits)
         if why and why.startswith("disk") and "file slots" not in why:
             # SHEP-275: what fills it, once a look in the background found out.
             disks = h.get("disks") or []

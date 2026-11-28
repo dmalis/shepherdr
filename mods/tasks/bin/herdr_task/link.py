@@ -214,11 +214,22 @@ def again(machine, argv, call):
 # `herdr-task _job <job>` waits for it again (core/pending.js). A person's own terminal runs actions as always.
 
 def local_start(job, argv, entry):
+    # dmalis/shepherdr#216: a job started from a task's terminal holds its temp folder's lock while it runs (its files
+    # are there), so the task ending meanwhile never removes the folder under it; one it can't hold (being removed) it
+    # doesn't use: the machine's own temp folder instead
+    from .task_tmp import hold, _ours, VARS
+    tmp = os.environ.get("TMPDIR")
+    fd = hold(tmp)
+    env = {k: v for k, v in os.environ.items() if k not in VARS} if fd is None and _ours(tmp) else None
     try:
         subprocess.Popen(["sh", "-c", RUN, "sh", job, entry, *argv], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True, pass_fds=(fd,) if fd is not None else (),
+                         env=env)
     except OSError as e:
         return _say(argv, 1, {"error": f"Couldn't start it: {e}"})
+    finally:
+        if fd is not None:
+            os.close(fd)
     return None
 
 
