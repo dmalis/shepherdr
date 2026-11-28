@@ -387,8 +387,12 @@ const cardsDay = (s: Snapshot): Snapshot => ({ ...s, tasks: [...s.tasks,
   ...MORE_STOPPED.map((name, i) => task(`SHOP-5${i}`, name, P.shop, 'need', { needsAt: NOW - (70 - i * 15) * min, stopped: { by: 'error', why: 'its session ended' }, report: { msg: 'Working on it', progress: 40, paused: true } }))] })
 
 // ?case=radar (dmalis/shepherdr "Radar: one place for work coming in"): the clickable prototype's day (radar.ts). Its
-// one card that needs you is a Triage card in #shop's chat, so Needs you counts it as every other card
-const radarDayOf = (s: Snapshot): Snapshot => ({ ...s, triage: radarTriage(NOW, P.shop), radar: radarDay(NOW) } as Snapshot)
+// one card that needs you is a Triage card in #shop's chat, so Needs you counts it as every other card. #shop's
+// payment question is answered that day (serve.ts answers it in the chat too): no "1 question below" covers its Yes
+const radarDayOf = (s: Snapshot): Snapshot => ({ ...s, triage: radarTriage(NOW, P.shop), radar: radarDay(NOW),
+  tasks: s.tasks.map((t) => (t.id === RADAR_PAID ? { ...t, status: 'work', state: 'work', needsAt: undefined, blocked: undefined, ...(t.agent ? { agent: { ...t.agent, status: 'work' } } : {}), report: { msg: 'Switching to Stripe', progress: 45 } } : t)) } as Snapshot)
+/** the task whose question `?case=radar` shows answered */
+export const RADAR_PAID = 'SHOP-14'
 
 const HANDUP: Record<string, Partial<Task>> = {
   'EV-13': { wait: { id: 'w-ev13', gen: 1, kind: 'reply', first: NOW - 20 * min, deadline: NOW - 15 * min, up: LEVELS_UP } },

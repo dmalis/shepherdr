@@ -155,6 +155,8 @@ export function TriageCardView({ c, backlog = false }: { c: TriageCard; backlog?
         {!comment && <b>{c.title}</b>}
         {c.body && <pre>{c.body}</pre>}
       </div>
+      {/* fork #406: what else Yes does, right above it (the Radar prototype's card: a fix starts too) */}
+      {c.then && !c.cut && <span className="s">{c.then}</span>}
       <div className="acts">
         <ActBtn acts={acts} id="no" busy="Saving…" run={say('no')}>{start ? 'No' : 'No, keep it private'}</ActBtn>
         {!c.cut && <ActBtn acts={acts} id="yes" kind="pri" busy="Saving…" run={say('yes')}>{start ? 'Yes, start a fix' : 'Yes, post it'}</ActBtn>}

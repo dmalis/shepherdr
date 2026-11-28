@@ -10,12 +10,18 @@ export const queue = (items: RadarItem[], project: string) =>
 export const SOURCE: Record<Source, string> = { agents: 'Agents', github: 'GitHub', sentry: 'Sentry', upstream: 'Upstream', you: 'You' }
 export const WORKFLOWS: Workflow[] = ['Start', 'Review', 'Install', 'Chat', 'Phone']
 
+/** after a Yes on its card: posted, and a fix is being built that you review and merge (nothing waits on a merge yet) */
+export const APPROVED = 'Fix being built · you’ll review and merge'
+
+/** the words of an action that only shows a toast here: said on its button, so no one takes it for a real one */
+export const PREVIEW = 'Demo preview'
+
 export function stateWords(i: RadarItem): string {
-  if (i.approved) return 'Approved · waits for your merge'
+  if (i.approved) return APPROVED
   if (i.needs) return 'Needs you'
   switch (i.state) {
     case 'new': return i.later?.returned ? 'Came back' : 'New'
-    case 'next': return 'Next up'
+    case 'next': return i.draft ? 'Draft finished' : 'Next up'
     case 'held': return 'Held back'
     case 'running': return 'Being fixed'
     case 'later': return 'Parked'

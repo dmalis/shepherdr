@@ -1586,6 +1586,8 @@ export interface TriageCard {
   why?: string
   /** what the privacy check found: its kind and line, never the text */
   found?: string[]
+  /** what else its Yes does, said right above Yes (fork #406, Radar's prototype: a fix starts too) */
+  then?: string
 }
 
 /** One draft in Triage's batch card: exactly what Yes posts for it, as a new issue */

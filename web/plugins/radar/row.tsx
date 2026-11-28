@@ -1,11 +1,15 @@
 // Radar's row in the list (the clickable prototype): it comes only where the demo sent a Radar day, so the first
-// screen carries none of it. A grey count while items wait (new and next) and none of them needs you, a red one (the Needs you
-// colour) when one does, the name alone at zero; never a bare icon, as Tasks' own counts.
+// screen carries none of it. Each count opens what it counts. Red (the Needs you colour) when an item's card asks: its
+// own button beside the row, as every red count in the list, and a tap opens that card, as Needs you does (one card:
+// the card; more: the Needs you list). Grey while items are new or next up and none needs you: the row opens All
+// items filtered to exactly those. The name alone at zero; never a bare icon, as Tasks' own counts.
 import { getState, setUI, useUI } from '@client/kernel.ts'
-import { Row } from '@client/ui.tsx'
+import { Cnt, Row } from '@client/ui.tsx'
+import { NeedsCount, openNeeds } from '@client/needs-count.tsx'
 import { attentionOf } from '@shared/attention.ts'
+import { needsItems } from '@shared/needs-open.ts'
 import type { Snapshot } from '@shared/types.ts'
-import { clock, dayOf, rowCount, setView, shownDay, useRadar, type Live, type RadarDemo } from './model.ts'
+import { clock, dayOf, rowCount, setView, shownDay, useRadar, waitingWords, type Live, type RadarDemo, type View } from './model.ts'
 
 export const PAGE = 'radar'
 
@@ -18,18 +22,35 @@ export function liveOf(snap: Snapshot): Live {
   return { cards, answers: radarOf(snap)?.answers ?? {} }
 }
 
-/** open the page: the middle column on a computer, the whole screen on a phone (the Feedback page's way) */
-export function openRadar(item?: string) {
+/** open the page at this view: the middle column on a computer, the whole screen on a phone (the Feedback page's way) */
+export function openRadar(at: Partial<View>) {
   const phone = getState().ui.phone
-  if (item !== undefined) setView({ item, tab: 'all' })
+  setView({ item: null, ...at })
   setUI({ page: PAGE, drawer: false, search: false, settings: null, artWide: false, max: null, ...(phone ? { pane: null, task: null, art: null } : {}) })
+}
+
+/** the Radar items whose cards ask the person, as Needs you opens them: their cards, where they wait */
+export function radarNeeds(snap: Snapshot, cards: string[]) {
+  return needsItems(snap).filter((i) => i.card && cards.includes(i.card))
 }
 
 export function RadarRow({ snap }: { snap: Snapshot }) {
   const { view } = useRadar()
   const day = shownDay(dayOf(radarOf(snap)), view)
   const on = useUI((u) => u.page === PAGE)
-  const { n, red } = rowCount(day, liveOf(snap), clock(Date.now(), view))
-  const words = !n ? 'Radar' : red ? `Radar, ${n} ${n === 1 ? 'needs' : 'need'} you` : `Radar, ${n} waiting`
-  return <Row icon="pulse" label="Radar" current={on || undefined} aria-label={words} end={n ? <span className={red ? 'cnt needs' : 'cnt'}>{n}</span> : null} onClick={() => openRadar()} />
+  const live = liveOf(snap)
+  const { n, red } = rowCount(day, live, clock(Date.now(), view))
+  // the name: the opening screen, every project; the grey count: exactly what it counts
+  const overview = () => openRadar({ tab: 'overview', project: null })
+  if (red) {
+    const asks = radarNeeds(snap, (day?.items ?? []).flatMap((i) => (i.needs && live.cards.has(i.needs.card) ? [i.needs.card] : [])))
+    return (
+      <div className="rowx">
+        <Row icon="pulse" label="Radar" current={on || undefined} onClick={overview} />
+        <NeedsCount n={n} of="Radar" onOpen={() => openNeeds(asks, [...new Set(asks.map((i) => i.place))])} />
+      </div>
+    )
+  }
+  if (n) return <Row icon="pulse" label="Radar" current={on || undefined} aria-label={`Radar, ${waitingWords(n)}`} end={<Cnt n={n} />} onClick={() => openRadar({ tab: 'all', project: null, filter: 'waiting' })} />
+  return <Row icon="pulse" label="Radar" current={on || undefined} onClick={overview} />
 }
