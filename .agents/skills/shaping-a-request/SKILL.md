@@ -74,3 +74,37 @@ new one carries the issue's link in its brief). The issue's text stays as approv
 - **When upstream proposes another approach or asks a question,** come back here.
   1. Weigh the maintainer's reasoning against the need and the research.
   2. Recommend: adopt upstream's way and drop ours, keep ours, or a third way.
+
+## Filing and the handoff
+
+- **The yes is for the exact text.** On the Feedback page: File it… shows the draft and where it goes, and Post it is
+  the yes. In chat: a question card that shows the draft (`herdr-task feedback --file` writes it), then `--approve
+  <rev> --by chat` and `--file --rev <rev>`.
+- **The Feedback note** (`agents.feedback_note`, Everywhere's, in the person's settings file) says before every post
+  what posting starts here: "A new issue posted here also starts a fix in this repo's space" (a comment starts none).
+  An Assistant sets it once, with the person's yes, when it is missing.
+- **Every post becomes work here, once** (`fork/bin/found`). The filing Assistant runs `fork/bin/found` right after it
+  files, and every run of the upstream-sync skill does too (its step 7), so a post found later still goes within a
+  day. It hands each new issue posted on our repo to this space's Assistant (`herdr-task tell-assistant`), sends again
+  until it is taken, and makes nothing for a comment.
+- **On a handoff message** (it names the issue's link): first `fork/bin/found task <issue>`. It names a task: the work
+  is there, add nothing. Else shape it (check upstream first), add it to a running task when it fits (below) or add a
+  task with the issue's link in its brief, then `fork/bin/found took <issue> --task <its key>`. A task added before a
+  lost `took` is still found by that link; a repeated reply lands in the same running task. The issue's text stays as
+  the person approved it: the why, acceptance criteria and where it lives go in the task's brief, and only its labels
+  go on the issue (fork-patch skill).
+- **A pick or a yes in chat that posted nothing** (the person asked for a fix without filing): an issue here, a task
+  with a brief (this skill first), an install right after the merge.
+  - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until an
+    upstream round offers it.
+  - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only` from
+    the start, with why.
+- **When the fix belongs to a running task's area,** add it to that task (`herdr-task reply`) instead of opening a new
+  one, and say so.
+- **Other spaces' task agents** get the friction rule from the Everywhere "When a task starts" notes
+  (`tasks.start_notes`), never from `templates/worker.md`: "Also report with the feedback command at the end of your
+  brief every Shepherdr step that confused you or that you did by hand."
+- **"What else did we find":** first record any friction from the session not recorded yet, then list what waits
+  under Found on the Feedback page, each with its proposed fix: from `herdr-task feedback --list --all --json`, every
+  row the page puts under Found. That leaves out a row filed or being filed (state `filed` or `filing`, or a `url`),
+  declined (state or decision `declined`), or put off (decision `later` with no `until`, or an `until` still ahead).

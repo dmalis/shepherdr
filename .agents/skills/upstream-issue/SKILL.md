@@ -221,3 +221,7 @@ The upstream check (fork-patch skill, step 1) finds these.
      current release, the cost of carrying ours, and your recommendation.
   2. Ask the person one question: "Upstream's way", "Ours", or the third way you found.
   3. If the answer is theirs, the sync drops our patch.
+
+## Also
+
+- No list of fixes waiting for a round is ever sent to the person.

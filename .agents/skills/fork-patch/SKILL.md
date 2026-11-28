@@ -110,3 +110,38 @@ so the cost of a patch is how often a release breaks it. Build for that.
   by hand; later installs keep that first tag) and labels the issue `not-filed`: not offered upstream yet. It stays open, with `not-filed`, until an upstream round the person asks
   for offers it, or they say keep it ours or undo it (upstream-issue skill: "After a fix lands"). Nobody asks them
   about upstream per fix.
+
+## 6. The record on GitHub
+
+The open issues labelled `patch` are the list of what we carry and build.
+
+**Each issue keeps a short status line,** one of:
+- building;
+- carried since `ours-…`, not filed yet;
+- proposed upstream (with the link), or declined upstream (with the link);
+- fork-only (with why);
+- reverted (with the revert's pull request);
+- fixed upstream in `vX.Y.Z`, then dropped.
+
+After it, in plain words: what the fix does and how to try it. An issue with several fixes lists each pull request on
+its status line, with what became of it. The install moves status lines and labels itself (`fork/bin/sync issues`,
+upstream-sync skill, step 7), writing only what changes; "carried since" keeps the first install that carried the fix.
+
+**Labels:**
+- `patch`: a change we carry.
+- `pipeline`: sync, trial and install.
+- `sync-blocked`: a release waits on a patch.
+- `fixed-upstream`: upstream shipped it.
+- `later`: not now.
+- `device-check`: a live fix only a real device can confirm (an iPhone's home screen, a real keyboard, push on a
+  device, haptics), not confirmed by the person yet. The install puts it on, from the issue's "Device check" line. It
+  comes off only when they confirm. If they say it's still wrong, that fix's part of the status line goes back to
+  building, with what they saw, and a fix task starts; the label stays until they confirm the new fix.
+- `live`: installed and running on the person's Shepherdr. The install puts it on every issue its installed patch
+  list (`fork/patches/`) names, and takes it off one whose fix left (upstream-sync skill, step 7). No `live`: not
+  installed yet.
+- Where a fix stands with upstream, one for the issue as a whole (upstream-issue skill: "After a fix lands"):
+  - `not-filed`: merged and live, not offered upstream yet. The next upstream round picks it up.
+  - `upstream-proposed`: an upstream round offered it.
+  - `fork-only`: it stays ours: the person said keep it ours, it can't fit everyone, or it changes only our own files.
+  - `reverted`: the person said undo it, and the revert has merged and installed.
