@@ -172,8 +172,8 @@ project.
 right before it leaves the machine. It reports what kind of thing it found and on which line, never the text itself.
 It refuses:
 
-- what `fork/sync/public.py` refuses today: home paths (whole or written with a tilde), emails, tailnet and `.local` names, IP addresses,
-  this machine's name, installer output and tracebacks. Ported, not imported: herdr-task can't import `fork/`.
+- what `fork/sync/public.py` refuses today: home paths (whole or written with a tilde), emails, tailnet and
+  `.local` names, IP addresses, this machine's name, installer output and tracebacks. Ported, not imported: herdr-task can't import `fork/`.
 - phone numbers: runs of 9 or more digits, with spaces, dashes or a leading `+` allowed;
 - the names of every linked machine (`hc machine ls`) and the configured hostname;
 - from the person's settings file: every space's name, every folder's last part and every repo's name except the
@@ -252,8 +252,8 @@ label**. Code changes it in one edit (remove the old label, add the new one):
  posted ──► found + p<score>
              │
              ├─(score ≥ threshold, not a product decision, gates open)──► fixing ──► merged: the install's `live`
-             │                                                            ├─► stuck (no progress 4 h: slot freed, one alert)
-             │                                                            └─► auto-failed (2nd failure: waits for the person)
+             │                                                            ├─► stuck (4 h, no progress: slot freed)
+             │                                                            └─► auto-failed (2nd failure: waits)
              ├─(--product)──► decision ──(the person's yes)──► fixing …   (no: `later`, or closed as not planned)
              └─(score 3)──► waits: joins a running task in its area, or the weekly batch
 ```
