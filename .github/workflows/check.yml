@@ -49,10 +49,12 @@ jobs:
           bun web/build-plugins.ts   # web/generated/ (not in git): the plugin list the app imports
           bun run build
       - uses: actions/upload-artifact@v4
+        # kept a week, so "Re-run failed jobs" days later still finds it; a re-run of this job replaces it
         with:
           name: web-dist
           path: web/dist
-          retention-days: 1
+          retention-days: 7
+          overwrite: true
           if-no-files-found: error
       - name: installer into a brand-new throwaway home (dry run, install, doctor, uninstall)
         run: |
