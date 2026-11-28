@@ -22,6 +22,7 @@ import { linkLayer, type LinkLayer } from './linklayer.ts'
 import { mirrorFocus } from './focus.ts'
 import { focusAfterKey } from './keyrow.ts'
 import { opens, type Link } from './links.ts'
+import { promptLabel, stuckWords, type Prompt } from './stuck.ts'
 
 /** a web page opens the way a chat's link does: a new tab (the outside browser in the Android app), or in the app
  *  when it is this app's own (kernel.ts catches it) */
@@ -485,20 +486,29 @@ function Stuck({ chat: own, thread }: { chat: Chat | undefined; thread: Thread }
   const snap = useSnap()
   if (!snap) return null
   const stuck = (t: Task) => t.blocked === 'prompt' && !t.archived && tstate(t) !== 'done'
-  const banner = (key: string, words: string, chat: string, open?: Task) => (
-    <div className="banner" style={{ margin: '8px 0 0' }} key={key}>
-      <I n="warn" c="c-ask" />
-      <span className="n">{words}</span>
-      <Btn small onClick={() => { if (open) openTask(open.id); switchView(chat, true) }}>View as terminal</Btn>
-    </div>
-  )
-  if (thread.task) return stuck(thread.task) ? banner('t', 'Waiting at a prompt', thread.chat) : null
-  const p = placeOf(snap, thread.place)
+  // each session that waits, with what opens its terminal; several fold into one banner (stuck.ts)
+  const waits: (Prompt & { open: () => void })[] = []
+  const view = (chat: string, t?: Task) => () => { if (t) openTask(t.id); switchView(chat, true) }
+  if (thread.task) {
+    if (stuck(thread.task)) waits.push({ key: 't', open: view(thread.chat) })
+  } else {
+    const p = placeOf(snap, thread.place)
+    if (p?.needs && !!own?.blocked && !own.messages.some((m) => m.question && m.question.sent === undefined && !m.question.closed)) waits.push({ key: 'own', open: view(thread.chat) })
+    for (const t of tasksIn(snap, thread.place).filter(stuck)) waits.push({ key: t.id, task: t.name, open: view(taskChat(t), t) })
+  }
+  if (!waits.length) return null
   return (
-    <>
-      {p?.needs && !!own?.blocked && !own.messages.some((m) => m.question && m.question.sent === undefined && !m.question.closed) && banner('own', 'Waiting at a prompt', thread.chat)}
-      {tasksIn(snap, thread.place).filter(stuck).map((t) => banner(t.id, `${t.name} is waiting at a prompt`, taskChat(t), t))}
-    </>
+    <div className="banner">
+      <I n="warn" c="c-ask" />
+      <span className="n">{stuckWords(waits)}</span>
+      {waits.length === 1 ? (
+        <Btn small onClick={waits[0]!.open}>View as terminal</Btn>
+      ) : (
+        <Btn small aria-haspopup="menu" onClick={(e) => openMenu(e.currentTarget, waits.map((w) => ({ icon: 'prompt' as const, label: promptLabel(w), run: w.open })), { label: 'Waiting at a prompt' })}>
+          View as terminal<I n="down" c="s16" />
+        </Btn>
+      )}
+    </div>
   )
 }
 

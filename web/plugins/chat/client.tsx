@@ -35,6 +35,7 @@ import { addPaste, dropPaste, isLongMessage, isLongPaste, joined, peekOf, setPas
 import { fineOnly, touch } from './clip.ts'
 import { AddButtons } from './attach.tsx'
 import './phone-bar.css'
+import './rhythm.css'
 import { landLaunchShare, putAway, useLanded, watchLastChat } from './share.ts'
 import { openSendTo } from './sendto.tsx'
 import { ReplyPress, repliesHidden, suggestionOf, suggestionsOn } from './suggest.ts'
