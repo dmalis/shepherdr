@@ -631,11 +631,15 @@ def closing_line(s, task, parent=None, argv=None):
                  f"with it. Your own branch may be force-pushed with lease, never {base}.")
     on, rounds = review_limits(s, task)
     if on:
-        text += (f" Review is on: after each review round, record it on the commit it reviewed with `{ht} reviewed {s.ref(task)} "
-                 f"--folder {shlex.quote(s.loc['folder'])} --report \"<its findings in a line>\"` (add `--commit <sha>` if you committed fixes since; at most {rounds} rounds, "
-                 f"the number the person asked for: never more); ready refuses a final commit no round was recorded on while "
-                 f"rounds are left. Once all {rounds} are used, fix the last round's must-fix findings and say ready without "
-                 f"another round, writing in --details that the last fix wasn't reviewed again.")
+        # dmalis/shepherdr#388: "--commit <sha> if you committed fixes since" was read two ways (the reviewed commit or
+        # the fix): it names the commit the reviewer read, and plain `reviewed` right after the review is the usual way
+        text += (f" Review is on: after each review round, before you commit any fix, record it with `{ht} reviewed {s.ref(task)} "
+                 f"--folder {shlex.quote(s.loc['folder'])} --report \"<its findings in a line>\"`: it records your HEAD, the "
+                 f"commit the reviewer read (already committed a fix? add `--commit <the commit the reviewer read>`, never your "
+                 f"fix's: a fix is reviewed by the next round). At most {rounds} rounds, the number the person asked for: never "
+                 f"more; while rounds are left, ready takes your HEAD only when a round is recorded on it. Once all {rounds} are "
+                 f"used, fix the last round's must-fix findings and say ready without another round, writing in --details that "
+                 f"the last fix wasn't reviewed again.")
     text += (f" At the start, at each natural step and at least every 5 minutes while you work, say how it's going: `{ht} status {s.ref(task)} --folder {shlex.quote(s.loc['folder'])} "
              f"\"<what you're doing now, at most {ROW_MAX} characters, a few plain words>\" --done <% of the whole task> --left <your best guess of how long is left, like 20m>`: "
              f"always give `--left`, from your very first status on, from the clock, not a feeling: `date +%s` once at the start, again "
