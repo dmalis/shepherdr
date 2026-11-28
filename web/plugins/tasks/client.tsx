@@ -542,10 +542,11 @@ function TaskTop({ task: t }: { task: Task }) {
   if (!snap) return null
   const w = statusWord(t)
   const left = leftWords(etaOf(t))
-  const strong = w.tone === 'ask' || w.tone === 'ready' || w.tone === 'red'
+  const strong = w.tone === 'ask' || w.tone === 'ready' || w.tone === 'warn'
   return (
     <div className="status">
-      {strong ? <b className={w.tone === 'ask' ? 'c-red' : `c-${w.tone}`}>{w.word}</b> : w.word}
+      {/* UI 11: red only for what waits on you, a failed check amber (docs/design.md, Colour) */}
+      {strong ? <b className={w.tone === 'ask' ? 'c-red' : w.tone === 'warn' ? 'c-working' : `c-${w.tone}`}>{w.word}</b> : w.word}
       {/* fork Needs you 5/6: a wait its space's Shepherdr handles says what it is about, quietly */}
       {t.action?.owner === 'shepherdr' && tstate(t) === 'ask' && t.action.what && <span>· {t.action.what}</span>}
       {left && <span>· {left}</span>}

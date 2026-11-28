@@ -25,6 +25,8 @@ function ringSvg(r: Ring): string {
   // mark, never a turning ring
   if (r.kind === 'pending') return '<circle cx="10" cy="10" r="4.5" fill="currentColor" stroke="none"/>'
   if (r.kind === 'check') return '<circle cx="10" cy="10" r="7.25" fill="currentColor" stroke="none"/><path class="tk" d="m7 10.2 2 2 4-4.4"/>'
+  // a check failed, its agent fixing it (UI 11): a disc with a cross, as GitHub's failed check, in amber, not Needs you's red
+  if (r.kind === 'fail') return '<circle cx="10" cy="10" r="7.25" fill="currentColor" stroke="none"/><path class="tk" d="m7.5 7.5 5 5m0-5-5 5"/>'
   const ring = r.mark === 'unstarted' ? '<circle cx="10" cy="10" r="6.5" stroke-dasharray="1.5 3"/>' : '<circle cx="10" cy="10" r="6.5"/>'
   // needs you: the ring's inside softly filled (SHEP-367: no dot outside the circle), so it reads apart from working without colour
   const tint = r.mark === 'tint' ? '<circle class="tn" cx="10" cy="10" r="6.5" fill="currentColor" stroke="none"/>' : ''
@@ -34,7 +36,7 @@ function ringSvg(r: Ring): string {
 /**
  * A task's status icon, the one for every place it stands (SHEP-321; before 3.2.0 lib/dot.js and ui.tsx TaskDot): a
  * ring filled by the share done its agent reports, in every state that is not finished (yellow working, red needs
- * you softly filled inside, red stopped with a square, grey and empty up next, grey and dotted when it waits for Start), with the time left short under it ("13m", "2h"); Ready, merging and Done
+ * you softly filled inside, stopped with a square, red while it waits on you, a failed check an amber disc with a cross, grey and empty up next, grey and dotted when it waits for Start), with the time left short under it ("13m", "2h"); Ready, merging and Done
  * the green (Done: grey) check. Working with no % yet: the turning ring (a calm pulse with reduced motion). `time`:
  * under the icon (a row with a second line) or beside it (a one-line row); `dim`: its machine can't be reached.
  */
