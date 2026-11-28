@@ -18,7 +18,8 @@ test('a closed ask says what closed; a bare or doubled line does not show', () =
 })
 
 test("a chat's task row gives the ring and its time their own room, and the title truncates", () => {
-  const css = readFileSync(join(import.meta.dir, '../../src/ds.css'), 'utf8')
+  // the chat's rows live in the chat's own rhythm (rhythm.css, dmalis/shepherdr#132 slice 10)
+  const css = readFileSync(join(import.meta.dir, 'rhythm.css'), 'utf8')
   // the ring is held to 16px only without a time beside it: with one ("8m") it would spill over the title
   expect(css).not.toContain('.msgs>.ref>.tring{width:16px}')
   expect(css).toContain('.msgs>.ref>.tring:not(.tside){width:16px}')

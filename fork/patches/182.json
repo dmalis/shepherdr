@@ -1,0 +1,19 @@
+{
+  "issue": 182,
+  "name": "Chat: one rhythm for news rows, chips and days",
+  "files": [
+    "web/plugins/chat/rhythm.css",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/rows.test.tsx",
+    "web/src/ds.css",
+    "web/plugins/terminal/client.tsx",
+    "web/plugins/terminal/stuck.ts",
+    "web/plugins/terminal/stuck.test.ts",
+    "web/demo/data.ts",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/plugins/terminal/stuck.test.ts",
+    "web/plugins/chat/rows.test.tsx"
+  ]
+}

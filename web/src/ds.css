@@ -677,25 +677,11 @@ textarea.cin{overflow-y:auto}
 .row.tk .l1,.row.tk .l2:not(.rline),.tile>.l1,.banner .n:not(button),.hd .ttl>.t1:only-child{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere}
 .row.tk .l2.alw{color:var(--fg)}
 .banner{padding-block:4px}.hd .ttl>.t1:only-child{line-height:20px}
-/* The chat's one rhythm and one left edge (SHEP-383). Rows (a turn's "Ran a command", a task's line, a settled card's
-   "Done and merged", news, messages between agents) share one icon column (16 px at the chat's edge) and one text
-   column 8 px after it, and 4 px of air above and below inside the row. Between any two things that differ (a bubble
-   and a row, a card and a bubble, one side and the other) there is 12 px; rows in a run sit 12 px apart text to text;
-   the last thing ends 12 px above the message box. On touch a row keeps its 44 px target as an invisible hit area, so
-   it no longer pushes its neighbours away. */
-.msgs{padding-bottom:12px}
-.msgs{position:relative}.msgs>.mend{position:absolute;bottom:0}
-.msgs>:is(.fold,.ref,.donerow){gap:8px;min-height:0;margin:0;padding-block:4px}
-.msgs>:is(.card,.wsign,.wrow){margin-top:0}
-.msgs>:not(.fold,.ref,.donerow,.time,.mend)+:is(.card,.wsign,.wrow),.msgs>.card+:not(.fold,.ref,.donerow,.time,.mend){margin-top:8px}
-.msgs>:not(.fold,.ref,.donerow,.time)+:is(.fold,.ref,.donerow),.msgs>:is(.fold,.ref,.donerow)+:not(.fold,.ref,.donerow,.time,.quietb,.files,.mend){margin-top:4px}
-.msgs>:is(.fold,.ref,.donerow):nth-last-child(2){margin-bottom:-4px}
-.msgs>.ref{max-width:100%}.msgs>.ref>.tring:not(.tside){width:16px}.msgs>.ref>.tmv>.tring:not(.tside){width:16px}.msgs>.ref>.tring.tside>.i,.msgs>.ref>.tmv>.tring.tside>.i{flex:none}.msgs>.ref>.tmv>.rt,.msgs>.ref>.rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.msgs>.ref>.tring>.i,.msgs>.ref>.tmv>.tring>.i{width:16px;height:16px}
-.msgs>.quietb,.msgs>.files{margin-inline-start:24px}
-/* on touch a row is itself 44 px tall (12 px of air above and below its words), not a 28 px row with an invisible pad:
-   packed 12 px apart, neighbouring pads split the space between them and each row kept only ~32 px for a finger. Touch
-   spacing is looser for it; desktop keeps the tight rhythm above */
-.app.tap .msgs>:is(.fold,.ref,.donerow){padding-block:12px}.app.tap .msgs>:is(.fold,.ref,.donerow):nth-last-child(2){margin-bottom:-12px}
+/* a banner leads with its words (dmalis/shepherdr#132, slice 10): on a phone, a button that would cut them goes under
+   them, at the end, as Material's banners and iOS's alerts put theirs; words short enough keep it beside them */
+.app.phone .banner:has(>.btn){flex-wrap:wrap;row-gap:4px;padding:8px 8px 8px 12px}
+.app.phone .banner:has(>.btn)>.n{flex:1 1 auto;max-width:calc(100% - var(--ic) - 8px)}.app.phone .banner:has(>.btn)>.btn{margin-inline-start:auto}
+/* The chat's one rhythm and one left edge (SHEP-383): web/plugins/chat/rhythm.css, in the chat's own tokens */
 
 /* personal analytics (web/plugins/analytics) */
 .promise{margin:8px 0 4px;padding:8px 12px;border-radius:8px;background:var(--raised);color:var(--sub);font-size:var(--sec);line-height:var(--secl);font-weight:500}

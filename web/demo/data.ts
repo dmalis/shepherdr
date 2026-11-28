@@ -350,6 +350,8 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     ],
     tasks: empty ? [] : tasks.map((t) => {
       const settings = t.agent && chats[t.agent.chat]?.agent
+      // dmalis/shepherdr#132 slice 10: ?case=more has a second task in #shop waiting at a prompt, so the two fold into one banner
+      if (mode === 'more' && t.id === 'SHOP-21') t = { ...t, blocked: 'prompt' }
       return t.agent && settings ? { ...t, agent: { ...t.agent, settings } } : t
     }),
     automations: empty ? {} : automations,

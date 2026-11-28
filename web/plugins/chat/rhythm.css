@@ -1,0 +1,47 @@
+/* The chat's one rhythm and one left edge (SHEP-383; dmalis/shepherdr#132, slice 10, docs/design.md "Spacing"). Every
+   space here is in the chat's tokens, so it grows and shrinks with Chat text size (size.css) as the words do:
+   --c-run     between things of one kind in a run (a side's bubbles): the list's own gap, a sixth of a line (4 px at 24)
+   --c-air     between things that differ (a bubble and a card, one side and the other): half a line (12 px at 24)
+   --c-pad     a quiet row's air above and below its words, inside the row: --c-run with a mouse; on touch what makes
+               the row a finger's 44 px
+   --c-rowair  from a row's words to its neighbour's, a row's or anything else's: --c-air, or a row's padding on both
+               sides where that is more (touch). A row never overlaps its neighbour, so on touch rows in a run touch, as
+               a list's rows do, and the rows of one run sit as far apart as the run sits from what is around it.
+   Rows (a turn's "Ran a command", a task's line, a settled card's "Done and merged", news, messages between agents)
+   share one icon column (16 px at the chat's edge) and one text column 8 px after it. */
+.msgs{--c-run:calc(var(--chatl) / 6);--c-air:calc(var(--chatl) / 2);--c-pad:var(--c-run);--c-rowair:max(var(--c-air),calc(2 * var(--c-pad)));position:relative;gap:var(--c-run);padding-block:var(--c-air)}
+.app.tap .msgs{--c-pad:calc((var(--hit) - var(--chat2l)) / 2)}
+.msgs>.mend{position:absolute;bottom:0}
+
+/* rows: in the chat's smaller line, each with its own air */
+.msgs>:is(.fold,.ref,.donerow){gap:8px;min-height:0;margin:0;padding-block:var(--c-pad);font-size:var(--chat2);line-height:var(--chat2l)}
+.msgs>.fold.quiet .i{margin-top:calc((var(--chat2l) - 16px) / 2)}
+.msgs>:not(.fold,.ref,.donerow,.time,.chips,.mend)+:is(.fold,.ref,.donerow),
+.msgs>:is(.fold,.ref,.donerow)+:not(.fold,.ref,.donerow,.time,.quietb,.files,.chips,.mend){margin-top:calc(var(--c-rowair) - var(--c-run) - var(--c-pad))}
+.msgs>:is(.fold,.ref,.donerow)+:is(.fold,.ref,.donerow){margin-top:calc(var(--c-rowair) - var(--c-run) - 2 * var(--c-pad))}
+/* the last row's words end the air above the message box, as a bubble's edge does */
+.msgs>:is(.fold,.ref,.donerow):nth-last-child(2){margin-bottom:calc(-1 * var(--c-pad))}
+
+/* cards, the working sign and banners stand apart: the air on both sides */
+.msgs>:is(.card,.wsign,.wrow,.banner){margin:0}
+.msgs>:not(.fold,.ref,.donerow,.time,.chips,.mend)+:is(.card,.wsign,.wrow,.banner),
+.msgs>.card+:not(.fold,.ref,.donerow,.time,.chips,.mend){margin-top:calc(var(--c-air) - var(--c-run))}
+
+/* a question and its choices are one group: the chips sit right under what asks (in a bubble's run, or a row's own
+   air, never into it: a chip's touch area reaches past its edge), and what comes next starts a row's air further than
+   the usual, so the answers never read as the next message's. A question that takes several answers puts its chips
+   in a card with its Send: that card is the same group. */
+.msgs>.chips{margin:0}
+.msgs>*+.card[data-ask]:has(>.chips:first-child){margin-top:0}
+.msgs>:is(.chips,.card[data-ask]:has(>.chips:first-child))+:not(.fold,.ref,.donerow,.time,.mend){margin-top:calc(var(--c-air) + var(--c-pad) - var(--c-run))}
+.msgs>:is(.chips,.card[data-ask]:has(>.chips:first-child))+:is(.fold,.ref,.donerow){margin-top:calc(var(--c-air) - var(--c-run))}
+
+/* a day's line: a break before it, then it belongs to what follows (a new speaker's own gap gives way to it); at the
+   chat's top, the air under the header */
+.msgs>.time{margin:var(--c-air) 0 var(--c-run)}
+.msgs>.time:first-child{margin-top:0}
+.msgs>.time+.gap{margin-top:0}
+.msgs>.time+:is(.fold,.ref,.donerow){margin-top:max(calc(-1 * var(--c-pad)),calc(-2 * var(--c-run)))}
+
+.msgs>.ref{max-width:100%}.msgs>.ref>.tring:not(.tside){width:16px}.msgs>.ref>.tmv>.tring:not(.tside){width:16px}.msgs>.ref>.tring.tside>.i,.msgs>.ref>.tmv>.tring.tside>.i{flex:none}.msgs>.ref>.tmv>.rt,.msgs>.ref>.rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.msgs>.ref>.tring>.i,.msgs>.ref>.tmv>.tring>.i{width:16px;height:16px}
+.msgs>.quietb,.msgs>.files{margin-inline-start:24px}

@@ -187,7 +187,18 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   words). Chat spacing scales with the chat's text size (`size.css`), so it is written in its tokens, not in px.
 - **Inside:** a row pads 8 across, a card 12 by 16, a sheet or dialog 16.
 - **Between:** rows in a list touch (their height is their rhythm); groups of rows sit under a `.lab` label (`--sec`).
-  In a chat, a question and its choice chips are one group, set apart from the next message (Target).
+- **The chat's rhythm** ([`web/plugins/chat/rhythm.css`](../web/plugins/chat/rhythm.css)) is in three tokens of the chat's
+  line (`--chatl`), so it grows with Chat text size: `--c-run` (a sixth of a line, 4 px at 24) between things of one
+  kind in a run, as a side's bubbles; `--c-air` (half a line, 12 px) between things that differ, as a bubble and a card
+  or one side and the other; `--c-pad`, a quiet row's air above and below its words. With a mouse a row's padding is
+  `--c-run`; on touch it makes the row a finger's 44 px, and rows in a run touch, as a list's do. The air around a row
+  is measured to its words, never less than its own padding on both sides, so a run of rows sits as far from what is
+  around it as its rows sit from each other, and a row never overlaps its neighbour. A day's line has `--c-air` above
+  it and belongs to what follows; at the top of a chat it starts the same air under the header as anything else.
+- **A question and its choices are one group:** the chips sit right under what asks (in a bubble's run, or the row's
+  own air, never into it, since a chip's touch area reaches past its edge), and what comes next starts a row's padding
+  further than the usual air, so an answer never reads as the next message's. A question that takes several answers
+  keeps its chips and Send in a card: that card is the same group. A new speaker's gap gives way to a day's line.
 - **One left edge:** in a chat, bubbles, cards, news rows and folds share the same left edge, and so do their icons.
   In a pane, content starts on one edge whatever pads it (Target: today some panes reach 16 px by different sums).
 - **The side gutter** is `--gut` (16) on every width; on a phone the safe areas are added to it, never instead of it.
@@ -268,8 +279,12 @@ Use these before making anything new; each has its states in `ds.css`.
   sheet's do.
 - **Chips** (`.chip`): suggested replies and choices.
 - **Counts** (`.cnt`): quiet; `.needs` is red.
-- **Banners** (`.banner`): its words first, one button. Target: on a phone the words wrap to two lines and the button
-  goes under them before the words are cut.
+- **Banners** (`.banner`): its words first, one button. On a phone the words wrap to two lines and the button goes
+  under them, at the end, before the words are cut; words short enough keep it beside them. Why it is there comes
+  before a name ("Waiting at a prompt · <task>"), so a long name is cut, never the why. Several of one kind fold
+  into one banner that counts them and whose button lists each (Everything's warnings, "2 things need a look"; a
+  chat's prompts, "2 tasks are waiting at a prompt", `web/plugins/terminal/stuck.ts`), so banners never stack over the
+  message box.
 - **Menus, sheets and dialogs:** one system (above, Making a change). Esc and a tap outside close them.
 - **Empty, loading, offline:** an empty place says what it is in one line and offers the one thing to do (`.empty`).
   Loading, saved-from-before, offline and "try again" are each said in their own words. An error says what happened and
