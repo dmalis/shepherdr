@@ -2,8 +2,10 @@
 
 Part of #94. The spec for one loop that catches every likely bug, confusion or workaround met while using Shepherdr,
 checks it, proposes a fix, takes the person's one yes, and follows the fix until it works on their device. It is built
-for every Shepherdr user, on upstream's own feedback feature. The fork's own parts (a yes means "file it and fix it",
-the upstream decision) stay in FORK.md and our skills.
+for every Shepherdr user, on upstream's own feedback feature, filing to the person's feedback repo. The fork's own
+parts (a yes means "file it and fix it", upstream rounds) stay in FORK.md and our skills. Our fork is a closed loop
+(#133): its feedback repo is the fork, every problem is filed and fixed there, and upstream gets grouped offers only
+in a round the person asks for. Nothing here asks the person about upstream per fix.
 
 The building tasks follow this spec, one per slice ([Build plan](#build-plan)).
 
@@ -37,7 +39,7 @@ The building tasks follow this spec, one per slice ([Build plan](#build-plan)).
 | **Build** | For us: an issue and a task, by hand from the Assistant | Yes | A problem filed from another space never reaches this repo's space as work. |
 | **Install** | Our "Install merged" schedule (upstream-sync skill) | No | — |
 | **Confirm on a device** | For us: the device-check rule (#83), words and a label | Yes | Everyone else: nothing. "Merged" was read as "works" for a fix no device had seen. |
-| **Upstream decision** | For us: the `not-filed` list, daily (upstream-issue skill) | Yes | — |
+| **Upstream decision** | For us: none per fix since the closed loop (#133); an upstream round when the person asks (upstream-issue skill) | Yes | — |
 
 **The evidence.** On one machine, over the last few days, 33 problems were recorded: 17 filed, 13 told to an
 Assistant and never offered, 3 offered and never answered. Half of what agents caught never reached the person, and
@@ -209,8 +211,8 @@ or data. Redaction is the second pass, not the first.
 The result is stored (`checked`) and shown on the row. It never blocks: the person decides. A match offers
 **Follow this one** (nothing posted; the problem follows that issue). A match in the feedback repo also offers **Add
 to it** (a comment, as a draft to approve). A match in Shepherdr's repo, when the feedback repo is another one, is
-Follow only: comments go only where you file, and for us the upstream-issue skill posts upstream only after our fix
-is merged and the person says file it.
+Follow only: comments go only where you file, and for us the upstream-issue skill posts upstream only in an upstream
+round the person asked for, once our fix is live.
 
 For us, the "check upstream first" rule (#83) stays in the fork's words: the agent also reads upstream's main after
 the release and the maintainer's words on each match.
@@ -402,8 +404,9 @@ page or in chat, on the draft.
   1. `pending`: every `found` run first sweeps the feedback record (`herdr-task feedback --list --all --json`,
      read-only) and makes a pending handoff for each approved new issue in our repo that is `posted` and has none
      yet, however it got there: a post with an answer, or one found later by reconciling. The filing Assistant runs
-     `fork/bin/found` right after it files; our daily not-filed run runs it too, so a post found by reconciling is
-     handed off within a day. A comment on an existing issue makes no handoff.
+     `fork/bin/found` right after it files, and a daily caller runs it too, so a post found by reconciling is
+     handed off within a day. That caller was the daily not-filed run, which the closed loop (#133) removed: this
+     slice picks another, such as the "Upstream sync" schedule's run. A comment on an existing issue makes no handoff.
   2. `sent`: `found` sends this repo's space's Assistant the issue's link with `herdr-task tell-assistant`. A send
      that fails or times out stays `pending`; every `found` run sends each pending one again.
   3. `taken`: the receiving Assistant runs `fork/bin/found took <issue> --task <task>` once the work is in a task, a
@@ -414,8 +417,12 @@ page or in chat, on the draft.
 
   That Assistant shapes it (check upstream first, #83) and adds it to a running task when it fits (FORK.md), else adds
   a task.
-- **The upstream decision** stays as the upstream-issue skill has it: a live fix that works is `not-filed` until the
-  person says file it, keep it ours or undo it. The page makes "Works" visible first. An "Offer it to Shepherdr's
+- **The upstream decision** is as the upstream-issue skill has it since the closed loop (#133): a live fix is
+  `not-filed` (not offered upstream yet) until an upstream round the person asks for offers it, or they say keep it
+  ours or undo it. Nobody asks per fix.
+- **Record everything, ask rarely.** Our agents record every friction at once with `herdr-task feedback`, and the
+  Assistant asks "File it and fix it?" only when it hurts now; the rest waits under Found for the person to pick
+  (FORK.md: "Record it at once"). The page makes "Works" visible first. An "Offer it to Shepherdr's
   makers" button on a working row is left for later.
 
 ## Shepherdr or our fork
@@ -433,7 +440,7 @@ page or in chat, on the draft.
 | "File it and fix it", the handoff, the task | Our FORK.md, skills, `fork/bin/found` | Only a fork builds its own fixes |
 | `--installed` from the install step; Device check as Try it | Our upstream-sync skill | Our pipeline |
 | Check upstream's main, the maintainer's words (#83) | Our skills | Deeper than a release check |
-| File it, keep it ours or undo it upstream | Our upstream-issue skill | Our decision process |
+| Upstream rounds, keep it ours, undo it | Our upstream-issue skill | Our closed loop (#133) |
 
 ## Ban rules and privacy
 
