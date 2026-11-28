@@ -346,7 +346,7 @@ class CiAfterInstall(syncworld.World):
     def test_finish_hands_over_to_ci_which_tells_a_red_result_once(self):
         self.installed(self.main0)
         self.set_gh(checks={"*": []})
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out["next"], out["ci"]), (0, "ci", [self.main0]), out)
         self.assertNotIn("command", out)
         self.assertIsNone(self.st()["lease"], "the lease is let go while CI runs")
@@ -362,14 +362,14 @@ class CiAfterInstall(syncworld.World):
         with state.locked(self.p) as st:
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
             st["run"] = {"key": "SYNC-2", "folder": self.space, "path": "nothing", "start": self.start}
-        code, out = self.sync("finish", run="SYNC-2", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", run="SYNC-2", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "nothing"), out)
         self.assertEqual(self.st()["phase"], "healthy", "no rollback on red CI")
 
     def test_green_ci_is_the_recovery_point(self):
         self.installed(self.main0)
         self.set_gh(checks={self.main0: GREEN})
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out["outcome"], out["next"]), (0, "installed", "ci"), "finish reads no CI")
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual((code, out["ci"], out["told"]), (0, {self.main0: "green"}, "The button works"), out)
@@ -379,7 +379,7 @@ class CiAfterInstall(syncworld.World):
     def test_a_result_that_comes_after_the_run_is_told_by_a_later_one(self):
         self.installed(self.main0, at=state.stamp(time.time() - merged.CI_WAIT_S - 60))
         self.set_gh(checks={"*": []})
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual(code, 0, out)
         self.assertIn("GitHub's checks on main haven't finished for the install of 3.2.21 yet", out["told"])
@@ -388,7 +388,7 @@ class CiAfterInstall(syncworld.World):
         with state.locked(self.p) as st:
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
             st["run"] = {"key": "SYNC-2", "folder": self.space, "path": "nothing", "start": self.start}
-        code, out = self.sync("finish", run="SYNC-2", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", run="SYNC-2", paths_ok=True)
         self.assertEqual((code, out["next"], out["ci"]), (0, "ci", []), "nothing of its own to wait for")
         code, out = self.sync("ci", run="SYNC-2", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "reported"), out)
@@ -397,7 +397,7 @@ class CiAfterInstall(syncworld.World):
     def test_no_run_ever_is_missed(self):
         self.installed(self.main0, at=state.stamp(time.time() - merged.CI_MISSED_AFTER_S - 60))
         self.set_gh(checks={"*": []})
-        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        code, out = self.sync("finish", "--wait-ci", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "installed"), out)
         code, out = self.sync("ci", paths_ok=True)
         self.assertIn("CI on main never gave a verdict on the install of 3.2.21 within 2 hours", out["told"])
@@ -413,8 +413,51 @@ class CiAfterInstall(syncworld.World):
         self.installed(self.main0)
         with mock.patch.object(merged, "ci_read", side_effect=AssertionError("a CI read in finish")), \
                 mock.patch.object(merged.release, "fetch_main", side_effect=AssertionError("a fetch in finish")):
-            out = self.finish(says="The button works")
+            out = self.finish(says="The button works", wait_ci=True)
         self.assertEqual((out["next"], out["ci"]), ("ci", [self.main0]))
+
+    def test_by_default_no_run_waits_on_ci(self):
+        """#230: finish gives the completion command at once while CI hasn't answered; the install stays tracked, and
+        a later run's glance (settle, select) reads it once: a red one is marked told without words (Shepherdr's
+        main-red notice told it), a missing one is still told in that run's words, and the recovery point moves on."""
+        self.installed(self.main0)
+        with mock.patch.object(merged, "ci_read", side_effect=AssertionError("a CI read in finish")):
+            out = self.finish(says="The button works")
+        self.assertEqual((out.get("next"), out["outcome"]), (None, "installed"))
+        self.assertIn("ready SYNC-1", out["command"])
+        with state.locked(self.p) as st:
+            self.assertEqual(merged.ci_unresolved(st), [self.main0])
+            self.assertNotIn(self.RUN, st.get("reports") or {})
+        red = {"check": {"state": "red", "by": self.main0}}
+
+        def read(p, repo, now=None, runs_of=None):
+            with state.locked(p) as st:
+                st["ci"][self.main0].update(verdict="red", names=red)
+            return {}
+        with mock.patch.object(merged, "ci_read", side_effect=read):
+            merged.ci_glance(self.p, self.wt)
+        with state.locked(self.p) as st:
+            self.assertEqual(merged.ci_untold(st, mark=False), [])  # told by the main-red notice, not again by us
+        with mock.patch.object(merged, "ci_read", side_effect=RuntimeError("GitHub is down")):
+            self.assertIsNone(merged.ci_glance(self.p, self.wt))  # never stops the run
+
+    def test_a_late_red_on_a_missing_one_is_still_told_in_words(self):
+        """Shepherdr's main watch may have ended by then: the glance leaves it untold, for finish's words."""
+        self.installed(self.main0)
+        with state.locked(self.p) as st:
+            st["ci"] = {self.main0: {"verdict": "missed", "names": {}, "version": "3.2.21", "tag": "ours-3.2.21-1",
+                                     "told": True}}
+
+        def read(p, repo, now=None, runs_of=None):
+            with state.locked(p) as st:
+                st["ci"][self.main0].update(verdict="red", told=False,
+                                            names={"check": {"state": "red", "by": self.main0}})
+            return {}
+        with mock.patch.object(merged, "ci_read", side_effect=read), \
+                mock.patch.object(merged, "late", return_value=[self.main0]):
+            merged.ci_glance(self.p, self.wt)
+        with state.locked(self.p) as st:
+            self.assertEqual([sha for sha, _ in merged.ci_untold(st, mark=False)], [self.main0])
 
     def test_a_red_result_another_run_told_meanwhile_isnt_told_again(self):
         self.installed(self.main0)

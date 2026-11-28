@@ -22,7 +22,7 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 | `wait` | Call the same step again at once. One call waits at most 9 minutes; the state keeps the clock. The step reads GitHub itself, once a minute: never poll or watch GitHub by hand in between. |
 
 **Every wait on GitHub is gentle.** GitHub's request limit is one budget for every task and install on the
-account. A wait on GitHub is either `fork/bin/sync`'s own loop (`ci`, the gates: one call a minute) or, where no step
+account. A wait on GitHub is either `fork/bin/sync`'s own loop (the gates: one call a minute) or, where no step
 waits for you, one `gh run watch <run id> --interval 60`. `gh run watch`'s default reads every 3 seconds, which
 alone ran the limit out. Never `gh run watch` without `--interval 60`, `gh pr checks --watch`, or a loop of
 `gh run list` or `gh api` of your own.
@@ -180,11 +180,10 @@ it found: report that, never a guess at why, and never repair `main` by force.
 3. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
-4. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
-   `fork/bin/sync ci`, again at once while it says `wait`; its line has the `command`. It does the waiting: never
-   read or watch GitHub's runs yourself (`gh run list`, `gh run watch`, `gh api`) between calls. `gh run watch`
-   alone reads GitHub every few seconds, and runs waiting side by side each did it, which used up the account's
-   API limit. `ci` reads main's runs in one call a minute, shared by every run that waits.
+4. `outcome: again`: go to [Install merged](#install-merged)'s step 3. No run waits for CI after its install
+   (an open run would hold back the next install): `finish` gives the `command` at once. Never read or watch
+   GitHub's runs yourself (`gh run list`, `gh run watch`, `gh api`). `fork/bin/sync ci` and `finish --wait-ci`
+   stay for a person who asks to wait on one, and no step calls them.
 5. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 
@@ -223,12 +222,13 @@ A hold of this path: `--blocker main-<the gate it names>` (`main-rehearsal`, `ma
 issue and no 24-hour question: the next merge is the fix. A gate that is the pipeline's own (`main-rehearsal`) goes on
 the open `pipeline` issue.
 
-**CI after the install.** `ci`'s words tell a red result once (which check, on which fix by its title, that nothing
-rolled back, and the last install CI passed). The person's Assistant opens a fix task from them. Never roll back on
-red CI. Go back to the recovery point only when the person asks. `ci` waits for each of this run's installs from its
-own install time, reads main's runs once a minute in one call, and counts a later commit's pass for every install
-before it; when checks are still running as it stops, its words say so once. Post its words as they are: never add
-commit hashes, waits or verdicts of your own.
+**CI after the install.** Nothing waits for it. Shepherdr itself watches main after each merge, and tells this
+space's Assistant once when it goes red, with the failing check, to open a fix task. A later run's `settle` and
+`select` read main's runs once (no waiting) for the installs without a verdict: a pass moves the recovery point
+(the last install CI passed), a red one is marked told without words (Shepherdr's notice told it), and one that
+never ran is told once in that run's `--told` words. Never roll back on red CI. Go back to the recovery point only
+when the person asks. Post the words `finish` gives as they are: never add commit hashes, waits or verdicts of
+your own.
 
 ## Held
 

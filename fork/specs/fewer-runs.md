@@ -163,7 +163,7 @@ look at those first, and still end `--nothing` when none of it is news."
     an install is unresolved, so the recovery point (the newest install whose CI passed) still moves on.
   - A red verdict that read finds is marked told without words: the main-red notice told it. A missing verdict (no
     run covered an install) is still told in the next run's words, as today: no notice covers that.
-  - `fork/bin/sync ci` stays for a run that wants the verdict now (the person's ask); no step calls it.
+  - `fork/bin/sync ci` stays, with `finish --wait-ci` to hand a run to it, for a run that wants the verdict now (the person's ask); no step calls them. The glance (`merged.ci_glance`) never stops a run: a read that fails is left for the next.
   - FORK.md's "Our own merges" step 3 and the upstream-sync skill's step 7 and "CI after the install" say this.
 - **Unchanged:** preflight, baseline, settle, the rehearsal, install, health, rollback, issues, `found installed`,
   `found`, the device-check words, and the run's told message. The install agent still follows the skill.

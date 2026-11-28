@@ -666,7 +666,7 @@ def told_words(rounds, says):
     return "nothing", None
 
 
-def finish(p, run, folder, repo, says=None, cfg_hostname=None):
+def finish(p, run, folder, repo, says=None, cfg_hostname=None, wait_ci=False):
     """The exact completion command for the run's outcome (Completion commands), after checking the branch is in
     a state it accepts. Lets go of the lease when the phase is final, unless merges are pending: then the run settles
     again first (Installing our own merges). A run that went more than once tells every round in one --told."""
@@ -748,14 +748,16 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
         kept = merged.still_untold(st, ci_said)
         merged.mark_told(st, [sha for sha, _ in kept])
         unread = merged.ci_unresolved(st)
-        waits = [sha for sha in merged.run_installs(st, run) if sha in unread]
+        waits = [sha for sha in merged.run_installs(st, run) if sha in unread] if wait_ci else []
         failed = any(w for _, w in kept)
         # the recovery point's sentence is made when the words are final: `ci`'s, when it reads CI after this
         told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in kept],
                                              back=None if unread else merged.back_line(st.get("recovery"), failed))
-        if unread:
+        if unread and wait_ci:
             # installs of ours whose CI hasn't answered: `ci` reads it with the lease let go, waits for this run's
-            # own, then gives the completion command with what it found
+            # own, then gives the completion command with what it found. dmalis/shepherdr#230: only when asked
+            # (--wait-ci); by default the run ends now, a later run's settle or select reads CI once, and
+            # Shepherdr's main-red notice tells a red main
             st.setdefault("reports", {})[run] = {"folder": folder, "outcome": outcome, "told": told, "ci": waits,
                                                  "ci_said": failed, "at": state.stamp()}
         if (st.get("run") or {}).get("key") == run:
@@ -766,7 +768,7 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
             if outcome == "installed" and synced_at and any(o == "installed" and pth in SYNCED
                                                             for o, _, pth in rounds):
                 st["issue_cursor"] = synced_at
-    if unread:
+    if unread and wait_ci:
         return {"outcome": outcome, "before": [], "next": "ci", "ci": waits, **({"told": told} if told else {})}
     return {"outcome": outcome, "before": [], "command": ready_cmd(run, folder, told),
             **({"told": told} if told else {})}
