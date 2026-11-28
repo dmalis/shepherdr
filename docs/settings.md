@@ -126,6 +126,25 @@ running chat restarts it on the same conversation.
 Shepherdr never writes an agent's own settings files and never types `/compact` into it. In the settings file it is
 `compact` in a role's pick (`coordinator`, `worker`, `reviewer`), a whole number of tokens; none means the agent's own.
 
+## A schedule's check, and one run at a time
+
+Every run of a schedule starts an agent. Two options on `herdr-task auto add` or `auto edit` start fewer:
+
+- **`--check "<command>"`** (`""` takes it away): when the schedule is due, Shepherdr runs the command first, in the
+  folder its runs work in, for at most 120 seconds, as systemd's `ExecCondition=` does. Exit 0: there is work, and the
+  run starts with the command's output in its brief. Exit 1 to 125: nothing to do, so no task and no agent start;
+  the run shows as "checked, nothing to do". Anything else (126 or 127, a signal, the time limit) is a failed check,
+  and it is said, never silent: the first one starts the run anyway with the failure in its brief, and the ones
+  after it in a row start nothing and show as the schedule's error until a check works. The command gets
+  `HERDR_TASK_SCHEDULE` (its key), `HERDR_TASK_WHY` (what set it off, a line each) and `HERDR_TASK_LAST_RUN` (when its
+  last run that started a task began, in ms). It is your own command: keep it cheap, and never make it read an
+  agent's own state, usage, sign-in or settings. Run now skips it.
+- **`--fold`** (`--no-fold` takes it away): one run at a time, as GitHub Actions' `concurrency:`. The first event
+  starts a run at once; what sets the schedule off while that run is open (queued or working, waiting on you too) is
+  kept, and one run starts when it ends, naming every reason.
+
+`auto show` says "checks first" and "one run at a time", and how many reasons wait. A one-off takes neither.
+
 ## Where they are kept
 
 `~/.config/shepherdr/settings.json` on the serving machine: `everywhere`, `repos[<folder>]` for a repo's task settings

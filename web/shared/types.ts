@@ -531,7 +531,7 @@ export interface Automation {
   /** its next runs by its time rule, in words ("Tomorrow 9:00"); none while paused or without one */
   next: string[]
   /** its latest runs, newest first: when (ms), and the task it added or why it couldn't */
-  runs?: { at: number; task?: string; error?: string }[]
+  runs?: { at: number; task?: string; error?: string; checked?: boolean; checkFailed?: string }[]
   /** why it didn't run as planned (its last error's message), and which way: it didn't run, didn't start its task, or
    *  the folder it watches on another machine (--from) hasn't answered for a while ("Can't reach vm-b since 23:03") */
   error?: string
