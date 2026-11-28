@@ -60,8 +60,10 @@ export interface Action {
   handUp?: HandUp
   /** fork #235: the Triage card it is */
   triage?: TriageCard
-  /** fork #235: how many held drafts its one grouped card stands for (triageShown) */
+  /** fork #235: how many held drafts its one grouped card stands for (triageShown), and how many of them one Yes can
+   *  post (the batch) */
   drafts?: number
+  batch?: number
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
    *  sends no new alert until it is read again */
   stale?: string
@@ -290,8 +292,9 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   for (const [place, cards] of byPlace) {
     const p = snap.places.find((x) => x.id === place)!
     const { drafts, single } = triageShown(cards)
-    if (drafts.length)
-      add({ id: `${TRIAGE_DRAFTS}:${p.id}`, owner: 'you', kind: 'triage', what: triageDraftsWords(drafts.length), since: Math.min(...drafts.map((c) => c.at)), place: p.id, chat: p.chat, card: TRIAGE_DRAFTS, drafts: drafts.length })
+    const n = triageCount(drafts), batch = triageCount(drafts.filter((c) => c.kind === 'batch'))
+    if (n)
+      add({ id: `${TRIAGE_DRAFTS}:${p.id}`, owner: 'you', kind: 'triage', what: triageDraftsWords(n), since: Math.min(...drafts.map((c) => c.at)), place: p.id, chat: p.chat, card: TRIAGE_DRAFTS, drafts: n, ...(batch ? { batch } : {}) })
     for (const c of single) add({ id: `triage:${c.id}:${c.hash.slice(0, 12)}`, owner: 'you', kind: 'triage', what: triageAsk(c), since: c.at, place: p.id, chat: p.chat, card: `triage:${c.id}`, triage: c })
   }
   return { at: now, actions: inOrder([...out.values()], snap.tasks) }
@@ -302,11 +305,15 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
 export const TRIAGE_GROUP_OVER = 3
 /** the one card of a space's grouped drafts: its data-card (and its action's id, with the space after it) */
 export const TRIAGE_DRAFTS = 'triage:drafts'
-/** one space's Triage cards as they show: its drafts grouped (none: each single), the rest single, oldest first */
+/** one space's Triage cards as they show: its drafts grouped (none: each single), the rest single, oldest first. The
+ *  batch (the drafts one Yes can post) has no card of its own: it is always in the group, with the held drafts */
 export function triageShown<C extends Pick<TriageCard, 'kind'>>(cards: C[]): { drafts: C[]; single: C[] } {
-  const drafts = cards.filter((c) => c.kind === 'draft')
-  return drafts.length > TRIAGE_GROUP_OVER ? { drafts, single: cards.filter((c) => c.kind !== 'draft') } : { drafts: [], single: cards }
+  const drafts = cards.filter((c) => c.kind === 'draft' || c.kind === 'batch')
+  const group = drafts.some((c) => c.kind === 'batch') || drafts.length > TRIAGE_GROUP_OVER
+  return group ? { drafts, single: cards.filter((c) => c.kind !== 'draft' && c.kind !== 'batch') } : { drafts: [], single: cards }
 }
+/** how many findings grouped cards stand for: a batch counts each draft it holds */
+export const triageCount = (cards: Pick<TriageCard, 'kind' | 'items'>[]) => cards.reduce((n, c) => n + (c.kind === 'batch' ? c.items?.length ?? 0 : 1), 0)
 export const triageDraftsWords = (n: number) => (n === 1 ? '1 finding waits to be posted to GitHub' : `${n} findings wait to be posted to GitHub`)
 
 /** a Triage card's question, in a few words */

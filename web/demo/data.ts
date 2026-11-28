@@ -1,7 +1,7 @@
 // A fictional day for the demo (bun web/demo/serve.ts): Sam, the machines mac-mini, vm, studio and pi, the spaces
 // shop, blog, notes and garden-app. Nothing here is real; it fills the same shapes the service sends, so every screen can be
 // looked at, and compared with the design, without a single agent running.
-import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList, TriageView } from '../shared/types.ts'
+import type { Automation, Catalog, Chat, Config, MachineLimits, Message, Place, Snapshot, Task, InboxItem, FeedbackList, TriageBatchItem, TriageView } from '../shared/types.ts'
 import { demoFacts, outOfFileSlots } from './machine-facts.ts'
 import * as CW from '../../core/checks-wait.js'
 import { plainSuggests } from '../../core/plain-suggests.js'
@@ -357,13 +357,24 @@ function triageDay(s: Snapshot): Snapshot {
   }
 }
 
-// ?case=drafts: Triage's day with a backlog, 150 held drafts in #shop (more than 3 are one card) beside its start card
+// ?case=drafts: Triage's day with a backlog of 150 in #shop, one card beside its start card: 85 passed the privacy
+// check and go in its one batch Yes (by kind), 65 wait for their own answer (27 where it found something, 38 from
+// other spaces)
 const DRAFT_TOPICS = ['The cart badge keeps the old count', 'Checkout loses the chosen delivery slot', 'The size picker resets on back', 'Search shows sold-out items first', 'The wishlist heart flickers on scroll']
-export const backlog: TriageView['cards'] = Array.from({ length: 150 }, (_, i) => ({
-  id: `draft:f:b${i + 1}`, kind: 'draft' as const, key: `b${i + 1}`, copy: false, rev: 1, repo: TRI_REPO, action: 'create' as const, at: NOW - (5 * 24 * 60 - i * 40) * min, why: 'space', hash: (i + 1).toString(16).padStart(64, 'd'),
-  title: `${DRAFT_TOPICS[i % DRAFT_TOPICS.length]} (${i + 1})`,
-  body: '## What happened\n\nFound while working in another space.\n\n## Expected\n\nIt keeps what the person chose.',
+const BATCH_KINDS = ['bug', 'bug', 'confusing', 'workaround', 'miss', 'manual', null] as const
+const BODY = '## What happened\n\nFound while working in another space.\n\n## Expected\n\nIt keeps what the person chose.'
+const batchItems: TriageBatchItem[] = Array.from({ length: 85 }, (_, i) => ({
+  key: `a${i + 1}`, copy: false, rev: 1, hash: (i + 1).toString(16).padStart(64, 'c'), kind: BATCH_KINDS[i % BATCH_KINDS.length]!,
+  title: `${DRAFT_TOPICS[i % DRAFT_TOPICS.length]} (${i + 1})`, body: BODY, at: NOW - (6 * 24 * 60 - i * 40) * min,
 }))
+export const backlog: TriageView['cards'] = [
+  { id: 'batch', kind: 'batch', repo: TRI_REPO, title: '85 findings, each a new issue', body: '', hash: 'f'.repeat(64), items: batchItems, at: batchItems[0]!.at },
+  ...Array.from({ length: 65 }, (_, i) => ({
+    id: `draft:f:b${i + 1}`, kind: 'draft' as const, key: `b${i + 1}`, copy: false, rev: 1, repo: TRI_REPO, action: 'create' as const, at: NOW - (5 * 24 * 60 - i * 40) * min,
+    hash: (i + 1).toString(16).padStart(64, 'd'), title: `${DRAFT_TOPICS[i % DRAFT_TOPICS.length]} (${85 + i + 1})`, body: BODY,
+    ...(i < 27 ? { why: 'private', found: ['a person’s name, line 3'] } : { why: 'space' }),
+  })),
+]
 const draftsDay = (s: Snapshot): Snapshot => ({ ...s, triage: { ...s.triage!, cards: [...backlog, ...s.triage!.cards.filter((c) => c.kind === 'start')] } })
 
 const HANDUP: Record<string, Partial<Task>> = {

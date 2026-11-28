@@ -36,7 +36,7 @@ import { ensureShell, type ShellAt } from "./shells.ts";
 import { Chats } from "./chats.ts";
 import { act, findMachines, hc as hcRun } from "./actions.ts";
 import { feedback } from "./feedback.ts";
-import { answerCard, followLevel, TriageView, triageRun, triageWhy } from "./triage.ts";
+import { answerBatch, answerCard, followLevel, TriageView, triageRun, triageWhy } from "./triage.ts";
 import { analyticsAction, howOf, noteVersion, record as note } from "./analytics.ts";
 import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
@@ -819,9 +819,10 @@ async function doAction(body: any): Promise<Response> {
     if (!pluginOn("triage")) return json({ ok: false, error: "Triage is switched off in Settings › Plugins." });
     try {
       if (body.do === "answer") {
-        const out = answerCard(body);
+        // the backlog's batch: one Yes for the ticked drafts of the card the view shows now
+        const out = body.kind === "batch" ? answerBatch(body, triageView.last) : answerCard(body);
         await triageView.read();
-        if (out.ok && body.answer === "yes" && body.kind === "draft") feedback.yesKept();
+        if (out.ok && body.answer === "yes" && (body.kind === "draft" || body.kind === "batch")) feedback.yesKept();
         return json(out);
       }
       if (body.do === "schedule" && typeof body.folder === "string") {

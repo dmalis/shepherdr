@@ -20,10 +20,12 @@ export const FENCED = "Triage files this repo's findings";
 const UPSTREAM = "eliasstravik/shepherdr";
 const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const KEY = /^[0-9A-Za-z_-]{1,80}$/;
-const YES_KEPT = 200;
+const YES_KEPT = 1000; // room for the backlog's batch (a hundred or more answers at once) and every answer in force
 /** GitHub's own limits on an issue's title and body: a card carries its text whole up to them */
 const TITLE_MAX = 300, BODY_MAX = 65_536;
 export const PUBLISH_EVERY = 10 * 60_000;
+/** one publisher pass's time (s), well under triageRun's 5-minute limit */
+export const PASS_S = 200;
 
 const store = () => process.env.HERDR_TASK_STORE || where().tasks;
 const readJson = (path: string): any => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
@@ -89,20 +91,32 @@ function draftOf(dir: string, key: string, copy: boolean): any {
 }
 
 /** whether an answer row still speaks for its card: its draft is there at that revision (a start: its ask is there).
- *  Others are retired, and go first when the file is trimmed, so an answer in force (a No above all) stays. */
-function inForce(dir: string, y: any): boolean {
-  if (y.kind === "start") return !!readJson(join(dir, ".triage.json"))?.repos?.[String(y.repo ?? "").toLowerCase()]?.asks?.[String(y.issue)];
-  return draftOf(dir, String(y.key ?? ""), String(y.key ?? "").includes(":"))?.rev === y.rev;
+ *  Others are retired, and go first when the file is trimmed, so an answer in force (a No above all) stays.
+ *  Both records are read once per trim. */
+function inForceOf(dir: string): (y: any) => boolean {
+  const tri = readJson(join(dir, ".triage.json")), fb = readJson(join(dir, ".feedback.json"));
+  return (y: any) => {
+    if (y.kind === "start") return !!tri?.repos?.[String(y.repo ?? "").toLowerCase()]?.asks?.[String(y.issue)];
+    const key = String(y.key ?? "");
+    const p = (key.includes(":") ? tri?.copies : fb?.problems)?.[key];
+    return !!p && typeof p === "object" && p.draft?.rev === y.rev;
+  };
 }
 
 /** one answer row in the app's file, in place of that card's earlier one: owner-only, whole and atomic */
 function keepRow(dir: string, row: Record<string, unknown>, same: (y: any) => boolean) {
+  keepRows(dir, [row], (y) => same(y));
+}
+
+/** answer rows in the app's file in one write, each in place of its card's earlier one (`same(y, row)`) */
+function keepRows(dir: string, add: Record<string, unknown>[], same: (y: any, row: Record<string, unknown>) => boolean) {
   const path = join(dir, ".triage-yes.json");
   const old = readJson(path);
   const rows: any[] = Array.isArray(old?.yes) ? old.yes.filter((y: any) => y && typeof y === "object") : [];
-  let next = [...rows.filter((y) => !same(y)), row];
+  let next = [...rows.filter((y) => !add.some((row) => same(y, row))), ...add];
   if (next.length > YES_KEPT) {
-    const live = next.filter((y) => y === row || inForce(dir, y));
+    const inForce = inForceOf(dir);
+    const live = next.filter((y) => add.includes(y) || inForce(y));
     const room = Math.max(0, YES_KEPT - live.length);
     next = [...(room ? next.filter((y) => !live.includes(y)).slice(-room) : []), ...live].slice(-YES_KEPT);
     next.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
@@ -183,6 +197,57 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
   return { ok: false, error: "That card isn't one Shepherdr knows." };
 }
 
+/* ---------- the backlog's batch yes (#235, "The backlog"): one Yes for the ticked drafts, from the app only ---------- */
+
+/** the id an item has on the batch card and in its skip list: f:<key> (this machine's finding) or c:<machine:id> */
+export const itemId = (x: { key: string; copy: boolean }) => `${x.copy ? "c" : "f"}:${x.key}`;
+
+/** the hash the batch card's yes is bound to: its repo, then every draft it lists (its finding, revision and text's
+ *  hash), sorted, so the card the person read is the card answered */
+export function batchHash(repo: string, items: { key: string; copy: boolean; rev: number; hash: string }[]): string {
+  const lines = items.map((x) => `${itemId(x)} ${x.rev} ${x.hash}`).sort();
+  return createHash("sha256").update([repo.toLowerCase(), ...lines].join("\n"), "utf8").digest("hex");
+}
+
+/** The person's Yes on the batch card, for every draft it listed but the ones they unticked (`skip`). The card must be
+ *  the one the view shows now (its hash; a new or changed draft since makes it ask again), so a draft the privacy check
+ *  held back is never in it. Each ticked draft is read again and must still wait at the revision and text the card
+ *  showed; one that changed drops out and waits again. Each yes kept names its revision, its text's hash and the batch's
+ *  hash, so a draft changed after the yes no longer has it. No herdr-task command writes this file.
+ *  -> {ok: true, kept, changed} or {ok: false, error, changed?} */
+export function answerBatch(b: any, view: TriageViewOf | null, dir = store(), settings: any = readSettings(), at = Date.now()): { ok: boolean; error?: string; changed?: boolean | number; kept?: number } {
+  if (b?.answer !== "yes" || typeof b?.hash !== "string" || !/^[0-9a-f]{64}$/.test(b.hash)) return { ok: false, error: "That card isn't one Shepherdr knows." };
+  const repo = destination(settings);
+  if (!repo || !fenced(repo, dir)) return { ok: false, error: "Triage doesn't file this repo's findings now." };
+  const card = view?.cards.find((c) => c.kind === "batch");
+  if (!card?.items?.length || card.repo.toLowerCase() !== repo.toLowerCase()) return { ok: false, error: "No findings wait in a batch now." };
+  if (card.hash !== b.hash || batchHash(card.repo, card.items) !== b.hash) return { ok: false, error: "The list changed since you opened it: look again.", changed: true };
+  const skip = new Set(Array.isArray(b.skip) ? b.skip.filter((x: unknown) => typeof x === "string") : []);
+  const ticked = card.items.filter((x) => !skip.has(itemId(x)));
+  if (!ticked.length) return { ok: false, error: "Nothing is ticked, so nothing was posted." };
+  const tri = readJson(join(dir, ".triage.json")), fb = readJson(join(dir, ".feedback.json"));
+  const old = readJson(join(dir, ".triage-yes.json"));
+  const answers: any[] = Array.isArray(old?.yes) ? old.yes.filter((y: any) => y && typeof y === "object") : [];
+  const rows: Record<string, unknown>[] = [];
+  let changed = 0;
+  for (const x of ticked) {
+    if (!(x.copy ? COPY_KEY : KEY).test(x.key)) { changed++; continue; }
+    const p = (x.copy ? tri?.copies : fb?.problems)?.[x.key];
+    const dr = p?.draft && typeof p.draft === "object" ? p.draft : null;
+    const post = p?.post && typeof p.post === "object" ? p.post : {};
+    // still waiting, still a new issue in this repo, at the revision and text the card showed
+    if (!dr || p.there_done || p.joined || ["filed", "declined"].includes(p.state) || ["posted", "posting", "unsure"].includes(post.state) || ["declined", "following"].includes(p.decision)
+      || dr.target?.action !== "create" || String(dr.target?.repo ?? "").toLowerCase() !== repo.toLowerCase()
+      || dr.rev !== x.rev || yesHash(dr.target, dr.title, shown(dr.body)) !== x.hash) { changed++; continue; }
+    // answered already for this very text (No on another screen stays No; Yes again changes nothing)
+    const was = answers.filter((y) => y.kind === "draft" && y.key === x.key && y.rev === x.rev && y.hash === x.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0)).pop();
+    if (was) { if ((was.answer ?? "yes") !== "yes") changed++; continue; }
+    rows.push({ kind: "draft", repo, key: x.key, rev: x.rev, hash: x.hash, at, by: "app", batch: b.hash });
+  }
+  if (rows.length) keepRows(dir, rows, (y, row) => y.kind === "draft" && y.key === row.key);
+  return { ok: true, kept: rows.length, changed };
+}
+
 /** what Settings › Triage and the cards show (web/shared/types.ts TriageView): `herdr-task triage view`, read again
  *  every 2 minutes while the plugin is on and right after the person's own calls. Off: nothing, and nothing read. */
 export class TriageView {
@@ -223,11 +288,13 @@ export class TriageView {
 }
 
 export type TriageViewOf = import("../web/shared/types.ts").TriageView;
+type TriageBatchItem = import("../web/shared/types.ts").TriageBatchItem;
 const str = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : "");
 
 /** herdr-task's view as the page gets it: only the fields it shows */
 export function viewOf(out: any): TriageViewOf {
   const cards: TriageViewOf["cards"] = [];
+  const batch: TriageBatchItem[] = [];
   // the card's Yes is bound to what it shows: the words it carries must hash to the card's hash (else, cut, No only)
   for (const d of Array.isArray(out.drafts) ? out.drafts : []) {
     if (!d || typeof d.key !== "string" || typeof d.hash !== "string") continue;
@@ -236,6 +303,12 @@ export function viewOf(out: any): TriageViewOf {
     const issue = action === "comment" && Number.isInteger(t.issue) && t.issue > 0 ? t.issue : undefined;
     if (action === "comment" && !issue) continue; // a comment with nowhere to go: never asked
     const title = str(d.title, TITLE_MAX), body = str(d.body, BODY_MAX);
+    // the backlog's batch (#235): a new issue whose words passed the privacy check, carried whole, goes in the one
+    // batch card instead of a card of its own; everything else keeps its own card
+    if (d.batch === true && action === "create" && !d.found && yesHash(t, title, body) === d.hash && Number.isInteger(d.rev) && d.rev > 0) {
+      batch.push({ key: d.key, copy: !!d.copy, rev: d.rev, hash: d.hash, title, body, kind: typeof d.kind === "string" ? str(d.kind, 20) : null, at: Number(d.at) || 0 });
+      continue;
+    }
     cards.push({ id: `draft:${d.copy ? "c" : "f"}:${d.key}`, kind: "draft", key: d.key, copy: !!d.copy, rev: Number(d.rev) || 0, repo: str(t.repo, 140), action, ...(issue ? { issue } : {}),
       title, body, hash: d.hash, ...(yesHash(t, title, body) === d.hash ? {} : { cut: true }), at: Number(d.at) || 0,
       why: str(d.why, 20) || "unknown", ...(Array.isArray(d.found) && d.found.length ? { found: d.found.slice(0, 6).map((x: unknown) => str(x, 80)) } : {}) });
@@ -245,6 +318,14 @@ export function viewOf(out: any): TriageViewOf {
     const repo = str(out.files, 140), title = str(s.title, TITLE_MAX), body = str(s.body, BODY_MAX);
     cards.push({ id: `start:${s.issue}`, kind: "start", issue: s.issue, repo, title, body, hash: s.hash,
       ...(yesHash({ repo, action: "start", issue: s.issue }, title, body) === s.hash ? {} : { cut: true }), at: Number(s.at) || 0 });
+  }
+  // the batch card: every draft that can go in one Yes (the drafts it can't hold keep their own cards)
+  const files = typeof out.files === "string" ? str(out.files, 140) : "";
+  if (files && batch.length) {
+    batch.sort((a, b) => a.at - b.at);
+    const n = batch.length;
+    cards.push({ id: "batch", kind: "batch", repo: files, title: `${n} finding${n === 1 ? "" : "s"}, each a new issue`, body: "",
+      hash: batchHash(files, batch), items: batch, at: batch[0]!.at });
   }
   const repos: TriageViewOf["repos"] = {};
   for (const r of Array.isArray(out.repos) ? out.repos : []) {
@@ -292,23 +373,32 @@ export class Publisher {
 
   /** one pass when it's due (every 10 minutes, or now: soon after a yes) -> whether it ran */
   async tick(now = Date.now(), soon = false): Promise<boolean> {
+    if (this.busy && soon) this.again = true; // a yes during a pass: the next tick runs another, never waits 10 minutes
     if (this.busy || !this.on() || (!soon && now - this.last < PUBLISH_EVERY)) return false;
     this.busy = true;
+    this.again = false;
     this.last = now;
     try {
       const there = this.lists();
-      const args = ["triage", "publish", "--json"];
+      // a pass ends within its time, under the call's own limit (triageRun's 5 minutes): a batch's rest waits for the
+      // next one, a minute on (`more`)
+      const args = ["triage", "publish", "--for", String(PASS_S), "--json"];
       if (Object.keys(there).length) {
         const path = this.tmp();
         writeFileSync(path, JSON.stringify(there), { mode: 0o600 });
         args.splice(2, 0, "--there", path);
       }
-      await this.run(args);
+      const r = await this.run(args);
+      let out: any = null;
+      try { out = JSON.parse(r.stdout); } catch {}
+      if (out?.more === true) this.again = true;
       return true;
     } finally {
       this.busy = false;
+      if (this.again) this.last = 0;
     }
   }
+  private again = false;
 }
 
 /** herdr-task itself, as the service runs it for Triage (never with an agent's terminal id) */

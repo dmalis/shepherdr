@@ -6,7 +6,7 @@
 // `?case=post` gives the Feedback page a draft (File it…) and each step of a post after the yes (#94, slice 4).
 // `?case=handup` has Shepherdr's hand-up (with choices, one question over two tasks) and a wait past Ask me after (6b).
 // `?case=triage` switches Triage on for shop: its schedule, Settings › Triage and two yes cards in #shop's chat (fork #235).
-// `?case=drafts` holds 150 drafts for you in #shop: one card says how many and opens their list (fork #235).
+// `?case=drafts` holds 150 drafts for you in #shop: one card says how many and opens their list, 85 in one batch Yes (fork #235).
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 // `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
@@ -327,6 +327,21 @@ function action(a: Record<string, any>): unknown {
     return { ok: true }
   }
   if (a.type === 'triage') {
+    // the backlog's batch (#235): its Yes keeps the ticked drafts (gone from the list, as posted), the unticked stay
+    if (a.do === 'answer' && a.kind === 'batch') {
+      const skip = new Set<string>(Array.isArray(a.skip) ? a.skip : [])
+      let kept = 0
+      each((snap) => {
+        if (!snap.triage) return
+        snap.triage = { ...snap.triage, cards: snap.triage.cards.flatMap((c) => {
+          if (c.kind !== 'batch' || c.hash !== a.hash) return [c]
+          const left = (c.items ?? []).filter((x) => skip.has(`${x.copy ? 'c' : 'f'}:${x.key}`))
+          kept = (c.items?.length ?? 0) - left.length
+          return left.length ? [{ ...c, items: left, hash: `${c.hash.slice(0, 60)}${left.length.toString(16).padStart(4, '0')}` }] : []
+        }) }
+      })
+      return { ok: true, kept, changed: 0 }
+    }
     if (a.do === 'answer') each((snap) => { if (snap.triage) snap.triage = { ...snap.triage, cards: snap.triage.cards.filter((c) => c.hash !== a.hash) } })
     return { ok: true }
   }
