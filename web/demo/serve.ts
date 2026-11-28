@@ -63,7 +63,9 @@ const chatFor = (s: Sock, key: string): Chat => {
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
 const taskOf = (id: string) => state.normal.tasks.find((t) => t.id === id || `${t.id}/worker` === id)
-const patchTask = (id: string, p: Partial<Task>) => each((snap) => { snap.tasks = snap.tasks.map((t) => (t.id === id ? { ...t, ...p } : t)) })
+// a task Done or archived is no longer urgent (dmalis/shepherdr#119: web/shared/urgent.ts's rule, which the real service reads)
+const unmarked = (t: Task): Task => (t.urgent && (t.status === 'done' || t.archived) ? { ...t, urgent: undefined } : t)
+const patchTask = (id: string, p: Partial<Task>) => each((snap) => { snap.tasks = snap.tasks.map((t) => (t.id === id ? unmarked({ ...t, ...p }) : t)) })
 const uploaded = new Map<string, File>()
 const say = (key: string, m: Partial<Message>) => { (chats[key] ??= { key, messages: [], cli: 'claude', top: true }).messages.push({ id: `n${++n}`, who: 'agent', at: Date.now(), ...m } as Message); pushChat(key) }
 
