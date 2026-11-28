@@ -55,7 +55,7 @@ test('closed by its Merge setting: one quiet line with what it found', () => {
 })
 
 test('new files left uncommitted: the card says closing deletes them', () => {
-  const s = text({ repo: 'branch', nothingToMerge: true, leftFiles: ['research.md'], waitsWhy: "Waits for you to close it: it left new files it didn't commit (research.md), and closing deletes them." })
+  const s = text({ repo: 'branch', nothingToMerge: true, leftFiles: ['research.md'], waitsWhy: "Waits for you to close it: closing deletes the new files it left and didn't commit (research.md)." })
   expect(s).toContain("left new files it didn't commit. Close it and delete them?")
   expect(s).toContain('Close, delete its files')
   expect(s).not.toContain('Close, nothing changes')

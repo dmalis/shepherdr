@@ -55,14 +55,15 @@ def waits_why(s, t, policy, by=None):
     if in_folder(t):
         return "Waits for you to mark it as done: it worked in the folder itself, not on a branch of its own."
     if t.get("nothing_to_merge") and t.get("left_files"):
+        # what closing does before the names: the service keeps a line's first 200 characters (service/next.ts)
         names = ", ".join(t["left_files"][:3]) + (" and more" if len(t["left_files"]) > 3 else "")
-        return f"Waits for you to close it: it left new files it didn't commit ({names}), and closing deletes them."
+        return f"Waits for you to close it: closing deletes the new files it left and didn't commit ({names})."
     close = bool(t.get("nothing_to_merge"))
     what = "Waits for you to close it" if close else "Waits for you to merge it"
     if policy != "ask":  # Right away or When all checks pass never hold it for the person: the action alone
         return what + "."
     by, verb = by or merge_source(s, t), "finish" if close else "merge"
-    rule = (f"its Assistant set this one to {verb} only when you say so" if by == "task" else
+    rule = (f"this task was set to {verb} only when you say so" if by == "task" else
             f"{MERGE_WHERE.get(by, 'here')}{'' if close else ','} tasks {verb} only when you say so")
     return f"{what}: " + ("it has nothing to merge, and " if close else "") + rule + "."
 
@@ -100,4 +101,6 @@ def waits_now(s, t):
     if t.get("auto_merge") or t.get("merge_requested") or t.get("attention"):
         return None
     policy = merge_policy(s, t)
-    return waits_why(s, t, policy) if in_folder(t) or policy == "ask" else None
+    # new files left uncommitted hold it whatever Merge says (closes_alone()): closing deletes them
+    held = in_folder(t) or (t.get("nothing_to_merge") and t.get("left_files")) or policy == "ask"
+    return waits_why(s, t, policy) if held else None

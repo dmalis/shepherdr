@@ -2981,7 +2981,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
             self.assertEqual(self.ready_said(policy="auto"), "ready")
         self.assertEqual(self.task["left_files"], ["research.md"])
         self.assertNotIn("closed_alone", self.task)
-        self.assertEqual(self.task["waits_why"], "Waits for you to close it: it left new files it didn't commit (research.md), and closing deletes them.")
+        self.assertEqual(self.task["waits_why"], "Waits for you to close it: closing deletes the new files it left and didn't commit (research.md).")
         self.assertTrue(os.path.isfile(os.path.join(self.task["worktree"], "research.md")))
         # committed or removed, the next ready closes it
         os.remove(os.path.join(self.task["worktree"], "research.md"))
@@ -3040,21 +3040,31 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
                                  f"Waits for you to close it: it has nothing to merge, and {where} tasks finish only when you say so.")
         self.task["set"] = {"merge": "ask"}
         self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
-                         "Waits for you to close it: it has nothing to merge, and its Assistant set this one to finish only when you say so.")
+                         "Waits for you to close it: it has nothing to merge, and this task was set to finish only when you say so.")
         self.task.pop("nothing_to_merge")
         self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
-                         "Waits for you to merge it: its Assistant set this one to merge only when you say so.")
+                         "Waits for you to merge it: this task was set to merge only when you say so.")
 
     def test_waits_why_says_each_cards_own_action(self):
         import herdr_task.waits as waits
         for policy in ("ask", "checks", "auto"):
             with self.subTest(policy=policy):
                 t = dict(self.task, nothing_to_merge=True, left_files=["a.md", "b.md", "c.md", "d.md"])
-                self.assertEqual(waits.waits_why(self.store, t, policy), "Waits for you to close it: it left new files it "
-                                 "didn't commit (a.md, b.md, c.md and more), and closing deletes them.")
+                self.assertEqual(waits.waits_why(self.store, t, policy), "Waits for you to close it: closing deletes the new "
+                                 "files it left and didn't commit (a.md, b.md, c.md and more).")
                 t = dict(self.task, mode="here")
                 self.assertEqual(waits.waits_why(self.store, t, policy),
                                  "Waits for you to mark it as done: it worked in the folder itself, not on a branch of its own.")
+        # long names: what closing does is said first, so the service's cut at 200 characters (next.ts) keeps it
+        t = dict(self.task, nothing_to_merge=True, left_files=[f"docs/research/a-rather-long-file-name-number-{i}.md" for i in range(3)])
+        self.assertIn("closing deletes the new files", waits.waits_why(self.store, t, "ask")[:200])
+        # files left hold it whatever Merge says: a card back from work gets its line again from the tick (waits_now)
+        from unittest import mock
+        import herdr_task.settings as settings
+        for policy in ("ask", "checks", "auto"):
+            with self.subTest(policy=policy), mock.patch.object(settings, "merge_policy", lambda *a, p=policy: p):
+                t = dict(self.task, state="ready", nothing_to_merge=True, left_files=["research.md"])
+                self.assertIn("closing deletes", waits.waits_now(self.store, t))
         # Right away or When all checks pass never hold a card for the person: no rule that says they would
         self.assertEqual(waits.waits_why(self.store, dict(self.task, nothing_to_merge=True), "auto"), "Waits for you to close it.")
         self.assertEqual(waits.waits_why(self.store, self.task, "checks"), "Waits for you to merge it.")
@@ -3072,10 +3082,10 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
                 ("Waits for you: Merge is When I mark it as done (the default).", {"nothing_to_merge": True},
                  "Waits for you to close it: it has nothing to merge, and by default tasks finish only when you say so."),
                 ("Waits for you: This task's Merge (set by its Assistant) is When I mark it as done.", {},
-                 "Waits for you to merge it: its Assistant set this one to merge only when you say so."),
+                 "Waits for you to merge it: this task was set to merge only when you say so."),
                 ("Waits for you: it committed nothing but left new files (research.md); closing it deletes them.",
                  {"nothing_to_merge": True, "left_files": ["research.md"]},
-                 "Waits for you to close it: it left new files it didn't commit (research.md), and closing deletes them."),
+                 "Waits for you to close it: closing deletes the new files it left and didn't commit (research.md)."),
                 ("Waits for you: it worked in the folder itself, not on a branch of its own, so only you can close it.",
                  {"mode": "here"}, "Waits for you to mark it as done: it worked in the folder itself, not on a branch of its own."))
         # the Merge rule and the source the old line named, even when the settings say otherwise now
