@@ -53,3 +53,18 @@ a.btn.fb-gh{color:inherit;text-decoration:none}
 .app.tap .fb-acts .btn,.app.tap .fb-box .btn,.app.tap .fb-m .btn{height:var(--btn)}
 /* a phone: the page has the whole screen with Back, so the bottom bar steps aside while it is open */
 .app.phone .device:has(.fbp)>.bar{display:none}
+/* File it… (slice 4): GitHub's new-issue preview in the sheet. Where it goes first, then the exact title and body in a
+   well (the page's darker ground, a hairline round it) that scrolls on its own, so Cancel and Post it stay in reach; the
+   hidden-line note and the settings note under it. The body keeps its own line breaks, as GitHub shows Markdown source. */
+.fb-sheet{display:grid;gap:12px;min-width:0}
+.fb-sheet p.fb-to{color:var(--sub);font-size:var(--ui);line-height:var(--uil);overflow-wrap:anywhere;text-wrap:pretty}
+.fb-draft{display:grid;gap:8px;align-content:start;max-height:min(46dvh,440px);overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;border-radius:10px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line2)}
+.fb-draft:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.fb-sheet p.fb-dt{color:var(--fg);font-size:15px;line-height:22px;font-weight:600;overflow-wrap:anywhere;text-wrap:balance}
+.fb-db{color:var(--fg);font-size:14px;line-height:21px;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+.fb-sheet p.fb-hidden{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
+.fb-sheet p.fb-dnote{color:var(--fg);font-size:var(--ui);line-height:var(--uil);text-wrap:pretty}
+.fb-sheet .acts{margin-top:4px}
+.app.tap .fb-sheet .acts .btn{height:var(--btn);min-width:88px}
+/* a phone: the buttons share the width, Post it on the trailing side (iOS's alert pair) */
+.app.phone .fb-sheet .acts{display:grid;grid-template-columns:1fr 1fr}
