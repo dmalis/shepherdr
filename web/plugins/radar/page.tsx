@@ -166,7 +166,7 @@ function Since({ c }: { c: Ctx }) {
       <ul className="rd-stories">
         {needs.map((i) => <Story key={i.id} icon="ask" tone="need" lead={`${projectOf(c, i.project).name} needs you.`} onClick={() => openItemHere(i.id)}>{i.title}: {i.events}. One yes posts its issue and starts a fix.</Story>)}
         {yes.map((i) => <Story key={i.id} icon="working" tone="warm" lead="Your yes went through." onClick={() => openItemHere(i.id)}>{i.title}: {APPROVED}.</Story>)}
-        {live.map((i) => <Story key={i.id} icon="check" tone="ok" lead="Fixed and holding." onClick={() => openItemHere(i.id)}>{i.title}: {i.shipped!.after}</Story>)}
+        {live.map((i) => <Story key={i.id} icon="check" tone="ok" lead="Fixed and holding." onClick={() => openItemHere(i.id)}>{i.title}. {i.shipped!.after}</Story>)}
         {rising.map((i) => <Story key={i.id} icon="up" lead="Rising." onClick={() => openItemHere(i.id)}>{i.title}: {i.tasks} tasks this week, up from 3. It’s first in line.</Story>)}
         {reverted.map((i) => <Story key={i.id} icon="reload" tone="warm" lead="Reverted." onClick={() => openItemHere(i.id)}>{i.title}. {i.shipped!.after}</Story>)}
         {merged.map((i) => <Story key={i.id} icon="merged" lead="Merged, not installed yet." onClick={() => openItemHere(i.id)}>{i.title}. Radar checks it after the next install.</Story>)}

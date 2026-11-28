@@ -11,7 +11,7 @@
 
 /* the prototype's own bar: dashed, so it never reads as the app's. Folded, one button that says what is picked (a
    disclosure, as GitHub's and Linear's view options); open, the controls under it */
-.rd-proto{display:grid;gap:4px;padding:3px;border:1px dashed var(--edge);border-radius:12px}
+.rd-proto{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:3px;border:1px dashed var(--edge);border-radius:12px}
 .rd-ptog{display:flex;align-items:center;gap:8px;min-width:0;min-height:var(--btns);padding:2px 8px;border-radius:8px;text-align:start}
 .app.tap .rd-ptog{min-height:var(--btn)}
 @media(hover:hover){.rd-ptog:hover{background:var(--control)}}
@@ -19,11 +19,11 @@
 .rd-ptog>.i{flex:none;width:var(--ic-sm);height:var(--ic-sm);color:var(--muted)}
 .rd-pbody{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:4px 8px 8px}
 .rd-tag{flex:none;padding:0 8px;border-radius:999px;background:var(--control2);color:var(--fg);font-size:12px;line-height:20px;font-weight:600}
-.rd-pr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.rd-pr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;max-width:100%}
 .rd-pl{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 /* one line that scrolls sideways when it can't fit, as a phone's tabs do (GitHub, Linear), never two rows; while more
    is hidden past an edge, that edge fades (a scroll-linked mask: none when it all fits) */
-.rd-seg{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+.rd-seg{min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
 .rd-seg::-webkit-scrollbar{display:none}
 .rd-seg button{flex:none}
 .app.tap .rd-seg button{height:var(--btns)}
