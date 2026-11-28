@@ -19,6 +19,10 @@ when its step passed.
                                            (outcome again: merges are pending, settle again; next: ci)
   ci --run <key> --folder <space>          CI's verdict on this run's installs of our merges, the lease let go, then
                                            the completion command
+  issues <sha> --run <key> --folder <space> [--dry-run]   after a healthy install: our issues' status lines and
+                                           labels from the patch list there, one pass, writing only what changes
+  part-of --base <sha> --head <sha> --body-file <f>   the fork check: a pull request that changes a patch file
+                                           names its issue (Part of #n); refused with the lines to add
   hold --run <key> --folder <space> ...    writes the held record (or records the 24-hour question, or its answer)
   held                                     reads the held records, and whether each one's question is due
   patch-list [--at <sha>]                  the patches this tree (or that commit) carries: fork/patches/<issue>.json
@@ -36,7 +40,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import gate, install, merged, patches, public, release, state  # noqa: E402
+from sync import gate, install, issues, merged, patches, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -346,6 +350,70 @@ def ci(a, p):
     return merged.ci_step(p, a.run, a.folder, os.path.abspath(a.repo), cfg_hostname=hostname(p))
 
 
+def issues_step(a, p):
+    """After a healthy install: our issues' status lines and labels from the patch list at the installed commit, in
+    one pass that writes only what changes (fork/sync/issues.py). --dry-run writes nothing and shows the new lines."""
+    repo = os.path.abspath(a.repo)
+    if not state.SHA.match(a.sha or ""):
+        raise Refused("issues takes the installed commit's full SHA", outcome="stop")
+    with state.locked(p) as st:
+        if not a.dry_run:
+            state.owns_lease(st, a.run, a.folder)
+            if st.get("phase") != "healthy":
+                raise Refused(f"the phase is {st.get('phase') or 'none'}: issues runs after a healthy install",
+                              outcome="stop")
+        base = st.get("baseline") or {}
+        installs = [i for i in st.get("installs") or [] if state.SHA.match(i.get("sha") or "")]
+    tag = a.tag if a.dry_run and a.tag else (base.get("tag") if base.get("sha") == a.sha else None)
+    if not tag:
+        raise Refused(f"{a.sha[:12]} isn't the installed baseline with a tag" +
+                      (" (a dry run names one with --tag)" if a.dry_run else ""), outcome="stop")
+    since = a.since
+    if since is None:
+        before = [i["sha"] for i in installs if i["sha"] != a.sha]
+        since = before[-1] if before else None
+    if since and not release.is_ancestor(repo, since, a.sha):
+        since = None                    # a rollback's or another line's commit: every pull request counts as new
+    try:
+        return issues.run(repo, a.sha, since, tag, issues.release_in(repo, a.sha), gate.gh, dry_run=a.dry_run,
+                          cfg_hostname=hostname(p))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Refused(f"the patch list at {a.sha[:12]} can't be read ({type(e).__name__})", outcome="stop")
+
+
+def issues_args(c):
+    c.add_argument("sha", help="the installed commit's full SHA")
+    run_args(c)
+    c.add_argument("--since", help="the install before it (default: the state's install history)")
+    c.add_argument("--dry-run", action="store_true", help="read and plan only: write nothing, show the new lines")
+    c.add_argument("--tag", help="a dry run's install tag, when the commit isn't the baseline")
+
+
+def part_of(a, p):
+    """The fork check's rule for a pull request: each patch file its branch changes is named by `Part of #n` in its
+    body (and the umbrella its line names). Refused with the exact lines to add."""
+    try:
+        with open(a.body_file, encoding="utf-8") as f:
+            body = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise Refused(f"the pull request's body can't be read ({type(e).__name__})", outcome="stop")
+    missing = issues.part_of_missing(os.path.abspath(a.repo), a.base, a.head, body, a.branch)
+    if missing is None:
+        raise Refused("the branch's changes can't be listed", outcome="stop")
+    if missing:
+        raise Refused("this pull request changes a patch file but its description doesn't name the issue: add "
+                      + " and ".join(f'the line "{m}"' for m in missing), outcome="refused", add=missing)
+    return {"add": []}
+
+
+def part_of_args(c):
+    c.add_argument("--base", required=True, help="the pull request's base commit")
+    c.add_argument("--head", required=True, help="its head (or merge) commit")
+    c.add_argument("--body-file", required=True, help="its description, as a file")
+    c.add_argument("--branch", help="its head branch (a sync/* branch is exempt)")
+    c.add_argument("--repo", default=".", help="the repo (default: here)")
+
+
 def finish_args(c):
     run_args(c)
     c.add_argument("--says", help="what's new, for an install's --told (the rest of the words are the state's)")
@@ -365,6 +433,8 @@ COMMANDS = [
     ("public-check", "refuses text with paths, hosts, emails or raw output", public_check_args, public_check),
     ("finish", "the exact completion command for the run's outcome", finish_args, finish),
     ("ci", "CI's verdict on this run's installs of our merges, then the completion command", run_args, ci),
+    ("issues", "after a healthy install: our issues' status lines and labels, in one pass", issues_args, issues_step),
+    ("part-of", "a pull request that changes a patch file names its issue (Part of #n)", part_of_args, part_of),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),
     ("patch-list", "the patches a tree or a commit carries", patch_list_args, patch_list),

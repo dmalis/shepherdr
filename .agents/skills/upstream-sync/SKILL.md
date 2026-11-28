@@ -19,7 +19,13 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 
 | `outcome` | Do |
 |---|---|
-| `wait` | Call the same step again. One call waits at most 9 minutes; the state keeps the clock. |
+| `wait` | Call the same step again at once. One call waits at most 9 minutes; the state keeps the clock. The step reads GitHub itself, once a minute: never poll or watch GitHub by hand in between. |
+
+**Every wait on GitHub is gentle.** GitHub's request limit is one budget for every task and install on the
+account. A wait on GitHub is either `fork/bin/sync`'s own loop (`ci`, the gates: one call a minute) or, where no step
+waits for you, one `gh run watch <run id> --interval 60`. `gh run watch`'s default reads every 3 seconds, which
+alone ran the limit out. Never `gh run watch` without `--interval 60`, `gh pr checks --watch`, or a loop of
+`gh run list` or `gh api` of your own.
 | `held` | The run is **held** at the gate it names (`kind`, `gate`): [Held](#held). |
 | `failed` (install) | The update failed: run the step `next` names (`health` anyway, which leads to the rollback, or `rollback`). |
 | `rollback` (health) | Run `rollback`. |
@@ -132,36 +138,37 @@ it found: report that, never a guess at why, and never repair `main` by force.
 
 ## 7. Finish and report
 
-1. After a healthy install: each issue in the patch list at the candidate (`fork/bin/sync patch-list --at
-   <candidate>`, which also reads an older commit's `fork/patches.json`) gets "carried since `<tag>`" at the
-   start of its status line, in place of "building" or an older "carried since". The rest of the line stays as it
-   is: what the fix does and how to try it, where it stands with upstream, upstream links, each pull request's part. A
-   `fixed-upstream` issue the candidate's list no longer has no longer waits for an upstream round: remove `not-filed`,
-   its status line says "fixed upstream in `vX.Y.Z`, then dropped", and it is closed now.
-   - **`live` follows the install:** every issue in the patch list at the installed commit gets `live`. An
-     issue with `live` that the list no longer has (its fix reverted, or dropped for upstream's) loses it:
-     `gh issue list -R dmalis/shepherdr --label live --state all`, then `gh issue edit <n> -R dmalis/shepherdr
-     --remove-label live`. A rollback changes no labels, since this step runs only after a healthy install.
-   - **Find what this install made live:** our merged pull requests (`gh pr list -R dmalis/shepherdr --state merged
-     --limit 100 --json number,headRefName,mergeCommit,body`) whose merge commit is in the installed range
-     (`git merge-base --is-ancestor <its commit> <candidate>`, and not an ancestor of the last `ours-*` tag). Herdr
-     squash-merges, so go by the pull requests, not by merge commits. Leave out sync pull requests (`sync/*`
-     branches).
-   - **A fix** is one that says `Part of #n` for a `patch` issue: it lands now (upstream-issue skill: "After a fix
-     lands"). Its part of the status line goes from "building" to "not filed yet", and the issue's labels are set
-     from its parts (that skill: "Several fixes on one issue"), which puts `not-filed` on.
-   - **A fix only a device can confirm** (its issue has a "Device check:" line for it, fork-patch skill: "Done
-     means"): label the issue `device-check` too (`gh label create device-check -R dmalis/shepherdr` first, if
-     `gh label list` lacks it). `--says` never calls it fixed: "not seen on a device yet: please check <that
-     line>". When `finish` says `again`, keep these lines: the last healthy round's `--says` carries every
-     round's. Only the person's confirmation takes `device-check` off; no install does. A part that went back to
-     building after a failed check stays building until a pull request that fixes it is installed.
-   - **A revert** (its issue's status line says "reverting in #m" for it): that part becomes "reverted in #m", and
-     the labels are set from the parts again. The issue closes only when every fix on it was undone.
-   - **A pull request that changes Shepherdr** (any file outside `FORK.md`, `fork/` and `.agents/`) and names no
-     issue gets one now (fork-patch skill, step 1), labelled `patch` and `not-filed`. Its status line: "carried
-     since `<tag>`, not filed yet. What it does: … Try it: …", from the pull request. Comment the issue's link on
-     the pull request.
+1. After a healthy install: `fork/bin/sync issues <candidate>`. It reads our open issues and merged pull requests
+   once, works out every issue's status line and labels from the patch list at the candidate, and writes only the
+   issues whose line or labels change. Never edit a status line, a `live` label or a pull request's `Part of #n` by
+   hand: a pass it got wrong is a bug in `fork/sync/issues.py`, fixed there with a test. What it does, so you can read
+   its line:
+   - **Carried:** each issue in the patch list gets "carried since `<tag>`" at the start of its status line, in
+     place of a leading "building". A line that already says "carried since" keeps its tag: it names the install
+     that first carried the fix, so a later install writes nothing there (a tag written before this rule names the
+     last install that moved it by hand; it stays too). The rest of the line stays as it is. A
+     fix's part "#m: building" becomes "#m: not filed yet" once #m runs, and "reverting in #m" becomes "reverted in
+     #m" (upstream-issue skill: "Several fixes on one issue").
+   - **Labels follow the install and the line:** `live` on every issue in the patch list, off every other (open or
+     closed); `not-filed` on while the line says "not filed yet" or "reverting", off when it says neither. A
+     `fixed-upstream` issue the list no longer has says "fixed upstream in `vX.Y.Z`, then dropped" and closes; one
+     whose last fix was reverted is labelled `reverted` and closes. A rollback changes nothing: this step runs only
+     after a healthy install.
+   - **Which issue a fix is part of:** its pull request's `Part of #n`, else the patch files its merge commit
+     changed (`fork/patches/<n>.json`, plus the `umbrella` a patch file names). A pull request whose body lacked the
+     line gets it added (`linked` in the step's line). Sync pull requests (`sync/*`) are left out. The fork check
+     fails a pull request that changes a patch file without its `Part of #n`, so these are rare.
+   - **A fix only a device can confirm** (its issue has a "Device check:" line, fork-patch skill: "Done means"): the
+     step labels it `device-check`, its line says "not seen on a device yet", and `device_checks` in its line lists
+     each one's check. Put each in `--says`, never calling it fixed: "not seen on a device yet: please check <that
+     check>". When `finish` says `again`, keep these lines: the last healthy round's `--says` carries every round's.
+     Only the person's confirmation takes `device-check` off; no install does.
+   - **`unlinked` in its line:** a pull request that changes Shepherdr (any file outside `FORK.md`, `fork/` and
+     `.agents/`) and names no issue, in its body or by a patch file. It gets one now (fork-patch skill, step 1),
+     labelled `patch` and `not-filed`, with the status line "carried since `<tag>`, not filed yet. What it does: …
+     Try it: …" from the pull request, and the issue's link commented on the pull request.
+   - **`outcome: wait`:** GitHub refused a read or a write: call it again; it writes only what is still different.
+     `--dry-run` writes nothing and shows each new line (`bodies`), to check a pass before it runs.
    - **The Feedback page learns what this machine carries:** `fork/bin/found installed <candidate>`. It reads the
      patch list at the candidate, takes each issue's "Device check:" line as its Try it words, and tells herdr-task
      (`herdr-task feedback --installed <candidate> --issues …`), so each problem filed on one of those issues says
@@ -174,7 +181,10 @@ it found: report that, never a guess at why, and never repair `main` by force.
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
 4. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
-   `fork/bin/sync ci`, again while it says `wait`; its line has the `command`.
+   `fork/bin/sync ci`, again at once while it says `wait`; its line has the `command`. It does the waiting: never
+   read or watch GitHub's runs yourself (`gh run list`, `gh run watch`, `gh api`) between calls. `gh run watch`
+   alone reads GitHub every few seconds, and runs waiting side by side each did it, which used up the account's
+   API limit. `ci` reads main's runs in one call a minute, shared by every run that waits.
 5. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 
@@ -213,9 +223,12 @@ A hold of this path: `--blocker main-<the gate it names>` (`main-rehearsal`, `ma
 issue and no 24-hour question: the next merge is the fix. A gate that is the pipeline's own (`main-rehearsal`) goes on
 the open `pipeline` issue.
 
-**CI after the install.** `ci`'s words tell a red result once (which check, that nothing rolled back, and the last
-install CI passed). The person's Assistant opens a fix task from them. Never roll back on red CI. Go back to the
-recovery point only when the person asks.
+**CI after the install.** `ci`'s words tell a red result once (which check, on which fix by its title, that nothing
+rolled back, and the last install CI passed). The person's Assistant opens a fix task from them. Never roll back on
+red CI. Go back to the recovery point only when the person asks. `ci` waits for each of this run's installs from its
+own install time, reads main's runs once a minute in one call, and counts a later commit's pass for every install
+before it; when checks are still running as it stops, its words say so once. Post its words as they are: never add
+commit hashes, waits or verdicts of your own.
 
 ## Held
 

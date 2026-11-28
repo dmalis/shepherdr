@@ -40,7 +40,9 @@ FETCH_S = 60                            # main's fetch while the gate polls, kep
 
 
 def poll_s():
-    return float(os.environ.get("FORK_SYNC_POLL_S", "20"))
+    """How often a gate reads a commit's checks while they run: once a minute, one GitHub call each time. A run takes
+    minutes, and GitHub's request limit is shared by every task and install (a 3-second watch used it up)."""
+    return float(os.environ.get("FORK_SYNC_POLL_S", "60"))
 
 
 def call_wait_s():
@@ -745,14 +747,17 @@ def finish(p, run, folder, repo, says=None, cfg_hostname=None):
         # told once per commit: another run's `ci` may have told one meanwhile (the words are a subset of the checked)
         kept = merged.still_untold(st, ci_said)
         merged.mark_told(st, [sha for sha, _ in kept])
-        told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in kept])
         unread = merged.ci_unresolved(st)
         waits = [sha for sha in merged.run_installs(st, run) if sha in unread]
+        failed = any(w for _, w in kept)
+        # the recovery point's sentence is made when the words are final: `ci`'s, when it reads CI after this
+        told, outcome = merged.with_ci_words(base, base_outcome, [w for _, w in kept],
+                                             back=None if unread else merged.back_line(st.get("recovery"), failed))
         if unread:
             # installs of ours whose CI hasn't answered: `ci` reads it with the lease let go, waits for this run's
             # own, then gives the completion command with what it found
             st.setdefault("reports", {})[run] = {"folder": folder, "outcome": outcome, "told": told, "ci": waits,
-                                                 "at": state.stamp()}
+                                                 "ci_said": failed, "at": state.stamp()}
         if (st.get("run") or {}).get("key") == run:
             st["run"] = dict(st["run"], finished=outcome)
             # the person's upstream issues are reported by a release sync's install words: the cursor moves to that

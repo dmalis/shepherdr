@@ -14,10 +14,17 @@
   `source_items`, so a new shipped folder breaks the test.
 - Quarantine without a trial: a tip whose shipped files are the same as a quarantined commit's stays out (a docs-only
   merge on top doesn't clear it); a shipped change does.
-- CI after the install: `ci` reads main's `check` and `fork-check` for each install of ours: the newest finished run
-  covering that commit (cancelled and skipped runs don't count; CI cancels older main runs when main moves). A red
-  or missing result is told once per commit (finish puts it in its --told words, for the Assistant to open a fix
-  task); nothing rolls back on it. The newest install whose CI passed is kept as the recovery point."""
+- CI after the install: `ci` reads main's `check` and `fork-check` workflows for each install of ours: the newest
+  finished run covering that commit, on it or a later commit of main that contains it (cancelled and skipped runs
+  don't count; CI cancels older main runs when main moves). One GitHub call a minute reads main's runs for every
+  install at once. Each install waits from its own install time: 30 minutes, an hour while a check that would cover
+  it still runs. A red or missing result is told once (finish puts it in its --told words, for the Assistant to open
+  a fix task), in plain words that name the fixes by title, never a commit's hash; nothing rolls back on it. The
+  newest install whose CI passed is kept as the recovery point."""
+import fcntl
+import json
+import os
+import re
 import time
 
 from . import gate, install, release, state
@@ -34,6 +41,7 @@ CI_NAMES = ("check", "fork-check")
 CI_RED = ("failure", "timed_out", "startup_failure", "action_required")
 CI_UNFINISHED = ("cancelled", "skipped", "stale")     # a run that ended without a verdict: an older or newer one counts
 CI_MISSED_AFTER_S = 2 * 3600          # no finished run covers an install this long after it: told as missing
+CI_LATE_S = 24 * 3600                 # a missing verdict is read again this long, so a later pass still counts
 CI_KEEP = 50
 
 
@@ -189,10 +197,93 @@ def round_record(st, r):
 
 # --- CI on main after an install of ours ---
 
+WORKFLOWS = {"check.yml": "check", "fork-check.yml": "fork-check"}   # main's workflow files, by the check they are
+
+
+def ci_poll_s():
+    """How often `ci` reads main's runs: a run takes minutes, so once a minute is plenty (one call each time)."""
+    return float(os.environ.get("FORK_SYNC_CI_POLL_S", "60"))
+
+
+def main_runs():
+    """{commit: [{"name", "status", "conclusion"}]} for main's newest push runs of our two workflows, from ONE call
+    (GitHub's workflow runs of main), or None when they can't be read. A workflow's own run, not its jobs' check
+    runs, so a workflow that splits its job in parts still gives one verdict."""
+    runs, _ = read_main_runs()
+    return runs
+
+
+RATE_LIMIT = re.compile(r"rate limit", re.I)
+
+
+def limit_reset(now):
+    """When GitHub's request limit resets (epoch seconds), from its rate_limit endpoint, which costs nothing against
+    the limit; a minute from now when that can't be read."""
+    v = gate.gh_json("api", "rate_limit")
+    try:
+        return float(v["resources"]["core"]["reset"])
+    except (TypeError, KeyError, ValueError):
+        return now + 60
+
+
+def read_main_runs(now=time.time):
+    """(runs, None) as main_runs gives them; (None, reset time) when GitHub refused for its request limit; (None,
+    None) when they can't be read for another reason."""
+    ok, text, err = gate.gh("api", f"repos/{state.REPO}/actions/runs?branch=main&event=push&per_page=100")
+    if not ok and RATE_LIMIT.search(err or ""):
+        return None, limit_reset(now())
+    try:
+        v = json.loads(text) if ok else None
+    except ValueError:
+        v = None
+    if not isinstance(v, dict) or not isinstance(v.get("workflow_runs"), list):
+        return None, None
+    out = {}
+    for r in v["workflow_runs"]:
+        if not isinstance(r, dict):
+            continue
+        name = WORKFLOWS.get(os.path.basename(str(r.get("path") or "").split("@")[0]))
+        sha = str(r.get("head_sha") or "")
+        if name and state.SHA.match(sha):
+            out.setdefault(sha, []).append({"name": name, "status": r.get("status"),
+                                            "conclusion": r.get("conclusion")})
+    return out, None
+
+
+def shared_runs(p, now=time.time):
+    """main_runs(), shared by every `ci` reading at once (each install run calls its own): the last read, kept beside
+    the sync state, serves them all for ci_poll_s(), so GitHub gets one call a minute however many runs wait. Taken
+    under its own lock (never the state's: a GitHub call can take a while), so two can't both call. Returns (runs or
+    None, the time GitHub's request limit resets or None): while GitHub refuses for its limit, nobody calls again
+    before that time."""
+    path = os.path.join(p.dir, "main-runs.json")
+    os.makedirs(p.dir, exist_ok=True)
+    with open(os.path.join(p.dir, "main-runs.lock"), "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as f:
+                kept = json.load(f)
+            if float(kept.get("limit_until") or 0) > now():
+                return None, float(kept["limit_until"])
+            if 0 <= now() - float(kept["at"]) < ci_poll_s() and isinstance(kept.get("runs"), dict):
+                return kept["runs"], None
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        runs, limit = read_main_runs(now)
+        if runs is not None or limit:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"at": now(), "runs": runs} if runs is not None else {"at": now(), "limit_until": limit}, f)
+            os.replace(tmp, path)
+        return runs, limit
+
+
 def ci_verdict(repo, sha, tip, runs_of=None):
-    """("green" | "red" | "pending", {name: {"state", "by"}}): for each of main's checks, the newest finished run that
-    covers `sha`: on it or a later commit of main's first-parent line, or, for `check` when its push trigger skips
-    `sha`'s own push (paths-ignore), on an older commit whose code is the same."""
+    """("green" | "red" | "pending", {name: {"state", "by", "running"}}): for each of main's checks, the newest finished
+    run that covers `sha`: on it or a later commit of main's first-parent line (a later commit contains it, so its
+    pass covers every install before it), or, for `check` when its push trigger skips `sha`'s own push
+    (paths-ignore), on an older commit whose code is the same. `running`: a run that would cover it hasn't finished
+    yet. `runs_of(commit)` gives that commit's runs ([] for none, None when they can't be read)."""
     runs_of = runs_of or gate.check_runs
     line = [sha]
     if is_ancestor(repo, sha, tip):
@@ -215,16 +306,18 @@ def ci_verdict(repo, sha, tip, runs_of=None):
 
     got = {}
     for name in CI_NAMES:
-        got[name] = {"state": "pending", "by": None}
+        got[name] = {"state": "pending", "by": None, "running": False}
         for c in line + (older if name == "check" else []):
             rs = runs(c)
             if rs is None:
                 break                           # can't be read now: pending, read again later
-            done = [x for x in rs if x.get("name") == name and x.get("status") == "completed"
-                    and x.get("conclusion") not in CI_UNFINISHED]
+            mine = [x for x in rs if x.get("name") == name]
+            if any(x.get("status") != "completed" for x in mine):
+                got[name]["running"] = True
+            done = [x for x in mine if x.get("status") == "completed" and x.get("conclusion") not in CI_UNFINISHED]
             if done:
                 red = any(x.get("conclusion") in CI_RED for x in done)
-                got[name] = {"state": "red" if red else "green", "by": c}
+                got[name] = {"state": "red" if red else "green", "by": c, "running": False}
                 break
     states = [g["state"] for g in got.values()]
     verdict = "red" if "red" in states else "green" if all(s == "green" for s in states) else "pending"
@@ -232,14 +325,34 @@ def ci_verdict(repo, sha, tip, runs_of=None):
 
 
 FINAL_VERDICTS = ("green", "red", "missed")
+TITLES_KEEP = 20
 
 
-def track(st, sha, version, tag, run):
+def subject(repo, sha):
+    """A commit's title as the person knows it: its subject without the pull request's number ("UI 15: the review
+    card says what happens (#188)" is "UI 15: the review card says what happens")."""
+    ok, out, _ = git(repo, "log", "-1", "--format=%s", sha)
+    return re.sub(r"\s*\(#\d+\)\s*$", "", out.strip()) if ok and out.strip() else None
+
+
+def install_titles(repo, sha, since):
+    """The titles of the merges an install brought (main's first-parent line since the install before), newest
+    first; its own title when there is no install before it."""
+    titles = []
+    if since and state.SHA.match(since) and is_ancestor(repo, since, sha):
+        ok, out, _ = git(repo, "log", "--first-parent", "--format=%H", f"{since}..{sha}")
+        titles = [subject(repo, c) for c in out.splitlines()] if ok else []
+    if not titles:
+        titles = [subject(repo, sha)]
+    return [t for t in titles if t][:TITLES_KEEP]
+
+
+def track(st, sha, version, tag, run, titles=None):
     """An install of ours, recorded in `ci` as pending when it goes in: its CI is read from here, so it is never lost
-    when the installs history (KEEP entries) moves on before CI answers."""
+    when the installs history (KEEP entries) moves on before CI answers. `titles`: what it brought, for the words."""
     ci = st.setdefault("ci", {})
     ci[sha] = {"verdict": "pending", "names": {}, "version": version, "tag": tag, "installed": state.stamp(),
-               "run": run, "told": False}
+               "run": run, "told": False, "titles": list(titles or [])}
 
 
 def tracked(st):
@@ -265,40 +378,87 @@ def ci_unresolved(st):
     return [i["sha"] for i in tracked(st) if (ci.get(i["sha"]) or {}).get("verdict") not in FINAL_VERDICTS]
 
 
-def ci_read(p, repo, now=time.time, runs_of=None):
-    """Reads CI for each install of ours whose verdict isn't final yet, records it, and the recovery point. Returns
-    the shas still pending. Nothing when there is nothing to read; a fetch that fails leaves them for later."""
+def age_s(at, now):
+    try:
+        return max(0.0, now - state.parse_stamp(at))
+    except (TypeError, ValueError):
+        return None
+
+
+def late(st, now):
+    """Installs told as missing within CI_LATE_S: read again, so a pass that comes later still moves the recovery
+    point (and a failure that comes later is told)."""
+    ci = st.get("ci") or {}
+    out = []
+    for i in tracked(st):
+        if (ci.get(i["sha"]) or {}).get("verdict") == "missed":
+            age = age_s(i.get("at"), now)
+            if age is not None and age < CI_LATE_S:
+                out.append(i["sha"])
+    return out
+
+
+def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
+    """Reads CI for each install of ours whose verdict isn't final yet (and each missing one of the last day),
+    records it, and the recovery point. One read of main's runs (one GitHub call) serves every install. Returns
+    {sha: "running" | "pending"} for those still without a verdict. "running": a run that covers it is on its way,
+    or GitHub is still running something on main (its own run may wait in line behind it). An install becomes
+    "missed" only once its runs were read, nothing is running, and CI_MISSED_AFTER_S has passed; a fetch or a read
+    that fails leaves them for later."""
     with state.locked(p) as st:
-        todo = [i for i in tracked(st) if i["sha"] in ci_unresolved(st)]
+        unresolved = set(ci_unresolved(st))
+        again = set(late(st, now()))
+        todo = [i for i in tracked(st) if i["sha"] in unresolved | again]
     if not todo:
-        return []
+        return {}
     try:
         tip = release.fetch_main(repo)
     except Refused:
-        return [i["sha"] for i in todo]
-    seen = {}
+        return {i["sha"]: "pending" for i in todo if i["sha"] in unresolved}
+    read, limit = True, None
+    if runs_of is None:
+        snap, limit = shared_runs(p, now)
+        read = snap is not None
+        runs_of = (lambda c: None) if snap is None else (lambda c: snap.get(c, []))
+        if busy is None:
+            busy = any(r.get("status") != "completed" for rs in (snap or {}).values() for r in rs)
+    seen, left = {}, {}
     for i in todo:
         verdict, names = ci_verdict(repo, i["sha"], tip, runs_of)
+        for g in names.values():
+            if g.get("state") == "red" and g.get("by"):
+                g["title"] = subject(repo, g["by"])
+        if i["sha"] in again:
+            if verdict != "pending":
+                seen[i["sha"]] = {"verdict": verdict, "names": names, "at": state.stamp(now()), "late": True}
+            continue
         if verdict == "pending":
-            try:
-                age = now() - state.parse_stamp(i.get("at"))
-            except (TypeError, ValueError):
-                age = 0
-            if age > CI_MISSED_AFTER_S:
+            running = bool(busy) or any(g.get("running") for g in names.values())
+            age = age_s(i.get("at"), now())
+            if read and not running and age is not None and age > CI_MISSED_AFTER_S:
                 verdict = "missed"
+            else:
+                left[i["sha"]] = "running" if running else "pending"
         seen[i["sha"]] = {"verdict": verdict, "names": names, "version": i.get("version"), "tag": i.get("tag"),
                           "at": state.stamp(now())}
     with state.locked(p) as st:
         ci = st.setdefault("ci", {})
         for sha, v in seen.items():
-            if (ci.get(sha) or {}).get("verdict") in FINAL_VERDICTS:
+            was, is_late = (ci.get(sha) or {}).get("verdict"), v.pop("late", False)
+            if was in FINAL_VERDICTS and not (was == "missed" and is_late):
                 continue                    # another read settled it meanwhile: never back to pending
-            ci[sha] = dict(ci.get(sha) or {}, **v, told=bool((ci.get(sha) or {}).get("told")))
+            # a late verdict on a missing one: told again only when it failed (a pass just moves the recovery point)
+            told = bool((ci.get(sha) or {}).get("told")) and not (was == "missed" and v["verdict"] == "red")
+            ci[sha] = dict(ci.get(sha) or {}, **v, told=told)
         final = [sha for sha, v in ci.items() if v.get("verdict") in FINAL_VERDICTS]
         for sha in final[:-CI_KEEP] if len(final) > CI_KEEP else []:
             ci.pop(sha, None)               # only final ones go: a pending one stays until it is read
         st["recovery"] = recovery(st)
-    return [sha for sha, v in seen.items() if v["verdict"] == "pending"]
+        if limit:
+            st["ci_limit"] = limit          # GitHub refused for its request limit: ci says when it reads again
+        elif read:
+            st.pop("ci_limit", None)
+    return left
 
 
 def recovery(st):
@@ -311,12 +471,40 @@ def recovery(st):
     return st.get("recovery")
 
 
-def ci_words(v, sha, rec):
-    what = f"the install of {v.get('version') or 'our merged work'} ({sha[:12]})"
-    back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
-    if v.get("verdict") == "missed":
-        return f"CI on main never reported on {what} within {CI_MISSED_AFTER_S // 3600} hours.{back}"
-    return red_words(failures(v), [(sha, v)], rec)
+# --- the words the person reads: plain, the fixes by their titles, never a commit's hash ---
+
+CHECK_WORDS = {"check": "GitHub's Check", "fork-check": "the fork check"}
+NAMED = 3                 # titles named in one sentence; the rest are "and n more"
+
+
+def quoted(titles):
+    titles = list(dict.fromkeys(t for t in titles if t))
+    if not titles:
+        return None
+    named = ", ".join(f"“{t}”" for t in titles[:NAMED])
+    return named + (f" and {len(titles) - NAMED} more" if len(titles) > NAMED else "")
+
+
+def what_of(installs):
+    """The installs, by the titles of the fixes they brought ("the install of “A”, “B” and 2 more"), else by version
+    ("the install of 3.2.22", "5 installs of 3.2.22")."""
+    titles = [t for _, v in installs for t in v.get("titles") or []]
+    q = quoted(titles)
+    if q:
+        return f"the install of {q}"
+    versions = list(dict.fromkeys(v.get("version") or "our merged work" for _, v in installs))
+    return ("the install" if len(installs) == 1 else f"{len(installs)} installs") + f" of {', '.join(versions)}"
+
+
+def back_words(rec):
+    tag = (rec or {}).get("tag")
+    return f" The last install CI passed is {tag}." if tag else ""
+
+
+def missed_words(installs, rec):
+    """One sentence for every install whose CI never gave a verdict, said once."""
+    return (f"CI on main never gave a verdict on {what_of(installs)} within {CI_MISSED_AFTER_S // 3600} hours: "
+            "nothing was rolled back.")
 
 
 def failures(v):
@@ -327,35 +515,34 @@ def failures(v):
 
 
 def red_words(fails, installs, rec):
-    """One sentence for one failure, however many of our installs it covers (oldest install first): the check and the
-    commit it failed on. CI never rolls anything back, whatever an install's health did earlier."""
-    back = f" The last install CI passed is {rec.get('tag') or str(rec.get('sha'))[:12]}." if rec else ""
-    if len(installs) == 1:
-        sha, v = installs[0]
-        what = f"the install of {v.get('version') or 'our merged work'} ({sha[:12]})"
-    else:
-        versions = list(dict.fromkeys(v.get("version") or "our merged work" for _, v in installs))
-        what = f"{len(installs)} installs of {', '.join(versions)} (the newest {installs[-1][0][:12]})"
-    said = ", ".join(f"{n} failed on {by[:12]}" for n, by in fails) or "a check failed"
-    return f"CI on main failed after {what}: {said}. CI never rolls back: open a task to fix it.{back}"
-
-
+    """One sentence for one failure, however many of our installs it covers: which check failed and on which merge,
+    by its title. CI never rolls anything back, whatever an install's health did earlier."""
+    titles = {}
+    for _, v in installs:
+        for n, g in (v.get("names") or {}).items():
+            if g.get("state") == "red" and g.get("by"):
+                titles[(n, str(g["by"]))] = g.get("title")
+    said = ", ".join(f"{CHECK_WORDS.get(n, n)} failed on “{titles[(n, by)]}”" if titles.get((n, by))
+                     else f"{CHECK_WORDS.get(n, n)} failed" for n, by in fails) or "a check failed"
+    return (f"CI on main failed after {what_of(installs)}: {said}. Nothing was rolled back: open a "
+            "task to fix it.")
 
 
 def ci_untold(st, mark=True, only=None):
     """[(sha, words or None)]: the red or missing CI results nobody was told of yet (of `only`'s shas, when given).
     A failure (one check, the commit its run failed on) is told once: every install it covers shares its sentence,
     on the first of them (the rest carry None; an install with two failures is in both), and a failure another
-    install's words told already is said no more (its installs carry None, and are marked told with the rest).
-    `mark`: each is marked told now; finish marks them in the same lock that lets go of the lease."""
+    install's words told already is said no more (its installs carry None, and are marked told with the rest). Every
+    missing verdict not told yet shares one sentence. `mark`: each is marked told now; finish marks them in the same
+    lock that lets go of the lease."""
     ci = st.get("ci") or {}
     told = {f for v in ci.values() if v.get("told") and v.get("verdict") == "red" for f in failures(v)}
-    out, groups = [], {}
+    out, groups, missed = [], {}, []
     for sha, v in sorted(ci.items(), key=lambda kv: str(kv[1].get("installed") or "")):     # oldest install first
         if v.get("verdict") not in ("red", "missed") or v.get("told") or (only is not None and sha not in only):
             continue
         if v.get("verdict") == "missed":
-            out.append((sha, ci_words(v, sha, st.get("recovery"))))
+            missed.append((sha, v))
             continue
         fails = [f for f in failures(v) if f not in told] if failures(v) else [None]   # None: red, no check named
         if not fails:
@@ -365,6 +552,9 @@ def ci_untold(st, mark=True, only=None):
     for f, installs in groups.items():
         out.append((installs[0][0], red_words((f,) if f else (), installs, st.get("recovery"))))
         out.extend((sha, None) for sha, _ in installs[1:])
+    if missed:
+        out.append((missed[0][0], missed_words(missed, st.get("recovery"))))
+        out.extend((sha, None) for sha, _ in missed[1:])
     if mark:
         mark_told(st, [sha for sha, _ in out])
     return out
@@ -381,17 +571,23 @@ def run_installs(st, run):
     return [i["sha"] for i in tracked(st) if i.get("run") == run]
 
 
-CI_WAIT_S = 30 * 60      # a run waits this long after its install for CI's verdict; a later run tells what comes after
+CI_WAIT_S = 30 * 60      # `ci` waits this long after each install of this run's for CI's verdict...
+CI_BUSY_S = CI_MISSED_AFTER_S   # ...and this long while GitHub is still running on main (a later read still counts)
 
 
-
-
-def with_ci_words(told, outcome, words):
-    """A run's --told words with CI's results added; a run that had nothing to say then reports them."""
-    words = [w for w in words if w]                # an install whose failure another's words tell: None
+def with_ci_words(told, outcome, words, back=None):
+    """A run's --told words with CI's results added; a run that had nothing to say then reports them. `back`: the
+    recovery point's sentence, said once at the end, made by the caller from the recovery point as it is when the
+    words are final (never earlier: a green read in between moves it)."""
+    words = [w for w in words if w] + ([back] if back else [])    # None: an install another's words tell
     if not words:
         return told, outcome
     return " ".join(([told] if told else []) + list(words)), ("reported" if outcome == "nothing" else outcome)
+
+
+def back_line(rec, failed):
+    """The recovery point's sentence when a failure or a missing verdict is told now, else None."""
+    return (back_words(rec).strip() or None) if failed else None
 
 
 def still_untold(st, said):
@@ -400,35 +596,61 @@ def still_untold(st, said):
     return ci_untold(st, mark=False, only={sha for sha, _ in said})
 
 
+def still_running_words(st, shas, limit=None):
+    """One plain sentence for this run's installs whose checks haven't finished when `ci` stops waiting, or whose
+    checks GitHub's request limit kept it from reading."""
+    ci = st.get("ci") or {}
+    installs = [(sha, ci.get(sha) or {}) for sha in shas]
+    if limit:
+        return (f"GitHub's request limit kept CI on main from being read for {what_of(installs)} until "
+                f"{time.strftime('%H:%M', time.localtime(limit))}: a later install tells you if it fails.")
+    return (f"GitHub's checks on main haven't finished for {what_of(installs)} yet: a later install tells you if "
+            "they fail.")
+
+
+def limit_words(until):
+    """What `ci` says while GitHub refuses for its request limit: not that CI hasn't reported."""
+    return (f"GitHub's request limit: checking again at {time.strftime('%H:%M', time.localtime(until))}. Call ci "
+            "again now: it waits for that itself; never read GitHub yourself meanwhile")
+
+
 def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.sleep):
     """`ci`, after finish said next: ci. Reads CI for every install of ours whose verdict isn't final, with the lease
-    let go (the next install never waits for it), waiting for this run's own installs up to CI_WAIT_S after the last
-    one; then the run's exact completion command: finish's words, plus a red or missing result not told yet. A verdict
-    that comes later is left for a later run to tell."""
+    let go (the next install never waits for it), once a minute. It waits for this run's own installs, each from its
+    own install time: up to CI_WAIT_S, and up to CI_BUSY_S while GitHub is still running on main. Then
+    the run's exact completion command: finish's words, plus a red or missing result not told yet, and one line for
+    this run's installs whose checks are still running. A verdict that comes later is left for a later run."""
     with state.locked(p) as st:
         rep = dict((st.get("reports") or {}).get(run) or {})
     if not rep or rep.get("folder") != folder:
         raise Refused("finish didn't hand this run to ci: run finish", outcome="stop")
     shas = list(rep.get("ci") or [])
     with state.locked(p) as st:
-        ats = [i.get("at") for i in tracked(st) if i["sha"] in shas]
-    try:
-        newest = max(state.parse_stamp(a) for a in ats)        # the last install of this run's
-    except (TypeError, ValueError):
-        newest = 0
+        ats = {i["sha"]: i.get("at") for i in tracked(st) if i["sha"] in shas}
     began = now()
     while True:
-        left = set(ci_read(p, repo, now=now)) & set(shas)
-        if not left or now() - newest >= CI_WAIT_S:
+        left = {s: how for s, how in ci_read(p, repo, now=now).items() if s in shas}
+
+        with state.locked(p) as st:
+            limit = st.get("ci_limit") if float(st.get("ci_limit") or 0) > now() else None
+
+        def waits(s):
+            # GitHub running, or refusing for its request limit (nothing can be known): the longer wait
+            age = age_s(ats.get(s), now())
+            long = left[s] == "running" or bool(limit)
+            return age is not None and age < (CI_BUSY_S if long else CI_WAIT_S)
+        if not any(waits(s) for s in left):
             break
         if now() - began >= gate.call_wait_s():
-            raise Refused(f"CI on main hasn't reported on {', '.join(s[:12] for s in sorted(left))} yet: call ci again",
-                          outcome="wait", pending=sorted(left))
-        sleep(max(0.0, gate.poll_s()))
-    late = [f"CI on main hadn't reported on {sha[:12]} {CI_WAIT_S // 60} minutes after its install: a later run "
-            "tells its result." for sha in sorted(left)]
+            raise Refused(limit_words(limit) if limit else
+                          "GitHub's checks on main haven't finished on this run's installs yet: call ci again now. "
+                          "It reads GitHub itself, one call a minute shared by every run: never read or watch "
+                          "GitHub's runs yourself", outcome="wait", pending=len(left),
+                          **({"limit_until": time.strftime("%H:%M", time.localtime(limit))} if limit else {}))
+        sleep(max(0.0, ci_poll_s()))     # under the limit too: the shared read calls nobody before its reset
     with state.locked(p) as st:
         said = ci_untold(st, mark=False)
+        late = [still_running_words(st, sorted(left, key=lambda s: str(ats.get(s) or "")), limit)] if left else []
     told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in said] + late)
     if told:
         from . import public
@@ -439,7 +661,9 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
         # told once per commit: whatever another run told meanwhile drops out (the words are a subset of the checked)
         kept = still_untold(st, said)
         mark_told(st, [sha for sha, _ in kept])
-        told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in kept] + late)
+        failed = bool(rep.get("ci_said")) or any(w for _, w in kept)
+        told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in kept] + late,
+                                      back=back_line(st.get("recovery"), failed))
         (st.get("reports") or {}).pop(run, None)
         ci = {sha: ((st.get("ci") or {}).get(sha) or {}).get("verdict") or "pending" for sha in shas}
         rec = st.get("recovery")

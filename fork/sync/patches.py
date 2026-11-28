@@ -3,7 +3,8 @@
 
 One file per patch, `fork/patches/<issue>.json`, so patches built side by side never touch the same lines and merge
 without a conflict. Each holds {"issue": <n>, "name": "<short name>", "files": [<paths>], "tests": [<entries>]},
-paths in the repo. A test entry is a test file's path, or, for a Python test file, `<path>::<Class>` or
+paths in the repo, and optionally "umbrella": <n>, the issue a slice is part of: a pull request that changes the
+file then says `Part of #<umbrella>` too (fork/sync/issues.py). A test entry is a test file's path, or, for a Python test file, `<path>::<Class>` or
 `<path>::<Class>.<test>`: only those run, for a patch whose tests sit among many others in a big file
 (test/test_herdr_task.py). A tree from before (no `fork/patches/`) has every line in `fork/patches.json`, as
 {"patches": [<lines>]}: `read` takes that too, for old trees and the commits the install gate reads.
@@ -145,6 +146,10 @@ def problems(repo, patches):
             continue
         if not isinstance(p.get("name"), str) or not p["name"].strip():
             out.append(f"{at}: no name")
+        umbrella = p.get("umbrella")
+        if "umbrella" in p and (isinstance(umbrella, bool) or not isinstance(umbrella, int) or umbrella < 1
+                                or umbrella == issue):
+            out.append(f"{at}: its umbrella isn't another issue's number")
         named = {}
         for key in ("files", "tests"):
             v = p.get(key)
