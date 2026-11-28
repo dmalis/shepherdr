@@ -12,6 +12,9 @@
     "docs/agents-and-terms.md"
   ],
   "tests": [
-    "test/test_herdr_task.py"
+    "test/test_herdr_task.py::GitHubLimit",
+    "test/test_herdr_task.py::BackToWork.test_accept_uses_the_repositorys_allowed_merge_method",
+    "test/test_herdr_task.py::RequiredChecksOnly.test_all_green_asks_github_nothing_more",
+    "test/test_herdr_task.py::ParallelCollisions.test_a_ready_tasks_conflict_shows_on_its_card_and_reaches_its_agent_with_the_files"
   ]
 }
