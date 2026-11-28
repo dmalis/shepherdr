@@ -29,7 +29,8 @@
     "docs/settings.md",
     "fork/specs/needs-you.md",
     "service/alert-ledger.ts",
-    "docs/agents-and-terms.md"
+    "docs/agents-and-terms.md",
+    "service/voice-data.ts"
   ],
   "tests": [
     "test/test_hand_up.py",

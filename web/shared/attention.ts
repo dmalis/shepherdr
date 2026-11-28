@@ -252,7 +252,9 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
     const due = !!rec && !rec.up?.settled && now >= rec.deadline
     // a record that never lands (its scheduler stopped) holds it quiet a moment only: then it is the person's, as one
     // whose deadline passed (the service wakes for that moment too)
-    const late = !rec && t.waitPending ? since + PENDING_MAX_MS : undefined
+    // counted from when the service first saw it so (service/attention.ts stamps it), never from the task's own older
+    // times: a wait seen a moment before its record lands is always quiet, then told once under the id that lasts
+    const late = !rec && t.waitPending ? (typeof t.waitPending === 'number' ? t.waitPending : now) + PENDING_MAX_MS : undefined
     const pending = late !== undefined && now < late
     const up: Action['up'] = !shepherds || stale || pending ? undefined
       : ask ? 'asked' : noShepherdr(snap, t.place) ? 'no-shepherdr' : due || late !== undefined ? 'deadline' : undefined

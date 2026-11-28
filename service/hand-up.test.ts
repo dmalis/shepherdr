@@ -116,12 +116,13 @@ test("Right away: the wait is the person's as soon as its record lands, not befo
   const x = at(snapOf([task("SHOP-10", { wait: rec("w10", { first: NOW, deadline: NOW }) })]));
   expect(leadOf(attentionOf(x.snap), "SHOP-10")).toMatchObject({ owner: "you", up: "deadline" });
   // its record not written yet (at most a tick): quiet, so it is told once under the id that lasts
-  const pending = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - 10_000 })]));
+  // (its task waited long before: the moment counts from when the service first saw it pending)
+  const pending = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - 30 * min })]));
   expect(pending.pushes).toHaveLength(0);
   // a record that never lands (its scheduler stopped) holds it quiet only a moment, and the service wakes for then
-  expect(leadOf(attentionOf(pending.snap), "SHOP-10")).toMatchObject({ owner: "shepherdr", deadline: NOW - 10_000 + PENDING_MAX_MS });
-  const never = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - PENDING_MAX_MS })]));
-  expect(leadOf(attentionOf(never.snap), "SHOP-10")).toMatchObject({ owner: "you", up: "deadline" });
+  expect(leadOf(attentionOf(pending.snap), "SHOP-10")).toMatchObject({ owner: "shepherdr", deadline: NOW + PENDING_MAX_MS });
+  const still = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - 30 * min })]), NOW + PENDING_MAX_MS);
+  expect(leadOf(attentionOf(still.snap), "SHOP-10")).toMatchObject({ owner: "you", up: "deadline" });
   expect([askAfterOf(0), askAfterOf("now"), askAfterOf(undefined), askAfterOf("soon")]).toEqual([0, 0, 5, 5]);
   expect([isAskAfter(0), isAskAfter(30), isAskAfter(7)]).toEqual([true, true, false]);
 });

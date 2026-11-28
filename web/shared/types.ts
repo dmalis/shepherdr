@@ -368,7 +368,7 @@ export interface Task {
   /** fork "Needs you 6a": its open inferred wait as herdr-task keeps it (service/wait-record.ts) */
   wait?: WaitRecord
   /** its source keeps wait records and this wait's hasn't landed yet: it stays Shepherdr's, quiet, until it does */
-  waitPending?: true
+  waitPending?: true | number
   /** 3.2, facts the status is worked out from (web/shared/view.ts), never guessed from a screen: */
   /** the agent stopped: by the person (Stop), by an error or a crash, or at its plan's limit; why, in its own words */
   stopped?: { by: 'you' | 'error' | 'limit'; why?: string }

@@ -47,8 +47,26 @@ export function wakeForHandUp(snap: Pick<Snapshot, "attention" | "tasks">, rebui
 /** each other machine's open actions as last read (by its machine key): kept while it can't be read */
 const held = new Map<string, Action[]>();
 
+/** fork Needs you 6b: when the service first saw each task's wait waiting for its record (waitPending) */
+const pendingSince = new Map<string, number>();
+
+/** each task whose wait's record hasn't landed carries when it was first seen so (waitPending), so it stays quiet a
+ *  moment only (web/shared/attention.ts PENDING_MAX_MS); a task no longer pending is forgotten */
+export function stampPending(tasks: Snapshot["tasks"], now: number, memo = pendingSince) {
+  const seen = new Set<string>();
+  for (const t of tasks ?? []) {
+    if (!t.waitPending) continue;
+    seen.add(t.id);
+    if (typeof t.waitPending === "number") continue;
+    if (!memo.has(t.id)) memo.set(t.id, now);
+    t.waitPending = memo.get(t.id)!;
+  }
+  for (const id of [...memo.keys()]) if (!seen.has(id)) memo.delete(id);
+}
+
 /** the snapshot with its open actions (snapshot.attention) and each task's lead action (task.action), at `now` */
 export function attend<S extends Snapshot>(snap: S, now = Date.now(), memo = held): S {
+  stampPending(snap.tasks, now);
   const att = projectAttention({ ...snap, attention: undefined }, now);
   const withIt = withActions(snap, { at: att.at, actions: keepLast(snap, att.actions, memo) });
   // in place: the service's snapshot is one object its later steps (push, glance, the inbox) read from
