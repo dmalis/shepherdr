@@ -199,17 +199,28 @@ jobs:
   check:
     name: check
     # the one check a pull request needs: every part above passed. It still runs when a part failed (a skipped
-    # required check would count as passed), and not when the run was cancelled
+    # required check would count as passed); when the run is cancelled (a newer push), GitHub cancels it too
     needs: [build, web, python, browser]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
     steps:
       - name: every part passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          GH_TOKEN: ${{ github.token }}
+          JOBS: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs?per_page=100
         run: |
           echo "build, web, tests, browser checks: $RESULTS"
           for r in $RESULTS; do
             [ "$r" = success ] || { echo "::error::a part of the check didn't pass ($r): see its job above"; exit 1; }
           done
+          # a matrix's result is one word for all of its jobs: each job of this run passed on its own too
+          for i in 1 2 3; do
+            bad=$(gh api --paginate "$JOBS" --jq '.jobs[] | select(.name != "check" and .conclusion != "success") | "\(.name): \(.conclusion // .status)"') && break
+            [ "$i" = 3 ] && { echo "::error::GitHub didn't list this run's jobs"; exit 1; }
+            sleep 10
+          done
+          [ -z "$bad" ] || { echo "::error::a part of the check didn't pass"; echo "$bad"; exit 1; }

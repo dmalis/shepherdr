@@ -42,17 +42,29 @@ class CheckWorkflow(unittest.TestCase):
         self.assertIn("if: ${{ !cancelled() }}", c)
         self.assertIn("${{ join(needs.*.result, ' ') }}", c)
         self.assertIn('[ "$r" = success ] ||', c)
+        # a matrix folds its jobs into one result: each job of the run is read from GitHub too
+        self.assertIn("actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs", c)
+        self.assertIn('select(.name != "check" and .conclusion != "success")', c)
+        self.assertIn('[ -z "$bad" ] || {', c)
+        self.assertIn("actions: read", c)
 
     def test_every_check_still_runs(self):
-        t = text()
+        j = jobs(text())
+        browser = j["browser"]
         for f in ("tap-check", "scroll-check", "dict-check", "box-check", "phone-box-check", "still-check",
                   "artifact-check"):
-            self.assertIn(f"run: bun web/demo/{f}.ts\n", t, f)
-        for line in ("python3 bin/sync-shared --check", "node --input-type=module --check", "python3 -m json.tool",
-                     'bash -n "$f"', "bunx tsc --noEmit -p .", "bun test --parallel=4 service core web",
-                     "bun run build", './install.sh --root "$root" --yes', 'python3 bin/shepherdr doctor --root "$root"',
-                     'python3 bin/shepherdr uninstall --root "$root"', "python3 -m unittest -v"):
-            self.assertIn(line, t, line)
+            self.assertIn(f"            run: bun web/demo/{f}.ts\n", browser, f)
+        # the matrix's command is what the job's last step runs
+        self.assertRegex(browser, r"(?m)^      - name: \$\{\{ matrix\.name \}\}\n        run: \$\{\{ matrix\.run \}\}\n\s*\Z")
+        for job, lines in (("web", ("python3 bin/sync-shared --check", 'node --input-type=module --check < "$f"',
+                                    'python3 -m json.tool "$f"', 'bash -n "$f"', 'sh -n "$f"', "bunx tsc --noEmit -p .",
+                                    "bun test --parallel=4 service core web")),
+                           ("build", ("bun run build", './install.sh --root "$root" --dry-run --yes',
+                                      './install.sh --root "$root" --yes', 'python3 bin/shepherdr doctor --root "$root"',
+                                      'python3 bin/shepherdr uninstall --root "$root"')),
+                           ("python", ('          python3 -m unittest -v "$@"\n',))):
+            for line in lines:
+                self.assertIn(line, j[job], f"{job}: {line}")
 
     def test_each_job_keeps_a_time_limit(self):
         for name, block in jobs(text()).items():
@@ -77,10 +89,18 @@ class CheckWorkflow(unittest.TestCase):
 
     def test_the_browser_and_python_jobs_get_the_built_web_app(self):
         j = jobs(text())
-        self.assertIn("name: web-dist", j["build"])
+        upload = "      - uses: actions/upload-artifact@v4\n"
+        self.assertIn(upload, j["build"])
+        self.assertRegex(j["build"].split(upload, 1)[1], r"^(        #[^\n]*\n)?        with:\n          name: web-dist\n"
+                                                         r"          path: web/dist\n")
+        # the build comes before the upload, the installer (which installs that build) after it
+        self.assertLess(j["build"].index("bun run build"), j["build"].index(upload))
         for name in ("python", "browser"):
-            self.assertIn("needs: build", j[name], name)
-            self.assertIn("uses: actions/download-artifact@v4", j[name], name)
+            self.assertIn("    needs: build\n", j[name], name)
+            self.assertIn("      - uses: actions/download-artifact@v4\n        with:\n          name: web-dist\n"
+                          "          path: web/dist\n", j[name], name)
+        # the Python tests start after the download: the installer tests install that build
+        self.assertLess(j["python"].index("download-artifact"), j["python"].index("python3 -m unittest"))
 
 
 if __name__ == "__main__":
