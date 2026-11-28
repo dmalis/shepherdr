@@ -1,6 +1,6 @@
 // Run with a built app: bun run build && bun web/demo/scroll-check.ts [demo URL]
 import assert from 'node:assert/strict'
-import { chromium, webkit, type Locator, type Page } from 'playwright-core'
+import { chromium, webkit, type Page } from 'playwright-core'
 import { chrome } from './tap-check.ts'
 import { EV } from './data.ts'
 import { longChat } from './long-chat.ts'
@@ -36,22 +36,6 @@ const bottom = async (page: Page, why: string, chat = EV) => {
   await frames(page)
   const distance = await gap(page, chat)
   assert.ok(distance <= 1, `${why}: ${distance}px from the bottom`)
-}
-
-/** fork #144: scrolled back on a phone, the message box folds and slides down into the tabs' place (300 ms,
- *  web/plugins/reading/client.tsx), and the ↓ button above it slides with it. A person taps the button where it is
- *  now; a click aimed at where it was a moment before lands on the chat, which only brings the tabs back. So the
- *  click waits for that slide to end: the box's own animations finishing, not a sleep. */
-async function tapWhenStill(button: Locator) {
-  await button.waitFor()
-  await button.evaluate(async (el) => {
-    // reading mode is decided a frame after the scroll (reading/client.tsx): its slide has started by then
-    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
-    const foot = el.closest('.foot') ?? el
-    const ends = foot.getAnimations({ subtree: true }).filter((a) => Number.isFinite(Number(a.effect?.getComputedTiming().endTime)))
-    await Promise.all(ends.map((a) => a.finished.catch(() => undefined)))
-  })
-  await button.click()
 }
 
 async function history(page: Page, initial: Message[] = [], earlier = false) {
@@ -200,7 +184,8 @@ async function runChecks() {
         await sc.locator('[data-msg="new"]').waitFor({ state: 'attached' })
         await frames(page)
         assert.equal(await sc.evaluate((el) => el.scrollTop), at, 'new output must leave a reader in place')
-        await tapWhenStill(page.getByRole('button', { name: '1 new message, go to the newest' }))
+        // a click as long as a person's (fork #144): held 100 ms, the button must not slide away before it is let go
+        await page.getByRole('button', { name: '1 new message, go to the newest' }).click({ delay: 100 })
         await bottom(page, 'new messages button')
 
         await sc.evaluate((el) => { el.scrollTop -= 2400 })
@@ -245,7 +230,7 @@ async function runChecks() {
         await bottom(page, 'task reopened', taskChat)
         const taskScroll = page.locator(`.pane [data-scroll="${taskChat}"]`)
         await taskScroll.evaluate((el) => { el.scrollTop -= 1200 })
-        await tapWhenStill(page.locator('.pane .toend'))
+        await page.locator('.pane .toend').click({ delay: 100 })
         await bottom(page, 'jump to the newest from the task pane', taskChat)
 
         await page.getByRole('button', { name: 'View as terminal', exact: true }).last().click()

@@ -99,15 +99,36 @@ export default definePlugin({
     // a tap anywhere brings all back, as a tap at the foot does in Safari (a tap that only stops a scroll is no click)
     const onClick = () => root.classList.contains(READING) && back()
     // focus in the box or the tabs (VoiceOver, a keyboard, a tap on the box): they are back before it lands
+    // ...but not under a press. A mouse or trackpad focuses on the way down: the box would slide up while the button
+    // is held, and the release would miss it (a click on ↓ that does nothing). They come back on the release instead,
+    // as its click (above) or, with no click (a drag out of the box), once it is let go. A finger focuses only after
+    // it lifts, so a tap is as before.
+    let pressing = false
     const onFocus = (e: FocusEvent) => {
       const t = e.target
-      if (root.classList.contains(READING) && t instanceof Element && t.closest('.app :is(.foot, .bar)')) back()
+      if (!pressing && root.classList.contains(READING) && t instanceof Element && t.closest('.app :is(.foot, .bar)')) back()
+    }
+    const onDown = () => {
+      pressing = true
+    }
+    const onUp = () => {
+      if (!pressing) return
+      pressing = false
+      // after this release's click, if any
+      setTimeout(() => {
+        const at = document.activeElement
+        if (root.classList.contains(READING) && at instanceof Element && at.closest('.app :is(.foot, .bar)')) back()
+      })
     }
     const onShow = () => document.visibilityState === 'visible' && back()
 
     document.addEventListener('scroll', onScroll, { capture: true, passive: true })
     document.addEventListener('click', onClick, true)
     document.addEventListener('focusin', onFocus, true)
+    addEventListener('pointerdown', onDown, true)
+    addEventListener('pointerup', onUp, true)
+    addEventListener('pointercancel', onUp, true)
+    addEventListener('blur', onUp)
     document.addEventListener('visibilitychange', onShow)
     addEventListener('resize', back)
     COARSE?.addEventListener('change', back)
