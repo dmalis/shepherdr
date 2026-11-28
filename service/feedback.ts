@@ -5,7 +5,7 @@
 // person-only commands, outside any agent's terminal. Nothing here posts anywhere: the decisions stay on this machine.
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type { FeedbackList, FeedbackRow } from "../web/shared/types.ts";
+import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
 import { where } from "./paths.ts";
 import { pluginOn } from "./next.ts";
 import { readSettings } from "./settings.ts";
@@ -17,7 +17,9 @@ export type Runner = (args: string[]) => Promise<Ran>;
 const KEY = /^[A-Za-z0-9][\w-]{0,39}$/;
 const SPACE = /^(?:[\w.][\w.-]{0,79}\/)?[\w.~][\w.~-]{0,79}$/;
 const WHEN = new Set(["tomorrow", "week", "again"]);
-const EXPECT = new Set(["later", "declined"]);
+const EXPECT = new Set(["later", "declined", "following"]);
+const REASONS = new Set(["completed", "not_planned", "duplicate"]);
+const VERSION = /^\d+\.\d+\.\d+$/;
 const LINE_MAX = 160;
 const TEXT_MAX = 4000;
 const FIELDS = ["bug", "confusing", "workaround", "manual", "miss"] as const;
@@ -67,10 +69,33 @@ export function offersOn(d: any, space?: string | null): boolean {
 
 /** where a kept problem goes on the page, by its state and the person's decision, as of `now` */
 export function sectionOf(p: any, now: number): FeedbackRow["section"] {
-  if (p.state === "filed" || p.state === "filing" || p.url) return "filed";
+  if (p.state === "filed" || p.state === "filing" || p.url || p.decision === "following") return "filed";
   if (p.state === "declined" || p.decision === "declined") return "declined";
   if (p.decision === "later" && (p.until == null || p.until > now)) return "later";
   return "found";
+}
+
+/** one issue a check found, as the page draws it (a duplicate as the issue GitHub says it duplicates), else null */
+export function matchOf(m: any, makers: boolean): FeedbackMatch | null {
+  const x = m?.canonical && typeof m.canonical === "object" ? m.canonical : m;
+  const url = githubUrl(x?.url);
+  if (!url || !/\/issues\/\d+\/?$/.test(url) || typeof x.title !== "string" || typeof x.repo !== "string" || !Number.isInteger(x.number)) return null;
+  return { repo: x.repo, number: x.number, title: x.title, url, state: x.state === "closed" ? "closed" : "open",
+    ...(x.state === "closed" && REASONS.has(x.reason) ? { reason: x.reason } : {}), ...(makers ? { makers: true as const } : {}) };
+}
+
+/** what a problem's last check found (herdr-task feedback --check), for the page: none when it was never checked */
+export function checkOf(p: any): FeedbackRow["check"] | undefined {
+  const c = p.checked && typeof p.checked === "object" ? p.checked : null;
+  if (!c && !p.check_error) return undefined;
+  const of = (l: unknown, makers: boolean) => (Array.isArray(l) ? l : []).map((m) => matchOf(m, makers)).filter((m): m is FeedbackMatch => !!m);
+  return {
+    // an issue and a duplicate that points to it are one match: the first one found
+    matches: [...of(c?.dupes, false), ...of(c?.upstream, true)].filter((m, i, all) => all.findIndex((x) => x.url === m.url) === i),
+    ...(VERSION.test(c?.newest ?? "") ? { newest: c.newest } : {}),
+    ...(VERSION.test(c?.installed ?? "") ? { installed: c.installed } : {}),
+    ...(p.check_error ? { failed: true as const } : {}),
+  };
 }
 
 /** herdr-task's rows as the page shows them: only what it draws (no report text), newest first */
@@ -96,7 +121,9 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...(typeof p.space === "string" && p.space ? { space: p.space } : {}),
       ...(from && Object.keys(from).length ? { from } : {}),
       ...(section === "later" ? { until: typeof p.until === "number" ? p.until : null } : {}),
-      ...((u) => (u ? { url: u } : {}))(githubUrl(p.url)),
+      ...((u) => (u ? { url: u } : {}))(githubUrl(p.url) ?? (p.decision === "following" ? githubUrl(p.outcome?.url) : null)),
+      ...((c) => (c ? { check: c } : {}))(checkOf(p)),
+      ...(p.decision === "following" && githubUrl(p.outcome?.url) ? { following: { title: String(p.outcome.title || p.outcome.issue || ""), url: githubUrl(p.outcome.url)! } } : {}),
       ...(!offersOn(settings, p.space) ? { off: true } : {}),
     });
   }
@@ -168,7 +195,7 @@ export class Feedback {
     return this.error ? { ...out, error: "Couldn't read the newest list just now: showing the last one." } : out;
   }
 
-  /** One of the person's calls from the page: report (the box), later, no, undo. -> {ok, ...} or {ok: false, error} */
+  /** One of the person's calls from the page: report (the box), later, no, undo, follow. -> {ok, ...} or {ok: false, error} */
   async act(b: any): Promise<{ ok: boolean; error?: string; off?: boolean; key?: string; changed?: boolean }> {
     if (!this.on()) return { ok: false, error: "Feedback is switched off in Settings › Plugins." };
     let args: string[];
@@ -207,8 +234,14 @@ export function argsOf(b: any): string[] {
     case "no": return ["--key", key(), "--no", "--person", "--json"];
     case "undo": {
       // the decision this Undo is for (its toast's, its row's): one made since, by another device, is left alone
-      if (b.expect !== undefined && !EXPECT.has(b.expect)) throw new Error("Undo is for a Not now or a Said no.");
+      if (b.expect !== undefined && !EXPECT.has(b.expect)) throw new Error("Undo is for a Not now, a Said no or a Follow.");
       return ["--key", key(), "--undo", ...(b.expect ? ["--expect", b.expect] : []), "--json"];
+    }
+    case "follow": {
+      // Follow this one (slice 3): an issue the check found; herdr-task takes only one of those, and posts nothing
+      const url = githubUrl(b.url);
+      if (!url || !/\/issues\/\d+\/?$/.test(url)) throw new Error("That isn't an issue on GitHub.");
+      return ["--key", key(), "--follow", url, "--json"];
     }
   }
   throw new Error("Shepherdr can't do that yet.");

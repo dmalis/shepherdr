@@ -29,10 +29,17 @@ export const feedback: FeedbackList = {
   found: 3,
   off: false,
   rows: [
-    { id: 'a1f0c2', line: "The reply bubble doesn't show which message it answers", fix: 'Show the first line of the message it answers above it', kind: 'confusing', section: 'found', state: 'told', space: 'mac-mini/shop', from: { task: 'Sticker book' }, count: 3, at: NOW - 2 * hour },
-    { id: 'b2e1d3', line: 'Needs you showed a task with nothing for you to do', section: 'found', state: 'found', space: 'mac-mini/~', from: { chat: true }, count: 1, at: NOW - 26 * hour },
+    { id: 'a1f0c2', line: "The reply bubble doesn't show which message it answers", fix: 'Show the first line of the message it answers above it', kind: 'confusing', section: 'found', state: 'told', space: 'mac-mini/shop', from: { task: 'Sticker book' }, count: 3, at: NOW - 2 * hour,
+      // shaped and checked (slice 3): a closed issue fixed before, the same in Shepherdr's own repo, a newer version
+      check: { matches: [
+        { repo: 'example/shepherdr', number: 31, title: 'Reply bubble loses the message it answers', url: 'https://github.com/example/shepherdr/issues/31', state: 'closed', reason: 'completed' },
+        { repo: 'example/upstream', number: 1188, title: 'Show which message a reply answers', url: 'https://github.com/example/upstream/issues/1188', state: 'open', makers: true },
+      ], newest: '3.2.23', installed: '3.2.22' } },
+    { id: 'b2e1d3', line: 'Needs you showed a task with nothing for you to do', section: 'found', state: 'found', space: 'mac-mini/~', from: { chat: true }, count: 1, at: NOW - 26 * hour,
+      check: { matches: [{ repo: 'example/shepherdr', number: 27, title: 'Needs you lists finished tasks', url: 'https://github.com/example/shepherdr/issues/27', state: 'closed', reason: 'not_planned' }], failed: true } },
     { id: 'c3d2e4', line: 'Scheduled tasks start twice after the machine wakes up', fix: 'Skip a start the last hour already made', kind: 'bug', section: 'found', state: 'found', space: 'vm/garden-app', from: { agent: true }, count: 2, at: NOW - 3 * day, off: true },
     { id: 'd4c3f5', line: 'A mention resolved to eleven tasks', fix: 'Mention a task by its title and open that one', kind: 'bug', section: 'filed', state: 'filed', space: 'mac-mini/blog', from: { task: 'Fix typo on the About page' }, count: 1, at: NOW - 4 * day, url: 'https://github.com/example/shepherdr/issues/12' },
+    { id: 'd5c4f6', line: 'Search in the task list misses tasks on another machine', fix: 'Search every linked machine’s tasks', kind: 'bug', section: 'filed', state: 'told', space: 'mac-mini/blog', from: { chat: true }, count: 2, at: NOW - 5 * day, url: 'https://github.com/example/shepherdr/issues/19', following: { title: 'Task search covers linked machines', url: 'https://github.com/example/shepherdr/issues/19' } },
     { id: 'e5b4a6', line: 'The terminal pane scrolls to the top when a task finishes', section: 'later', state: 'found', space: 'mac-mini/shop', from: { person: true }, count: 1, at: NOW - 5 * hour, until: NOW + 20 * hour },
     { id: 'f6a5b7', line: 'Settings › Agents takes two taps to open on a phone', section: 'later', state: 'found', space: 'mac-mini/notes', from: { chat: true }, count: 1, at: NOW - 2 * day, until: null },
     { id: 'a7f6c8', line: 'The window asks which space twice when a task starts', section: 'declined', state: 'declined', space: 'mac-mini/docs', from: { task: 'Website copy' }, count: 4, at: NOW - 6 * day },

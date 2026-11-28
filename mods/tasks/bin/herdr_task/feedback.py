@@ -520,6 +520,10 @@ def cmd_feedback(args):
     addr, k = me()
     labels = k.get("labels") or {}
     assistant = bool(k) and is_coordinator(k)
+    from .feedback_check import quietly, shape_or_check
+    shaped = shape_or_check(args, assistant)  # --shape, --check, the person's --follow (#94, slice 3)
+    if shaped is not None:
+        return shaped
     d = read_settings()
     space = caller_space() or reactions.space_of(k, d)
     if getattr(args, "space", None):
@@ -528,7 +532,7 @@ def cmd_feedback(args):
         space = args.space
     if args.list:
         rows = [{"key": key, **p} for key, p in problems_read().items() if p.get("state") in ("found", "telling", "told", "later")
-                and not snoozed(p) and p.get("decision") != "declined" and "/" not in (p.get("space") or "") and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
+                and not snoozed(p) and p.get("decision") not in ("declined", "following") and "/" not in (p.get("space") or "") and (not space or not p.get("space") or bare(p["space"]) == bare(space))]
         return say(args, rows, "\n".join(f"{r['key']}  {r['state']}  {r['line']}" for r in rows) or "Nothing waits to be offered.")
     if not line and not args.key:
         raise Fail("Say the problem in one line: herdr-task feedback \"Ready refused a reviewed commit\" --details \"…\"")
@@ -548,6 +552,9 @@ def cmd_feedback(args):
         key = args.key or find(ps, line)
         p = ps.get(key) if isinstance(ps.get(key), dict) else None
         line = line or (p or {}).get("line") or ""
+        if (args.no or args.file) and (p or {}).get("decision") == "following":  # the person chose Follow on the page (#94)
+            return say(args, {"key": key, "changed": False, "why": "following"},
+                       "The person follows an issue for this one on the Feedback page: nothing filed, nothing changed. Carry on.")
         if args.no:
             ps[key] = {**(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
@@ -581,6 +588,8 @@ def cmd_feedback(args):
     # Filing talks to GitHub: outside the lock, so an agent's report never waits on it. Marked
     # "filing" meanwhile, so a second --file of the same problem can't file it twice.
     try:
+        if not args.dry_run and known.get("search"):
+            quietly(key, d)  # checked again right before posting (#94)
         return file_it(args, key, known, line, d, agent_of(k))
     finally:
         if not args.dry_run:
@@ -622,6 +631,9 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
         return ({"key": key, "sent": False, "why": "declined"}, "The person said no to this before: nothing to do. Carry on."), None
     if state == "filed":
         return ({"key": key, "sent": False, "why": "filed", "url": p.get("url")}, f"Already filed: {p.get('url')}. Nothing to do. Carry on."), None
+    if p and p.get("decision") == "following":  # the person follows an issue for it (#94): nothing to offer
+        return ({"key": key, "sent": False, "why": "following", "url": (p.get("outcome") or {}).get("url")},
+                "The person follows an issue for this one: nothing to do. Carry on."), None
     entry = {**(p or {}), "id": key, "line": line, "at": now(), "space": (p or {}).get("space") or space,
              **({"details": trim(args.details)} if args.details else {}),
              **({"agent": agent_of(k)} if agent_of(k) and not assistant else {})}
@@ -629,7 +641,8 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
         if state == "offered" and recent(p):
             return ({"key": key, "offer": False, "why": "offered"}, "Already offered: don't offer it again."), None
         ps[key] = {**entry, "state": "offered"}
-        return ({"key": key, "offer": True}, offer_words(line, key)), None
+        from .feedback_check import shape_words
+        return ({"key": key, "offer": True}, shape_words(ps[key], key) + offer_words(line, key)), None
     if state in ("told", "offered", "later") and recent(p) or state == "telling" and now() - (p.get("at") or 0) < TELLING_MS:
         return ({"key": key, "sent": False, "why": "told"}, "Your Assistant already has this one: nothing sent. Carry on."), None
     # another machine's space ("vm/sp1", only from the Feedback page's box): never a chat here, whose ids are this core's
@@ -655,7 +668,8 @@ def file_it(args, key, p, line, d, agent):
     env = environment(p.get("agent") or agent, args.surface)
     title = redact(one_line(args.title or line, 120))
     body = issue_body(line, fields, env)
-    dups = [] if args.new else duplicates(repo, line) if not args.comment else []
+    from .feedback_check import public_terms  # a shaped problem's public words, no path (#94, slice 3)
+    dups = [] if args.new else duplicates(repo, " ".join(public_terms(p["search"])) if p.get("search") else line) if not args.comment else []
     if args.dry_run:
         out = {"repo": repo, "title": title, "body": body, "duplicates": dups}
         return say(args, out, f"Draft for {repo} (nothing filed):\n\nTitle: {title}\n\n{body}" +

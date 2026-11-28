@@ -36,11 +36,20 @@
 .fb-fix.none{color:var(--muted)}
 .fb-meta,.fb-note{color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .fb-note.off{color:var(--sub)}
+/* what a check on GitHub found (slice 3): a quiet group under the meta line, one match a line, its Follow at the
+   trailing end; on a narrow row the button wraps under its words */
+.fb-check{display:grid;gap:8px;margin:6px 0 2px;padding:0;list-style:none}
+.fb-m{display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;row-gap:4px;min-width:0}
+.fb-mw{flex:1 1 16em;min-width:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl);overflow-wrap:anywhere;text-wrap:pretty}
+.fb-mw.quiet{color:var(--muted)}
+/* the app's link (ds.css .md a): its title opens the issue on GitHub in a new tab */
+.fb-ml{color:var(--link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--link) 45%,transparent);text-decoration-thickness:1px;text-underline-offset:3px;border-radius:2px}
+@media(hover:hover){.fb-ml:hover{text-decoration-color:currentColor}}
 .fb-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
 .fb-acts:empty{display:none}
 .fb-acts .btn .i{margin-inline-end:-4px}
 a.btn.fb-gh{color:inherit;text-decoration:none}
 /* a finger: the row's buttons are a fingertip tall (--btn on .tap), and the box's Send too */
-.app.tap .fb-acts .btn,.app.tap .fb-box .btn{height:var(--btn)}
+.app.tap .fb-acts .btn,.app.tap .fb-box .btn,.app.tap .fb-m .btn{height:var(--btn)}
 /* a phone: the page has the whole screen with Back, so the bottom bar steps aside while it is open */
 .app.phone .device:has(.fbp)>.bar{display:none}

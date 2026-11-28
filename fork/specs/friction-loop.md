@@ -556,6 +556,11 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   page.
 - **Demo:** report a problem, shape it as an Assistant would (`--shape --fix … --search …`) with a fake gh holding a
   closed issue and a newer release; the row shows the fix, both lines and Follow.
+- **As built:** the check lives in its own module, `feedback_check.py`, which `feedback.py` calls. Shaping is for an
+  Assistant only. Follow is the person's alone, from the page, and only for an issue the check found. A search drops
+  whole paths after redaction. Filing's own duplicate search (upstream's `--file`) uses the `search` words once
+  shaped. On a problem nobody shaped, it keeps upstream's redacted search of the line, which upstream's tests pin.
+  Slice 4's draft replaces that path, along with the yes for the exact text.
 
 ### Slice 4: the yes for the exact text, posted once
 

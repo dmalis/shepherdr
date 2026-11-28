@@ -1,9 +1,11 @@
 {
   "issue": 94,
-  "name": "friction loop: every feedback report is kept (1), the Feedback page (2)",
+  "name": "friction loop: every feedback report is kept (1), the Feedback page (2), shape and check (3)",
   "files": [
     "mods/tasks/bin/herdr_task/feedback.py",
     "mods/tasks/bin/herdr_task/feedback_page.py",
+    "mods/tasks/bin/herdr_task/feedback_check.py",
+    "mods/tasks/bin/herdr_task/assistant_settings.py",
     "mods/tasks/bin/herdr_task/cli.py",
     "mods/tasks/bin/herdr_task/launch.py",
     "service/feedback.ts",
@@ -19,6 +21,7 @@
     "web/plugins/feedback/words.ts",
     "web/plugins/feedback/feedback.css",
     "web/demo/data.ts",
+    "web/demo/tap-check.ts",
     "docs/plugins.md"
   ],
   "tests": [
@@ -26,6 +29,9 @@
     "test/test_feedback_page.py",
     "test/test_herdr_task.py::Feedback",
     "service/feedback.test.ts",
-    "web/plugins/feedback/feedback.test.tsx"
+    "web/plugins/feedback/feedback.test.tsx",
+    "test/test_feedback_check.py",
+    "test/test_herdr_task.py::AssistantSettings",
+    "web/plugins/feedback/check.test.tsx"
   ]
 }

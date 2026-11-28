@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { argsOf, Feedback, githubUrl, herdrTask, rowsOf, sectionOf, withChats, type Runner } from "./feedback.ts";
+import { argsOf, checkOf, Feedback, githubUrl, herdrTask, matchOf, rowsOf, sectionOf, withChats, type Runner } from "./feedback.ts";
 
 const NOW = Date.UTC(2026, 10, 27, 12);
 const H = 3600_000;
@@ -190,4 +190,51 @@ test("pins: the action's case and the snapshot's field are where the page needs 
   expect(main).toContain("live.setSnapshot(withFeedback(");
   const next = readFileSync(join(import.meta.dir, "next.ts"), "utf8");
   expect(next).toContain('{ id: "feedback", name: "Feedback" }');
+});
+
+// ---- shape and check (friction loop, slice 3, #94) ----------------------------------------------------------------
+
+const up = (n: number, x: Record<string, unknown> = {}) => ({ repo: "example/upstream", number: n, title: `Issue ${n}`, url: `https://github.com/example/upstream/issues/${n}`, state: "open", ...x });
+
+test("a check's findings reach the row: the feedback repo's matches, Shepherdr's makers' as Follow only, the versions", () => {
+  const l = rowsOf([row({ fix: "Show it above", search: "quoted preview words", checked: {
+    at: NOW, repo: "example/fork", newest: "3.2.23", installed: "3.2.22",
+    dupes: [{ ...up(3, { state: "closed", reason: "completed" }), repo: "example/fork", url: "https://github.com/example/fork/issues/3" }],
+    upstream: [up(3, { state: "closed", reason: "not_planned" })],
+  } })], {}, NOW);
+  const c = l.rows[0].check!;
+  expect(c.matches.map((m) => [m.repo, m.number, m.state, m.reason, m.makers])).toEqual([
+    ["example/fork", 3, "closed", "completed", undefined], ["example/upstream", 3, "closed", "not_planned", true]]);
+  expect([c.newest, c.installed, c.failed]).toEqual(["3.2.23", "3.2.22", undefined]);
+  // the search words stay in herdr-task's record: the page draws only what was found
+  expect(JSON.stringify(l)).not.toContain("quoted preview words");
+});
+
+test("a duplicate shows as the issue it duplicates; a match the page can't trust is left out", () => {
+  expect(matchOf({ ...up(5, { state: "closed", reason: "duplicate" }), canonical: up(2, { state: "closed", reason: "completed" }) }, false))
+    .toMatchObject({ number: 2, reason: "completed" });
+  expect(matchOf(up(1, { url: "javascript:alert(1)" }), false)).toBeNull();
+  expect(matchOf(up(1, { url: "https://github.com/example/upstream/pull/1" }), false)).toBeNull();
+  expect(matchOf(up(1, { title: 7 }), false)).toBeNull();
+  expect(matchOf(up(1, { reason: "completed" }), false)!.reason).toBeUndefined(); // open: no close reason
+  expect(checkOf({ checked: { newest: "latest; echo", installed: "unknown", dupes: [up(1)] } })).toEqual({ matches: [up(1)] } as never);
+});
+
+test("never checked: nothing; a check GitHub couldn't answer keeps the last one and says so", () => {
+  expect(checkOf({})).toBeUndefined();
+  expect(checkOf({ check_error: { at: NOW, why: "x" } })).toEqual({ matches: [], failed: true });
+  expect(checkOf({ checked: { dupes: [up(1)] }, check_error: { at: NOW, why: "x" } })!.matches.length).toBe(1);
+  // an issue and a duplicate that points to it: one match, one Follow
+  expect(checkOf({ checked: { dupes: [up(2), { ...up(5, { state: "closed", reason: "duplicate" }), canonical: up(2) }] } })!.matches.map((m) => m.number)).toEqual([2]);
+});
+
+test("Follow this one: an issue on GitHub only, and a followed row is under Filed with what it follows", () => {
+  expect(argsOf({ do: "follow", key: "a1", url: "https://github.com/example/upstream/issues/3" })).toEqual(["--key", "a1", "--follow", "https://github.com/example/upstream/issues/3", "--json"]);
+  expect(() => argsOf({ do: "follow", key: "a1", url: "https://github.com/example/upstream/pull/3" })).toThrow();
+  expect(() => argsOf({ do: "follow", key: "a1", url: "--all" })).toThrow();
+  expect(() => argsOf({ do: "follow", key: "a1" })).toThrow();
+  expect(argsOf({ do: "undo", key: "a1", expect: "following" })).toEqual(["--key", "a1", "--undo", "--expect", "following", "--json"]);
+  const l = rowsOf([row({ decision: "following", outcome: { url: "https://github.com/example/upstream/issues/3", issue: "example/upstream#3", title: "Reply bubble", state: "open" } })], {}, NOW);
+  expect(l.rows[0]).toMatchObject({ section: "filed", url: "https://github.com/example/upstream/issues/3", following: { title: "Reply bubble", url: "https://github.com/example/upstream/issues/3" } });
+  expect(l.found).toBe(0);
 });
