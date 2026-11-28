@@ -337,8 +337,12 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
 | Script for the first screen | 250 kB sent, compressed, counting every script it loads before it can be used |
 | Memory | no growth in retained memory after the first minutes of live updates |
 
-- **Cached for good by the hashed file name;** the page itself is checked each load. Target: sent compressed (today
-  the service sends files as they are).
+- **Cached for good by the hashed file name;** the page itself is checked each load. A hashed file that isn't there
+  is a 404, never the page.
+- **Sent compressed:** brotli, else gzip, by the browser's `Accept-Encoding` and its q-values, with
+  `Vary: Accept-Encoding`. The build writes both copies beside each hashed file (`web/compress.ts`) and the service
+  picks one (`service/static.ts`); the page itself is sent as it is. A proxy in front passes the bytes on as they are
+  (`web/demo/live.ts` fetches with `decompress: false`).
 - **Features you open** load when opened, as the terminal does. Target: voice, screens and Settings too (today every
   plugin is in the first script).
 - **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
