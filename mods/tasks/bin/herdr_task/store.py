@@ -576,9 +576,10 @@ class Store:
             else:
                 self.dirty = True   # unreadable just now: what this command holds is saved on the way out
 
-    def __exit__(self, kind, *_):
+    def __exit__(self, kind, value=None, *_):
         try:
-            if kind is None:
+            # dmalis/shepherdr#235: a refusal that changed the list on purpose (triage_fix.Refused) keeps the change
+            if kind is None or getattr(value, "save_store", False):
                 self.save()
         finally:
             if self.lock:

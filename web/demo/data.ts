@@ -351,7 +351,7 @@ function triageDay(s: Snapshot): Snapshot {
   const c = s.config!
   return {
     ...s,
-    config: { ...c, triage: { all: c.triage!.all, repos: { ...c.triage!.repos, '/Users/sam/dev/shop': { ...c.triage!.all, level: 'score', own: ['level'] } } } },
+    config: { ...c, triage: { all: c.triage!.all, repos: { ...c.triage!.repos, '/Users/sam/dev/shop': { ...c.triage!.all, level: 'fix', own: ['level'] } } } },
     automations: { ...s.automations, [P.shop]: [...(s.automations[P.shop] ?? []), sched('SHOP-TRI', 'Triage', P.shop, 'Every hour', 'in 24 min', '10:00 · scored 3 issues', 'Score and label new issues in example/shop.', { id: TRI_SCHEDULE })] },
     triage: triageView,
   }

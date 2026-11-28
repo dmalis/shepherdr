@@ -159,10 +159,10 @@ an Everywhere default (`everywhere.triage`):
 
 | Key | Values | What it does |
 |---|---|---|
-| `level` | `off` (default), `score` | Score only: filed findings and new issues are scored; nothing starts a fix. Score and fix comes later |
-| `fix_from` | 3 to 5 (4) | The lowest score Score and fix will fix (kept for that step) |
-| `fixes_per_day` | 1 to 10 (3) | How many fixes a day Score and fix may start (kept for that step) |
-| `ask_merge` | `on`, `off` (on) | Whether Score and fix asks you before it merges its fixes (kept for that step); turn it off for a repo once you trust its fixes |
+| `level` | `off` (default), `score`, `fix` | Score only: filed findings and new issues are scored; nothing starts a fix. Score and fix: also starts fixes, one at a time (below) |
+| `fix_from` | 3 to 5 (4) | The lowest score Score and fix marks `ready` on its own (own findings only) |
+| `fixes_per_day` | 1 to 10 (3) | How many fixes a day Score and fix may start, counted when each is added |
+| `ask_merge` | `on`, `off` (on) | Whether Score and fix's fixes ask you before they merge (`--set merge=ask`; always on for an issue someone else wrote); turn it off for a repo once you trust its fixes |
 | `rules` | one paragraph | The repo's own "score 5" words (default: what its AGENTS.md says is at risk) |
 | `private_words` | a list | Words a post never carries, beside the ones Triage finds itself (emails, host names, other spaces and repos) |
 
@@ -174,6 +174,24 @@ to `agents.feedback_repo` only (never upstream's). What Triage won't post by its
 space, or a privacy check that wasn't sure) waits for you as a card under Needs you, with the exact words: Yes posts
 them, No keeps them private until they change. An outside issue marked `ready` asks the same way before a fix starts
 (with Score and fix). Your answer counts only for the words you saw: changed words ask again.
+
+At Score and fix, each run ends by starting at most one fix, an ordinary task in the repo with its own task settings:
+- **What starts one:** your `ready` on an issue (GitHub's events must show you added it, not anyone else); on an issue
+  someone else wrote, also your yes in the app for its exact text (a changed text asks again, a no takes `ready` off).
+  Triage marks `ready` itself only on its own findings scored at `fix_from` or above, never on a decision, a ban risk,
+  one whose `ready` you took off, or one a merged pull request already names (`Part of #n`): the digest lists those
+  under "Done? Close it".
+- **When:** only while main's required checks aren't red, no other fix of the repo is open, today's `fixes_per_day`
+  aren't used, and no task here was stopped by a usage limit. The same checks hold again when it starts (a queued
+  start included); `ready` becomes `fixing`. A second fix for the same issue needs a `ready` newer than the last one.
+- **Needs worktrees:** each fix works in its own worktree and merges only by its pull request; with worktrees off for
+  the repo, nothing starts.
+- **Never retried:** a fix that stops (even a Ready one), goes idle for a day, closes unmerged, fails a check after its
+  hand-in, fails to start, or whose merge fails or conflicts gets the issue labelled `blocked` and waits for you,
+  asking before it merges. A usage limit also pauses Triage.
+- **Pause** holds its merges (they wait under Ready and merge on Resume), every merge call (a requeue included) and our
+  install of them. A fix that asks first merges only on your Accept, in the app, at the commit you accepted; no task
+  setting changes that.
 
 ## Where they are kept
 

@@ -48,6 +48,20 @@ class Hub:
     def __init__(self):
         self.calls, self.issues, self.comments = [], {}, {}
         self.mode, self.login, self.next = "ok", "jdoe-test", 40
+        # Score and fix's reads: merged pull requests, each issue's events, main's rules and checks
+        self.pulls, self.events, self.main_runs, self.required = [], {}, [], ["check"]
+
+    def label(self, n, name, by="acme", event="labeled"):
+        """A label put on (or taken off) by someone, as GitHub's events show it."""
+        names = self.labels(n)
+        if event == "labeled" and name not in names:
+            names.append(name)
+        if event == "unlabeled" and name in names:
+            names.remove(name)
+        self.issues[n]["labels"] = [{"name": l} for l in names]
+        ev = self.events.setdefault(n, [])
+        ev.append({"id": len(ev) + 1, "event": event, "label": {"name": name}, "actor": {"login": by},
+                   "created_at": f"2026-11-28T10:{len(ev):02d}:00Z"})
 
     def add(self, title, labels=("needs-triage", "bug"), body="", user="someone", state="open"):
         n = self.next
@@ -93,11 +107,10 @@ class Hub:
             n = int(a[2])
             names = self.labels(n)
             for i, x in enumerate(a):
-                if x == "--add-label" and a[i + 1] not in names:
-                    names.append(a[i + 1])
-                if x == "--remove-label" and a[i + 1] in names:
-                    names.remove(a[i + 1])
-            self.issues[n]["labels"] = [{"name": l} for l in names]
+                if x == "--add-label" and a[i + 1] not in self.labels(n):
+                    self.label(n, a[i + 1], self.login)
+                if x == "--remove-label" and a[i + 1] in self.labels(n):
+                    self.label(n, a[i + 1], self.login, "unlabeled")
             return done(self.issues[n]["html_url"] + "\n")
         if a[:2] == ["issue", "comment"]:
             self.comments.setdefault(int(a[2]), []).append(body)
@@ -107,11 +120,36 @@ class Hub:
         if a[:2] == ["api", "-i"]:
             if self.mode == "down":
                 return fail("error connecting to api.github.com")
-            tag = self.etag()
+            want = "ready" if "labels=ready" in a[2] else "needs-triage"
+            rows = [x for n, x in self.issues.items() if x["state"] == "open" and want in self.labels(n)]
+            tag = self.etag() if want == "needs-triage" else 'W/"' + hashlib.sha1(json.dumps(rows).encode()).hexdigest()[:12] + '"'
             if "-H" in a and a[a.index("-H") + 1] == f"If-None-Match: {tag}":
                 return fail("gh: HTTP 304", out="HTTP/2.0 304 Not Modified\r\nEtag: " + tag + "\r\n\r\n")
-            rows = [x for n, x in self.issues.items() if x["state"] == "open" and "needs-triage" in self.labels(n)]
             return done("HTTP/2.0 200 OK\r\nEtag: " + tag + "\r\n\r\n" + json.dumps(rows))
+        if a[:1] == ["api"] and self.mode == "down":
+            return fail("error connecting to api.github.com")
+        if a[:1] == ["api"] and a[1].startswith(f"repos/{REPO}/pulls?"):
+            return done(json.dumps(self.pulls))
+        m = re.match(rf"^repos/{re.escape(REPO)}/issues/(\d+)(/events|/comments)?(\?.*)?$", a[1]) if a[:1] == ["api"] else None
+        if m:
+            n = int(m.group(1))
+            if n not in self.issues:
+                return fail("HTTP 404: Not Found")
+            if m.group(2) == "/events":
+                return done(json.dumps(self.events.get(n, [])))
+            if m.group(2) == "/comments":
+                return done(json.dumps([{"body": b, "user": {"login": "acme"}, "created_at": "2026-11-28T09:00:00Z"}
+                                        for b in self.comments.get(n, [])]))
+            return done(json.dumps(self.issues[n]))
+        if a[:2] == ["api", f"repos/{REPO}"]:
+            return done(json.dumps({"default_branch": "main"}))
+        if a[:2] == ["api", f"repos/{REPO}/rules/branches/main"]:
+            return done(json.dumps([{"type": "required_status_checks", "parameters": {
+                "required_status_checks": [{"context": c} for c in self.required]}}]))
+        if a[:1] == ["api"] and a[1].startswith(f"repos/{REPO}/commits/main/check-runs"):
+            return done(json.dumps({"check_runs": self.main_runs}))
+        if a[:2] == ["api", f"repos/{REPO}/commits/main/status"]:
+            return done(json.dumps({"statuses": []}))
         if a[:1] == ["api"] and a[1].startswith(f"repos/{REPO}/issues?"):
             if self.mode == "down":
                 return fail("error connecting to api.github.com")
@@ -519,7 +557,7 @@ class Scoring(Triaged):
         with tri.record() as d:
             d["repos"][REPO.lower()]["last_score"] = 0
         self.assertEqual(self.triage("due")[0], 0)
-        self.assertIn("-H", self.hub.calls[-1])
+        self.assertIn("-H", [a for a in self.hub.calls if a[:2] == ["api", "-i"]][-1])
 
     def test_the_digest_comes_on_monday_morning_once_a_week_as_the_runs_last_word(self):
         import datetime
@@ -560,7 +598,8 @@ class Scoring(Triaged):
         self.assertNotEqual(code, 0)
         self.assertIn("Only the person", out)
         code, out = self.triage("set", "level", "fix")
-        self.assertIn("later step", out)
+        self.assertEqual(code, 0, out)  # Score and fix (phase 4)
+        self.assertNotEqual(self.triage("set", "level", "everything")[0], 0)
         self.assertEqual(self.triage("set", "fixes_per_day", "4")[0], 0)
         with open(self.file) as f:
             self.assertEqual(json.load(f)["repos"][self.folder]["triage"]["fixes_per_day"], 4)

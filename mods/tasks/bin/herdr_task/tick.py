@@ -301,6 +301,11 @@ def facts(s, t, report):
                     # it was to merge by itself (or the person marked it as done): a failed merge, its agent's to
                     # fix (pr_news hands it the conflict or the failed check)
                     t["merge_failed"], t["merge_failed_at"] = why or problem, now()
+                if why or t["state"] == "ready":
+                    # dmalis/shepherdr#235: a handed-in Triage fix that conflicts or fails a check is blocked: the
+                    # person's, never back to its agent
+                    from .triage_fix import merge_failed as triage_blocked
+                    triage_blocked(s, t, why or problem)
                 report["attention"].append(t["id"])
             elif t.get("attention", "").startswith(("Checks failing", "It conflicts", "The pull request was closed", MERGE_FAILED, BEHIND)) \
                     or (t.get("attention") == CHECKS_NEVER and missing != "never"):

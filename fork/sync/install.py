@@ -161,10 +161,68 @@ elif sys.argv[2] == "service":
     from herdr_task import layout
     w = layout.Where(home=sys.argv[3], env=None if sys.argv[4] == "live" else {})
     print(json.dumps({"dir": w.path("service")}))
+elif sys.argv[2] == "triage":
+    from herdr_task import store, triage
+    out = {}
+    for f in sys.argv[3:]:
+        if triage.plugin_off(triage.PLUGIN):
+            out[f] = True
+            continue
+        try:
+            d = store.read_list(store.store_path(store.locate(f)["folder"])[1])
+        except Exception:
+            d = None
+        a = next((a for a in (d or {}).get("automations") or [] if isinstance(a, dict) and isinstance(a.get("triage"), dict)), None) if isinstance(d, dict) else None
+        out[f] = None if a is None else bool(triage.paused(a))  # its schedule unreadable or gone: unknown
+    print(json.dumps({"paused": out}))
 else:
     from herdr_task import base, scheduler
     print(json.dumps({"hash": scheduler.script_hash(), "store": base.STORE}))
 '''
+
+MERGED_PR = re.compile(r"(?:\(#(\d+)\)\s*$|^Merge pull request #(\d+)\b)")
+
+
+def triage_hold(s, repo, base, sha, links_path=None):
+    """dmalis/shepherdr#235 (fork/specs/issue-loop.md, "Guards"): while Triage is paused, the install holds any Triage
+    fix merged between the installed build and the candidate (blocker `triage-paused`). Triage's record unreadable, or
+    the pause unreadable: it holds too. The record is the installed herdr-task's (its store); a fix is seen by its
+    squash or merge commit's subject (Shepherdr merges a fix by squash where the repo allows it)."""
+    from . import issues
+    path = links_path
+    if not path:
+        store = (probe(s, "store") or {}).get("store")  # the installed herdr-task's store (triage.RECORD's folder)
+        if not isinstance(store, str) or not store:
+            raise Refused("the installed herdr-task can't say where its tasks are kept (Triage's record)",
+                          outcome="held", kind="install", gate="triage", blocker="triage-paused")
+        path = os.path.join(store, issues.TRIAGE_FILE)
+    links = issues.triage_links(path)
+    if links is None:
+        raise Refused("Triage's record can't be read: whether a Triage fix is in this install can't be told",
+                      outcome="held", kind="install", gate="triage", blocker="triage-paused")
+    if not links or not base:
+        return
+    ok, out, _ = git(repo, "log", "--format=%s", f"{base}..{sha}")
+    if not ok:
+        raise Refused(f"the commits between {base[:12]} and {sha[:12]} can't be read", outcome="held", kind="install",
+                      gate="triage", blocker="triage-paused")
+    merged = {int(a or b) for m in (MERGED_PR.search(l) for l in out.splitlines()) if m for a, b in [m.groups()]}
+    fixes = sorted(pr for pr in links.values() if pr in merged)
+    if not fixes:
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    folders = sorted({str(v.get("folder")) for v in (data.get("fixes") or {}).values()
+                      if isinstance(v, dict) and v.get("folder") and v.get("pr") in fixes})
+    v = probe(s, "triage", *folders) if folders else None
+    paused = (v or {}).get("paused")
+    if not isinstance(paused, dict) or any(paused.get(f) is not False for f in folders):
+        raise Refused("Triage is paused, and this install brings its fix" + ("es " if len(fixes) > 1 else " ") +
+                      ", ".join(f"#{p}" for p in fixes) + ": it waits for Resume", outcome="held", kind="install",
+                      gate="triage", blocker="triage-paused", prs=fixes)
 
 
 def probe(s, what, *args):
@@ -765,6 +823,7 @@ def before_checks(s, st, repo, sha, run_key, folder, env=None, ours=False):
                       gate="ancestry")
     if not ours and not state.checks_passed(st, sha):
         raise Refused(f"main's checks haven't passed on {sha[:12]}", outcome="held", kind="install", gate="checks")
+    triage_hold(s, repo, base, sha)                                       # a paused Triage's fixes wait (#235)
     h = pipeline_hash(repo, sha)                                          # the rehearsal gate (Installing our merges)
     if not state.rehearsal_passed(st, h):
         raise Refused(f"no rehearsal passed for the pipeline's code at {sha[:12]}", outcome="held", kind="install",
@@ -898,6 +957,10 @@ def resume_checks(s, ins, repo, run_key, folder, env=None):
         return e.why
     if changed:
         return "the update would write " + " and ".join(HOOK_NAMES[f] for f in changed)
+    try:
+        triage_hold(s, repo, ins.get("baseline"), ins.get("sha"))  # a pause since the checks holds it too (#235)
+    except Refused as e:
+        return e.why
     if s.live:
         return may_ask(run_key, folder, env)
     return None

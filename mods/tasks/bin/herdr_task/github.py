@@ -764,6 +764,10 @@ def merge_method(repo):
 def queue_merge(task, head):
     """Asks GitHub to merge its pull request (squash) at exactly head: merged now, or queued in its
     merge queue. Never --delete-branch (#1045: drop_branch() once it merged). (ok, err)."""
+    from .triage_fix import queue_hold
+    held = queue_hold(task, head)  # dmalis/shepherdr#235: a Triage fix's pause and merge=ask hold every merge call
+    if held:
+        return False, held
     pr = task["pr"]
     ok, _, err = gh("pr", "merge", str(pr["number"]), "--repo", pr["repo"], "--squash", "--match-head-commit", head or "")
     return ok, err

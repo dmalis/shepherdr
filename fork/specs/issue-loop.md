@@ -118,6 +118,10 @@ The script checks each entry and applies only its allowlist:
 
 It never adds `ready`, retitles or closes.
 
+- **Work already merged:** an issue a merged pull request names with `Part of #n` (outside code blocks and spans) is
+  not given to the scorer, and Act never marks it `ready`; only the owner's own `ready` starts a fix for it. The
+  digest lists it under "Done? Close it", with the pull requests that name it. (Found by the first real scoring
+  run: twelve issues whose work had merged were scored 2 to 5.)
 - **The fingerprint:** the part and the action that failed. The script refuses one with no action, or with a
   volatile value (a hex run of 7 or more, a number of 4 or more digits, a task key, a date or a time). It is kept in
   Triage's record.
