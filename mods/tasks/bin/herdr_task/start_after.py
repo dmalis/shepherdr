@@ -150,7 +150,10 @@ def wake():
         os.makedirs(os.path.dirname(WAKE), exist_ok=True)
         with open(WAKE, "a"):
             pass
-        os.utime(WAKE)
+        # Stamped from time.time(), the clock nap()'s `since` comes from: the file system's own stamp can come from the
+        # kernel's coarse clock, a tick behind, so a wake right after a round began read as before it (#216's red main).
+        t = time.time()
+        os.utime(WAKE, (t, t))
     except OSError:
         pass
 

@@ -14276,6 +14276,26 @@ class StartAfter(unittest.TestCase):
             self.assertTrue(self.sa.nap(5, began))
             self.assertLess(self.time.time() - t1, 1)
 
+    def test_a_wake_right_after_the_round_began_counts_on_a_coarse_clock(self):
+        """dmalis/shepherdr#216's red main: a file system stamps a file it wasn't asked about from the kernel's coarse
+        clock, up to a tick (4 ms at 250 Hz) behind time.time(), so a wake just after the round began read as before
+        it and the scheduler napped its whole 15 s. Stand-in: an os.utime that stamps "now" a tick early."""
+        from unittest import mock
+        real = os.utime
+
+        def coarse(path, times=None, **kw):
+            if times is None and not kw:
+                t = self.time.time() - 0.004
+                times = (t, t)
+            return real(path, times, **kw)
+
+        with mock.patch.object(self.sa, "NAP_STEP", 0.02), mock.patch.object(os, "utime", coarse):
+            began = self.time.time()
+            self.sa.wake()
+            t1 = self.time.time()
+            self.assertTrue(self.sa.nap(1, began))
+            self.assertLess(self.time.time() - t1, 0.5)
+
     def test_a_done_with_nothing_waiting_never_wakes_it(self):
         a = self.running("A")
         self.running("B")
