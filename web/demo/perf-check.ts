@@ -28,9 +28,11 @@ const INIT = () => {
   w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] as number[], full: [] as number[] }
   // what the chat socket sent: the messages of each chat, so the long chat's seed is checked without counting bubbles
   w.__chats = {} as Record<string, { n: number; last: string }>
+  // a message on screen: its own element (data-msg, not the working dots) inside the window
+  w.__onScreen = (id?: string) => [...document.querySelectorAll<HTMLElement>(id ? `.msgs [data-msg="${CSS.escape(id)}"]` : '.msgs [data-msg]')].some((e) => { const r = e.getBoundingClientRect(); return r.height > 0 && r.bottom > 0 && r.top < innerHeight })
   const seen = (ev: MessageEvent) => {
     if (typeof ev.data !== 'string' || !ev.data.startsWith('{"type":"chat"')) return
-    try { const c = JSON.parse(ev.data).chat; const m = c?.messages ?? []; if (c?.key) w.__chats[c.key] = { n: m.length, last: String(m.at(-1)?.text ?? '').slice(0, 40) } } catch {}
+    try { const c = JSON.parse(ev.data).chat; const m = c?.messages ?? []; if (c?.key) w.__chats[c.key] = { n: m.length, last: String(m.at(-1)?.id ?? '') } } catch {}
   }
   const timed = (f: (ev: MessageEvent) => void, self: unknown) => (ev: MessageEvent) => {
     seen(ev)
@@ -95,7 +97,8 @@ function interactions(evs: { name: string; d: number; id: number }[], presses: n
   for (const e of evs) if (e.id) by.set(e.id, Math.max(by.get(e.id) ?? 0, e.d))
   const reported = by.size
   const ds = [...Array(Math.max(0, presses - reported)).fill(0), ...by.values()].sort((a, b) => a - b)
-  const p = (q: number) => ds.length ? Math.round(ds[Math.min(ds.length - 1, Math.floor(ds.length * q))]!) : 0
+  // a press Event Timing didn't report is under 16 ms, not 0: say so
+  const p = (q: number) => { const v = ds.length ? Math.round(ds[Math.min(ds.length - 1, Math.floor(ds.length * q))]!) : 0; return v || '<16' }
   return { presses: ds.length, reported, p50: p(0.5), p98: p(0.98), max: Math.round(ds.at(-1) ?? 0) }
 }
 
@@ -155,7 +158,7 @@ if (part === 'all' || part === 'long') {
   // the start of the load to its first bubble, however much of the chat is drawn
   const t0 = Date.now()
   await page.goto(B + '?place=' + encodeURIComponent(BLOG), { waitUntil: 'commit' })
-  await page.waitForSelector('.msgs .b', { timeout: 15000 })
+  await page.waitForFunction(() => (window as any).__onScreen(), undefined, { timeout: 15000, polling: 'raf' })
   const open = Date.now() - t0
   await page.waitForLoadState('networkidle')
   const seed = await page.evaluate((k) => (window as any).__chats[k], BLOG) as { n: number; last: string } | undefined
@@ -191,13 +194,13 @@ if (part === 'all' || part === 'long') {
   const into = async () => {
     await dp.locator(row(SHOP)).click(); await dp.waitForTimeout(1000)
     return dp.evaluate(([sel, last]) => new Promise<number>((res) => {
-      const shown = () => [...document.querySelectorAll('.msgs .b')].some((b) => b.textContent?.includes(last))
+      const shown = () => (window as any).__onScreen(last)
       if (shown()) return res(-2)
       const t0 = performance.now()
       ;(document.querySelector(sel) as HTMLElement).click()
       const wait = () => (shown() ? requestAnimationFrame(() => res(Math.round(performance.now() - t0))) : performance.now() - t0 > 10000 ? res(-1) : requestAnimationFrame(wait))
       wait()
-    }), [row(BLOG), seed.last.slice(0, 24)] as const)
+    }), [row(BLOG), seed.last] as const)
   }
   log('long-chat.switch-into-ms.desktop4x', [await into(), await into(), await into()])
   await desk.close()

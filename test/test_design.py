@@ -148,8 +148,17 @@ def code(rel):
 def script_endless(rel):
     src = code(rel)
     n = len(re.findall(r"iterations\s*:\s*(?:Infinity|Number\.POSITIVE_INFINITY)", src))
-    # and an endless CSS animation written in an inline style
-    return n + sum(len(re.findall(r"\binfinite\b", m)) for m in inline_styles(src))
+    # and an endless CSS animation written in an inline style's animation
+    for m in inline_styles(src):
+        for v in re.findall(r"\banimation(?:IterationCount)?\s*:\s*([^,}]+)", m):
+            n += sum(len(re.findall(r"\binfinite\b", b)) for b in branches(v))
+    return n
+
+
+def branches(value):
+    """what an inline value can be: each branch of a `cond ? a : b`, without its condition"""
+    parts = re.split(r"(\?|:)", value)
+    return [p for k, p in enumerate(parts[::2]) if 2 * k + 1 >= len(parts) or parts[2 * k + 1] != "?"]
 
 
 def inline_styles(source):
@@ -180,11 +189,11 @@ def inline_off_scale(rel):
     n = 0
     for m in inline_styles(code(rel)):
         for v in re.findall(r"\bfontSize\s*:\s*([^,}]+)", m):
-            if "var(" in v:
-                continue
-            # each plain number or px length in it, so `phone ? 14 : 11` counts its 11 (em and % follow the text around)
-            for x in re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)(?:px|PX)?(?![\w.%])", v):
-                n += float(x) not in SCALE
+            # each branch it can take, so `phone ? 14 : 11` counts its 11 and `w >= 768 ? 14 : 16` not its 768
+            # (a token, em and % follow the text around)
+            for b in branches(v):
+                px = re.fullmatch(r"\s*['\"`]?(\d+(?:\.\d+)?)(?:px|PX)?['\"`]?\s*", b)
+                n += bool(px) and float(px.group(1)) not in SCALE
     return n
 
 
@@ -273,6 +282,8 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample(".a{animation:spin 1s 999999}.b{animation:fade 1.999s 2}", endless), 1)
         self.assertEqual(self.sample(".a{animation:film 2s steps(120) 1}", endless), 0)  # finite, in 120 frames
         self.assertEqual(self.sample("<a style = {{ animation: 'spin 1s infinite' }} />", script_endless, ".tsx"), 1)
+        self.assertEqual(self.sample("<a style={{ opacity: plan === 'infinite' ? 0 : 1 }} />", script_endless, ".tsx"), 0)
+        self.assertEqual(self.sample("<a style={{ animation: on ? 'spin 1s infinite' : 'none' }} />", script_endless, ".tsx"), 1)
         js = "el.animate(k, { iterations: Infinity })\n// el.animate(k, { iterations: Infinity })\n/* iterations: Infinity */"
         self.assertEqual(self.sample(js, script_endless, ".ts"), 1)
 
@@ -285,6 +296,8 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample(cmp, inline_colours, ".tsx"), 0)
         sizes = "<a style={{ fontSize: 11, lineHeight: 1 }} /><u style={{ fontSize: p ? 14 : 15, x: '1.25em' }} /><b style={{ fontSize: '13px' }} /><i style={{ fontSize: 'var(--ui)' }} />"
         self.assertEqual(self.sample(sizes, inline_off_scale, ".tsx"), 2)
+        branch = "<a style={{ fontSize: phone ? 'var(--ui)' : 11 }} /><b style={{ fontSize: width >= 768 ? 14 : 16 }} />"
+        self.assertEqual(self.sample(branch, inline_off_scale, ".tsx"), 1)
 
 
 def theme(name):

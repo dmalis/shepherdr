@@ -14,9 +14,9 @@ per-row actions; swipe actions; and speed, "as I live inside this UI".
 
 The two biggest daily costs found are **a message box that can lose parts of a draft** and **a Tasks list that makes
 you read too much before you know where to act**. The biggest measured costs are **the uncompressed first load** (6.4 s
-to first paint on a phone the first time, or after each update) and **a pulse that keeps a still page busy**. Typing,
-scrolling a long chat and live updates are inside their budgets; switching is, except for one slow space and a long
-chat. The plan starts there, ahead of the visual cleanup.
+to first paint on a phone the first time, or after each update) and **a pulse that keeps a still page busy**. Typing and
+scrolling a long chat are inside their budgets; switching is, except for one slow space and a long chat; a live
+update's script averages about 1 ms, and its p95 is not settled yet. The plan starts there, ahead of the visual cleanup.
 
 ## How it was audited
 
@@ -109,7 +109,7 @@ fixes it. **High** hurts every day, **medium** is visible and inconsistent, **lo
 **How:** `bun run build`, then `DEMO_LONG_CHAT=400 bun web/demo/serve.ts 7841` and `bun web/demo/perf-check.ts 7841`,
 at commit e1fcc818 with this change's demo seed, headless Google Chrome 158 (playwright-core) on a 4-core Linux VM,
 three runs, the middle one shown (the three agree within a few per cent; the long chat, typing and live parts were
-run three more times after the review changed their endpoints). Each part starts with empty storage and a
+run three more times after each review changed their endpoints). Each part starts with empty storage and a
 cold cache, except the warm load. "Phone" is a 390 × 844 touch context with 4× slower CPU over 1.6 Mbps down, 750 kbps
 up and 150 ms. The demo, like the service today, sends files uncompressed, so its cold load stands for the service's; the service
 also caches hashed files for a year, which the demo doesn't, so the demo's warm load is not the service's. The
@@ -130,9 +130,9 @@ demo starts its day over on each page load, so what a part needs is seeded by th
   message shows. Both endpoints hold if a fix draws only part of the chat; the seed is checked from what the socket
   sent, not from the bubbles drawn.
 - **Live updates:** 300 snapshots from the demo (a task renamed each time) while a space is open: the socket's message
-  handler alone, and the handler to the end of the work it queued (a `MessageChannel` message posted after the
-  handler runs after React's render; this also counts any frame drawn and any task waiting in between, so it is an
-  upper bound); the page's changes per update, all script over the run, and the heap after a forced GC. The demo sends
+  handler alone, and the time from the handler to a task queued right after it (a `MessageChannel` message). That
+  task usually runs after React's render, but it also counts any frame drawn or task waiting in between, and React
+  can defer work past it, so it is a sign, neither the script's cost nor a bound; the page's changes per update, all script over the run, and the heap after a forced GC. The demo sends
   each update as a whole snapshot; the service sends a patch after the first, so the service's own cost is not measured
   here.
 - **Idle:** 20 s with nothing happening, Performance metrics (style recalculations, layouts, task time).
@@ -145,10 +145,10 @@ demo starts its day over on each page load, so what a part needs is seeded by th
 | Main script | 847 kB raw, 283 kB gzip: react-dom 202, `web/src` 174, chat 84, core 45, marked 45, screens 36, tasks 31, shared 29, dompurify 29, voice 28 (raw kB) | 250 kB sent |
 | A key press, phone | p98 32 ms with an empty and a 2000-character draft (every press was over 16 ms, so all were counted) | p98 50 ms |
 | Switching spaces, desktop, warm | p50 24 ms; the slowest of 12 is 64 ms at full speed and 280 ms at 4× slower CPU | p95 100 ms |
-| Switching into the 404-message chat, desktop at 4× | 362 ms the first time, then 219 and 190 ms | p95 100 ms when warm |
-| Loading straight into that chat | 228 ms to its first bubble at full speed | measured apart (a first load) |
+| Switching into the 404-message chat, desktop at 4× | 401 ms the first time, then 242 and 207 ms | p95 100 ms when warm |
+| Loading straight into that chat | 191 ms to its first message on screen at full speed | measured apart (a first load) |
 | Scrolling that chat end to end, phone | frames p50 17 ms, p95 18 ms; 1 of 479 over 33 ms (52 ms); no long task | p95 33 ms |
-| 300 live updates | handler p95 0.3 ms; handler to the end of its render p50 5.1 ms, p95 7.9 ms (an upper bound, see above); about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms: not settled, a trace decides (slice 4) |
+| 300 live updates | handler p95 0.3 ms; handler to the next queued task p50 5.1 ms, p95 7.9 ms (a sign only, see above); about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms: not settled, a trace decides (slice 4) |
 | Memory over those updates | heap 4.1 → 6.0 MB after GC, nodes and listeners flat | no growth after the first minutes: needs a longer run to tell |
 | An idle page with a waiting picture | 60 style recalculations a second, ~455 ms of work per 20 s | none |
 
@@ -202,8 +202,8 @@ field and both bubbles pass AA (table above). Dark and night already pass.
    first screen's script size with room; turning a plugin off still removes it. Before: one 847 kB script. After: the
    first screen's script under 250 kB sent. After: 1.
 4. **Switching stays quick.** Warm switches are quick but for two: one space of the demo's twelve takes 280 ms at 4×
-   slower CPU (64 ms at full speed), and switching into a 404-message chat takes 362 ms the first time and about
-   200 ms after. Profile both first, apart (React mounting, markdown, the scroll handlers that read the scroller and
+   slower CPU (64 ms at full speed), and switching into a 404-message chat takes about 400 ms the first time and about
+   220 ms after. Profile both first, apart (React mounting, markdown, the scroll handlers that read the scroller and
    walk the row model, snapshot work), then fix what the profile shows: drawing the newest messages first and the rest
    after the first paint, keeping parsed markdown per message, or skipping off-screen rendering
    (`content-visibility` on stable groups with held sizes). Scrolling the long chat is already smooth (p95 18 ms) and
@@ -211,9 +211,10 @@ field and both bubbles pass AA (table above). Dark and night already pass.
    so both are tested. Files: `web/plugins/chat/client.tsx`, `web/plugins/chat/*.css`, `web/demo/scroll-check.ts`.
    Tests: `scroll-check.ts` extended with the long chat (keeping your place on prepend, jump to a quote, find in page,
    selection and copy, the fold upstream fixed in "Scrolling up into a folded long reply makes the chat list go
-   blank"), in Chromium and WebKit; the perf check's switch and long parts. The same profile takes a live update: a
-   trace of one snapshot from arrival to paint says whether the 4 ms budget holds (the perf check's upper bound is
-   7.9 ms). Before: 280 ms and 362/200 ms. After: p95
+   blank"), in Chromium and WebKit; the perf check's switch and long parts. The same profile settles the live budget: a
+   trace of 300 patches from a throwaway service (not the demo's whole snapshots) gives each update's own script time,
+   and its p95 is checked against 4 ms (the perf check's queued-task time, 7.9 ms at p95, is only a sign).
+   Before: 280 ms and 401/220 ms. After: p95
    100 ms warm. After: none to profile; the fix after "Chat box: two rows again" and 7 (they share
    `chat/client.tsx`).
 
@@ -305,10 +306,14 @@ around it.
 15. **The review card says what happens.** Its question and buttons already say what Accept does in each case
     (`readyWords()`, `web/shared/ready-words.ts`: merge into its branch, mark a folder's work done, close one with
     nothing to merge) and "Not now, keep it here". What changes: the line on why it waits reads as a sentence, not a
-    setting's name and value ("Waits for you: Merge in this repo is When I mark it as done" becomes "Waits for you:
-    this repo merges when you accept"), and its buttons share the card's width on a phone with the primary last.
-    Files: `mods/tasks/bin/herdr_task/waits.py` (`waits_why()`), `web/plugins/tasks/client.tsx` (`ReviewCard`).
-    Tests: `waits_why()`'s line for each merge setting and source in `test/test_herdr_task.py`;
+    setting's name and value ("Waits for you: Merge in this repo is When I mark it as done"), and says what waits on
+    you for this card's own action: a merge, a close with nothing to merge or a close that deletes left files, a
+    folder's work to mark done. Its buttons share the card's width on a phone with the primary last. A Ready card
+    saved with the old line gets the new one (the tick already fills a missing one, `tick.py`).
+    Files: `mods/tasks/bin/herdr_task/waits.py` (`waits_why()`), `mods/tasks/bin/herdr_task/tick.py`,
+    `web/plugins/tasks/client.tsx` (`ReviewCard`). Tests: `waits_why()`'s line for each merge setting and source and
+    for each action (merge, close, close with left files, folder) in `test/test_herdr_task.py`, and a saved card's line
+    replaced;
     `web/plugins/tasks/ready-words.test.tsx` updated; screenshots `task-ready-review--*` at 390 px. After: 14.
 16. **Alerts read whole.** An alert's name is the task's name, and its body, place and status are its description
     (`aria-describedby`), not replaced by an `aria-label`; the row cuts its kind before the task's name. Files:
