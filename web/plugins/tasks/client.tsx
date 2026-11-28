@@ -22,7 +22,8 @@ import { DoneRow } from '@plugins/chat/cards.tsx'
 import { KindName } from '@plugins/chat/kind.tsx'
 import { Markdown } from '@plugins/chat/markdown.tsx'
 import { readable, words as saidWords } from '@core/accept.js'
-import { replyToTask, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
+import { replyToTask, SlideActs, SlideHint, useSlide } from '@plugins/chat/slide.tsx'
+import { archiveTask, swipeActs } from './swipe.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
 import { fromSpace, rowWhere, TaskWhere } from './where.tsx'
@@ -239,7 +240,8 @@ export function taskRows(t: Task, where: 'row' | 'thread'): MenuRow[] | null {
     // Stop pauses the agent, like pressing Esc: it drops what it was doing and waits
     ...(s === 'working' ? [{ icon: 'stop' as const, label: 'Stop', cmd: 'tasks.stop', run: () => void tryAct({ type: 'stop', chat }, undefined, 'Stopping…') }] : []),
     ...extra.filter((r) => r.label !== 'Show screen' && r.on === undefined && r.icon !== 'viewswap'),
-    { icon: 'archive', label: t.archived ? 'Unarchive' : 'Archive', line: true, run: () => { void tryAct({ type: 'archive', chat, on: !t.archived }, undefined, t.archived ? 'Unarchiving…' : 'Archiving…'); if (!t.archived) setUI((ui) => ({ ...(ui.task === t.id ? { task: null } : {}), ...(ui.max === t.id ? { max: null } : {}) })) } },
+    // fork #185: an Archive offers Undo (swipe.tsx), from the menu as from a swipe
+    { icon: 'archive', label: t.archived ? 'Unarchive' : 'Archive', line: true, run: () => { if (t.archived) return void tryAct({ type: 'archive', chat, on: false }, undefined, 'Unarchiving…'); setUI((ui) => ({ ...(ui.task === t.id ? { task: null } : {}), ...(ui.max === t.id ? { max: null } : {}) })); void archiveTask(t) } },
     { icon: 'bin', label: 'Delete', danger: true, run: () => del(t) },
   ]
   return rows
@@ -612,14 +614,15 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
   // fork Needs you 5/6: one with an open action keeps its last known row, saying it can't be checked now
   const sub = down && t.action ? `${cantCheck(down.name)} · ${taskLine(t)}` : down ? `Can't reach ${down.name} · last seen ${{ ask: 'asking', working: 'working', ready: 'ready', next: 'waiting', done: 'done', archived: 'done' }[s]}` : taskLine(t)
   const when = down ? '' : taskWhen(t)
-  // a slide to the right replies to it in the space's chat, as to a message (Reply in chat)
-  const { on, slide, armed, skip, moving } = useSlide(() => replyToTask(t))
+  // a slide to the right replies to it in the space's chat, as to a message (Reply in chat); fork #185: a slide to the
+  // left shows its safe actions (swipe.tsx), and a press held still opens its menu, as a message's does
+  const { on, slide, armed, skip, moving, sliding, tray } = useSlide(() => replyToTask(t), { acts: down ? [] : swipeActs(snap, t), hold: (el) => taskMenu(el, t, 'row') })
   // fork UI 14: the one shortcut its state calls for, with a mouse (rows.css)
   const sc = down ? null : shortcutOf(snap, t)
   return (
-    <div className="rowx tsl" data-task-row={t.id} {...on}>
+    <div className={cx('rowx tsl', sliding && 'sl')} data-task-row={t.id} {...on}>
       <SlideHint slide={slide} armed={armed} />
-      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
+      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
           <span className="l1"><UrgentMark t={t} />{t.name}</span>
@@ -639,7 +642,8 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
         ) : when && <span className="v">{when}</span>}
       </button>
       {sc && <ShortcutBtn sc={sc} className={moving.className} style={moving.style} />}
-      <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />
+      <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} inert={moving.inert} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />
+      <SlideActs tray={tray} />
     </div>
   )
 }

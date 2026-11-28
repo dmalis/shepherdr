@@ -404,19 +404,24 @@ something that arrives, reorders or retries on its own.
 - **Where it fits:** a gesture crossing the point where it acts (the reply slide does, `tick()`), and as the plan adds
   them, your send entering the outbox and a failed send.
 - **Sounds** are short and very quiet, follow the device's silent switch, and only play for your own send.
-- Reduced motion turns the app's own haptics off (Target: the reply slide's and a held press's don't check it yet,
-  `web/plugins/chat/slide.tsx`).
+- Reduced motion turns the app's own haptics off: the slides' and a held press's `tick()` (`web/plugins/chat/slide.tsx`)
+  checks `calm()`, both switches.
 
 ## Touch, gestures and keys
 
 - **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Hover styles
   sit under `@media (hover: hover)`, so a tap never leaves one lit, and a touch screen sees the press instead.
   `test/test_design.py` holds the few still outside it (in `styles.css` and `dictate.css`) to their count.
-- **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. Today a row slides
-  right to reply. Target: left shows one or two of the row's actions that are safe to undo, each tapped to act; merging,
-  stopping, allowing and deleting are never on a swipe. A swipe locks to sideways before it takes over, so the list
-  still scrolls; one row is open at a time; it never starts in the left edge's strip (`EDGE`, `web/src/edge.ts`), which
-  opens the spaces list.
+- **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. A row slides right to
+  reply. A Tasks row also slides left, as Mail's and Things' rows do (`useSlide`'s `acts`, `web/plugins/tasks/swipe.tsx`):
+  one or two of its menu's actions that are safe to undo (its shortcut or Changes, then Archive), 76 px each, a word under
+  its icon and named with the task, each tapped to act. Let go past half of them and they stay open; a flick goes its way.
+  Merging, stopping, allowing and deleting are never on a swipe. A full slide does only the edge action, and only one
+  with Undo (Archive): one tick as it crosses, the action's own words while it waits ("Archiving…"), focus on to the next
+  row as the row leaves, and back with the error's toast when it fails. A swipe locks to sideways before it takes over,
+  so the list still scrolls; one row is open at a time, and a tap elsewhere, a scroll or Esc puts it away; a mouse never
+  slides; it never starts in the left edge's strip (`EDGE`, `web/src/edge.ts`), which opens the spaces list. Target:
+  the alerts list and the sidebar wait for this pilot.
 - **Safe areas:** headers, the bottom bar, sheets and the message box add `env(safe-area-inset-*)` to their own
   padding.
 - **Fields are 16 px** on a phone, so iOS never zooms the page, and the page never turns off pinch zoom.
@@ -428,7 +433,8 @@ something that arrives, reorders or retries on its own.
   `LiveRegion` (`ui.tsx`), mounted once. Nothing else is a live region of its own for these (the toasts' list isn't),
   so nothing is said twice. `web/demo/live-check.ts` checks it in a browser.
 - **Undo or confirm:** an action that loses something (delete, discard, close without merging) asks first or offers
-  Undo. Target: one that can be undone (archive, mark read) offers Undo instead of asking.
+  Undo. One that can be undone offers Undo instead of asking: Archive on a task (its toast, `archiveTask`). Target: mark
+  read too.
 - **Standard keys keep their meaning** on every keyboard layout: Esc closes, Cmd/Ctrl K searches, ? shows the
   shortcuts, Cmd/Ctrl with + − 0 zooms ([docs/shortcuts.md](shortcuts.md)). Focus is always visible on what the
   keyboard reached (`:focus-visible`), and goes back where it was when a layer closes.

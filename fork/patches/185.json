@@ -1,0 +1,28 @@
+{
+  "issue": 185,
+  "name": "Tasks: swipe actions on a phone (pilot)",
+  "files": [
+    "web/plugins/chat/press.ts",
+    "web/plugins/chat/slide.tsx",
+    "web/plugins/tasks/swipe.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/tasks/rows.css",
+    "web/plugins/tasks/shortcut.tsx",
+    "web/src/ds.css",
+    "docs/design.md",
+    "web/demo/swipe-check.ts",
+    "web/plugins/chat/swipe-left.test.ts",
+    "web/plugins/tasks/swipe.test.tsx",
+    "web/plugins/chat/reply-task.test.tsx",
+    ".github/workflows/check.yml",
+    "docs/develop.md",
+    "web/src/toasts.ts"
+  ],
+  "tests": [
+    "web/plugins/chat/swipe-left.test.ts",
+    "web/plugins/tasks/swipe.test.tsx",
+    "web/plugins/chat/press.test.ts",
+    "web/plugins/chat/reply-task.test.tsx",
+    "web/demo/swipe-check.ts"
+  ]
+}

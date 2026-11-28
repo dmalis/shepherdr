@@ -29,7 +29,7 @@ button,[role="tab"],summary,.lk{-webkit-user-select:none;user-select:none;-webki
    Words that rest quiet lift to --fg instead, as their hover does, so they keep their contrast while held.
    Hover is only for a mouse (@media(hover:hover)), so a tap never leaves anything lit. iOS shows :active because
    the app listens for touchstart (kernel.ts) */
-:is(.ib,button.row,.inbx-it,.tbtn,.qbtn,.agent,.tile,button.fake,.emo button,.toast .ta,.toast .tx,.ncnt,.tab,.seg button,.grp,.pt,.toend):active:not(:disabled,[aria-disabled="true"]){background-image:linear-gradient(var(--press,var(--control2)),var(--press,var(--control2)))}
+:is(.ib,button.row,.inbx-it,.tbtn,.qbtn,.agent,.tile,.slt,button.fake,.emo button,.toast .ta,.toast .tx,.ncnt,.tab,.seg button,.grp,.pt,.toend):active:not(:disabled,[aria-disabled="true"]){background-image:linear-gradient(var(--press,var(--control2)),var(--press,var(--control2)))}
 :is(.send,.keys button,.fchip button,.tg,.banner>button.n,.thumb,a.pic,a.fchip,.atb,.arm,.rxc):active:not(:disabled,[aria-disabled="true"]){opacity:.6}
 :is(.fold,.hpath,button.ref,.files button,.wtag,.rline,.gstrip .gh):active:not(:disabled,[aria-disabled="true"]){color:var(--fg)}
 p,h2,h3{margin:0}small{font-size:inherit}
@@ -200,9 +200,21 @@ button.b{cursor:pointer}
 .bmv{position:relative;display:grid;grid-template-columns:minmax(0,1fr);justify-items:start}.bw.mine>.bmv{justify-items:end}
 .bmv.settle,.tslide .settle,.rowx.tsl>.settle{transition:transform 320ms cubic-bezier(.25,1.12,.4,1)}
 /* a task's row slides to reply to it like a message (SHEP-332's slide): its Reply behind it, in one line */
-.tslide,.rowx.tsl{position:relative;isolation:isolate}.tslide{touch-action:pan-y pinch-zoom}.rowx.tsl>.row.tk{touch-action:pan-y pinch-zoom}
+.tslide,.rowx.tsl{position:relative;isolation:isolate}.tslide{touch-action:pan-y pinch-zoom}.rowx.tsl>.row.tk,.rowx.tsl>.ib{touch-action:pan-y pinch-zoom}
 .tslide>.tmv{display:inline-flex;align-items:center;gap:inherit;min-width:0;max-width:100%}
 :is(.tslide,.rowx.tsl)>.rpl{flex-direction:row;gap:6px;border-radius:8px;z-index:-1}
+/* fork #185: a task's row slid to the left shows its actions behind it (slide.tsx SlideActs). Each comes out with the
+   row's edge, the last (Archive, a full slide's) at the screen's edge and over the rest; the row clips what goes past
+   it. They take taps only while open. A tile's word is under its icon, 76 px wide (press.ts ACT_W). */
+.rowx.tsl.sl{clip-path:inset(0 round 8px)}
+.sla{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.sla>.slt{position:absolute;inset-block:0;left:100%;width:100%;display:flex;align-items:center;padding:0;border:0;border-left:2px solid var(--canvas);background:linear-gradient(var(--control2),var(--control2)) var(--canvas);color:var(--fg);font:inherit;font-size:var(--sec);line-height:var(--secl);font-weight:600;touch-action:pan-y pinch-zoom}
+.sla.on>.slt{pointer-events:auto}
+.sla>.slt:focus-visible{outline-offset:-4px}
+.sla>.slt.on{background:var(--fg);color:var(--canvas)}
+.sla>.slt>.sli{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:76px;white-space:nowrap}
+.sla>.slt.settle{transition:transform 320ms cubic-bezier(.25,1.12,.4,1)}
+.sla>.slt.snap{transition:transform 160ms cubic-bezier(.23,1,.32,1)}
 .quote.qtask{display:flex;align-items:center;gap:6px;max-width:100%;border:0;border-left:2px solid var(--line2);background:none;font:inherit;font-size:14px;line-height:20px;text-align:start;cursor:pointer}
 .quote.qtask>.qt1{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}.quote.qtask>.qt2{flex:0 4 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.quote.qtask>.qt2::before{content:"· "}
 .quote.qtask>.tring{flex:none}.quote.qtask>.tring>.i{width:16px;height:16px}
@@ -240,7 +252,7 @@ button.b{cursor:pointer}
 .rxc.rx-pending{opacity:.6}
 .rxc.rx-new>.rx-pill{animation:rxpop 280ms cubic-bezier(.25,1.12,.4,1)}
 @keyframes rxpop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){.rxc.rx-new>.rx-pill{animation:none}.settle{transition:none!important}}:root[data-motion="reduced"] .rxc.rx-new>.rx-pill{animation:none}:root[data-motion="reduced"] .settle{transition:none!important}
+@media(prefers-reduced-motion:reduce){.rxc.rx-new>.rx-pill{animation:none}.settle,.snap{transition:none!important}}:root[data-motion="reduced"] .rxc.rx-new>.rx-pill{animation:none}:root[data-motion="reduced"] .settle,:root[data-motion="reduced"] .snap{transition:none!important}
 /* a finger's long press opens the menu, not the system's word selection (Select text turns it back on) */
 @media(pointer:coarse){.b[data-menu]:not(.sel){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}}
 .b[data-menu]{touch-action:pan-y pinch-zoom}

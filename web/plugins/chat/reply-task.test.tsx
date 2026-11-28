@@ -71,7 +71,8 @@ test("a task row's slide is a message's: the same mark, and only a slide past it
   expect(far.up()).toBe('reply')
   // the Tasks panel's row and the chat's task line use the one slide the message uses
   const tasks = readFileSync(join(import.meta.dir, '../tasks/client.tsx'), 'utf8')
-  expect(tasks).toContain('useSlide(() => replyToTask(t))')
+  // fork #185: with its swipe actions and hold beside it
+  expect(tasks).toContain('useSlide(() => replyToTask(t), {')
   const chat = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
   expect(chat).toContain('useSlide(() => replyToTask({ id, name: title }))')
   expect(chat).toContain('useSlide(reply, { hold: full, off: sel })')
