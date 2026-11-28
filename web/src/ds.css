@@ -210,6 +210,7 @@ button.b{cursor:pointer}
 .sla{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
 .sla>.slt{position:absolute;inset-block:0;left:100%;width:100%;display:flex;align-items:center;padding:0;border:0;border-left:2px solid var(--canvas);background:linear-gradient(var(--control2),var(--control2)) var(--canvas);color:var(--fg);font:inherit;font-size:var(--sec);line-height:var(--secl);font-weight:600;touch-action:pan-y pinch-zoom}
 .sla.on>.slt{pointer-events:auto}
+.sla>.slt:focus-visible{outline-offset:-4px}
 .sla>.slt.on{background:var(--fg);color:var(--canvas)}
 .sla>.slt>.sli{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:76px;white-space:nowrap}
 .sla>.slt.settle{transition:transform 320ms cubic-bezier(.25,1.12,.4,1)}
