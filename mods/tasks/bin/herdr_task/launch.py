@@ -15,12 +15,13 @@ import sys
 import time
 
 from .base import ASK_HOME, ENTRY, Fail, git, hc_json, HOME, now, run, SHARE, WORKTREES
-from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
+from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, TASK_TMP, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
 from .templates import instructions
 from .agents import detail, LINE_MAX, live_agents, ROW_MAX, SUMMARY_MAX
 from .github import finish, remote_of
 from .guard import guard_argv
 from .browsers import browser_env, browser_line, browser_path, desktop_path
+from . import task_tmp
 
 
 # ---- an agent's own herdr-task commands never ask -------------------------------------------
@@ -166,10 +167,12 @@ def own_command(path, text, sandboxed=False):
         text = text.replace('"herdr.task=$HERDR_BROWSER_TASK"', f'"herdr.task={task}"')
     if sandboxed and "$" in text:
         # #1228: the reviewer's PATH as the brief writes it (its CLI's own folders, then $PATH), only exactly that;
-        # #1131: a Claude reviewer's the worker's own CLAUDE_CONFIG_DIR too (CLAUDE_PROFILE)
+        # #1131: a Claude reviewer's the worker's own CLAUDE_CONFIG_DIR too (CLAUDE_PROFILE); dmalis/shepherdr#216: the
+        # task's temp folder too (TASK_TMP), and the line without it, as a brief written before it says
         for who in REVIEWERS:
             pre = cli_env(who)
-            for env in ((pre or "env ") + CLAUDE_PROFILE,) if who == "claude" else (pre,):
+            mine = (pre or "env ") + CLAUDE_PROFILE if who == "claude" else pre
+            for env in ((pre or "env ") + (CLAUDE_PROFILE if who == "claude" else "") + TASK_TMP, mine):
                 if env and f"-- {env}{who} " in text:
                     text = text.replace(f"-- {env}{who} ", f"-- env PATH=@herdr-reviewer {who} ", 1)
     words, at, text = [], 0, text.strip()
@@ -1089,7 +1092,8 @@ def launch(s, task, argv, space, message=None, parent=None, resume=None, role=No
     # HERDR_BROWSER_TASK and HERDR_BROWSER_SPACE: whose tab herdr-browser drives in which space's browser, and whose
     # desktop herdr-desktop uses (3.2; HERD-57), for it and its children. guard_argv: nothing it runs can take down
     # the live session it runs in (SHEP-323).
-    env = [*browser_env(key, bare(space)), f"HERDR_TASK_CODEX_AUTO_REVIEW={int(auto_review)}"]
+    # TMPDIR, TMP and TEMP: the task's own temp folder, removed with the task (task_tmp.py, dmalis/shepherdr#216).
+    env = [*browser_env(key, bare(space)), f"HERDR_TASK_CODEX_AUTO_REVIEW={int(auto_review)}", *task_tmp.env_for(task_tmp.ensure(s, task))]
     r = run(["hc", "run", "--bg", "--json", "--keep", "--cwd", folder_for(s, task), "--name", name,
              *labels, *rel, "--", *low_priority(clean_env(["env", *env, *in_shell(guard_argv(cmd))]), name)])
     try:

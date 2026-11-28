@@ -3197,6 +3197,49 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         self.assertEqual(self.tick_once(), ("done", True))
 
 
+class SquashMergedWorktreesGo(unittest.TestCase):
+    """dmalis/shepherdr#216: a Done task whose pull request was squash-merged at its last push loses its worktree too.
+    Its branch tip is never on main, and the head it recorded ("own") can predate that push: the commit GitHub merged
+    (merged_head) says what came after. Commits after that still keep it (WorkAfterTheMerge). DoneWorktreesGo's
+    throwaway repo; hc is never run."""
+
+    setUp, git, end, later, pass_ = (DoneWorktreesGo.setUp, DoneWorktreesGo.git, DoneWorktreesGo.end,
+                                     DoneWorktreesGo.later, DoneWorktreesGo.pass_)
+
+    def squash_merged(self):
+        wt = self.task["worktree"]
+        self.git(self.main, "reset", "-q", "--hard", "HEAD~1")  # main before its work
+        for n in ("a", "b"):
+            with open(os.path.join(wt, f"{n}.txt"), "w") as f:
+                f.write(n)
+            self.git(wt, "add", f"{n}.txt")
+            self.git(wt, "commit", "-q", "-m", f"add {n}")
+            if n == "a":
+                own = self.git(wt, "rev-parse", "HEAD")  # what herdr-task recorded before its last push
+        tip = self.git(wt, "rev-parse", "HEAD")
+        self.git(self.main, "merge", "-q", "--squash", "task/1")
+        self.git(self.main, "commit", "-q", "-m", "Reactions (#704)")
+        self.task.update(state="done", done_at=1000, ended_at=2000, own=own, merged_head=tip, merged_head_by="github",
+                         pr={"number": 704, "url": "https://github.com/o/r/pull/704", "repo": "o/r"})
+        return tip
+
+    def test_squash_merged_at_its_last_push_it_goes(self):
+        self.squash_merged()
+        report = self.pass_()
+        self.assertFalse(os.path.isdir(self.task["worktree"]))
+        self.assertEqual(report["worktrees_removed"], [{"task": "SHEP-1", "path": self.task["worktree"]}])
+
+    def test_a_commit_after_its_merge_still_keeps_it(self):
+        self.squash_merged()
+        with open(os.path.join(self.task["worktree"], "c.txt"), "w") as f:
+            f.write("c")
+        self.git(self.task["worktree"], "add", "c.txt")
+        self.git(self.task["worktree"], "commit", "-q", "-m", "after the merge")
+        self.pass_()
+        self.assertTrue(os.path.isdir(self.task["worktree"]))
+        self.assertIn("worktree_kept", self.task)
+
+
 class WorkAfterTheMerge(unittest.TestCase):
     """dmalis/shepherdr#48: a task whose change merged stays done. Commits on its branch after the merge never take it
     back to Working again (ready refused a second pull request and left it there for good): they're offered as a
@@ -3634,8 +3677,9 @@ class ReviewerLine(unittest.TestCase):
     def test_codex_runs_on_its_own_server(self):
         r = self.line("ready")
         self.assertEqual(r["value"]["agent"], "codex")
-        self.assertTrue(r["value"]["command"].startswith("codex --no-daemon --sandbox read-only --ask-for-approval never"))
-        self.assertIn("(the other CLI); start it as `codex --no-daemon", r["text"])
+        self.assertIn("codex --no-daemon --sandbox read-only --ask-for-approval never", r["value"]["command"])
+        self.assertIn("(the other CLI); start it as `env ${TMPDIR:+", r["text"])
+        self.assertIn(" codex --no-daemon --sandbox read-only", r["text"])
 
     def test_signed_out_codex_never_reviews(self):
         r = self.line("signed-out")
@@ -9590,7 +9634,7 @@ class CodexBatch278(unittest.TestCase):
     def test_reviewer_command_brings_nvm_s_folder(self):
         bin_dir = self.nvm()
         cmd = self.settings.reviewer_command("codex")
-        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" codex --no-daemon --sandbox read-only'), cmd)
+        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" ' + self.settings.TASK_TMP + 'codex --no-daemon --sandbox read-only'), cmd)
         # as hc run starts it: a bare PATH. The brief's command starts; the bare name doesn't.
         bare = {"PATH": "/usr/bin:/bin", "HOME": self.dir}
         ok = subprocess.run(["sh", "-c", cmd.replace("--sandbox", "x --sandbox", 1).split(" --no-daemon")[0] + " --version"],
@@ -9602,7 +9646,7 @@ class CodexBatch278(unittest.TestCase):
     def test_claude_in_the_system_folders_needs_nothing(self):
         self.patch(self.settings.shutil, "which", lambda name: f"/usr/bin/{name}")
         self.assertEqual(self.settings.reviewer_command("claude"),
-                         'env ${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config '
+                         'env ${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} ' + self.settings.TASK_TMP + 'claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config '
                          # dmalis/shepherdr#212: a read rule for its templates folder, not --add-dir
                          + shlex.quote(self.settings.REVIEW_TEMPLATES_READ))
 

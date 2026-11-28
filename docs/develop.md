@@ -42,6 +42,13 @@ copies.
   then run `bin/sync-shared`.
 - Tests never touch the real folders: herdr-task moves nothing when `HERDR_TASK_STORE`, `HERDR_TASK_SETTINGS` or
   `SHEPHERDR_NO_MIGRATE` is set. `shepherdr --root <scratch>` ignores `SHEPHERDR_HOME` and `XDG_*`.
+- Each test run has a temp folder of its own (`shep-run-<pid>-*`): `test/preload.ts` for Bun, `test/home_guard.py` for
+  Python (its throwaway HOME is in there too). `TMPDIR`, `TMP` and `TEMP` point into it, so `tmpdir()`, `tempfile` and
+  the programs a test starts land there, and it is removed when the run ends; one a killed run left goes when the next
+  run starts. Then a `shep-*` folder the run left in the shared temp folder fails the run, by name: make it under
+  `tmpdir()`, or remove it when the test ends. With another run beside it (another checkout's tests), it only warns,
+  since whose it is can't be told. A program started without the test's environment (`Bun.spawn` with no `env`) still
+  uses the shared one.
 
 ## Checks
 

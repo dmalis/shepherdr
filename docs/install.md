@@ -139,7 +139,7 @@ lists the hosts it could try, and tries each once only with `--go`.
 ~/.config/shepherdr/          settings.json, model-picks.json
 ~/.local/share/shepherdr/     tasks/, artifacts/, secrets/ (owner-only), worktrees/, and Shepherdr's own code
 ~/.local/state/shepherdr/     service/ (its token and log), browser/ (the agents' sign-ins), secret-drop/
-~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr)
+~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr), tmp/ (tasks' temp folders)
 ```
 
 `SHEPHERDR_HOME=<folder>` puts all four under `<folder>/{config,data,state,cache}`. Otherwise `XDG_CONFIG_HOME`,
@@ -147,6 +147,22 @@ lists the hosts it could try, and tries each once only with `--go`.
 them into the service's unit. The unit also sets `HC_SESSION=shepherdr`, so the service's agents run in Shepherdr's
 own herdr-core session; `shepherdr doctor` says when a unit lacks it, and `shepherdr update` writes it. Task worktrees go to `~/.local/share/shepherdr/worktrees` unless `tasks.worktree_root`
 in the settings file names another folder.
+
+A Done task's worktree, and its branch, go once its change merged (or it had nothing to merge) and nothing still runs
+there: at once when it finishes with its agents ended, else at the scheduler's next round, on its start too. One with
+uncommitted changes, a terminal open in it, or commits after the merge that main doesn't have (offered as a follow-up)
+stays, and is looked at again every hour; one made Done by hand with its work unmerged stays until you remove it.
+
+Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
+made when its agent starts, or when you open the task's terminal first. Its agent and that terminal get it as `TMPDIR`,
+`TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust
+all use `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
+Shepherdr never deletes it while something uses it: the task's agents, their helpers, or its terminal in the web app.
+Otherwise it goes once the task is Done and its agents have ended, and at once when the task is removed. The scheduler
+also looks, when it starts and every 10 minutes after: it removes a Done task's folder once nothing uses it, and any
+other one nothing has used or changed for an hour, such as a removed task's or one a crash left behind (the task's
+next start makes a fresh one). Its reviewer gets it too: `hc run` has no way to set a variable, so the brief's
+Reviewer line passes it with `env`, and the worker template asks the same for any other helper the agent starts.
 
 ## Uninstall
 

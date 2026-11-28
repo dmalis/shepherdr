@@ -4,6 +4,7 @@
 // opening the drawer again starts a fresh one. It is never an agent's session: that stays behind View as terminal.
 import type { Hub } from "./hub.ts";
 import { hc } from "./actions.ts";
+import { spawn } from "./spawn.ts";
 
 export const SHELL_LABEL = "shepherdr.shell";
 
@@ -11,6 +12,35 @@ export interface ShellAt {
   /** the folder it starts in, and the machine (null: this one) */
   folder: string;
   machine: string | null;
+  /** a task's own temp folder there (herdr-task's task_tmp.py), its shell's TMPDIR, TMP and TEMP while it exists */
+  tmp?: string | null;
+  /** a task's: its id and list folder there, to have its temp folder made when it has none yet (taskTmp()) */
+  task?: { id: string; folder: string } | null;
+}
+
+/** That machine's own shell (hc gives every program SHELL), with the task's temp folder as TMPDIR, TMP and TEMP when
+ *  it is still there: hc run has no way to set a variable, so a short sh sets them first (dmalis/shepherdr#216). Its
+ *  .shell-<pid> mark (exec keeps the pid) tells herdr-task the folder is in use while the shell lives. */
+export const TMP_SHELL = 'if [ -d "$1" ]; then TMPDIR=$1 TMP=$1 TEMP=$1; export TMPDIR TMP TEMP; : > "$1/.shell-$$" 2>/dev/null; fi; exec "${SHELL:-/bin/sh}"';
+
+/** What hc runs for a shell: nothing (its own shell), or TMP_SHELL with the task's temp folder. */
+export function shellArgv(at: ShellAt): string[] {
+  return at.tmp ? ["--", "sh", "-c", TMP_SHELL, "herdr-shell", at.tmp] : [];
+}
+
+/** A task's temp folder for its terminal: the one it has, else herdr-task makes it now (its agent hasn't started).
+ *  Null when that fails (an older herdr-task there): the shell then uses the machine's own, as before. */
+export async function taskTmp(at: ShellAt): Promise<string | null> {
+  if (at.tmp || !at.task) return at.tmp ?? null;
+  try {
+    const p = spawn([process.env.SHEPHERDR_HERDR_TASK || "herdr-task", ...(at.machine ? ["--on", at.machine] : []), "_task-tmp", at.task.id, "--folder", at.task.folder], { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const out = await new Response(p.stdout).text();
+    if ((await p.exited) !== 0) return null;
+    const tmp = JSON.parse(out.trim().split("\n").pop() || "null")?.tmp;
+    return typeof tmp === "string" && tmp ? tmp : null;
+  } catch {
+    return null;
+  }
 }
 
 /** the live shell kept for a key ("sh:<space id>" or "sh:task:<task id>"), if any */
@@ -29,7 +59,8 @@ export function ensureShell(hub: Hub, key: string, at: ShellAt): Promise<string>
   if (was) return was;
   const p = (async () => {
     // with no program, hc starts that machine's own shell; it outlives the page and is nobody's child
-    const r = await hc(["run", "--bg", "--json", "--no-parent", ...(at.machine ? ["--on", at.machine] : []), "--cwd", at.folder, "--label", `${SHELL_LABEL}=${key}`]);
+    const tmp = await taskTmp(at);
+    const r = await hc(["run", "--bg", "--json", "--no-parent", ...(at.machine ? ["--on", at.machine] : []), "--cwd", at.folder, "--label", `${SHELL_LABEL}=${key}`, ...shellArgv({ ...at, tmp })]);
     let out: any = null;
     try { out = JSON.parse(r.stdout); } catch {}
     const address: string | undefined = out?.address ?? out?.terminal?.address ?? out?.terminal;

@@ -1311,7 +1311,9 @@ def tidy_done(s, t, report=None):
         k.get("state") == "live" and inside(k.get("cwd")) for k in terms.get("terminals") or [])
     ok, tip, _ = git(main, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}") if br else (False, "", "")
     base = t.get("base") or "main"
-    newer = ok and tip and tip != t.get("own") and not any(
+    # dmalis/shepherdr#216: once the commit it merged at is known (GitHub's head for its pull request), only what came
+    # after it counts (unsaved()): a squash merge's tip is never on the base, and "own" may predate its last push
+    newer = ok and tip and not t.get("merged_head") and tip != t.get("own") and not any(
         git(main, "merge-base", "--is-ancestor", tip, ref)[0] for ref in (base, f"refs/remotes/{remote_of(main)}/{base}"))
     if not newer and not busy:
         from .after_merge import unsaved
@@ -1322,6 +1324,8 @@ def tidy_done(s, t, report=None):
         return False
     t.pop("worktree_kept", None)
     t["worktree_removed_at"] = now()
+    from .task_tmp import remove as remove_tmp
+    remove_tmp(s, t)  # dmalis/shepherdr#216: its temp folder goes with its worktree
     s.dirty = True
     if report is not None:
         report.setdefault("worktrees_removed", []).append({"task": s.ref(t), "path": wt})

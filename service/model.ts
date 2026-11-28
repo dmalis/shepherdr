@@ -401,6 +401,8 @@ export class Model {
         started: task.started ?? null, ready_at: task.ready_at ?? null, done_at: task.done_at ?? null,
         summary: task.summary ?? null, details: task.details ?? null, pr: task.pr ?? task.pr_seen ?? null, prompt: String(task.prompt ?? "").slice(0, 500), why: p.why ?? null,
         worktree: task.worktree ?? list.folder, base: task.base ?? null, start: task.start ?? null, branch: task.branch ?? null,
+        // its own temp folder on its machine, its terminal's TMPDIR (dmalis/shepherdr#216)
+        tmp: typeof task.tmp === "string" ? task.tmp : null,
         lastLog: !worker && last?.log ? { path: last.log, kind: last.agent ?? "claude" } : null,
         // its worker's own helper agents (SHEP-54), for the task's detail
         subagents: worker ? subagentsOf(terminals as any[], worker) : [],

@@ -25,6 +25,7 @@ from .launch import default_space
 from .store import locate, read_list, Store, store_files
 from .queues import machine_hold, refresh_ext, set_hold, waiting_ext, waiting_for
 from .archive import archive_pass
+from . import task_tmp
 from . import after_merge
 from . import checkwait
 from . import cutoff, ready_again
@@ -682,6 +683,7 @@ def end_done(s, t, report, pressed=False):
     if not live:
         t["ended_at"] = now()
         s.dirty = True
+        task_tmp.remove(s, t)  # nothing of it runs now: its temp folder goes (dmalis/shepherdr#216)
         return []
     refresh_sessions(s, t, live)
     ended = []

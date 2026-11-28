@@ -1783,6 +1783,8 @@ def cmd_rm(args):
         kept = "Its worktree was kept because its agent is still running." if busy and t.get("worktree") else None
         if not busy:
             kept = remove_deleted_worktree(s, t)
+            from .task_tmp import remove as remove_tmp
+            remove_tmp(s, t)  # dmalis/shepherdr#216: its temp folder goes with it
         s.data["tasks"].remove(t)
         for o in s.data["tasks"]:
             if t["id"] in (o.get("after") or []):
