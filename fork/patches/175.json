@@ -1,0 +1,13 @@
+{
+  "issue": 175,
+  "name": "CI: Check runs its parts side by side, well inside its time limit",
+  "files": [
+    ".github/workflows/check.yml",
+    "docs/develop.md"
+  ],
+  "tests": [
+    "fork/tests/test_check_workflow.py",
+    "fork/tests/test_gate.py",
+    "web/demo/phone-box-check.test.ts"
+  ]
+}

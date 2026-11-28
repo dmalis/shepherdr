@@ -65,7 +65,9 @@ python3 -m unittest discover -s test
 ```
 
 GitHub runs these on every pull request to main and after each merge (`.github/workflows/check.yml`), and then
-installs into a new throwaway home: dry run, install, doctor, uninstall.
+installs into a new throwaway home: dry run, install, doctor, uninstall. Its parts run side by side as separate jobs
+that share one build of the web app; the last job, `check`, passes when every part passed, and is the one check a
+pull request needs.
 
 ## Looking at the app
 
