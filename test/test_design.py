@@ -657,7 +657,7 @@ class Haptics(unittest.TestCase):
         self.assertEqual(own, [], "a haptic goes through haptic() from web/src/feel.ts")
         feel = code(self.FEEL)
         self.assertEqual(len(re.findall(r"navigator\.vibrate\(", feel)), 1)
-        self.assertRegex(feel, r"if \(getPrefs\(\)\.feel === 'Off' \|\| calm\(\) \|\| !canBuzz\(\)\) return\n\s*try \{\n\s*navigator\.vibrate\(")
+        self.assertRegex(feel, r"if \(!canBuzz\(\) \|\| getPrefs\(\)\.feel === 'Off'\) return\n\s*try \{\n\s*if \(calm\(\)\) return\n\s*navigator\.vibrate\(")
 
     def test_no_hidden_switch(self):
         # Safari's switch checkbox gives its haptic when the person flips it; one made and clicked by script is a fake

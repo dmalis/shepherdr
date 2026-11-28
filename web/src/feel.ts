@@ -20,8 +20,10 @@ const seen = () => typeof document === 'undefined' || document.visibilityState !
 /** A light tap from the phone, for a moment the person caused: a gesture crossing the point where it acts, a hold
  *  that picks something up, a send going into the outbox. Off with the setting Off, and under reduced motion. */
 export function haptic(pattern: number | number[] = 8) {
-  if (getPrefs().feel === 'Off' || calm() || !canBuzz()) return
+  // no haptics in this browser: nothing else is asked (a page with no root yet, a test's stand-in, never trips it)
+  if (!canBuzz() || getPrefs().feel === 'Off') return
   try {
+    if (calm()) return
     navigator.vibrate(pattern)
   } catch {
     /* not allowed here */

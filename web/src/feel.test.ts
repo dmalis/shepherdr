@@ -260,7 +260,13 @@ test('a browser without vibrate has no haptics and no fake one', () => {
   try {
     expect(canBuzz()).toBe(false)
     expect(() => haptic()).not.toThrow()
+    // a page with no root (another test's stand-in document, as Bun shares one global across files): a send still goes
+    g.document = { visibilityState: 'visible' }
+    expect(() => sentFelt('no-root')).not.toThrow()
+    Object.defineProperty(nav, 'vibrate', { configurable: true, writable: true, value: () => true })
+    expect(() => haptic()).not.toThrow()
   } finally {
+    g.document = doc
     Object.defineProperty(nav, 'vibrate', { configurable: true, writable: true, value: (p: number | number[]) => (buzzes.push(p), true) })
   }
 })
