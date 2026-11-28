@@ -3634,8 +3634,9 @@ class ReviewerLine(unittest.TestCase):
     def test_codex_runs_on_its_own_server(self):
         r = self.line("ready")
         self.assertEqual(r["value"]["agent"], "codex")
-        self.assertTrue(r["value"]["command"].startswith("codex --no-daemon --sandbox read-only --ask-for-approval never"))
-        self.assertIn("(the other CLI); start it as `codex --no-daemon", r["text"])
+        self.assertIn("codex --no-daemon --sandbox read-only --ask-for-approval never", r["value"]["command"])
+        self.assertIn("(the other CLI); start it as `env ${TMPDIR:+", r["text"])
+        self.assertIn(" codex --no-daemon --sandbox read-only", r["text"])
 
     def test_signed_out_codex_never_reviews(self):
         r = self.line("signed-out")
@@ -9590,7 +9591,7 @@ class CodexBatch278(unittest.TestCase):
     def test_reviewer_command_brings_nvm_s_folder(self):
         bin_dir = self.nvm()
         cmd = self.settings.reviewer_command("codex")
-        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" codex --no-daemon --sandbox read-only'), cmd)
+        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" ' + self.settings.TASK_TMP + 'codex --no-daemon --sandbox read-only'), cmd)
         # as hc run starts it: a bare PATH. The brief's command starts; the bare name doesn't.
         bare = {"PATH": "/usr/bin:/bin", "HOME": self.dir}
         ok = subprocess.run(["sh", "-c", cmd.replace("--sandbox", "x --sandbox", 1).split(" --no-daemon")[0] + " --version"],
@@ -9602,7 +9603,7 @@ class CodexBatch278(unittest.TestCase):
     def test_claude_in_the_system_folders_needs_nothing(self):
         self.patch(self.settings.shutil, "which", lambda name: f"/usr/bin/{name}")
         self.assertEqual(self.settings.reviewer_command("claude"),
-                         'env ${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config '
+                         'env ${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} ' + self.settings.TASK_TMP + 'claude --permission-mode dontAsk --tools=Read,Grep,Glob,Bash --strict-mcp-config '
                          # dmalis/shepherdr#212: a read rule for its templates folder, not --add-dir
                          + shlex.quote(self.settings.REVIEW_TEMPLATES_READ))
 

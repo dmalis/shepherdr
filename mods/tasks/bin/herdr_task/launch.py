@@ -15,7 +15,7 @@ import sys
 import time
 
 from .base import ASK_HOME, ENTRY, Fail, git, hc_json, HOME, now, run, SHARE, WORKTREES
-from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
+from .settings import agent_key, ASSISTANT_TEMPLATES, cli_env, CLAUDE_PROFILE, REVIEW_TOOLS, REVIEW_TEMPLATES_READ, TASK_TMP, codex_too_old, codex_update_words, bare, BRANCH_PATTERN, branch_pattern_problem, keep_review, notes, notes_part, review_limits, settings_block, settings_for, TEMPLATES
 from .templates import instructions
 from .agents import detail, LINE_MAX, live_agents, ROW_MAX, SUMMARY_MAX
 from .github import finish, remote_of
@@ -167,10 +167,12 @@ def own_command(path, text, sandboxed=False):
         text = text.replace('"herdr.task=$HERDR_BROWSER_TASK"', f'"herdr.task={task}"')
     if sandboxed and "$" in text:
         # #1228: the reviewer's PATH as the brief writes it (its CLI's own folders, then $PATH), only exactly that;
-        # #1131: a Claude reviewer's the worker's own CLAUDE_CONFIG_DIR too (CLAUDE_PROFILE)
+        # #1131: a Claude reviewer's the worker's own CLAUDE_CONFIG_DIR too (CLAUDE_PROFILE); dmalis/shepherdr#216: the
+        # task's temp folder too (TASK_TMP), and the line without it, as a brief written before it says
         for who in REVIEWERS:
             pre = cli_env(who)
-            for env in ((pre or "env ") + CLAUDE_PROFILE,) if who == "claude" else (pre,):
+            mine = (pre or "env ") + CLAUDE_PROFILE if who == "claude" else pre
+            for env in ((pre or "env ") + (CLAUDE_PROFILE if who == "claude" else "") + TASK_TMP, mine):
                 if env and f"-- {env}{who} " in text:
                     text = text.replace(f"-- {env}{who} ", f"-- env PATH=@herdr-reviewer {who} ", 1)
     words, at, text = [], 0, text.strip()

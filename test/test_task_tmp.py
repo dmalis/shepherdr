@@ -297,6 +297,38 @@ class TaskAgentEnv(unittest.TestCase):
         self.assertEqual(json.loads(r.stdout), {"state": "done"}, r.stderr)
 
 
+class ReviewerTmp(unittest.TestCase):
+    """A reviewer the worker starts with hc run (which sets no variable for it) gets the task's temp folder from the
+    Reviewer line's own words, expanded by the worker's shell; nothing when the worker has no TMPDIR."""
+
+    def env_of(self, who, tmpdir):
+        from herdr_task.settings import reviewer_command
+        cmd = reviewer_command(who, folder=tempfile.gettempdir())
+        head = cmd.split(f" {who} ")[0]  # everything before the CLI: env and its words
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
+        if tmpdir:
+            env["TMPDIR"] = tmpdir
+        for sh in ("sh", "bash"):
+            out = subprocess.run([sh, "-c", head + " env"], env=env, capture_output=True, text=True, timeout=20)
+            got = dict(l.split("=", 1) for l in out.stdout.splitlines() if "=" in l)
+            yield sh, got
+
+    def test_the_reviewer_gets_the_workers_temp_folder(self):
+        for who in ("codex", "claude"):
+            for sh, got in self.env_of(who, "/c/tmp/shop-1-abcd"):
+                with self.subTest(who=who, sh=sh):
+                    self.assertEqual([got.get(v) for v in ("TMPDIR", "TMP", "TEMP")], ["/c/tmp/shop-1-abcd"] * 3)
+            for sh, got in self.env_of(who, None):
+                with self.subTest(who=who, sh=sh, tmpdir=None):
+                    self.assertNotIn("TMP", got)
+                    self.assertNotIn("TEMP", got)
+
+    def test_the_worker_template_says_to_pass_it_to_other_helpers(self):
+        with open(os.path.join(ROOT, "templates", "worker.md")) as f:
+            w = f.read()
+        self.assertIn('env "TMPDIR=$TMPDIR" "TMP=$TMPDIR" "TEMP=$TMPDIR"', w)
+
+
 class TestRunTemp(unittest.TestCase):
     """A test run's own temp folder: HOME and TMPDIR inside it, gone at the run's end (a killed run's at the next
     start), and a shep-* folder the run left in the shared temp folder fails it, unless another run shared that folder

@@ -156,8 +156,8 @@ Shepherdr never deletes it while something uses it: the task's agents, their hel
 Otherwise it goes once the task is Done and its agents have ended, and at once when the task is removed. The scheduler
 also looks, when it starts and every 10 minutes after: it removes a Done task's folder once nothing uses it, and any
 other one nothing has used or changed for an hour, such as a removed task's or one a crash left behind (the task's
-next start makes a fresh one). Helper agents a task's agent starts itself with `hc run` (its reviewer) start in
-herdr-core's own environment, so they use the machine's temp folder.
+next start makes a fresh one). Its reviewer gets it too: `hc run` has no way to set a variable, so the brief's
+Reviewer line passes it with `env`, and the worker template asks the same for any other helper the agent starts.
 
 ## Uninstall
 

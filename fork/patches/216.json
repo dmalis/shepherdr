@@ -8,6 +8,8 @@
     "mods/tasks/bin/herdr_task/commands.py",
     "mods/tasks/bin/herdr_task/automations.py",
     "mods/tasks/bin/herdr_task/cli.py",
+    "templates/worker.md",
+    "mods/tasks/bin/herdr_task/settings.py",
     "service/shells.ts",
     "service/main.ts",
     "service/model.ts",
@@ -23,6 +25,9 @@
     "test/test_task_tmp.py",
     "service/shells-tmp.test.ts",
     "test/test_herdr_task.py::CleanEnv",
-    "test/test_herdr_task.py::DetachedActions"
+    "test/test_herdr_task.py::DetachedActions",
+    "test/test_herdr_task.py::CodexAsksOnTheCard",
+    "test/test_herdr_task.py::ReviewerLine",
+    "test/test_herdr_task.py::CodexBatch278"
   ]
 }

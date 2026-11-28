@@ -675,11 +675,11 @@ def reviewer_command(who, model=None, effort=None, folder=None, fast=None):
         if fast is not None:
             a += tier_args(who, fast)
         # #1131: hc run gives it hc's environment, not the worker's: the worker's own Claude profile, when it has one
-        return (cli_env(who) or "env ") + CLAUDE_PROFILE + shlex.join(a)
+        return (cli_env(who) or "env ") + CLAUDE_PROFILE + TASK_TMP + shlex.join(a)
     else:
         return None
     # #1228: hc run starts it with a bare PATH; its folders (nvm's, with node) go first, the worker's PATH after
-    return cli_env(who) + shlex.join(a)
+    return (cli_env(who) or "env ") + TASK_TMP + shlex.join(a)
 
 
 REVIEW_TOOLS = "Read,Grep,Glob,Bash"
@@ -689,6 +689,9 @@ REVIEW_TEMPLATES_READ = "--allowedTools=Read(/" + TEMPLATES.rstrip("/") + "/**)"
 # The worker's shell expands it: CLAUDE_CONFIG_DIR=<its folder> when the worker has one, nothing when it hasn't (an empty
 # one would not be ~/.claude).
 CLAUDE_PROFILE = '${CLAUDE_CONFIG_DIR:+"CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"} '
+# dmalis/shepherdr#216: the task's own temp folder (task_tmp.py), which hc run doesn't pass on (it has no way to set a
+# child's environment): the worker's shell expands it to TMPDIR, TMP and TEMP when it has a TMPDIR, to nothing when not.
+TASK_TMP = ('${TMPDIR:+"TMPDIR=$TMPDIR"} ${TMPDIR:+"TMP=$TMPDIR"} ${TMPDIR:+"TEMP=$TMPDIR"} ')
 
 
 def task_settings(s, t, space=None, argv=None, live=False):
