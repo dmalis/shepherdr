@@ -30,8 +30,9 @@ jobs:
     name: check
     runs-on: ubuntu-latest
     # upstream's 10 minutes no longer fit the fork's browser checks (tap, scroll, dictation, phone box, typing, still,
-    # artifact, reading): about 5 minutes of them, and main alone past 600 s (fork #144)
-    timeout-minutes: 15
+    # artifact, reading): about 5 minutes of them, and main alone past 600 s (fork #144). 25 is a backstop while
+    # "CI: finish inside the limit" splits the job into parallel parts: the whole job now runs past 15 minutes
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
