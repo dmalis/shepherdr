@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""fork/bin/found: in this fork, a yes to file is also the yes to fix it (fork/specs/friction-loop.md, "The fork's
+parts", slice 9). Every new issue the Feedback page's Post it (or a chat yes) filed on our repo becomes work in this
+repo's space, once. Each subcommand prints one JSON line and exits 0 only when it did what it says.
+
+  [--folder <space>]                    the sweep, then the sends: a handoff for each new issue posted on our repo that
+                                        has none yet, and each pending one sent to this space's Assistant (again a day
+                                        after a send that no task took)
+  task <issue> [--folder <space>]       the task an issue was taken into, or none: ask it before adding work for one
+  took <issue> --task <key> [--folder <space>]   the work for that issue is in this task (new, or a running one replied
+                                        to): its handoff is closed, and the issue is never handed off again
+  installed <build> [--at <sha>]        after a healthy install: the patch list at that commit (fork/patches/), each
+                                        issue's Device check line as its Try it words, told to herdr-task feedback
+                                        --installed <build>, so the Feedback page knows what this machine carries
+
+An issue is named owner/name#n, #n or n (our repo's), or by its github.com link. The record, one handoff per issue:
+`~/.local/state/shepherdr-fork/found.json` (private, never in the repo), under a flock, written whole and atomically:
+
+  pending   made by the sweep from the feedback record (herdr-task feedback --list --all --json, read only): every
+            approved post that created an issue on our repo, however it got there (an answer, or reconciled later).
+            A comment on an issue makes none. A send that fails or times out leaves it pending.
+  sent      the space's Assistant was told the issue's link (herdr-task tell-assistant). Not taken a day later: sent
+            again. A message that arrived twice still makes one piece of work: the receiver asks `task` first.
+  taken     `took` named its task. Final.
+
+The Assistant this sends to is the one this machine runs in the space folder (--folder; default: the main folder of
+the git repo the current folder is in). Every path hangs off --root (the home unless named: tests use a scratch one).
+Only `gh` reads (issue view) and herdr-task's own commands are used; nothing here writes to GitHub."""
+import argparse
+import contextlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
+
+from sync import patches  # noqa: E402
+from sync.state import REPO  # noqa: E402  (dmalis/shepherdr)
+
+RESEND_S = 24 * 3600     # a handoff sent but not taken is sent again after a day
+SEND_TIMEOUT_S = 150     # herdr-task tell-assistant waits up to a minute itself
+LOCK_WAIT_S = 60
+ISSUE_URL = re.compile(r"^https://github\.com/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)/issues/([1-9][0-9]*)/?(?:[#?].*)?$")
+NAMED = re.compile(r"^(?:([A-Za-z0-9-]+/[A-Za-z0-9._-]+))?#?([1-9][0-9]*)$")
+TASK_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[0-9]+$")
+DEVICE = re.compile(r"(?im)^[\s>*-]*\**Device check:?\**:?\s*(.+?)\s*$")
+
+
+class Refused(Exception):
+    def __init__(self, why, **fields):
+        super().__init__(why)
+        self.why, self.fields = why, fields
+
+
+# --- the record ----------------------------------------------------------------------------------------------------
+
+def paths(root):
+    d = os.path.join(root, ".local", "state", "shepherdr-fork")
+    return os.path.join(d, "found.json"), os.path.join(d, "found.lock")
+
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {"version": 1, "handoffs": {}}
+    except ValueError:
+        raise Refused("the handoff record can't be read; it was left as it is") from None
+    if not isinstance(data, dict) or not isinstance(data.get("handoffs"), dict):
+        raise Refused("the handoff record isn't one this script wrote; it was left as it is")
+    return data
+
+
+def save(path, data):
+    fd, tmp = tempfile.mkstemp(prefix=".found.", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+@contextlib.contextmanager
+def locked(root):
+    """The record, held under its flock while the caller reads and changes it; saved on a clean exit if it changed."""
+    import fcntl
+    path, lock = paths(root)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + LOCK_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise Refused(f"another found run kept the record locked for {LOCK_WAIT_S} s; try again") from None
+                time.sleep(0.05)
+        data = load(path)
+        before = json.dumps(data, sort_keys=True)
+        yield data
+        if json.dumps(data, sort_keys=True) != before:
+            save(path, data)
+    finally:
+        os.close(fd)
+
+
+# --- names ---------------------------------------------------------------------------------------------------------
+
+def identity(repo, n):
+    """An issue's whole identity, the record's key: owner/name#n, its repo lower-cased (GitHub's names ignore case)."""
+    return f"{repo.lower()}#{int(n)}"
+
+
+def issue_of(text):
+    """(identity, link) for an issue named owner/name#n, #n, n or by its link; Refused for anything else."""
+    s = str(text or "").strip()
+    m = ISSUE_URL.match(s) or NAMED.match(s)
+    if not m:
+        raise Refused(f"name the issue as {REPO}#<n>, #<n> or its github.com link")
+    repo = m.group(1) or REPO
+    return identity(repo, m.group(2)), f"https://github.com/{repo}/issues/{int(m.group(2))}"
+
+
+def ours(key):
+    return key.split("#")[0] == REPO.lower()
+
+
+def message(key, url):
+    """What the space's Assistant is told: the issue's link and fixed words, nothing from the person's record."""
+    return (f"Posted on the person's yes, to fix here: {url}. First run fork/bin/found task {key}: if it names a "
+            f"task, the work is already there and nothing is added. Else shape it (shaping-a-request, check upstream "
+            f"first), add it to a running task when it fits that task's area (herdr-task reply), else add a task; then "
+            f"fork/bin/found took {key} --task <that task's key>.")
+
+
+# --- herdr-task and gh ---------------------------------------------------------------------------------------------
+
+def run(argv, timeout=120):
+    """(exit code or None, stdout, stderr); never raises for the program's own failure."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return None, "", "it timed out"
+    except OSError as e:
+        return None, "", type(e).__name__
+    return r.returncode, r.stdout, r.stderr
+
+
+def one_line(text, n=200):
+    s = " ".join(str(text or "").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def json_of(out):
+    try:
+        return json.loads(out)
+    except ValueError:
+        for line in reversed((out or "").strip().splitlines()):
+            with contextlib.suppress(ValueError):
+                return json.loads(line)
+    return None
+
+
+def posts_of(row):
+    """Every filing attempt a problem has made: its own, and each earlier round's (came back keeps them in before)."""
+    rounds = [row] + [b for b in (row.get("before") if isinstance(row.get("before"), list) else []) if isinstance(b, dict)]
+    return [r["post"] for r in rounds if isinstance(r.get("post"), dict)]
+
+
+def new_issues(rows):
+    """{identity: (link, problem id)} for every approved post that created an issue on our repo and has its link."""
+    out = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        for post in posts_of(row):
+            t = post.get("target") if isinstance(post.get("target"), dict) else {}
+            m = ISSUE_URL.match(str(post.get("url") or ""))
+            if post.get("state") != "posted" or t.get("action") != "create" or not m:
+                continue
+            if str(t.get("repo") or "").lower() != REPO.lower() or m.group(1).lower() != REPO.lower():
+                continue
+            key = identity(m.group(1), m.group(2))
+            out.setdefault(key, (f"https://github.com/{REPO}/issues/{int(m.group(2))}", str(row.get("id") or row.get("key") or "")))
+    return out
+
+
+def space_folder(folder):
+    """The space's folder: the one named, else the main folder of the git repo the current folder is in (a task's
+    worktree names its space's)."""
+    if folder:
+        return os.path.realpath(folder)
+    code, out, _ = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    if code != 0 or not out.strip():
+        raise Refused("not in a git repo: name the space's folder with --folder")
+    return os.path.realpath(os.path.dirname(out.strip()))
+
+
+def assistant_in(folder):
+    """The target of this machine's Assistant in that space folder, or None."""
+    code, out, _ = run(["herdr-task", "assistants", "--json"])
+    rows = json_of(out) if code == 0 else None
+    for a in rows if isinstance(rows, list) else []:
+        if isinstance(a, dict) and not a.get("route") and a.get("role") != "everything" and a.get("folder") \
+                and os.path.realpath(a["folder"]) == folder and a.get("target"):
+            return a["target"]
+    return None
+
+
+# --- the subcommands -----------------------------------------------------------------------------------------------
+
+def sweep_and_send(a):
+    folder = space_folder(a.folder)
+    code, out, err = run(["herdr-task", "feedback", "--list", "--all", "--json"])
+    rows = json_of(out) if code == 0 else None
+    if not isinstance(rows, list):
+        raise Refused("herdr-task couldn't list the feedback record: " + one_line(err or out or "no answer", 160))
+    found = new_issues(rows)
+    at = int(time.time())
+    with locked(a.root) as data:
+        h = data["handoffs"]
+        made = []
+        for key, (url, problem) in sorted(found.items()):
+            if key not in h:
+                h[key] = {"state": "pending", "url": url, "problem": problem, "made": at, "sends": 0}
+                made.append(key)
+        due = [k for k, x in sorted(h.items()) if ours(k) and (x.get("state") == "pending" or
+               x.get("state") == "sent" and at - int(x.get("sent") or 0) >= RESEND_S)]
+    sent, waiting = [], []
+    target = assistant_in(folder) if due else None
+    for key in due:
+        url = h[key].get("url") or issue_of(key)[1]
+        if target:
+            code, out, err = run(["herdr-task", "tell-assistant", target, message(key, url)], timeout=SEND_TIMEOUT_S)
+            why = None if code == 0 else one_line(err or out or "no answer", 200)
+        else:
+            why = "this space's Assistant isn't running here"
+        with locked(a.root) as data:
+            x = data["handoffs"].get(key)
+            if not x or x.get("state") == "taken":      # taken meanwhile: nothing to change
+                continue
+            if why is None:
+                x.update(state="sent", sent=int(time.time()), sends=int(x.get("sends") or 0) + 1)
+                x.pop("why", None)
+                sent.append(key)
+            else:
+                x.update(why=why, tried=int(time.time()))
+                waiting.append(key)
+    return {"made": made, "sent": sent, "pending": waiting}
+
+
+def task(a):
+    key, url = issue_of(a.issue)
+    with locked(a.root) as data:
+        x = data["handoffs"].get(key) or {}
+    return {"issue": key, "url": x.get("url") or url, "state": x.get("state"), "task": x.get("task")}
+
+
+def took(a):
+    key, url = issue_of(a.issue)
+    if not TASK_KEY.match(a.task or ""):
+        raise Refused("--task takes the task's key, like SD-12")
+    with locked(a.root) as data:
+        x = data["handoffs"].setdefault(key, {"url": url, "made": int(time.time()), "sends": 0})
+        if x.get("state") == "taken" and x.get("task") != a.task:
+            raise Refused(f"{key} was already taken into {x['task']}: keep the work there", task=x["task"], issue=key)
+        if x.get("state") != "taken":
+            x.update(state="taken", task=a.task, taken=int(time.time()))
+            x.pop("why", None)
+    return {"issue": key, "task": a.task}
+
+
+def device_lines(n):
+    """(words or None, read): the issue's Device check lines (fork-patch skill: "Done means"), as Try it words."""
+    code, out, _ = run(["gh", "issue", "view", str(n), "-R", REPO, "--json", "body"])
+    body = (json_of(out) or {}).get("body") if code == 0 else None
+    if not isinstance(body, str):
+        return None, False
+    lines = [one_line(m.group(1).strip("* "), 200) for m in DEVICE.finditer(body)]
+    return ("; ".join(x for x in lines if x)[:300] or None), True
+
+
+def installed(a):
+    build = (a.build or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", build):
+        raise Refused("name the installed build by its commit")
+    try:
+        lines, _ = patches.read(os.path.abspath(a.repo), a.at or build)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Refused(f"the patch list at {(a.at or build)[:12]} can't be read: {one_line(e, 160)}") from None
+    issues = sorted({int(x["issue"]) for x in lines if isinstance(x, dict) and isinstance(x.get("issue"), int)
+                     and not isinstance(x.get("issue"), bool)})
+    argv = ["herdr-task", "feedback", "--installed", build, "--issues",
+            *[f"https://github.com/{REPO}/issues/{n}" for n in issues]]
+    unread = []
+    for n in issues:
+        words, read = device_lines(n)
+        if not read:
+            unread.append(n)
+        if words:
+            argv += ["--try-it", f"https://github.com/{REPO}/issues/{n}", words]
+    code, out, err = run(argv + ["--json"])
+    said = json_of(out) if code == 0 else None
+    if not isinstance(said, dict):
+        raise Refused("herdr-task feedback --installed failed: " + one_line(err or out or "no answer", 160))
+    return {"build": build, "issues": issues, "unread": unread, "said": said}
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="fork/bin/found", description=__doc__.split("\n\n")[0])
+    p.add_argument("--root", default=os.path.expanduser("~"), help=argparse.SUPPRESS)
+    p.add_argument("--folder", help="the space's folder (default: the current git repo's main folder)")
+    sub = p.add_subparsers(dest="cmd")
+    c = sub.add_parser("task")
+    c.add_argument("issue")
+    c = sub.add_parser("took")
+    c.add_argument("issue")
+    c.add_argument("--task", required=True)
+    c = sub.add_parser("installed")
+    c.add_argument("build")
+    c.add_argument("--at")
+    c.add_argument("--repo", default=".", help="the git checkout to read the patch list from")
+    for c in sub.choices.values():
+        c.add_argument("--root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        c.add_argument("--folder", default=argparse.SUPPRESS)
+    a = p.parse_args(argv)
+    step = {"task": task, "took": took, "installed": installed}.get(a.cmd, sweep_and_send)
+    try:
+        out = {"ok": True, **step(a)}
+    except Refused as e:
+        out = {"ok": False, "why": e.why, **e.fields}
+    print(json.dumps(out))
+    return 0 if out["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -192,12 +192,25 @@ author decides what goes into theirs.
 - **Propose it, don't promise.** In the same reply, the Assistant says the friction and its fix in one or two plain
   lines: what went wrong, the fix for every user, and whether it would be a patch. It asks "File it and fix it?"
   only when it hurts now, even when the feedback command says to offer it. Otherwise the row waits on the Feedback
-  page for the person to pick. Picking it there, or a yes in chat, means an issue here, in our fork, and a fix task.
+  page for the person to pick. A yes to file is also the yes to fix it: an issue here, in our fork, and a fix task.
   - "I'll do better next time" is never the whole answer.
   - When the miss was the Assistant's own and its instructions already cover it, it says so, and still looks for a
     product fix that makes the miss impossible or visible.
-  - On a pick or a yes, the usual way: an issue here, a task with a brief (shaping-a-request first), an install
-    right after the merge.
+  - **The yes is for the exact text.** On the page: File it… shows the draft and where it goes, and Post it is the
+    yes. In chat: a question card that shows the draft (`herdr-task feedback --file` writes it), then `--approve <rev>
+    --by chat` and `--file --rev <rev>`. The Feedback note (`agents.feedback_note`, Everywhere's, in the person's
+    settings file) says before every post that posting also starts a fix here: "Posting also starts a fix in this
+    repo's space". An Assistant sets it once, with the person's yes, when it is missing.
+  - **Every post becomes work here, once** (`fork/bin/found`). The filing Assistant runs `fork/bin/found` right after
+    it files, and every run of the upstream-sync skill does too (its step 7), so a post found later still goes within
+    a day. It hands each new issue posted on our repo to this space's Assistant (`herdr-task tell-assistant`), sends
+    again until it is taken, and makes nothing for a comment.
+  - **On a handoff message** (it names the issue's link): first `fork/bin/found task <issue>`. It names a task: the
+    work is there, add nothing. Else shape it (shaping-a-request, check upstream first), add it to a running task
+    when it fits (below) or add a task, then `fork/bin/found took <issue> --task <its key>`. Put the issue in our
+    shape on the way: the labels, why, what it does, acceptance criteria, where it lives (fork-patch skill).
+  - On a pick or a yes in chat that posted nothing (the person asked for a fix without filing), the usual way: an
+    issue here, a task with a brief (shaping-a-request first), an install right after the merge.
     - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until an
       upstream round offers it.
     - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only`

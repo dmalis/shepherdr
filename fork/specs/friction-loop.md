@@ -713,6 +713,17 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   patch list's issues (`fork/patches/`) with the installed build.
 - **Demo:** a scratch store: approve and file a problem to a fake repo, claim it, fail the first send, run again:
   one message, one task.
+- **As built:** `fork/bin/found` alone (sweep and send), `found task <issue>`, `found took <issue> --task <key>` and
+  `found installed <build>`, each one JSON line; its record is `~/.local/state/shepherdr-fork/found.json`, keyed
+  `owner/name#n` with the repo lower-cased. A handoff comes from a `posted` create on our repo, the current round's
+  or an earlier one's (`before`). The Assistant it sends to is this machine's in the space folder (`herdr-task
+  assistants --json`), never Everything's; with none running, it stays pending. A second `took` naming another task
+  is refused and names the first. The daily caller is every run of the upstream-sync skill (its step 7), both
+  schedules. `found installed` reads the patch list at that commit and each issue's "Device check:" lines with `gh
+  issue view`; an issue it can't read goes without Try it words. `agents.feedback_note` was already read by slice 4
+  (the sheet and the chat draft); this slice adds its Everywhere-only row and save in the service's settings and its
+  line in docs/settings.md. Like Feedback repo, the web app's Settings shows no row for it: it lives in the settings
+  file.
 
 ### Later, not planned yet
 

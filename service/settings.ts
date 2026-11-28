@@ -277,6 +277,8 @@ export class Settings {
       const repo = this.pick(null, "agents", "feedback_repo");
       rows.push({ label: FEEDBACK.repoTitle, key: "agents.feedback_repo", value: String(repo.value ?? ""), text: true, hint: FEEDBACK.repoAbout,
         placeholder: FEEDBACK.repo } as SettingRow);
+      const note = this.pick(null, "agents", "feedback_note");
+      rows.push({ label: FEEDBACK.noteTitle, key: "agents.feedback_note", value: String(note.value ?? ""), text: true, hint: FEEDBACK.noteAbout } as SettingRow);
     }
     return { name: title("agents"), level: scope ?? "all", rows };
   }
@@ -506,6 +508,12 @@ export class Settings {
       const repo = feedbackRepo(word ?? "");
       if (repo === null) throw new Error(FEEDBACK.bad);
       put("agents", "feedback_repo", repo || null);
+    } else if (key === "agents.feedback_note") {
+      // Everywhere's only: one line, shown by File it… and the chat's draft (#94); empty: none
+      if (space) throw new Error("This line is set for every space at once.");
+      const note = String(word ?? "").replace(/\s+/g, " ").trim();
+      if (note.length > FEEDBACK.noteMax) throw new Error(`Keep it to one line of at most ${FEEDBACK.noteMax} characters.`);
+      put("agents", "feedback_note", note || null);
     } else if (key === "backup.agent") {
       // off is "off"; on follows what it would get anyway when that is on, else names the other CLI (as the window's)
       const parent = space ? file.everywhere?.backup?.agent ?? null : null;

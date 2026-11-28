@@ -162,12 +162,20 @@ it found: report that, never a guess at why, and never repair `main` by force.
      issue gets one now (fork-patch skill, step 1), labelled `patch` and `not-filed`. Its status line: "carried
      since `<tag>`, not filed yet. What it does: … Try it: …", from the pull request. Comment the issue's link on
      the pull request.
-2. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
+   - **The Feedback page learns what this machine carries:** `fork/bin/found installed <candidate>`. It reads the
+     patch list at the candidate, takes each issue's "Device check:" line as its Try it words, and tells herdr-task
+     (`herdr-task feedback --installed <candidate> --issues …`), so each problem filed on one of those issues says
+     On this machine. `said.ignored` in its line: the install recorded another build, or none; nothing changed, and
+     the run carries on. A `false` `ok` is noted in `--says`'s words only as "the Feedback page wasn't told".
+2. Every run, whatever its outcome: `fork/bin/found`. Each new issue the Feedback page (or a chat yes) posted on
+   our repo is handed to this space's Assistant once, and one not taken yet is sent again (FORK.md: "Every post
+   becomes work here, once"). Its line's `pending` ones wait for the next run; nothing more to do here.
+3. `fork/bin/sync finish` (an install adds `--says "<what's new, plain words>"`, with the upstream issues from step 3,
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
-3. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
+4. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
    `fork/bin/sync ci`, again while it says `wait`; its line has the `command`.
-4. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
+5. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 
 The `--told` words go to the person, who doesn't code: what's new for them and what of ours was adapted or dropped;
