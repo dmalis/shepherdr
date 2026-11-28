@@ -112,7 +112,7 @@ export const tasks: Task[] = [
   task('BLOG-12', 'Add an RSS feed', P.blog, 'need', { needsAt: NOW - 3 * min, report: { msg: 'Asks to trust this folder', paused: true } }),
   task('BLOG-11', 'Newsletter signup form', P.blog, 'need', { needsAt: NOW - 12 * min, stopped: { by: 'error', why: 'its session ended' }, report: { msg: 'Adding the form', progress: 45, paused: true } }),
   // fork Needs you 5/6: one the person stopped: Paused, no one's, under Working
-  task('BLOG-13', 'Tag pages', P.blog, 'need', { needsAt: NOW - 30 * min, stopped: { by: 'you' }, report: { msg: 'Listing the tags', progress: 30, paused: true } }),
+  task('BLOG-15', 'Tag pages', P.blog, 'need', { needsAt: NOW - 30 * min, stopped: { by: 'you' }, report: { msg: 'Listing the tags', progress: 30, paused: true } }),
   task('SHOP-19', 'Product page reviews', P.shop, 'work', { started: NOW - min, repo: 'branch', worktree: true, branch: 'task/product-page-reviews', base: 'main' }),
   task('BLOG-9', 'Dark mode for code blocks', P.blog, 'queued', { afterTitle: 'Fix typo on the About page', desc: 'Adds a dark theme to the code blocks on the blog', agent: undefined }),
   task('SHOP-13', 'Gift cards at checkout', P.shop, 'todo', { desc: 'Lets shoppers pay with a gift card at checkout', agent: undefined }),
