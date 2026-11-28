@@ -34,7 +34,7 @@ import { needsCount } from '@shared/view.ts'
 import { moreActions, needsWords } from '@shared/needs-open.ts'
 import { cantCheck, tierLabel } from '@shared/needs-words.ts'
 import { AskRow, listNeeds, needsAsks } from '@client/needs-count.tsx'
-import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, GROUPS, NO_FILTER, pickView, toggle, type GroupKey, type TaskFilter, type View } from '@shared/task-filter.ts'
+import { chipsOf, choices, clean, filterCount, filterOn, filterTasks, GROUPS, groupNarrows, NO_FILTER, pickView, toggle, type GroupKey, type TaskFilter, type View } from '@shared/task-filter.ts'
 import { Views } from './views.tsx'
 
 export { StatusIcon }
@@ -752,7 +752,7 @@ function FilterMenu() {
   const group = (key: GroupKey, name: string) => {
     // fork UI 13: each choice counts what the list would show with it, in the view you're in
     const all = choices(snap, key, f, at)
-    if (all.length < 2 && !f[key].length) return null
+    if (!groupNarrows(snap, key, f, at)) return null
     const many = (key === 'space' || key === 'repo') && all.length > 8
     const q = qs[key] ?? ''
     const shown = many && q ? all.filter((c) => `${c.label} ${c.machine ?? ''}`.toLowerCase().includes(q.toLowerCase())) : all

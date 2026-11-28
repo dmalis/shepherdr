@@ -83,11 +83,14 @@ Needs you of its own. Target: what blocks an agent (a question, a permission) co
 Tasks › Now has one row above the list for the day's questions (`web/plugins/tasks/views.tsx`): **All**, **Needs
 you**, and a compact picker for **Working**, **Stopped**, **Done today** (finished since this device's midnight) and
 **Urgent**. It is a segmented control: one is always picked, All is one tap back, and the view is kept on this device.
-A red count opens what it counts whatever view was kept. The filter sheet narrows any view: **Project** first (the
-repo or folder a task works in; the machine is named only when one name is on two), then **Space** (where the task
-was asked), then Machine and State. A choice's count is what the list would show with it, in the view you're in and
-with the other groups' picks (`web/shared/task-filter.ts`); a choice with none is left out unless it is picked. A view
-with nothing in it says so and offers All.
+When it is narrow (a phone at a big zoom), More is its chevron alone and a picked view keeps its name whole beside
+"Needs" and the red count; a word that still can't fit ends in an ellipsis inside its segment. A red count opens what
+it counts whatever view was kept. The filter sheet narrows any view: **Project** first (the repo or folder a task works
+in; the machine is named only when one name is on two), then **Space** (where the task was asked), then Machine and
+State. A choice's count is what the list would show with it, in the view you're in and with the other groups' picks
+(`web/shared/task-filter.ts`): in Needs you, its rows, a space's chat question among them. A choice with none is left
+out unless it is picked, and a group shows when a pick in it would change the list. A view with nothing in it says so
+and offers All.
 
 ## Sizes
 

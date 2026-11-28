@@ -6,7 +6,7 @@
 // task was asked; a choice's count is for the view and the other groups' picks (a faceted count, as GitHub's and
 // Linear's filters count).
 import type { Snapshot, Task } from './types.ts'
-import { needsChip, needsTask } from './needs-open.ts'
+import { moreActions, needsChats, needsChip, needsTask } from './needs-open.ts'
 import { attentionOf } from './attention.ts'
 import { isEverything, machineLabel, reposOf, spaceLabel, taskGroup, taskInSpace, tstate, workKey } from './view.ts'
 
@@ -54,7 +54,8 @@ export const NO_FILTER: TaskFilter = { state: [], machine: [], space: [], repo: 
 export function clean(f: Partial<TaskFilter> | null | undefined): TaskFilter {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
   // fork UI 13: State's old Needs you pick is the Needs you view now, which lists what the red count counts
-  const old = list(f?.state).includes('needs') && !list(f?.needs).length
+  // (alone: picked with other states it matched any of them, so it stays a State pick there)
+  const old = list(f?.state).length > 0 && list(f?.state).every((s) => s === 'needs') && !list(f?.needs).length
   const view = VIEWS.includes(f?.view as View) ? { view: f!.view } : old ? { view: 'needs' as const } : {}
   const state = old ? list(f?.state).filter((s) => s !== 'needs') : list(f?.state)
   return { state, machine: list(f?.machine), space: list(f?.space), repo: list(f?.repo), here: f?.here === true, hideDone: f?.hideDone === true, ...(list(f?.needs).length ? { needs: list(f?.needs) } : {}), ...view }
@@ -167,14 +168,39 @@ export interface Choice {
    *  Space) */
   machine?: string
 }
-function allChoices(snap: Snapshot, key: GroupKey, f: TaskFilter, at: string, now: number): Choice[] {
+/** fork UI 13: what each choice of a group would leave in the list, with the group's own picks off. Needs you lists
+ *  rows, not tasks (each action of yours on a task, and a space's own chat asking), so there a choice counts its rows,
+ *  as the views row and the red count do. total: the list's rows whatever is picked in the group. */
+function tally(snap: Snapshot, key: GroupKey, f: TaskFilter, at: string, now: number) {
   const g = GROUPS.find((x) => x.key === key)!
-  const pool = filterTasks(snap, f, at, now, key)
+  const rows = f.view === 'needs' || !!f.needs?.length
   const count = new Map<string, number>()
-  for (const t of pool) {
-    const v = g.of(snap, t)
-    count.set(v, (count.get(v) ?? 0) + 1)
+  const add = (v: string, k: number) => count.set(v, (count.get(v) ?? 0) + k)
+  let total = 0
+  for (const t of filterTasks(snap, f, at, now, key)) {
+    const k = rows && !t.archived ? 1 + moreActions(snap, t).length : 1
+    add(g.of(snap, t), k)
+    total += k
   }
+  if (rows) {
+    const asks = needsChats(snap, f.needs?.length ? f.needs : [''], { ...f, [key]: [] }, at)
+    const machine = (id: string) => snap.places.find((p) => p.id === id)?.machine ?? ''
+    // a chat question is in a space and on a machine, in no project and in no task state
+    if (key === 'space' || key === 'machine') for (const i of asks) add(key === 'space' ? i.place : machine(i.place), 1)
+    total += asks.length
+  }
+  return { count, total }
+}
+
+/** fork UI 13: a group is worth showing when a pick in it changes the list: two choices or more, one picked, or a
+ *  sole choice that leaves rows out (a project's tasks beside a space's chat question) */
+export function groupNarrows(snap: Snapshot, key: GroupKey, f: TaskFilter, at = '', now = Date.now()): boolean {
+  const all = choices(snap, key, f, at, now)
+  return all.length > 1 || f[key].length > 0 || (all.length === 1 && all[0]!.n < tally(snap, key, f, at, now).total)
+}
+
+function allChoices(snap: Snapshot, key: GroupKey, f: TaskFilter, at: string, now: number): Choice[] {
+  const { count } = tally(snap, key, f, at, now)
   const n = (id: string) => count.get(id) ?? 0
   const kept = (c: Choice) => c.n > 0 || f[key].includes(c.id)
   // fork UI 13: no Needs you here: the views row has it, the very items of the group and its red count (a waiting

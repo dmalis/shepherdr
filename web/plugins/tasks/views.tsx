@@ -27,6 +27,9 @@ export function needsRows(snap: Snapshot, f: TaskFilter, at: string): number {
 
 const setView = (v: View | undefined) => setUI((ui) => ({ tf: pickView(clean(ui.tf), v) }))
 
+/** a press on Needs you: its view, but a red count's spaces stay as they are, as its badge counts them */
+export const needsPress = (f: TaskFilter): TaskFilter => (f.needs?.length ? f : pickView(f, 'needs'))
+
 /** the picker's menu: its views, each with its count, the picked one ticked */
 function ViewMenu({ close, counts, view }: { close: () => void; counts: Record<View, number>; view?: View }) {
   return (
@@ -64,31 +67,40 @@ export function Views({ snap }: { snap: Snapshot }) {
   const counts = viewCounts(snap, f, at)
   const needs = needsRows(snap, f, at)
   return (
-    <div className="vrow" role="group" aria-label="Views">
-      <button type="button" aria-pressed={all} onClick={() => setView(undefined)}>All</button>
-      <button type="button" aria-pressed={needsOn} onClick={() => setView('needs')}>
-        Needs you{needs > 0 && <span className="cnt needs">{needs}</span>}
-      </button>
-      <button
-        type="button"
-        className={cx('vmore', more && 'on')}
-        aria-haspopup="menu"
-        data-marks=""
-        onClick={(e) => openMenu(e.currentTarget, (close) => <ViewMenu close={close} counts={counts} view={more} />, { label: 'Views', within: e.currentTarget.closest('.pane') })}
-      >
-        {more ? (
-          <>
-            {VIEW_WORDS[more]}
-            <span className="vh">, view picked;</span>
-            {counts[more] > 0 && <span className="cnt">{counts[more]}</span>}
-          </>
-        ) : (
-          <>
-            More<span className="vh"> views</span>
-          </>
-        )}
-        <I n="down" c="s16" />
-      </button>
+    <div className="vwrap">
+      <div className="vrow" role="group" aria-label="Views">
+        <button type="button" aria-pressed={all} onClick={() => setView(undefined)}>
+          <span className="vl">All</span>
+        </button>
+        <button type="button" aria-pressed={needsOn} onClick={() => setUI((ui) => ({ tf: needsPress(clean(ui.tf)) }))}>
+          <span className="vl">
+            Needs<span className="vy"> you</span>
+          </span>
+          {needs > 0 && <span className="cnt needs">{needs}</span>}
+        </button>
+        <button
+          type="button"
+          className={cx('vmore', more && 'on')}
+          aria-haspopup="menu"
+          aria-label={more ? undefined : 'More views'}
+          data-marks=""
+          onClick={(e) => openMenu(e.currentTarget, (close) => <ViewMenu close={close} counts={counts} view={more} />, { label: 'Views', within: e.currentTarget.closest('.pane') })}
+        >
+          {more ? (
+            <>
+              <span className="vl">{VIEW_WORDS[more]}</span>
+              <span className="vh">, view picked;</span>
+              {counts[more] > 0 && <span className="cnt">{counts[more]}</span>}
+            </>
+          ) : (
+            <>
+              <span className="vl">More</span>
+              <span className="vh"> views</span>
+            </>
+          )}
+          <I n="down" c="s16" />
+        </button>
+      </div>
     </div>
   )
 }

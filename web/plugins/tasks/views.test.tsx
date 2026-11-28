@@ -11,11 +11,11 @@ const kernel = await import('@client/kernel.ts')
 mock.module('@client/kernel.ts', () => ({ ...kernel, useSnap: () => kernel.getState().snap }))
 const { getState, registry, setUI } = kernel
 const plugin = (await import('./client.tsx')).default
-const { needsRows, Views } = await import('./views.tsx')
+const { needsPress, needsRows, Views } = await import('./views.tsx')
 const { listNeeds } = await import('@client/needs-count.tsx')
 const { needsFilter } = await import('@shared/needs-open.ts')
 const { needsCount, tstate } = await import('@shared/view.ts')
-const { chipsOf, choices, clean, filterTasks, inView, NO_FILTER, pickView, startOfDay, viewCounts } = await import('@shared/task-filter.ts')
+const { chipsOf, choices, clean, filterTasks, groupNarrows, inView, NO_FILTER, pickView, startOfDay, viewCounts } = await import('@shared/task-filter.ts')
 
 const ui0 = { ...getState().ui }
 afterEach(() => { setUI({ ...ui0 }); Object.assign(getState(), { snap: null }) })
@@ -108,7 +108,10 @@ test('a view is kept with the filter, cleaned like it; picking one takes a red c
   expect(clean({ view: 'today' })).toEqual({ ...NO_FILTER, view: 'today' })
   expect(clean({ view: 'everything' as never })).toEqual(NO_FILTER)
   // State's old Needs you pick, kept from before: the Needs you view, which State no longer offers
-  expect(clean({ state: ['needs', 'done'] })).toEqual({ ...NO_FILTER, state: ['done'], view: 'needs' })
+  expect(clean({ state: ['needs'] })).toEqual({ ...NO_FILTER, view: 'needs' })
+  // picked with another state it matched either, so it stays a State pick there (and State shows it, picked)
+  expect(clean({ state: ['needs', 'done'] })).toEqual({ ...NO_FILTER, state: ['needs', 'done'] })
+  expect(choices(demo(), 'state', { ...NO_FILTER, state: ['needs', 'done'] }, EV).map((c) => c.id)).toContain('needs')
   expect(choices(demo(), 'state', NO_FILTER, EV).map((c) => c.id)).not.toContain('needs')
   expect(pickView({ ...needsFilter(['shop']), machine: ['vm'] }, 'working')).toEqual({ ...NO_FILTER, machine: ['vm'], view: 'working' })
   expect(pickView({ ...NO_FILTER, view: 'today' }, undefined)).toEqual(NO_FILTER)
@@ -123,9 +126,37 @@ test('a red count opens what it counts whatever view was kept', () => {
   expect(getState().ui.tf).toEqual(needsFilter(['p:mac-mini:shop']))
   // the row shows it as Needs you, with the count it opened
   const html = renderToStaticMarkup(<Views snap={s} />)
-  expect(html).toMatch(/aria-pressed="true">Needs you<span class="cnt needs">(\d+)</)
+  expect(html).toMatch(/aria-pressed="true"><span class="vl">Needs<span class="vy"> you<\/span><\/span><span class="cnt needs">(\d+)</)
   expect(html).toContain(`>${needsCount(s, 'p:mac-mini:shop')}</span>`)
-  expect(html).toContain('aria-pressed="false">All</button>')
+  expect(html).toContain('aria-pressed="false"><span class="vl">All</span></button>')
+  // pressing Needs you then keeps those spaces: the list it shows is the one its badge counts
+  expect(needsPress(getState().ui.tf)).toEqual(needsFilter(['p:mac-mini:shop']))
+  expect(needsPress({ ...NO_FILTER, view: 'today', machine: ['vm'] })).toEqual({ ...NO_FILTER, machine: ['vm'], view: 'needs' })
+})
+
+test("in Needs you the sheet counts its rows: each action of yours, and a space's own chat asking", () => {
+  for (const mode of ['normal', 'more', 'five'] as const) {
+    const base = demo(mode)
+    // a space with no task of its own whose Shepherdr asks you in its chat
+    const quiet = base.places.find((p) => !p.needs && !base.tasks.some((t) => (t.asked || t.place) === p.id))!
+    const s = { ...base, places: base.places.map((p) => (p === quiet ? { ...p, needs: true } : p)) } as Snapshot
+    const f = { ...NO_FILTER, view: 'needs' as const }
+    const sum = (key: 'space' | 'machine') => choices(s, key, f, EV).reduce((n, c) => n + c.n, 0)
+    // every row is in one space and on one machine, so each group's counts add up to the list
+    expect(needsRows(s, f, EV)).toBe(needsCount(s))
+    expect([mode, sum('space'), sum('machine')]).toEqual([mode, needsRows(s, f, EV), needsRows(s, f, EV)])
+    // that space is still a choice, its chat counted
+    expect(choices(s, 'space', f, EV).find((c) => c.id === quiet.id)?.n).toBe(1)
+  }
+})
+
+test('a group with one choice shows when picking it leaves something out', () => {
+  // vm has one task, in one project: nothing to narrow
+  expect(groupNarrows(small, 'repo', { ...NO_FILTER, machine: ['vm'] }, 'home', DAY)).toBe(false)
+  // blog has a site task and one in no project: picking site leaves the other out
+  expect(choices(small, 'repo', { ...NO_FILTER, space: ['blog'] }, 'home', DAY).map((c) => c.label)).toEqual(['site'])
+  expect(groupNarrows(small, 'repo', { ...NO_FILTER, space: ['blog'] }, 'home', DAY)).toBe(true)
+  expect(groupNarrows(small, 'repo', NO_FILTER, 'home', DAY)).toBe(true)
 })
 
 test('the pane: the views row under Now; Needs you alone in its view; Done today open, only today\'s', () => {
