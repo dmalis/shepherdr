@@ -1,7 +1,7 @@
 // fork UI 14 (Tasks: rows and headers that read in one look): a task row's one shortcut, the action its state calls
 // for: Reply for a task that asks you something (its chat, at what it asks), Open PR for one ready for review with a
 // pull request. As Gmail's and Linear's inbox rows, a mouse sees it on the row's hover (and a keyboard on its focus),
-// in the place of the row's time; it is in the row's menu too, and on touch only there (later a swipe). Its name says
+// in the place of the row's time; it is in the row's menu too, and on touch there and on the row's swipe to the left (fork #185). Its name says
 // the task, so a screen reader's list of buttons tells the rows apart.
 import { Btn, I, cx } from '@client/ui.tsx'
 import { openItem } from '@client/needs-count.tsx'

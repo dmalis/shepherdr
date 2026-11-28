@@ -98,6 +98,10 @@ jobs:
         # fork/specs/ui-polish.md slice 5: web/demo/motion-check.ts opens a menu, a sheet and the spaces list, folds a
         # machine, drags a row and taps a suggested reply under each switch alone, in the runner's own Chrome
         run: bun web/demo/motion-check.ts
+      - name: a task row's swipe to the left, with real touch (the built demo, 390 px)
+        # fork #185: web/demo/swipe-check.ts opens, closes and full-slides rows with CDP touch events: one open at a
+        # time, scrolling and the edge strip untouched, Archive's wait, Undo and failure, Reduced and Zoom
+        run: bun web/demo/swipe-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.

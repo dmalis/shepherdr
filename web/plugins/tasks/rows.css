@@ -7,7 +7,7 @@
 
 /* the one shortcut (Reply, Open PR), with a mouse: in the time's place while the row is hovered or reached by the
    keyboard, as Gmail's and Linear's row actions; over the row's own fill, so what it covers doesn't show through.
-   On touch it is in the row's menu instead (and later a swipe). */
+   On touch it is in the row's menu and on its swipe to the left instead (fork #185). */
 .rowx>.tsc{position:absolute;top:calc(8px + var(--over, 0px) + (var(--uil) - var(--btns))/2);right:calc(var(--ib) + 8px);z-index:1;opacity:0;pointer-events:none;background:linear-gradient(var(--control2),var(--control2)) var(--canvas)}
 .rowx>.tsc .i{width:var(--ic-sm);height:var(--ic-sm)}
 /* Open PR is a link (it goes to a page): it looks like the button beside it */

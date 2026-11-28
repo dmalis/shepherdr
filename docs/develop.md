@@ -58,6 +58,7 @@ bun web/demo/tap-check.ts          # tap sizes on a touch screen, against the bu
 bun web/demo/phone-box-check.ts    # typing on a phone: Return, Send, Enter and the message box's rows (the same)
 bun web/demo/still-check.ts        # a still page does no work while pictures wait, and nothing moves as they load (the same)
 bun web/demo/motion-check.ts       # nothing moves with the device's reduced motion or Settings' Motion › Reduced alone (the same)
+bun web/demo/swipe-check.ts        # a task row's swipe to the left with real touch: open, close, Archive and Undo (the same)
 for f in install.sh bin/herdr-browser bin/herdr-desktop hooks/*.sh service/restart.sh; do bash -n "$f"; done
 python3 -m unittest discover -s test
 ```

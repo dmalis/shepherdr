@@ -200,7 +200,7 @@ button.b{cursor:pointer}
 .bmv{position:relative;display:grid;grid-template-columns:minmax(0,1fr);justify-items:start}.bw.mine>.bmv{justify-items:end}
 .bmv.settle,.tslide .settle,.rowx.tsl>.settle{transition:transform 320ms cubic-bezier(.25,1.12,.4,1)}
 /* a task's row slides to reply to it like a message (SHEP-332's slide): its Reply behind it, in one line */
-.tslide,.rowx.tsl{position:relative;isolation:isolate}.tslide{touch-action:pan-y pinch-zoom}.rowx.tsl>.row.tk{touch-action:pan-y pinch-zoom}
+.tslide,.rowx.tsl{position:relative;isolation:isolate}.tslide{touch-action:pan-y pinch-zoom}.rowx.tsl>.row.tk,.rowx.tsl>.ib{touch-action:pan-y pinch-zoom}
 .tslide>.tmv{display:inline-flex;align-items:center;gap:inherit;min-width:0;max-width:100%}
 :is(.tslide,.rowx.tsl)>.rpl{flex-direction:row;gap:6px;border-radius:8px;z-index:-1}
 /* fork #185: a task's row slid to the left shows its actions behind it (slide.tsx SlideActs). Each comes out with the
@@ -208,7 +208,7 @@ button.b{cursor:pointer}
    it. They take taps only while open. A tile's word is under its icon, 76 px wide (press.ts ACT_W). */
 .rowx.tsl.sl{clip-path:inset(0 round 8px)}
 .sla{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
-.sla>.slt{position:absolute;inset-block:0;left:100%;width:100%;display:flex;align-items:center;padding:0;border:0;border-left:2px solid var(--canvas);background:var(--control2);color:var(--fg);font:inherit;font-size:var(--sec);line-height:var(--secl);font-weight:600;touch-action:pan-y pinch-zoom}
+.sla>.slt{position:absolute;inset-block:0;left:100%;width:100%;display:flex;align-items:center;padding:0;border:0;border-left:2px solid var(--canvas);background:linear-gradient(var(--control2),var(--control2)) var(--canvas);color:var(--fg);font:inherit;font-size:var(--sec);line-height:var(--secl);font-weight:600;touch-action:pan-y pinch-zoom}
 .sla.on>.slt{pointer-events:auto}
 .sla>.slt.on{background:var(--fg);color:var(--canvas)}
 .sla>.slt>.sli{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:76px;white-space:nowrap}
