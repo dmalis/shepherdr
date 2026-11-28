@@ -5,7 +5,8 @@
     "web/src/ds.css",
     "web/src/sheets.css",
     "docs/design.md",
-    "test/test_design.py"
+    "test/test_design.py",
+    "web/plugins/mcp-apps/mcp-apps.css"
   ],
   "tests": [
     "test/test_design.py::DesignTokens",
