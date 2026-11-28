@@ -34,8 +34,9 @@ function linesOf(a: Artifact) {
   return p
 }
 
-/** A tile's picture, never a broken one (SHEP-344): a calm empty frame until it has loaded, a few tries again, else
- *  the page's first lines (preview.ts). */
+/** A tile's picture, never a broken one (SHEP-344): a still frame until it has loaded (nothing pulses while it waits:
+ *  docs/design.md, Motion), a few tries again, else the page's first lines (preview.ts). The frame keeps its shape
+ *  (16:10) whatever comes, so nothing moves as the picture loads, and the picture loads lazily. */
 export function Preview({ a, dark }: { a: Artifact; dark: boolean }) {
   const key = `${a.machine ?? ''}|${a.id}|${a.v}|${a.thumb ? 1 : 0}`
   const [shot, setShot] = useState<{ key: string; s: Shot }>({ key, s: startShot(!!a.thumb) })
@@ -57,6 +58,8 @@ export function Preview({ a, dark }: { a: Artifact; dark: boolean }) {
   const l = words?.key === key ? words.l : null
   return (
     <span className={cx('prev', s.shown === 'wait' && 'wait')}>
+      {/* while it waits: a still sketch of a page's first lines, where they would show; the picture fades in over it */}
+      {s.shown !== 'lines' && <span className="psk" aria-hidden="true"><i /><i /><i /></span>}
       {s.shown !== 'lines' && (
         <img key={s.tries} src={thumbUrl(a, dark, s.tries)} alt="" loading="lazy" className={s.shown === 'pic' ? 'in' : undefined}
           onLoad={() => setShot({ key, s: loaded(s) })} onError={onError} />

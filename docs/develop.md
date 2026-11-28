@@ -56,6 +56,7 @@ bun install --frozen-lockfile && bun web/build-plugins.ts
 bunx tsc --noEmit -p . && bun test service core web && bun run build
 bun web/demo/tap-check.ts          # tap sizes on a touch screen, against the build (needs a Chrome; $CHROME)
 bun web/demo/phone-box-check.ts    # typing on a phone: Return, Send, Enter and the message box's rows (the same)
+bun web/demo/still-check.ts        # a still page does no work while pictures wait, and nothing moves as they load (the same)
 for f in install.sh bin/herdr-browser bin/herdr-desktop hooks/*.sh service/restart.sh; do bash -n "$f"; done
 python3 -m unittest discover -s test
 ```

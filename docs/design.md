@@ -49,6 +49,7 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
   - at 390 px with touch, a touch tablet (820 px) and a desktop (1440 px);
   - in light, dark and night, at a larger Chat text size and at Zoom 150%;
   - with the keyboard alone, and with Motion › Reduced;
+  - anything that can move or wait on its own: `bun web/demo/still-check.ts` (a still page does no work);
   - the demo's cases where they apply: `?case=empty`, `down`, `more`, `long` (long names), `one`, `five`; a task or
     artifact by `?task=<id>` or `?artifact=<id>`;
   - and on a real iPhone home-screen app for anything about the keyboard, gestures or the screen's edges.
@@ -279,7 +280,9 @@ Motion shows where something came from or went. It is short, it stops, and it ne
   fades its colour, `web/plugins/chat/attach.css`). A transition names its properties, never `all`, and a new tap or
   drag takes over from it.
 - **Nothing runs forever.** A waiting mark runs only while it waits and while it can be seen, and never animates a
-  colour. Target: today the waiting picture's pulse (`.prev.wait`) runs for as long as it shows.
+  colour. A picture that waits is still: an artifact's tile shows a sketch of a page's first lines, painted once
+  (`.psk`), and its picture fades in over it once loaded. `web/demo/still-check.ts` holds it: no running animation and
+  almost no style work on a still page while pictures are blocked, hung or served.
 - **Reduced motion:** when the device asks for less (`prefers-reduced-motion`) or Settings › General › Motion is
   Reduced (`html[data-motion="reduced"]`), nothing slides, grows or spins: the change is instant or a short fade. In
   script, check `calm()`, which reads both, never `still()` alone. Target: every CSS animation and transition is covered
@@ -343,7 +346,13 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
   plugin is in the first script).
 - **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
   screen are options to prove against find, copy, jump-to-quote and keeping your place.
-- **Pictures** (Target) have a width and height and load lazily.
+- **Pictures keep their room before they load,** so nothing moves as they come in: a frame of a fixed shape (an
+  artifact's tile at 16:10, a screen's picture at 16:8, logos and space icons at their size), or the size this screen
+  already knows (a picture you sent from it). One that may sit below the first screen (a tile, a picture in a chat, a
+  screen's picture) loads lazily. Target: a picture in a chat that came from elsewhere (an agent, another device) has
+  no size until it loads; the service gives its size with the message.
+- **An idle page does no visual work** (the idle row above): `web/demo/still-check.ts` measures it on the demo with
+  its pictures blocked, hung and served. A hidden page isn't measured (headless Chrome keeps it visible).
 
 ## Do and don't
 

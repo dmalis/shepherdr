@@ -40,7 +40,7 @@ OFF_SCALE = {
 }
 ENDLESS = {
     "web/src/ds.css": 5,
-    "web/src/styles.css": 3,
+    "web/src/styles.css": 2,
     "web/src/dictate.css": 4,
 }
 INLINE_OFF_SCALE = {

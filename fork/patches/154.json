@@ -1,0 +1,18 @@
+{
+  "issue": 154,
+  "name": "speed: a still waiting picture, no idle work",
+  "files": [
+    "web/src/styles.css",
+    "web/plugins/artifacts/client.tsx",
+    "web/plugins/screens/client.tsx",
+    "web/demo/still-check.ts",
+    ".github/workflows/check.yml",
+    "docs/design.md",
+    "docs/develop.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "web/plugins/artifacts/still.test.tsx",
+    "test/test_design.py::DesignTokens"
+  ]
+}

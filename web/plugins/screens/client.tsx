@@ -691,7 +691,7 @@ function Thumb({ k, src }: { k: string; src: 'b' | 'd' }) {
   }, [])
   return (
     <button type="button" className="thumb" aria-label="Open the live view" onClick={() => openScreen(k)}>
-      <img src={`${shotUrl(k, src)}&n=${n}`} alt="" />
+      <img src={`${shotUrl(k, src)}&n=${n}`} alt="" loading="lazy" />
     </button>
   )
 }
