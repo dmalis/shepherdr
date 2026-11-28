@@ -115,6 +115,9 @@ function demoEvents() {
   ]
 }
 
+/** ?case=fail (#94, slice 7): every action answers with an error */
+let failing = false
+
 function action(a: Record<string, any>): unknown {
   // the Feedback box's report (#94): kept under Found at once, from the person or from the action Report named
   if (a.type === 'feedback' && a.do === 'report' && typeof a.text === 'string') {
@@ -367,6 +370,8 @@ Bun.serve<Sock['data'], never>({
       const app = `${req.headers.get('origin') ?? url.origin}${url.pathname.slice(0, -'api/ws'.length)}`
       // ?build=release|ahead|older: the build Settings › About names (builds.ts)
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
+      // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
+      failing = c === 'fail'
       return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
@@ -415,7 +420,7 @@ Bun.serve<Sock['data'], never>({
       const body = (await req.json()) as Record<string, any>
       // ?case=fail (#94, slice 7): every action answers with an error, its words holding what a report must never
       // carry; the Feedback page's own calls still work, so its Report can be followed to the page
-      if (/(?:^|;\s*)demo-case=fail/.test(req.headers.get('cookie') ?? '') && body.type !== 'feedback')
+      if (failing && body.type !== 'feedback')
         return Response.json({ ok: false, error: "Couldn't merge task/faster-product-search: a conflict in ~/dev/shop/src/checkout.ts" })
       const out = (action(body) ?? { ok: true }) as Record<string, unknown>
       // a refusal as the service gives it: its words, plain, with its status

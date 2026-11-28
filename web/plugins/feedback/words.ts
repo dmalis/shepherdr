@@ -187,3 +187,5 @@ export const offWords = (where: string) => `Feedback offers are off in ${where |
 export const fromBox = (where: string) => `From ${where}`
 /** the box opened from a failed action's Report (slice 7): which action, and where */
 export const fromAction = (label: string, where: string) => `“${label}” · From ${where}`
+/** Report while the box holds an earlier report the person has added to: that one stays, to send or clear first */
+export const reportWaiting = (label: string) => `Your report on “${label}” is still in the box: send or clear it first`

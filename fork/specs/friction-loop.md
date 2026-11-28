@@ -354,6 +354,12 @@ Feedback box prefilled with safe words only: the action's own label from the app
 The toast keeps showing the error to the person, who may add what they want. Nothing is sent until they press Send,
 and what they send is saved as a report `from: {action: "<label>"}` and goes through the draft flow like any other.
 
+Its space is the one the action acted in, taken as it fails (not where the person is when they tap Report). A dialog
+still open (a failed Start keeps its own) closes first. The person's own unsent words in the box are set aside, never
+mixed into the report, and come back once it is sent or emptied; a report they have already added to stays, and the
+next Report says so. Only errors shown as a toast get Report: a card's own buttons (the review card's Mark as done)
+show their error under the card, and are left for a later change.
+
 ### Follow it to live
 
 - **The issue's state.** While a problem is filed or followed and not done, `herdr-task feedback --track` reads its
@@ -625,7 +631,9 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **Tests:** an error toast has Report with the plugin on and none with it off; the prefill holds the label and no
   error text; nothing is sent without Send; a sent one is a report `from: action`.
 - **Demo:** a new demo case, `?case=fail`, whose actions answer with an error (`web/demo/serve.ts`; today's demo
-  answers every Mark as done with success): tap Mark as done, Report, see the box with "Mark as done didn't work".
+  answers every Mark as done with success): Mark as done from the task's menu or its E key (the review card's own
+  button shows its error under the card, with no Report), then Report, and see the box with "Mark as done didn't
+  work".
 
 ### Slice 8: every machine's problems
 

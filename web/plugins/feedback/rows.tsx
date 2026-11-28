@@ -231,6 +231,9 @@ let draft = ''
 /** a failed action's Report (slice 7, report.ts): its label and the space it acted in, kept with the box's words until
  *  they are sent or cleared; `words` what it put there */
 let reported: { action: string; place: string; words: string } | null = null
+/** the person's own unsent words, set aside while a Report's words are in the box: they come back once it is sent or
+ *  emptied, never mixed into a report from an action */
+let kept = ''
 let focusBox = false
 const prefilled = new Set<() => void>()
 
@@ -238,34 +241,42 @@ const prefilled = new Set<() => void>()
 export function clearBox() {
   draft = ''
   reported = null
+  kept = ''
   focusBox = false
 }
 
-/** the box's words once Report put its line in: an unsent draft of the person's own stays, under it; an earlier
- *  Report's untouched words give way */
-export function boxWith(draft: string, before: string | undefined, words: string) {
-  const own = draft.trim() && draft.trim() !== before
-  return own ? `${words}\n\n${draft.trim()}` : words
-}
-
-/** Report's words in the box, for the person to add to and send; nothing is sent here */
-export function prefillBox(words: string, action: string, place: string) {
-  draft = boxWith(draft, reported?.words, words)
-  reported = { action, place, words }
+/** Report's words in the box, for the person to add to and send; nothing is sent here. The person's own unsent draft is
+ *  set aside, not mixed in. An earlier Report's untouched words give way; once the person has added to them they stay,
+ *  and its label is returned (the box opens on it, the new one is not put in) */
+export function prefillBox(words: string, action: string, place: string): string | null {
+  const waiting = reported && draft.trim() !== reported.words ? reported.action : null
+  if (!waiting) {
+    if (!reported) kept = draft
+    draft = words
+    reported = { action, place, words }
+  }
   focusBox = true
   prefilled.forEach((f) => f())
+  return waiting
+}
+
+/** what the person typed, kept for when the page opens again. Emptied (by hand, or sent), a Report's label goes and the
+ *  person's own draft it set aside comes back. The box's words */
+export function typed(v: string): string {
+  if (!v.trim()) {
+    reported = null
+    if (kept) [v, kept] = [kept, '']
+  }
+  draft = v
+  return v
 }
 
 function Box({ snap, place: open }: { snap: Snapshot; place: string }) {
   const [text, setTextNow] = useState(draft)
   const [from, setFrom] = useState(reported)
   const setText = (v: string) => {
-    draft = v
-    setTextNow(v)
-    if (!v.trim()) {
-      reported = null
-      setFrom(null)
-    }
+    setTextNow(typed(v))
+    if (!reported) setFrom(null)
   }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -283,8 +294,7 @@ function Box({ snap, place: open }: { snap: Snapshot; place: string }) {
         const el = box.current
         if (!el) return
         el.focus()
-        const end = reported ? reported.words.length : el.value.length
-        el.setSelectionRange(end, end)
+        el.setSelectionRange(el.value.length, el.value.length)
       })
     }
     prefilled.add(take)

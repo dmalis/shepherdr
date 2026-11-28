@@ -19,6 +19,7 @@
 /* Motion › Reduced, like the device's own setting */
 :root[data-motion="reduced"] .drawer.in,:root[data-motion="reduced"] .win.in{animation:none}
 :root[data-motion="reduced"] .tg i,:root[data-motion="reduced"] .mh>.mn>.chev{transition:none}
+:root[data-motion="reduced"] .toast{animation:fade .18s}
 :root[data-motion="reduced"] .i.turn{animation:calm 2.4s ease-in-out infinite}
 /* the app's own Reduce motion switch: the working sign fades in, its dots brighten in turn without moving */
 :root[data-motion="reduced"] .wsign{animation-name:fade}

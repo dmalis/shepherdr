@@ -12,7 +12,8 @@ import { snapshot } from '../../demo/data.ts'
 const T = await import('@client/toasts.ts')
 const clearToasts = () => T.toasts().forEach((t) => T.dismiss(t.id))
 const K = await import('@client/kernel.ts')
-const { FeedbackPage, clearBox, saveBox } = await import('./rows.tsx')
+const { FeedbackPage, clearBox, prefillBox, saveBox, typed } = await import('./rows.tsx')
+const O = await import('@client/overlay.tsx')
 const R = await import('./report.ts')
 const plugin = (await import('./client.tsx')).default
 
@@ -99,18 +100,36 @@ test("Send keeps it as a report from that action, in that space's name, and noth
   expect(sent[0]).not.toHaveProperty('action')
 })
 
-test("an unsent draft of the person's own stays, under the action's line; an earlier Report's words give way", async () => {
-  const { boxWith, prefillBox } = await import('./rows.tsx')
-  expect(boxWith('', undefined, "Start didn't work")).toBe("Start didn't work")
-  expect(boxWith('  The search is slow ', undefined, "Start didn't work")).toBe("Start didn't work\n\nThe search is slow")
-  expect(boxWith("Start didn't work", "Start didn't work", "Send didn't work")).toBe("Send didn't work")
-  expect(boxWith("Start didn't work, twice", "Start didn't work", "Send didn't work")).toBe("Send didn't work\n\nStart didn't work, twice")
-  // on the page: the second Report's words, alone
+test("the person's own unsent draft is set aside, never mixed into the report, and comes back once it is sent", async () => {
   const s = snapshot()
   const box = () => { const h = page(s); return h.slice(h.indexOf('<textarea'), h.indexOf('</textarea>')) }
-  prefillBox(R.prefillOf('Start'), 'Start', s.everything!)
-  prefillBox(R.prefillOf('Send'), 'Send', s.everything!)
+  typed('The search is slow')
+  expect(prefillBox(R.prefillOf('Start'), 'Start', s.everything!)).toBeNull()
+  expect(box().endsWith(">Start didn&#x27;t work")).toBe(true)
+  expect(page(s)).not.toContain('search is slow')
+  // an earlier Report's untouched words give way to the next
+  expect(prefillBox(R.prefillOf('Send'), 'Send', s.everything!)).toBeNull()
   expect(box().endsWith(">Send didn&#x27;t work")).toBe(true)
+  // sent (the box emptied): the person's own words are back, with no action under them
+  expect(typed('')).toBe('The search is slow')
+  expect(box().endsWith('>The search is slow')).toBe(true)
+  expect(page(s)).not.toContain('“Send”')
+})
+
+test('a report the person has added to stays in the box; the next Report says so instead of replacing it', async () => {
+  plugin.setup(K.registry)
+  const s = snapshot()
+  K.getState().snap = s
+  // Report, then the person adds to its words
+  expect(prefillBox(R.prefillOf('Start'), 'Start', s.everything!)).toBeNull()
+  const words = "Start didn't work: twice now"
+  typed(words)
+  ;(await fails({ type: 'stop', chat: s.places[0].chat })).act!.run()
+  expect(K.getState().ui.page).toBe('feedback')
+  const h = page(s)
+  expect(h.slice(h.indexOf('<textarea'), h.indexOf('</textarea>')).endsWith('>Start didn&#x27;t work: twice now')).toBe(true)
+  expect(h).toContain('“Start” ·')
+  expect(T.toasts().at(-1)!.text).toBe('Your report on “Start” is still in the box: send or clear it first')
 })
 
 test('the space it acted in: its place, its chat, its task; else the space on screen', () => {
@@ -122,6 +141,38 @@ test('the space it acted in: its place, its chat, its task; else the space on sc
   expect(R.placeOf({ type: 'accept', task: task.id }, s, 'elsewhere')).toBe(shop.id)
   expect(R.placeOf({ type: 'stop', chat: `${task.id}/worker` }, s, 'elsewhere')).toBe(shop.id)
   expect(R.placeOf({ type: 'config', place: 'all' }, s, 'elsewhere')).toBe('elsewhere')
+  // a space's own rename or move names it as its id
+  expect(R.placeOf({ type: 'rename', id: shop.id, name: 'store' }, s, 'elsewhere')).toBe(shop.id)
+})
+
+test('the space is the one it acted in as it failed, wherever the person is when they tap Report', async () => {
+  plugin.setup(K.registry)
+  const s = snapshot()
+  K.getState().snap = s
+  const shop = s.places.find((p) => p.name === 'shop' && p.machine === 'mac-mini')!
+  K.setUI({ at: s.everything })
+  const t = await fails({ type: 'rename', id: shop.id, name: 'store' })
+  K.setUI({ at: s.places.find((p) => p.id !== shop.id && p.id !== s.everything)!.id })
+  t.act!.run()
+  expect(page(s)).toContain(`“Rename” · From #${shop.name}`)
+})
+
+test("the task menu's Mark as done is named so; a failed Start's dialog closes so the box takes the keys", async () => {
+  plugin.setup(K.registry)
+  const s = snapshot()
+  K.getState().snap = s
+  expect(R.labelOf({ type: 'close', chat: 'SHOP-12/worker', force: true })).toBe('Mark as done')
+  expect(R.labelOf({ type: 'stop-job', chat: s.places[0].chat, job: 'j1' })).toBe('Stop')
+  O.openDialog(() => null, { label: 'Start a task' })
+  expect(O.anyOpen()).toBe(true)
+  ;(await fails({ type: 'task-start', chat: 'SHOP-12/worker' })).act!.run()
+  expect(O.anyOpen()).toBe(false)
+  expect(K.getState().ui.page).toBe('feedback')
+})
+
+test("the error's notice, Report and all, follows Motion › Reduced as well as the device's setting", () => {
+  const css = readFileSync(join(import.meta.dir, '../../src/styles.css'), 'utf8')
+  expect(css).toContain(':root[data-motion="reduced"] .toast{animation:fade .18s}')
 })
 
 test("every label is plain words herdr-task and the service take, and only an action's type picks it", () => {
@@ -149,7 +200,11 @@ test('every action the app asks for through tryAct is on the list', () => {
   walk(join(root, 'src'))
   walk(join(root, 'plugins'))
   const types = new Set<string>()
-  for (const f of files) for (const m of readFileSync(f, 'utf8').matchAll(/tryAct\(\{\s*type:\s*'([a-z-]+)'/g)) types.add(m[1])
+  // every type on a tryAct call's line, so a call that picks between two actions counts both
+  for (const f of files)
+    for (const line of readFileSync(f, 'utf8').split('\n'))
+      if (line.includes('tryAct(')) for (const m of line.slice(line.indexOf('tryAct(')).matchAll(/type:\s*'([a-z-]+)'/g)) types.add(m[1])
+  expect(types.has('stop-job')).toBe(true)
   expect(types.size).toBeGreaterThan(20)
   expect([...types].filter((t) => !R.labelOf({ type: t }))).toEqual([])
   // the hook itself: tryAct's error notice takes its button from the plugin
