@@ -293,11 +293,15 @@ The message box is where people spend their day. It never loses words, never lag
   its caret and selection.
 - **Never lost:** a send goes into the outbox (`web/src/outbox.ts`) before the box clears, and one that fails waits
   there with Try again; one that went out but never came back is sent again under a new id that names the first
-  (`was`), so it isn't shown twice. Words and folded pastes are kept per chat across reloads. Target: a draft is the
-  whole message (words, attachments, folded pastes, the message it replies to, what each `@` and `#` points at), and
-  the box clears only once the outbox is saved (today a full storage is passed over); what can't be brought back after a reload (a file the browser let go) is said, not
-  silently dropped; nothing writes over a draft (a suggested reply held to edit goes in at the caret, and can be reached
-  by keyboard).
+  (`was`), so it isn't shown twice. A draft is the whole message, kept per chat across reloads in one record
+  (`web/src/draft.ts`): its words, folded pastes, what each `@` and `#` points at, the message it replies to and
+  its files (their bytes in IndexedDB until the upload is done, then the upload). It is written once typing pauses
+  and when the page hides, never on every key press. When storage can't keep the outbox (it is full), the stored
+  draft stays as it was until the send is delivered. A file a reload can't bring back is named in the box and left
+  out of the send, never dropped silently; a failed upload keeps Try again after a reload, and a send cut off while
+  its file was going up goes on from the kept copy. `web/demo/draft-check.ts` checks it with real reloads.
+  Target: nothing writes over a draft (a suggested reply held to edit goes in at the caret, and can be reached by
+  keyboard).
 - **The keyboard stays put** for what happens in place: sending, picking from a list, removing a chip. A file picker or
   a sheet may take it.
 - **Lists:** `@` tasks, `#` spaces, `/` commands, each filtered as you type, with the arrow keys, Enter and Esc, safe

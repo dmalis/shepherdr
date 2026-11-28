@@ -1,0 +1,23 @@
+{
+  "issue": 149,
+  "name": "Writing: a draft is never lost",
+  "files": [
+    "web/src/draft.ts",
+    "web/src/kernel.ts",
+    "web/src/outbox.ts",
+    "web/src/send.ts",
+    "web/plugins/chat/fold.ts",
+    "web/plugins/chat/mentions.tsx",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/chat/thumbs.tsx",
+    "web/plugins/chat/attach.css",
+    "web/demo/draft-check.ts",
+    "web/demo/perf-check.ts",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/src/draft.test.ts",
+    "web/plugins/chat/fold.test.tsx",
+    "web/plugins/chat/mentions.test.tsx"
+  ]
+}

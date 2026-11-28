@@ -96,7 +96,8 @@ export function BoxThumb({ chat, f, onRetry, onRemove, onAdd }: { chat: string; 
   return (
     <div className={cx('ath', (f.failed || f.lost) && 'bad')}>
       <button type="button" className="atb" aria-label={`${f.name}${state || '. Preview'}`} onClick={f.lost ? onAdd : f.failed ? onRetry : () => openPreview(chat, f)}>
-        <Face name={f.name} src={small} />
+        {/* one whose bytes are gone shows only that: its name is in the line under the files */}
+        {!f.lost && <Face name={f.name} src={small} />}
         {up && (
           <span className="ast">
             <I n="working" c="s20" />
