@@ -60,7 +60,9 @@ test('contrast is WCAG’s, and see-through words are measured as painted', () =
 test('a document of the artifact with no link catcher gets white under it', () => {
   const client = read('web/plugins/artifacts/client.tsx')
   // no word from the catcher near a load (an SVG, a picture), and the page's word takes it back
-  expect(client).toContain('setBare(Math.abs(said.current - at) > 1000)')
+  expect(client).toContain('const far = Math.abs(said - at) > 1000')
+  expect(client).toContain('return { bare: far, lost: far && !tapped, keep: tapped > at }')
+  expect(client).toContain('const found = lookAfter(said.current, at, inside.current)\n      setBare(found.bare)')
   expect(client).toContain("if (what === 'page') { said.current = Date.now(); setLost(false); setBare(false); tell() }")
   expect(read('web/src/styles.css')).toContain('.page.bare{color-scheme:light;background:Canvas}')
   // the catcher says "page" as each HTML page of the artifact starts

@@ -206,6 +206,10 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   const said = useRef(0)
   const inside = useRef(0)
   const look = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // how many of the frame's loads that look has been done for (on the frame as data-looked): a check waits on it
+  // instead of guessing how long a load and its look take (web/demo/artifact-check.ts)
+  const loads = useRef(0)
+  const [looked, setLooked] = useState(0)
   useEffect(() => {
     inside.current = 0
     setLost(false)
@@ -241,17 +245,19 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   // artifact's own file, is a page that can't be shown here
   const loaded = () => {
     const at = Date.now()
+    const n = ++loads.current
     if (look.current) clearTimeout(look.current)
     look.current = setTimeout(() => {
       const found = lookAfter(said.current, at, inside.current)
       setBare(found.bare)
       setLost(found.lost)
+      setLooked(n)
       if (!found.keep) inside.current = 0
     }, 1200)
   }
   return (
     <div className="pagebox">
-      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className={cx('page', bare && 'bare')} title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" onLoad={loaded} />
+      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className={cx('page', bare && 'bare')} title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" data-looked={looked} onLoad={loaded} />
       {lost && (
         <div className="page-lost empty" role="status">
           <b>Couldn't show this page</b>
