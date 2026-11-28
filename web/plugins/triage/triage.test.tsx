@@ -13,7 +13,7 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { batchShown, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
@@ -227,19 +227,22 @@ test('the list is the batch review: every draft ticked by kind, one Yes for them
   const t = text(html)
   expect(t).toContain('6 findings wait to be posted to GitHub')
   expect(t).toContain('All 4 ticked')
-  expect(t).toContain('Post 4 findings')
+  expect(t).toContain('Post all 4')
   // grouped by kind, Bugs first, each a checkbox row, ticked
   expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Confusing · 2'))
   expect(html.match(/role="checkbox" aria-checked="true"/g)!.length).toBe(5)
-  // the held ones: their own cards, Yes and No each, after the batch and its button
+  // the held ones: their own cards, Yes and No each, after the batch; one bar at the sheet's foot, after them all
   expect(html.match(/data-card="triage:draft:/g)!.length).toBe(2)
-  expect(t.indexOf('Post 4 findings')).toBeLessThan(t.indexOf('Held 0'))
+  expect(t.indexOf('Bugs · 2')).toBeLessThan(t.indexOf('Held 0'))
+  expect(html.match(/class="tri-foot"/g)).toHaveLength(1)
+  expect(html.lastIndexOf('Held 1')).toBeLessThan(html.indexOf('class="tri-foot"'))
+  expect(text(html.slice(html.indexOf('class="tri-foot"')))).toMatch(/Close.*Post all 4/)
   expect(t).toContain('Your answer one by one · 2')
   expect(t).toContain('Yes, post it')
   // only a batch left: no held part
   Object.assign(getState(), { snap: withBatch(snapshot('triage') as Snapshot, 3, 0) })
   const only = text(renderToStaticMarkup(<TriageDraftsList place={shopOf(snap)} close={() => {}} />))
-  expect(only).toContain('Post 3 findings')
+  expect(only).toContain('Post all 3')
   expect(only).not.toContain('Your answer one by one')
 })
 
@@ -260,4 +263,11 @@ test('an open review keeps the list the person read: a change from elsewhere say
   expect(batchShown(read, { ...read }, false)).toEqual({ list: read, stale: false })
   expect(batchShown(read, now, false)).toEqual({ list: read, stale: true })
   expect(batchShown(read, now, true)).toEqual({ list: now, stale: false })
+})
+
+test("the bulk bar names its count: Post all N while all are ticked, Post N once one is unticked", () => {
+  expect(postWords(85, 85)).toBe('Post all 85')
+  expect(postWords(84, 85)).toBe('Post 84')
+  expect(postWords(1, 1)).toBe('Post 1')
+  expect(postWords(0, 85)).toBe('Nothing ticked')
 })
