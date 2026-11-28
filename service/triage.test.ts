@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Feedback, type Runner } from "./feedback.ts";
-import { destination, fenced, keepYes, legacyFenced, PUBLISH_EVERY, Publisher, shown, yesHash } from "./triage.ts";
+import { answerCard, CHANGED, destination, fenced, followLevel, keepYes, legacyFenced, PUBLISH_EVERY, Publisher, shown, spaceFor, TriageView, viewOf, yesHash } from "./triage.ts";
 
 const REPO = "acme/shepherdr";
 const SETTINGS = { everywhere: { agents: { feedback_repo: REPO } } };
@@ -98,4 +98,89 @@ test("the publisher runs at most every 10 minutes, soon after a yes, never while
   on = false;
   expect(await p.tick(1_000_000 + 10 * PUBLISH_EVERY, true)).toBe(false);
   expect(calls).toHaveLength(2);
+});
+
+/* ---------- the yes cards (Needs you) ---------- */
+
+const HASH = () => yesHash({ repo: REPO, action: "create" }, "Reply bubble hides its message", BODY);
+
+test("a card's Yes or No is kept here only, for the exact text it showed; a changed text keeps nothing and asks again", () => {
+  const dir = store();
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 7)).toEqual({ ok: true });
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", answer: "no" }]);
+  // the person changes their mind: one row per card, the newest answer
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes" }, dir, SETTINGS, 8).ok).toBe(true);
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 8, by: "app" }]);
+  expect(statSync(join(dir, ".triage-yes.json")).mode & 0o777).toBe(0o600);
+  // the text changed after the card was drawn: the card's hash no longer matches
+  const old = store();
+  const r = answerCard({ kind: "draft", key: "a1", rev: 2, hash: yesHash({ repo: REPO, action: "create" }, "An older title", BODY), answer: "yes" }, old, SETTINGS);
+  expect(r).toEqual({ ok: false, error: CHANGED, changed: true });
+  expect(answerCard({ kind: "draft", key: "a1", rev: 1, hash: HASH(), answer: "yes" }, old, SETTINGS)).toMatchObject({ changed: true });
+  expect(() => readFileSync(join(old, ".triage-yes.json"))).toThrow();
+});
+
+test("a card's answer is refused when it isn't Triage's to keep", () => {
+  for (const b of [{}, { kind: "draft", key: "a1", rev: 2, hash: "x", answer: "yes" }, { kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "maybe" },
+    { kind: "draft", key: "../a1", rev: 2, hash: HASH(), answer: "yes" }, { kind: "other", hash: HASH(), answer: "yes" }])
+    expect(answerCard(b, store(), SETTINGS).ok).toBe(false);
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes" }, store({ fenced: false }), SETTINGS).ok).toBe(false);
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes" }, store(), {}).ok).toBe(false);
+});
+
+test("another machine's held draft is answered on Triage's copy of it", () => {
+  const dir = store();
+  writeFileSync(join(dir, ".triage.json"), JSON.stringify({ repos: { [REPO]: { fenced: { at: 1 } } },
+    copies: { "vm-b:b1": { id: "b1", draft: { rev: 1, target: { repo: REPO, action: "create" }, title: "T", body: "B" } } } }));
+  const hash = yesHash({ repo: REPO, action: "create" }, "T", "B");
+  expect(answerCard({ kind: "draft", key: "vm-b:b1", copy: true, rev: 1, hash, answer: "yes" }, dir, SETTINGS, 3).ok).toBe(true);
+  expect(yeses(dir)[0]).toMatchObject({ key: "vm-b:b1", rev: 1, hash });
+  expect(answerCard({ kind: "draft", key: "vm-b:b1", rev: 1, hash, answer: "yes" }, dir, SETTINGS).ok).toBe(false); // not a copy: no such finding
+});
+
+test("an outside issue's Start a fix is kept for its title and body as Triage asked it", () => {
+  const dir = store();
+  writeFileSync(join(dir, ".triage.json"), JSON.stringify({ repos: { [REPO]: { fenced: { at: 1 }, asks: { "12": { title: "Search misses archived", body: "Steps", at: 4 } } } } }));
+  const hash = yesHash({ repo: REPO, action: "start", issue: 12 }, "Search misses archived", "Steps");
+  expect(answerCard({ kind: "start", issue: 12, hash, answer: "yes" }, dir, SETTINGS, 5)).toEqual({ ok: true });
+  expect(yeses(dir)).toEqual([{ kind: "start", repo: REPO, issue: 12, hash, at: 5, by: "app", answer: "yes" }]);
+  expect(answerCard({ kind: "start", issue: 12, hash: yesHash({ repo: REPO, action: "start", issue: 12 }, "Search misses archived", "Steps, edited"), answer: "yes" }, dir, SETTINGS)).toMatchObject({ changed: true });
+  expect(answerCard({ kind: "start", issue: 13, hash, answer: "yes" }, dir, SETTINGS).ok).toBe(false);
+});
+
+test("the view reads herdr-task's only while the plugin is on, and keeps only what the page shows", async () => {
+  const calls: string[][] = [];
+  let on = true;
+  const out = { on: true, destination: REPO, files: REPO, repos: [{ folder: "/r", repo: REPO, stopped: null, schedule: { id: "|/r|a1", auto: "a1", paused: false, space: "sp1", by: null } }],
+    drafts: [{ key: "a1", copy: false, rev: 2, title: "T", body: "B", target: { repo: REPO }, hash: "h".repeat(64), at: 9, why: "space", secret: "never shown" }],
+    starts: [{ issue: 12, title: "S", body: "Steps", at: 3, hash: "s".repeat(64) }] };
+  const v = new TriageView(async (args) => { calls.push(args); return { code: 0, stdout: JSON.stringify(out), stderr: "" }; }, () => ["/r"], () => on);
+  let changed = 0;
+  v.changed = () => changed++;
+  await v.read();
+  expect(calls[0]).toEqual(["triage", "view", "--json", "--folder", "/r"]);
+  expect(v.last?.files).toBe(REPO);
+  expect(v.last?.repos["/r"]?.schedule).toEqual({ id: "|/r|a1", paused: false, space: "sp1", by: null });
+  expect(v.last?.cards.map((c) => c.id)).toEqual(["start:12", "draft:f:a1"]);
+  expect(JSON.stringify(v.last)).not.toContain("never shown");
+  expect(changed).toBe(1);
+  on = false;
+  await v.read();
+  expect(calls).toHaveLength(1);
+  expect(v.last).toBeNull();
+  expect(viewOf({ drafts: [{ key: 5 }], starts: [{ issue: "x" }], repos: "no" }).cards).toEqual([]);
+});
+
+test("the schedule follows the level saved, in the space on the checkout itself first", async () => {
+  const spaces = [{ id: "home", folder: "/home/x" }, { id: "sp9", folder: "/r" }, { id: "sp1", folder: "/r" }, { id: "sub", folder: "/r/docs", repo: "/r" }, { id: "far", folder: "/r", machine: "vm-b" }];
+  expect(spaceFor("/r", spaces)).toBe("sp1");
+  expect(spaceFor("/r", [{ id: "sub", folder: "/r/docs", repo: "/r" }])).toBe("sub");
+  expect(spaceFor("/r", [{ id: "home", folder: "/home/x" }])).toBeNull(); // herdr-task finds the closest one around it
+  const calls: string[][] = [];
+  const ok = await followLevel("/r", "sp1", async (args) => { calls.push(args); return { code: 0, stdout: '{"ok": true}', stderr: "" }; });
+  expect(ok).toEqual({ ok: true });
+  expect(calls[0]).toEqual(["triage", "schedule", "--folder", "/r", "--space", "sp1", "--json"]);
+  const no = await followLevel("/r", null, async () => ({ code: 1, stdout: "", stderr: "herdr-task: No space sits on this checkout's folder" }));
+  expect(no).toEqual({ ok: false, error: "Saved, but its schedule wasn't made: No space sits on this checkout's folder" });
+  expect((await followLevel("vm-b:/r", null)).ok).toBe(false);
 });

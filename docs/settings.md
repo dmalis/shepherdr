@@ -160,7 +160,7 @@ Everywhere default (`everywhere.triage`):
 | `level` | `off` (default), `score` | Score only: filed findings and new issues are scored; nothing starts a fix. Score and fix comes later |
 | `fix_from` | 3 to 5 (4) | The lowest score Score and fix will fix (kept for that step) |
 | `fixes_per_day` | 1 to 10 (3) | How many fixes a day Score and fix may start (kept for that step) |
-| `ask_merge` | `on`, `off` (off) | Whether Score and fix asks before it merges (kept for that step) |
+| `ask_merge` | `on`, `off` (on) | Whether Score and fix asks you before it merges its fixes (kept for that step); turn it off for a repo once you trust its fixes |
 | `rules` | one paragraph | The repo's own "score 5" words (default: what its AGENTS.md says is at risk) |
 | `private_words` | a list | Words a post never carries, beside the ones Triage finds itself (emails, host names, other spaces and repos) |
 

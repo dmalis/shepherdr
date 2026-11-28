@@ -755,5 +755,121 @@ class Privacy(unittest.TestCase):
             self.assertEqual(eval(m.group(1)), getattr(public, name).pattern, name)  # noqa: S307  (a literal from our repo)
 
 
+REAL_SPACE_FOR = launch.space_for_folder  # before Triaged replaces it
+
+
+class YesCards(Triaged):
+    """Settings › Triage and its yes cards (phase 2's second half): the app's Yes or No, bound to the text's hash."""
+
+    def hold_one(self):
+        key = self.report()
+        self.report(caller=OTHER, fix="Show the quoted message above the reply")  # another space's field: it waits
+        self.assertEqual(tpub.publish()["waits"], 1)
+        return key
+
+    def answer(self, key, answer):
+        """the service's row for a card's answer (service/triage.ts answerCard), on the draft's text now"""
+        dr = fb.problems_read()[key]["draft"]
+        h = tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))
+        row = {"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app"}
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": [{**row, "answer": answer} if answer == "no" else row]}, f)
+
+    def test_a_held_draft_says_why_it_waits(self):
+        key = self.hold_one()
+        (w,) = tpub.waiting_rows()
+        self.assertEqual((w["key"], w["why"]), (key, "space"))
+        self.assertTrue(w["hash"] and w["at"])
+
+    def test_a_no_keeps_it_private_until_its_text_changes(self):
+        key = self.hold_one()
+        self.answer(key, "no")
+        out = tpub.publish()
+        self.assertEqual((out["posted"], self.hub.writes()), (0, []))
+        self.assertEqual(tpub.waiting_rows(), [])  # answered: no card
+        self.report(caller=OTHER, fix="Show the quoted message above the reply, said again")  # a new text asks again
+        self.assertEqual(tpub.publish()["posted"], 0)  # the pass drafts the new text: it waits again
+        self.assertEqual([w["key"] for w in tpub.waiting_rows()], [key])
+
+    def test_a_yes_for_an_older_text_asks_again(self):
+        key = self.hold_one()
+        self.answer(key, "yes")
+        self.report(caller=OTHER, fix="Show the quote above it, changed after the yes")
+        self.assertEqual([w["key"] for w in tpub.waiting_rows()], [key])
+        self.assertEqual((tpub.publish()["posted"], self.hub.writes()), (0, []))
+
+    def test_an_outside_issue_waits_for_the_apps_answer_on_its_text(self):
+        with tri.record() as d:
+            d["repos"][REPO.lower()]["asks"] = {"12": {"title": "Search misses archived spaces", "body": "Steps…", "at": 5}}
+        (s,) = tri.starts_waiting(REPO)
+        self.assertEqual((s["issue"], s["hash"]), (12, tri.yes_hash({"repo": REPO, "action": "start", "issue": 12}, s["title"], s["body"])))
+        self.assertIsNone(tri.start_answer(REPO, 12, s["title"], s["body"]))
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": [{"kind": "start", "repo": REPO, "issue": 12, "hash": s["hash"], "at": 6, "by": "app", "answer": "yes"}]}, f)
+        self.assertEqual(tri.start_answer(REPO, 12, s["title"], s["body"]), "yes")
+        self.assertEqual(tri.starts_waiting(REPO), [])
+        self.assertIsNone(tri.start_answer(REPO, 12, s["title"], "Steps, edited after the yes"))  # a changed text asks again
+
+    def test_the_view_shows_the_repo_its_schedule_and_the_cards(self):
+        key = self.hold_one()
+        code, out = self.triage("view", "--json")
+        self.assertEqual(code, 0, out)
+        v = json.loads(out)
+        self.assertEqual((v["on"], v["destination"], v["files"]), (True, REPO, REPO))
+        (r,) = v["repos"]
+        self.assertEqual((r["folder"], r["repo"], r["stopped"], r["schedule"]["space"], r["schedule"]["paused"]), (self.folder, REPO, None, "sp1", False))
+        self.assertEqual([d["key"] for d in v["drafts"]], [key])
+        self.settings({**self.base, "everywhere": {**self.base["everywhere"], "plugins_off": ["triage"]}})
+        self.assertEqual(json.loads(self.triage("view", "--json")[1]), {"on": False})
+
+    def test_the_level_refuses_from_an_agents_terminal_and_says_where_to_switch_it(self):
+        with mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t1"}):
+            code, out = self.triage("set", "level", "off")
+        self.assertNotEqual(code, 0)
+        self.assertIn("Settings › Triage", out)
+        self.assertIn("outside Shepherdr", out)
+
+
+class CheckoutSpace(Triaged):
+    """The space a repo's schedule runs in, with no caller (a plain terminal over ssh, the service): the deepest space
+    around the checkout wins, so Everything's home folder, which holds every repo, never makes it ask "Which space?"."""
+
+    def spaces(self, *rows):
+        for target, name, value in [(launch, "space_for_folder", REAL_SPACE_FOR), (launch, "core_spaces", lambda: [dict(r) for r in rows]),
+                                    (launch, "default_space", mock.Mock(side_effect=tri.Fail("Which space? Pass --space")))]:
+            p = mock.patch.object(target, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_nested_space_folders_the_deepest_wins(self):
+        home, sub = os.path.dirname(self.folder), os.path.join(self.folder, "docs")
+        os.makedirs(sub)
+        self.spaces({"id": "home", "folder": home}, {"id": "sp1", "folder": self.folder}, {"id": "sp3", "folder": sub})
+        self.assertEqual(tri.checkout_space(self.folder), "sp1")  # two inside it, one is the checkout itself
+        self.spaces({"id": "home", "folder": home}, {"id": "root", "folder": "/"}, {"id": "sp1", "folder": self.folder})
+        self.assertEqual(tri.checkout_space(self.folder), "sp1")
+        self.spaces({"id": "home", "folder": home}, {"id": "root", "folder": "/"})
+        self.assertEqual(tri.checkout_space(self.folder), "home")  # only spaces around it: the closest
+        self.spaces({"id": "sp9", "folder": self.folder}, {"id": "sp1", "folder": self.folder})
+        self.assertEqual(tri.checkout_space(self.folder), "sp1")  # equally close: the first by id, as the service picks
+        self.assertEqual(tri.checkout_space(self.folder, "sp9"), "sp9")  # named: that one
+
+    def test_no_space_says_what_to_do(self):
+        self.spaces()
+        with self.assertRaises(tri.Fail) as e:
+            tri.checkout_space(self.folder)
+        self.assertIn("New space", str(e.exception))
+
+    def test_a_level_saved_with_no_schedule_makes_it_in_the_deepest_space(self):
+        # the case found live: level=score saved, its schedule never made (Which space?); the next save makes it
+        with store.Store(store.locate(self.folder)) as s:
+            s.data["automations"] = [a for a in s.data.get("automations") or [] if not isinstance(a.get("triage"), dict)]
+        self.assertIsNone(self.schedule())
+        self.spaces({"id": "home", "folder": os.path.dirname(self.folder)}, {"id": "sp1", "folder": self.folder}, {"id": "sp3", "folder": os.path.join(self.folder, "x")})
+        code, out = self.triage("set", "level", "score")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.schedule()["space"], "sp1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -66,6 +66,8 @@ export const WRITES = [
   "task-handup-settled",
   // schedules: Run now, Pause, Resume, Edit
   "automation",
+  // Triage (fork #235): a yes card's Yes or No, Make its schedule
+  "triage",
   // screens: Take over, Hand back, Skip, a screenshot kept, Open on the desktop instead
   "screen",
   // artifacts: a note or words to its agent, Pin, Rename, Keep a proof, Restore a version, Delete

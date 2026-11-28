@@ -304,9 +304,10 @@ for another machine's):
 | `triage.level` | `off`, `score`, `fix` | `off` |
 | `triage.fix_from` | 3, 4 or 5 | 4 |
 | `triage.fixes_per_day` | 1 to 10 | 3 |
-| `triage.ask_merge` | on, off | off |
+| `triage.ask_merge` | on, off | on |
 
-Only the person sets them: the service saves them, and herdr-task refuses them from an agent's terminal.
+Ask me before merging starts on everywhere, as a human approves first: a repo turns it off under Set here once it
+trusts the fixes. Only the person sets them: the service saves them, and herdr-task refuses them from an agent's terminal.
 `triage.rules` and `triage.private_words` live only in the settings file.
 
 **Settings › Triage** is the plugin's page (a `SettingsSection`). It has the Tasks page's "Applies to" picker, moved

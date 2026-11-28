@@ -39,7 +39,7 @@ YES = os.path.join(STORE, ".triage-yes.json")
 TITLE = "Triage"
 PLUGIN = "triage"
 LEVELS = ("off", "score")           # "fix" (Score and fix) comes in a later phase
-DEFAULTS = {"level": "off", "fix_from": 4, "fixes_per_day": 3, "ask_merge": False}
+DEFAULTS = {"level": "off", "fix_from": 4, "fixes_per_day": 3, "ask_merge": True}
 SCORES = [f"score:{n}" for n in range(1, 6)]
 AREAS = ("patch", "pipeline")
 FLOW = ("needs-triage", "ready", "fixing", "decision", "blocked", "later")
@@ -464,8 +464,9 @@ def brief(folder, repo, d=None):
 def checkout_space(folder, space=None):
     """The space the repo's Triage schedule runs in: the one named (--space, the service's pick), else the checkout's
     own (launch.space_for_folder: the one space in it), else the space whose folder is closest around it (the deepest:
-    a repo's space wins over Everything's home folder, which holds every repo), else the caller's. Several equally
-    close, or none at all: Fail, saying which, never "Which space?" with no way to answer from the app."""
+    a repo's space wins over Everything's home folder, which holds every repo; of several equally close, the first by
+    id, as the service picks: service/triage.ts spaceFor), else the caller's. None at all: Fail, saying what to do,
+    never "Which space?" with no way to answer from the app."""
     from .launch import _inside, core_spaces, default_space, space_for_folder
     if space:
         return bare(space)
@@ -478,10 +479,7 @@ def checkout_space(folder, space=None):
     if around:
         depth = lambda x: len(os.path.realpath(os.path.expanduser(x["folder"])).rstrip("/").split("/"))
         deepest = max(depth(x) for x in around)
-        best = sorted({str(x["id"]) for x in around if depth(x) == deepest})
-        if len(best) == 1:
-            return bare(best[0])
-        raise Fail(f"Spaces {', '.join(best)} all sit on this checkout's folder: say which one Triage runs in (--space).")
+        return bare(sorted(str(x["id"]) for x in around if depth(x) == deepest)[0])
     try:
         return bare(default_space())
     except Fail:

@@ -7,7 +7,7 @@
 import { repoLayer } from "./settings.ts";
 
 export type TriageKeys = { level: "off" | "score"; fix_from: number; fixes_per_day: number; ask_merge: boolean };
-export const TRIAGE_DEFAULTS: TriageKeys = { level: "off", fix_from: 4, fixes_per_day: 3, ask_merge: false };
+export const TRIAGE_DEFAULTS: TriageKeys = { level: "off", fix_from: 4, fixes_per_day: 3, ask_merge: true };
 export const TRIAGE_KEYS = Object.keys(TRIAGE_DEFAULTS) as (keyof TriageKeys)[];
 const LEVELS = ["off", "score"];
 
