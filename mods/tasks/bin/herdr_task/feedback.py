@@ -552,6 +552,9 @@ def cmd_feedback(args):
         key = args.key or find(ps, line)
         p = ps.get(key) if isinstance(ps.get(key), dict) else None
         line = line or (p or {}).get("line") or ""
+        if (args.no or args.file) and (p or {}).get("decision") == "following":  # the person chose Follow on the page (#94)
+            return say(args, {"key": key, "changed": False, "why": "following"},
+                       "The person follows an issue for this one on the Feedback page: nothing filed, nothing changed. Carry on.")
         if args.no:
             ps[key] = {**(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
@@ -665,7 +668,8 @@ def file_it(args, key, p, line, d, agent):
     env = environment(p.get("agent") or agent, args.surface)
     title = redact(one_line(args.title or line, 120))
     body = issue_body(line, fields, env)
-    dups = [] if args.new else duplicates(repo, p.get("search") or line) if not args.comment else []
+    from .feedback_check import public_terms  # a shaped problem's public words, no path (#94, slice 3)
+    dups = [] if args.new else duplicates(repo, " ".join(public_terms(p["search"])) if p.get("search") else line) if not args.comment else []
     if args.dry_run:
         out = {"repo": repo, "title": title, "body": body, "duplicates": dups}
         return say(args, out, f"Draft for {repo} (nothing filed):\n\nTitle: {title}\n\n{body}" +

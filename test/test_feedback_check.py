@@ -202,6 +202,43 @@ class Checked(World):
         self.say("--key", key, "--check", "--json")
         self.assertNotIn("check_error", self.one(key))
 
+    def test_a_path_in_the_search_words_never_leaves(self):
+        # redact() keeps a home path's tail (~/clients/…), fine in an issue body: a search drops the whole path
+        key = self.report()
+        self.shape(key, search="reply bubble /home/localuser/clients/private-project ~/work/acme-site C:\\Users\\x message")
+        self.assertEqual(self.searched(), ["reply bubble message"])
+
+    def test_a_release_lookup_that_fails_keeps_the_last_answer(self):
+        key = self.report()
+        self.shape(key)
+        self.assertEqual(self.one(key)["checked"]["newest"], "3.2.23")
+        real = self.github
+        self.github = lambda args, **kw: (subprocess.CompletedProcess(args, 1, "", "HTTP 502: Bad Gateway")
+                                          if args[1] == "api" and args[2].endswith("/releases/latest") else real(args, **kw))
+        self.caller = ASSISTANT
+        with mock.patch.object(fb, "run", self.github):
+            self.say("--key", key, "--check", "--json")
+        self.assertEqual(self.one(key)["checked"]["newest"], "3.2.23")
+        # GitHub's own "no release" (404) is an answer: none
+        self.release = None
+        self.say("--key", key, "--check", "--json")
+        self.assertIsNone(self.one(key)["checked"]["newest"])
+
+    def test_gh_that_cant_start_is_a_failed_check_not_a_crash(self):
+        key = self.report()
+        self.shape(key)
+        before = self.one(key)
+        self.caller = ASSISTANT
+
+        def missing(args, **_):
+            raise FileNotFoundError(2, "No such file or directory")
+        with mock.patch.object(fb, "run", missing):
+            code, out = self.say("--key", key, "--check", "--json")
+        self.assertEqual((code, json.loads(out)["why"]), (0, "gh"))
+        after = self.one(key)
+        self.assertIn("gh can't start", after["check_error"]["why"])
+        self.assertEqual(after["checked"], before["checked"])
+
     def test_a_space_with_offers_off_checks_nothing(self):
         key = self.report()
         self.settings({"here": "vm-test", "spaces": {"sp1": {"agents": {"feedback": False}}}})
@@ -275,6 +312,21 @@ class Checked(World):
         self.assertEqual(code, 1)
         self.assertIn("Only the person follows", out)
         self.assertNotIn("decision", self.one(key))
+
+    def test_a_chat_yes_or_no_after_follow_changes_nothing(self):
+        # the chat's card stayed open while the person chose Follow this one on the page
+        key = self.report()
+        self.issues = {UP: [issue(3, "Reply bubble message shows nothing")]}
+        self.shape(key)
+        self.person("--key", key, "--follow", f"https://github.com/{UP}/issues/3")
+        self.gh.clear()
+        self.caller = ASSISTANT
+        for flag in ("--file", "--no"):
+            code, out = self.say("--key", key, flag, "--json")
+            self.assertEqual((code, json.loads(out)["why"]), (0, "following"), out)
+        self.assertEqual(self.gh, [])
+        p = self.one(key)
+        self.assertEqual((p["decision"], p["state"]), ("following", "told"))
 
     def test_not_now_or_never_on_a_followed_one_waits_for_its_undo(self):
         key = self.report()

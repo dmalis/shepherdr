@@ -90,7 +90,8 @@ export function checkOf(p: any): FeedbackRow["check"] | undefined {
   if (!c && !p.check_error) return undefined;
   const of = (l: unknown, makers: boolean) => (Array.isArray(l) ? l : []).map((m) => matchOf(m, makers)).filter((m): m is FeedbackMatch => !!m);
   return {
-    matches: [...of(c?.dupes, false), ...of(c?.upstream, true)],
+    // an issue and a duplicate that points to it are one match: the first one found
+    matches: [...of(c?.dupes, false), ...of(c?.upstream, true)].filter((m, i, all) => all.findIndex((x) => x.url === m.url) === i),
     ...(VERSION.test(c?.newest ?? "") ? { newest: c.newest } : {}),
     ...(VERSION.test(c?.installed ?? "") ? { installed: c.installed } : {}),
     ...(p.check_error ? { failed: true as const } : {}),

@@ -224,6 +224,8 @@ test("never checked: nothing; a check GitHub couldn't answer keeps the last one 
   expect(checkOf({})).toBeUndefined();
   expect(checkOf({ check_error: { at: NOW, why: "x" } })).toEqual({ matches: [], failed: true });
   expect(checkOf({ checked: { dupes: [up(1)] }, check_error: { at: NOW, why: "x" } })!.matches.length).toBe(1);
+  // an issue and a duplicate that points to it: one match, one Follow
+  expect(checkOf({ checked: { dupes: [up(2), { ...up(5, { state: "closed", reason: "duplicate" }), canonical: up(2) }] } })!.matches.map((m) => m.number)).toEqual([2]);
 });
 
 test("Follow this one: an issue on GitHub only, and a followed row is under Filed with what it follows", () => {

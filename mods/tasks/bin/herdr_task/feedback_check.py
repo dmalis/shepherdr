@@ -12,6 +12,7 @@
 
 import json
 import re
+import subprocess
 
 from . import feedback as fbm
 from .base import Fail, now
@@ -32,6 +33,21 @@ SETTINGS_WORDS = ("Record each one without asking (herdr-task feedback \"<one li
                   "before answering the person, shape it: herdr-task feedback --key <key> --shape --fix \"<the fix for every "
                   "Shepherdr user, one line>\" --search \"<public words: Shepherdr's own names for the screen or command, never "
                   "the person's project, people or data>\" keeps the fix and checks GitHub for it; the page shows what it found")
+
+
+def public_terms(text):
+    """The words a search may send: no path, address or redaction mark at all (redact() keeps a home path's tail as
+    ~/…, fine in an issue body, never in a search), then search_terms' redacted, telling words."""
+    kept = [w for w in str(text or "").split() if not re.search(r"[/\\~<>@:]", w)]
+    return search_terms(" ".join(kept))
+
+
+def gh(args):
+    """gh, read only; one that can't start (not installed) answers as a failure, never an exception."""
+    try:
+        return fbm.run([fbm.GH, *args])
+    except OSError as e:
+        return subprocess.CompletedProcess([fbm.GH, *args], 127, "", f"gh can't start: {e.strerror or e}")
 
 
 def asked(args):
@@ -103,7 +119,7 @@ def check(key, d=None):
         raise Fail("No problem with that key is kept here.")
     if not feedback_on(p.get("space"), d):
         return {"key": key, "checked": False, "why": "off"}, "Feedback offers are off in its space: nothing checked."
-    terms = search_terms(p.get("search") or "")
+    terms = public_terms(p.get("search"))
     if not terms:
         return ({"key": key, "checked": False, "why": "no-search"},
                 "No search words yet, so nothing was checked: shape it first (--shape --fix \"…\" --search \"<public words>\").")
@@ -117,7 +133,10 @@ def check(key, d=None):
             if isinstance(ps.get(key), dict):
                 ps[key] = {**ps[key], "check_error": {"at": now(), "why": why}}
         return {"key": key, "checked": False, "why": "gh", "error": why}, f"{why} The Feedback page keeps its last check."
-    found = {"at": now(), "repo": repo, "dupes": same, "upstream": makers, "newest": newest_release(REPO),
+    newest = newest_release(REPO)
+    if newest is FAILED:  # GitHub didn't say: the last check's answer stays
+        newest = p["checked"].get("newest") if isinstance(p.get("checked"), dict) else None
+    found = {"at": now(), "repo": repo, "dupes": same, "upstream": makers, "newest": newest,
              "installed": fbm.shepherdr_version()}
     with problems() as ps:
         if isinstance(ps.get(key), dict):
@@ -137,8 +156,8 @@ def issues(repo, terms):
     """The repo's issues, open and closed, that may be this one: all the words first, then the first three (a long
     query finds nothing). Each closed as a duplicate names its canonical issue when GitHub's timeline does."""
     for ws in (terms, terms[:3]) if len(terms) > 3 else (terms,):
-        r = fbm.run([fbm.GH, "issue", "list", "--repo", repo, "--state", "all", "--search", " ".join(ws),
-                 "--json", "number,title,url,state,stateReason", "--limit", "5"])
+        r = gh(["issue", "list", "--repo", repo, "--state", "all", "--search", " ".join(ws),
+                "--json", "number,title,url,state,stateReason", "--limit", "5"])
         if r.returncode != 0:
             raise Fail(f"GitHub isn't reachable here ({one_line((r.stderr or r.stdout).strip() or 'gh failed', 160)}).")
         try:
@@ -167,7 +186,7 @@ def match(repo, x):
 def canonical(repo, number):
     """The issue a duplicate points to (GitHub's MarkedAsDuplicateEvent), else None."""
     owner, _, name = repo.partition("/")
-    r = fbm.run([fbm.GH, "api", "graphql", "-f", f"query={CANONICAL}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}"])
+    r = gh(["api", "graphql", "-f", f"query={CANONICAL}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}"])
     if r.returncode != 0:
         return None
     try:
@@ -180,11 +199,17 @@ def canonical(repo, number):
     return match(repo, c)
 
 
+FAILED = object()  # newest_release: GitHub didn't answer
+
+
 def newest_release(repo):
-    """Shepherdr's newest stable release, as a version ("3.2.23"), else None (none yet, or GitHub didn't say)."""
-    r = fbm.run([fbm.GH, "api", f"repos/{repo}/releases/latest", "--jq", ".tag_name"])
-    m = re.fullmatch(r"v?(\d+\.\d+\.\d+)", (r.stdout or "").strip()) if r.returncode == 0 else None
-    return m.group(1) if m else None
+    """Shepherdr's newest stable release, as a version ("3.2.23"); None when it has none (GitHub's 404); FAILED when
+    GitHub didn't say."""
+    r = gh(["api", f"repos/{repo}/releases/latest", "--jq", ".tag_name"])
+    if r.returncode != 0:
+        return None if re.search(r"\b404\b|Not Found", (r.stderr or "") + (r.stdout or "")) else FAILED
+    m = re.fullmatch(r"v?(\d+\.\d+\.\d+)", (r.stdout or "").strip())
+    return m.group(1) if m else FAILED
 
 
 def version(v):
