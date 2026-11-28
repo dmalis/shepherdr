@@ -597,7 +597,9 @@ export function newSpaceInfo(machine: string, down = false) {
 /** what /api/folders answers for a folder on a machine (its subfolders from home as ~) */
 export function foldersOf(machine: string, path: string) {
   const home = HOMES[machine] ?? '/home/sam'
-  const abs = path === '~' ? home : path.startsWith('~/') ? home + path.slice(1) : path
+  // as typed ("~/dev/shop/"): no trailing /, and a relative one from home
+  const full = path === '~' ? home : path.startsWith('~/') ? home + path.slice(1) : path.startsWith('/') ? path : `${home}/${path}`
+  const abs = full.replace(/\/+$/, '') || '/'
   const tilde = (p: string) => (p === home ? '~' : p.startsWith(home + '/') ? `~${p.slice(home.length)}` : p)
   const tree = TREES[machine] ?? {}
   const there = abs in tree || Object.entries(tree).some(([d, ks]) => ks.some((k) => `${d === '/' ? '' : d}/${k.replace(/\*$/, '')}` === abs))
