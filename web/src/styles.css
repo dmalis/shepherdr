@@ -64,7 +64,7 @@ div.b[data-menu]{cursor:pointer}
 .md [data-sx]:focus-visible{outline:0}.md .tbl:has(>.tbls:focus-visible),.md .code.block:has(>pre:focus-visible){outline:2px solid var(--fg);outline-offset:2px}
 .md .tblx{display:none;margin-top:-4px;color:var(--sub)}.md .tbl[data-wide]+.tblx{display:inline-flex}
 .md .tblx .i{width:var(--ic-sm);height:var(--ic-sm);margin-left:-2px}
-.tblsheet .hd h2{flex:1;min-width:0}.tblsheet .md .tbl{margin:0}
+.tblsheet{grid-template-columns:minmax(0,1fr)}.tblsheet .hd h2{flex:1;min-width:0}.tblsheet .md .tbl{margin:0}
 .dlg.wide:has(>.tblsheet){width:min(1200px,calc(100% - 32px))}
 .md th,.md td{padding:4px 12px 4px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:break-word}
 .md td.long,.md th.long{min-width:10em}
