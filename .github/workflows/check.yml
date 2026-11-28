@@ -70,6 +70,10 @@ jobs:
       - name: a phone's message box is two rows, its bar one line (the built demo, 320 and 390 px)
         # fork #105: web/demo/box-check.ts in the runner's own Chrome
         run: bun web/demo/box-check.ts
+      - name: typing on a phone (the built demo, 320 and 390 px, keyboard up and down)
+        # fork #134: web/demo/phone-box-check.ts types a line, Return for a new line, sends with the button and with
+        # Enter on a hardware keyboard, and measures the box's rows, in the runner's own Chrome
+        run: bun web/demo/phone-box-check.ts
       - name: shell scripts parse
         # every script under plain bash (macOS's bash 3.2 is what people run; #908), and one whose first line says sh
         # also under sh (dash here). test_repo's test_each_parses checks every shipped script the same way.
