@@ -1,0 +1,15 @@
+{
+  "issue": 250,
+  "name": "a Codex reviewer can run tests: its own temp folder writable, the worktree not",
+  "files": [
+    "mods/tasks/bin/herdr_task/review_sandbox.py",
+    "mods/tasks/bin/herdr_task/settings.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "test/test_review_sandbox.py",
+    "test/test_herdr_task.py::ReviewerLine",
+    "test/test_herdr_task.py::CodexBatch278.test_reviewer_command_brings_nvm_s_folder"
+  ]
+}

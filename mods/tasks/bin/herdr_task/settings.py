@@ -12,6 +12,7 @@ import time
 
 from .base import Fail, git, HOME, WHERE
 from . import flags as FLAGS
+from . import review_sandbox
 
 
 # What each agent key starts by default. Unknown keys run as themselves; --argv overrides.
@@ -754,7 +755,8 @@ def codex_login_now():
 def reviewer_command(who, model=None, effort=None, folder=None, fast=None, compact=None):
     """The worker's read-only reviewer. Codex keeps its own project trust and runs without user hooks."""
     if who == "codex":
-        a = ["codex", "--no-daemon", "--sandbox", "read-only", "--ask-for-approval", "never", "--disable", "hooks"]
+        # dmalis/shepherdr#250: read-only, but its own temp folder writable, for the task's tests (review_sandbox.py)
+        a = ["codex", "--no-daemon", *review_sandbox.ARGS, "--ask-for-approval", "never", "--disable", "hooks"]
         a += ["-m", model] if model else []
         a += ["-c", f'model_reasoning_effort="{effort}"'] if effort else []
         a += compact_args(who, compact)
