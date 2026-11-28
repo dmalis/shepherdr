@@ -1,0 +1,26 @@
+{
+  "issue": 171,
+  "name": "motion: Reduced means reduced everywhere",
+  "files": [
+    "web/src/ds.css",
+    "web/src/styles.css",
+    "web/src/dictate.css",
+    "web/src/motion.ts",
+    "web/src/viewport.ts",
+    "web/src/drag.ts",
+    "web/src/wave.tsx",
+    "web/src/list.tsx",
+    "web/src/edge-swipe.tsx",
+    "web/plugins/chat/client.tsx",
+    "web/demo/motion-check.ts",
+    ".github/workflows/check.yml",
+    "docs/design.md",
+    "docs/develop.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "test/test_design.py::ReducedMotion",
+    "test/test_design.py::Checks",
+    "web/src/edge-swipe.test.ts"
+  ]
+}
