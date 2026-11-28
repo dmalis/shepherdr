@@ -277,6 +277,40 @@ EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 HOME_PATH = re.compile(r"(?:/home|/Users)/[^/\s'\"`]+")
 TAILNET = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.ts\.net\b")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+# A task's key (its board's prefix and number, e.g. "AB-12"): it names the person's own boards, so it never goes
+# public, in a sentence, a list or a path alike. An upper-case key of any board counts, but a standard's or a model's
+# name of the same shape (UTF-8, SHA-256, ISO-8601, GPT-5, MPEG-4, …) and part of a longer token (CVE-2024-1234, a
+# version AB-1.2) don't; a prefix this machine's boards use counts in any case, even one of those (task_keys()).
+STANDARD_PREFIXES = ("UTF", "UCS", "SHA", "MD", "ISO", "IEC", "RFC", "CVE", "CWE", "GPT", "AES", "RSA", "TLS", "SSL",
+                     "HTTP", "IPV", "PEP", "ECMA", "ES", "IEEE", "WCAG", "COVID", "ARM", "BIP", "EIP", "KB", "CP",
+                     "UTC", "GMT", "ANSI", "ASCII", "CSS", "HTML", "OWASP", "NIST", "FIPS", "PCI", "MPEG", "H", "X", "P")
+_BEFORE, _AFTER, _NUM = r"(?<![\w.-])", r"(?![\w-]|\.\d)", r"-\d{1,6}"
+_ANY = rf"(?!(?:{'|'.join(STANDARD_PREFIXES)})-)[A-Z][A-Z0-9]{{1,9}}{_NUM}"
+_SEP = r"(?:\s*[,/&]\s*(?:and\s+)?|\s+and\s+)"
+_SEEN = {"at": 0, "prefixes": None}
+
+
+def task_keys(prefixes=None):
+    """(one key, a run of keys: "BA-3, CART-1 and DEV-2") as compiled patterns. prefixes: the boards' own (this
+    machine's, read at most once a minute, when None), matched in any case."""
+    if prefixes is None:
+        if _SEEN["prefixes"] is None or now() - _SEEN["at"] > 60000:
+            try:
+                from . import store
+                _SEEN["prefixes"] = sorted({str(p) for p in store.prefixes_in_use() if re.fullmatch(r"[A-Za-z]+[0-9]*", str(p))})
+            except Exception:  # noqa: BLE001  (no boards to read: the upper-case shape still counts)
+                _SEEN["prefixes"] = []
+            _SEEN["at"] = now()
+        prefixes = _SEEN["prefixes"]
+    own = rf"(?i:{'|'.join(re.escape(p) for p in sorted(prefixes, key=len, reverse=True))}){_NUM}|" if prefixes else ""
+    key = rf"{_BEFORE}(?:{own}{_ANY}){_AFTER}"
+    return re.compile(key), re.compile(rf"{key}(?:{_SEP}{key})*")
+
+
+def no_task_keys(text, prefixes=None):
+    """text with each task key said as "a task", and a run of them as "some tasks"."""
+    one, run = task_keys(prefixes)
+    return run.sub(lambda m: "a task" if len(one.findall(m.group(0))) == 1 else "some tasks", str(text or ""))
 
 
 def private_words():
@@ -304,7 +338,7 @@ def private_words():
 def redact(text, private=None):
     """Text fit for a public issue: secrets, tokens, credentials in URLs, e-mail addresses, home
     paths (made ~), tailnet names and IP addresses, and the names of this machine and its people
-    gone. private: the words to hide (private_words() when None)."""
+    gone, and a task's key (AB-12) said as "a task". private: the words to hide (private_words() when None)."""
     s = str(text or "")
     s = HOME_PATH.sub("~", s.replace(HOME.rstrip("/") + "/", "~/")) if HOME.rstrip("/") else HOME_PATH.sub("~", s)
     for rx in SECRETS:
@@ -315,6 +349,7 @@ def redact(text, private=None):
     s = EMAIL.sub("<email>", s)
     s = TAILNET.sub("<host>", s)
     s = IPV4.sub("<ip>", s)
+    s = no_task_keys(s)
     for w in private_words() if private is None else private:
         s = re.sub(rf"(?i)(?<![\w-]){re.escape(w)}(?![\w-])", "<name>", s)
     return s

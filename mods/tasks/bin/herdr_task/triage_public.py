@@ -6,7 +6,8 @@ found and on which line, never the text. Its answer is pass, unsure or hit.
   home paths whole or with a tilde, this machine's host name and every linked machine's (`hc machine ls`), the names of
   the machine's other spaces and repos (the settings file, and `gh repo list` once a day), `triage.private_words`, and
   what `fork/sync/public.py` refuses (tailnet and `.local` names, IP addresses, installer output and tracebacks), ported
-  here since herdr-task can't import `fork/`.
+  here since herdr-task can't import `fork/`; and a task's key (feedback.task_keys: "AB-12"), which feedback.redact()
+  turns into "a task" in every draft.
 - **Unsure:** a phone-number shape; anything feedback.redact() would change; a capitalised word that isn't at a
   sentence's start, or a word mixing letters and digits, that appears nowhere in the repo's own text.
 
@@ -19,6 +20,7 @@ import socket
 import subprocess
 
 from .base import GH, HOME, hc_json, now, STORE
+from .feedback import task_keys
 
 DAY_MS = 24 * 3600000
 DENY_FILE = os.path.join(STORE, ".triage-deny.json")
@@ -230,6 +232,7 @@ def check(text, deny=None, known=None, redact=None, hits_only=False):
     emails = {e.lower() for e in deny.get("emails") or []}
     named = _named(deny.get("words") or [])
     found = []
+    key_rx = None if hits_only else task_keys()[0]
     for n, line in enumerate(str(text or "").splitlines() or [""], 1):
         kinds = []
         if HOME_PATH.search(line) or (HOME.rstrip("/") and HOME.rstrip("/") in line):
@@ -245,6 +248,8 @@ def check(text, deny=None, known=None, redact=None, hits_only=False):
             kinds.append("an IP address")
         if named and named.search(line):
             kinds.append("a private name")
+        if key_rx and key_rx.search(line):
+            kinds.append("a task key")
         for kind, rx in RAW:
             if rx.search(line) and kind not in kinds:
                 kinds.append(kind)

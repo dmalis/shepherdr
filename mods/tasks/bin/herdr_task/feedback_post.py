@@ -19,6 +19,8 @@
 
 The record's fields are the spec's: `draft`, `approval`, `post`, and `decision: "approved"`."""
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -42,12 +44,74 @@ REFUSED = re.compile(r"(?i)\bHTTP 401\b|gh auth login|not logged in|authenticati
                      r"does not have the correct permissions|issues are disabled|has disabled issues|gh can't start")
 
 
+def mark_secret():
+    """This store's own secret for mark_key (owner-only, made once, never leaves the machine); None when the store
+    can't keep one (read-only)."""
+    path = os.path.join(fbm.STORE, ".feedback-mark-key")
+    for _ in range(2):
+        try:
+            with open(path, encoding="utf-8") as f:
+                s = f.read().strip()
+            if re.fullmatch(r"[0-9a-f]{32}", s):
+                return s
+        except OSError:
+            pass
+        try:
+            os.makedirs(fbm.STORE, exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue  # made meanwhile by another call: read it
+        except OSError:
+            return None
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(16))
+    return None
+
+
+def mark_key(key):
+    """The key as a public marker writes it: a finding's own id as it is (random, it says nothing); any other key
+    (Triage's copy of another machine's row, "<machine>:<id>") as a keyed hash of it, so a machine's name never goes
+    public, nor can a guess at one be checked against it (the key is this store's secret)."""
+    key = str(key)
+    if re.fullmatch(r"[0-9A-Za-z_-]+", key):
+        return key
+    return "c" + hmac.new((mark_secret() or "").encode(), key.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def legacy_key(key):
+    """How a marker wrote a copy's key before mark_key (the machine's name in plain): still read, never written."""
+    return re.sub(r"[^0-9A-Za-z_-]", "_", str(key))
+
+
 def marker(key, rev, tag=None):
     """The hidden line every post ends with: how a post whose answer was lost is found again, never posted twice. Its
-    tag, random per revision, keeps two stores' posts with one id and revision apart. A key with other characters (Triage's
-    copy of another machine's row, "<machine>:<id>") is written with `_` for them, so MARK still reads it."""
-    key = re.sub(r"[^0-9A-Za-z_-]", "_", str(key))
-    return f"<!-- shepherdr-feedback {key} rev {rev}{' ' + tag if tag else ''} -->"
+    tag, random per revision, keeps two stores' posts with one id and revision apart. Its key is mark_key's."""
+    return f"<!-- shepherdr-feedback {mark_key(key)} rev {rev}{' ' + tag if tag else ''} -->"
+
+
+MARK_PARTS = re.compile(r"<!-- shepherdr-feedback ([0-9A-Za-z_-]+)( rev \d+(?: [0-9a-f]{8,32})? -->)")
+
+
+def fresh(key, body):
+    """A stored draft's body with its marker's key in mark_key's form (a draft written before it named the machine)."""
+    body = str(body or "")
+    m = MARK.search(body)
+    parts = MARK_PARTS.search(m.group(0)) if m else None
+    if not parts or legacy_key(key) == mark_key(key) or parts.group(1) != legacy_key(key):
+        return body
+    return body[:m.start()] + m.group(0).replace(parts.group(0), f"<!-- shepherdr-feedback {mark_key(key)}{parts.group(2)}") + body[m.end():]
+
+
+def same_mark(found, mark, key):
+    """Whether a marker found on GitHub is this post's: the one it was sent with, or the same with the key's other form
+    (a post sent before mark_key, or one whose marker was rewritten since)."""
+    if not found or not mark:
+        return False
+    if found == mark:
+        return True
+    a, b = MARK_PARTS.fullmatch(found), MARK_PARTS.fullmatch(mark)
+    forms = {mark_key(key), legacy_key(key)}
+    return bool(a and b) and a.group(2) == b.group(2) and a.group(1) in forms and b.group(1) in forms
 
 
 def mark_of(body):
@@ -502,7 +566,7 @@ def reconcile(key, d=None):
         items = pages(r.stdout)
     except ValueError:
         return still_unsure(key, post, "GitHub's answer couldn't be read"), words
-    hit = next((x for x in items if isinstance(x, dict) and mark_of(x.get("body")) == mark and x.get("html_url")), None)
+    hit = next((x for x in items if isinstance(x, dict) and same_mark(mark_of(x.get("body")), mark, key) and x.get("html_url")), None)
     if hit:
         return posted(key, post, str(hit["html_url"]))
     return still_unsure(key, post, "not found on GitHub"), words
