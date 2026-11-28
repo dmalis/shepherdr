@@ -34,9 +34,18 @@ test('nothing on the frame or its sketch animates, and its shape is fixed', () =
   for (const r of rs) expect(r.body).not.toMatch(/\banimation\b/)
   expect(read('web/src/styles.css')).not.toContain('@keyframes prevwait')
   expect(rs.find((r) => r.sel === '.prev')?.body).toContain('aspect-ratio:16/10')
+  // the picture fills the frame out of its flow: one taller than 16:10 can't stretch the tile as it loads
+  expect(rs.find((r) => r.sel === '.prev img' && r.body.includes('position:'))?.body).toContain('position:absolute;inset:0')
   // the picture fades in over the sketch; the sketch hides once that fade is over, at once under either reduced setting
   expect(rs.some((r) => r.sel === '.prev:not(.wait) .psk' && r.body.includes('transition:visibility 0s .2s'))).toBe(true)
   expect(read('web/src/styles.css')).toContain(':root[data-motion="reduced"] .prev img,:root[data-motion="reduced"] .prev:not(.wait) .psk{transition:none}')
+})
+
+test("a picture opened in Files sits in a frame the pane's height, fitted inside it", () => {
+  const css = read('web/plugins/files/files.css')
+  expect(css).toMatch(/\.ftimg\{[^}]*height:100%/)
+  expect(css).toMatch(/\.ftimg img\{[^}]*max-width:100%;max-height:100%/)
+  expect(read('web/plugins/files/client.tsx')).toContain('<div className="ftimg"><img ')
 })
 
 test('the still check finds what it measures: the demo refuses pictures on ?case=nopics, at the tile\'s address', () => {

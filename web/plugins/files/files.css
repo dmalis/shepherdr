@@ -8,6 +8,8 @@
 .row.ft .chev.none{visibility:hidden}
 .ftnote{padding:6px 8px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 .ftext{margin:0;padding:4px 4px 24px;font:13px/20px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg);white-space:pre;overflow-x:auto;tab-size:4}
-.ftimg{display:grid;place-items:center;padding:8px}
-.ftimg img{max-width:100%;height:auto;border-radius:8px;background:repeating-conic-gradient(var(--control) 0 25%,transparent 0 50%) 0 0/16px 16px}
+/* a picture fills the pane's frame, fitted whole inside it (as VS Code's and Preview's image views): the frame is the
+   pane's own height before the picture loads, so nothing moves when it comes (docs/design.md, Performance) */
+.ftimg{box-sizing:border-box;display:flex;align-items:center;justify-content:center;height:100%;min-height:160px;padding:8px}
+.ftimg img{min-width:0;max-width:100%;max-height:100%;height:auto;object-fit:contain;border-radius:8px;background:repeating-conic-gradient(var(--control) 0 25%,transparent 0 50%) 0 0/16px 16px}
 @media(pointer:coarse){.row.ft{min-height:40px;font-size:15px}}

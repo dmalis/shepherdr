@@ -5,6 +5,7 @@
     "web/src/styles.css",
     "web/plugins/artifacts/client.tsx",
     "web/plugins/screens/client.tsx",
+    "web/plugins/files/files.css",
     "web/demo/still-check.ts",
     ".github/workflows/check.yml",
     "docs/design.md",
