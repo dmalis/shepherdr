@@ -90,7 +90,11 @@ so the cost of a patch is how often a release breaks it. Build for that.
 ## 5. Done means
 
 - The pull request links the issue with `Part of #n` (never `Closes`) and adds its `fork/patches/<n>.json`, CI's
-  `check` passed, and the reviewer had no must-fix finding left.
+  `check` passed, and the reviewer had no must-fix finding left. A slice of a bigger issue names it in its patch
+  file as `"umbrella": <n>`, and its pull request says `Part of #<umbrella>` too. `herdr-task ready` writes its own
+  description: give it the line with `--pr-body`, or add it after with `gh pr edit <pr> -R dmalis/shepherdr
+  --body-file <file>`. The fork check fails a pull request that changes a patch file without the line, and names
+  the line to add.
 - UI work: its proof has the 390px and desktop screenshots, light and dark, and its summary names the UI skills used.
 - **Only a real device can confirm it** (iOS home-screen behaviour, a real keyboard, push on a device, haptics:
   anything our headless checks can't show): the summary and the issue both say what to do on the device and what
@@ -102,7 +106,7 @@ so the cost of a patch is how often a release breaks it. Build for that.
 - Before ready, its status line says in plain words what the fix does and how to try it: "building. What it does:
   <one line>. Try it: <what to open or do, and what you should see>". On an older issue that already holds several
   fixes, it adds this pull request as "#m: building", with its own what and try-it.
-- The install that makes it live puts "carried since `ours-…`" in front of that line and labels the issue
-  `not-filed`: not offered upstream yet. It stays open, with `not-filed`, until an upstream round the person asks
+- The install that makes it live puts "carried since `ours-…`" in front of that line (`fork/bin/sync issues`, never
+  by hand; later installs keep that first tag) and labels the issue `not-filed`: not offered upstream yet. It stays open, with `not-filed`, until an upstream round the person asks
   for offers it, or they say keep it ours or undo it (upstream-issue skill: "After a fix lands"). Nobody asks them
   about upstream per fix.

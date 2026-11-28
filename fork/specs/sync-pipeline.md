@@ -536,7 +536,9 @@ Only as far as the sync run needs them.
   `fork/patches.json`). Patches still being built aren't in it, so they are neither tested nor counted.
 - A patch dropped in the sync PR leaves the list there, and its issue gets `fixed-upstream`. It is closed only after the
   install that no longer has it is healthy.
-- After a healthy install, each listed issue's status line becomes "carried since `ours-…`".
+- After a healthy install, `fork/bin/sync issues` puts "carried since `ours-…`" on each listed issue's status line that
+  lacks it, in one pass that writes only the issues whose line or labels change (`fork/sync/issues.py`). The tag is
+  the first install that carried the fix; later installs leave it.
 - Our pull requests say `Part of #n`, never `Closes`, so no merge closes a carried patch's issue.
 
 **Upstream issues (Codex point 17).** The run's report lists the person's upstream issues closed or answered since the

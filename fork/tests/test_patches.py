@@ -73,6 +73,7 @@ class Problems(unittest.TestCase):
     def test_a_good_line(self):
         for tests in (["test/test_a.py"], ["test/test_a.py::One"], ["test/test_a.py::One.test_it"], ["service/b.test.ts"]):
             self.assertEqual(patches.problems(self.tmp, [self.line(tests=tests, files=["a.py", "web/b.tsx"])]), [])
+        self.assertEqual(patches.problems(self.tmp, [self.line(umbrella=132)]), [], "a slice names its umbrella")
 
     def test_what_it_finds(self):
         cases = [
@@ -86,6 +87,9 @@ class Problems(unittest.TestCase):
             (self.line(name=""), "#5: no name"),
             (self.line(issue="5"), "line 1: no issue number"),
             (self.line(issue=True), "line 1: no issue number"),
+            (self.line(umbrella="132"), "#5: its umbrella isn't another issue's number"),
+            (self.line(umbrella=5), "#5: its umbrella isn't another issue's number"),
+            (self.line(umbrella=True), "#5: its umbrella isn't another issue's number"),
         ]
         for line, want in cases:
             self.assertEqual(patches.problems(self.tmp, [line]), [want], line)

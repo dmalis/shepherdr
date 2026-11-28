@@ -81,7 +81,8 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
 
   The open issues labelled `patch` are the list of what we carry and build.
 - **Each pull request names its issue** with `Part of #n`, never `Closes`. A patch's issue stays open while we carry
-  it. It closes only when the patch is retired, after a healthy install without it.
+  it. It closes only when the patch is retired, after a healthy install without it. The fork check fails a pull
+  request that changes a `fork/patches/<n>.json` without its `Part of #n`.
 - **The issue keeps a short status line**, one of:
   - building;
   - carried since `ours-…`, not filed yet;
@@ -91,7 +92,9 @@ own logins and settings. It makes exactly two exceptions to AGENTS.md:
   - fixed upstream in `vX.Y.Z`, then dropped.
 
   After it, in plain words: what the fix does and how to try it. An issue with several fixes lists each pull
-  request on its status line, with what became of it.
+  request on its status line, with what became of it. The install moves status lines and labels itself
+  (`fork/bin/sync issues`, upstream-sync skill, step 7), writing only what changes; "carried since" keeps the first
+  install that carried the fix.
 - **Labels:**
   - `patch`: a change we carry.
   - `pipeline`: sync, trial and install.

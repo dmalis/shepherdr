@@ -6,6 +6,8 @@ name: Fork check
 on:
   pull_request:
     branches: [main]
+    # edited: a description fixed to name its issue (Part of #n) checks again
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   workflow_dispatch:
@@ -23,6 +25,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2    # a pull request's merge commit and its base, for the Part of #n step
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -49,3 +53,17 @@ jobs:
           exit $fail
       - name: the fork's tests
         run: python3 -m unittest discover -s fork/tests -v
+      - name: a pull request that changes a patch file names its issue (Part of #n)
+        # each fork/patches/<n>.json the branch adds, changes or removes, and the umbrella its line names; the install
+        # finds a fix's issue from it. A sync pull request (sync/*) is exempt.
+        if: github.event_name == 'pull_request'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          out=$(python3 fork/bin/sync part-of --base HEAD^1 --head HEAD --branch "$BRANCH" --body-file "$RUNNER_TEMP/body.md" --root "$RUNNER_TEMP") && exit 0
+          echo "$out"
+          why=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("why", ""))')
+          echo "::error::$why"
+          exit 1
