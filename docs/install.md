@@ -165,12 +165,14 @@ runners), and a socket's path can't be longer than about 100 bytes, so 60 bytes 
 `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust all use
 `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
 Everything run for the task holds a lock on its folder while it runs (a shared `flock`): its agent, the shell its
-terminal keeps after it, its terminal in the web app and its background actions. systemd-tmpfiles' clean-up of
-`/var/tmp` skips a locked folder. Only Shepherdr removes one, and never while it is locked or herdr-core still lists a
-terminal of the task: when the task is Done and its agents have ended, when it is removed, and by the scheduler, when
-it starts and every 10 minutes after, once its task is Done or gone and an hour has passed since it was last used.
-When that can't be told, it stays. A start held because a disk is full (its space or its file slots, on the home,
-`/tmp` or `/var/tmp`) has that clean-up run at once, then looks again. Folders older copies made (`~/.shep-tmp` on
+terminal keeps after it, its terminal in the web app and its background actions; one that can't take the lock (the
+folder is being removed) uses the machine's own temp folder instead. systemd-tmpfiles' clean-up of `/var/tmp` skips a
+locked folder, and ages an unlocked one's files after 30 days. Only Shepherdr removes a folder, and never while it is
+locked or herdr-core still lists a terminal of the task, its reviewer and helpers too, even after the task is
+removed: when the task is Done and its agents have ended, when it is removed, and by the scheduler, when it starts
+and every 10 minutes after, once its task is Done or gone and an hour has passed since it was last used. When that
+can't be told, it stays. A start held because a disk is full (its space or its file slots, on the home, `/tmp` or
+the disk the temp folders are on, which the Machines card shows too) has that clean-up run at once, then looks again. Folders older copies made (`~/.shep-tmp` on
 Linux, `~/.cache/shepherdr/tmp`) are removed where they are by the same rules; a task's next start gets a new one. Its
 reviewer gets it too: `hc run` has no way to set a variable, so the brief's
 Reviewer line passes it with `env`, and the worker template asks the same for any other helper the agent starts.

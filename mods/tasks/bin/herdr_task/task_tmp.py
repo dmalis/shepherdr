@@ -43,11 +43,13 @@ MOUNTS = "/proc/self/mounts"
 NOT_LOCAL = re.compile(r"^(tmpfs|ramfs|nfs4?|cifs|smb3?|9p|afs|ceph|glusterfs|virtiofs|fuse\..*)$")
 # sh words that lock the folder "$1" names on descriptor 9, shared and never waiting, for what runs after: util-linux's
 # flock, else Python's (macOS has no flock command). A lock belongs to the open descriptor: every process that inherits
-# 9 holds it, and it ends when the last one closes. service/shells.ts's TMP_SHELL has the same words.
-TAKE = ('[ -d "$1" ] && command exec 9<"$1" && { flock -s -n 9 || '
-        'python3 -c "import fcntl; fcntl.flock(9, fcntl.LOCK_SH | fcntl.LOCK_NB)"; } 2>/dev/null')
+# 9 holds it, and it ends when the last one closes. Not held (gone, or being removed): what runs gets the machine's own
+# temp folder, never this one. service/shells.ts's TMP_SHELL has the same words.
+TAKE = ('[ -d "$1" ] && command exec 9<"$1" && { flock -s -n 9 || python3 -c "import fcntl; '
+        'fcntl.flock(9, fcntl.LOCK_SH | fcntl.LOCK_NB)"; } 2>/dev/null || { command exec 9<&-; unset TMPDIR TMP TEMP; }')
+KEY_FILE = ".shep-task"  # in each folder: its task's key, so a removed task's folder still finds its live helpers
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
-_swept = 0.0
+_swept = _pressed = 0.0
 _local = {}
 
 
@@ -195,6 +197,8 @@ def ensure(s, task):
                 s.dirty = True
             _make_root(r)
             p = _new(r)
+            with open(os.path.join(p, KEY_FILE), "w") as f:
+                f.write(s.key(task))
     except Exception:
         return None
     if task.get("tmp") != p:
@@ -305,15 +309,14 @@ def sweep(report=None, force=False):
     if not found:
         return []
     from .store import read_list
-    rec = {}  # folder: (its task's key, whether it may go, since when)
+    rec, unsure = {}, False  # folder: (its task's key, whether it may go, since when)
     try:
         lists = [os.path.join(STORE, f) for f in os.listdir(STORE) if f.endswith(".json")]
     except OSError:
         return []
     for p in lists:
         d = read_list(p)
-        if d is None:
-            return []  # a list that can't be read now: nothing is known for sure, try again later
+        unsure = unsure or d is None  # a file that can't be read now (a list, or a sidecar): could record any folder
         if not isinstance(d, dict):
             continue
         slug = d.get("slug") or os.path.basename(p)[:-5]
@@ -326,7 +329,13 @@ def sweep(report=None, force=False):
                     rec[os.path.abspath(t["tmp_old"])] = (key, True, 0)
     gone = []
     for p, strays in found:
-        key, may, since = rec.get(os.path.abspath(p), (None, strays, 0))
+        key, may, since = rec.get(os.path.abspath(p), (None, strays and not unsure, 0))
+        if key is None:
+            try:
+                with open(os.path.join(p, KEY_FILE)) as f:
+                    key = f.read(200).strip() or None
+            except OSError:
+                pass
         if may and _ours(p) and _drop(key, p, GRACE_S, since):
             gone.append(os.path.basename(p))
     if gone and report is not None:
@@ -336,15 +345,22 @@ def sweep(report=None, force=False):
 
 def pressed():
     """A sweep now for a start held on a full disk (queues.machine_hold()), at most every PRESSED_EVERY_S on this
-    machine (a stamp beside the task lists): the names removed."""
+    machine (a stamp beside the task lists, and this process's own when a full disk can't take the stamp): the names
+    removed."""
+    global _pressed
     stamp = os.path.join(STORE, ".tmp-swept")
     try:
-        if os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < PRESSED_EVERY_S:
-            return []
+        last = os.path.getmtime(stamp)
+    except OSError:
+        last = 0
+    if time.time() - max(last, _pressed) < PRESSED_EVERY_S:
+        return []
+    _pressed = time.time()
+    try:
         open(stamp, "a").close()
         os.utime(stamp)
     except OSError:
-        return []
+        pass
     return sweep(force=True)
 
 

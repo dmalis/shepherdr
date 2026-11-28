@@ -74,7 +74,7 @@ class TaskTmp(unittest.TestCase):
         # herdr-core, faked: the keys (herdr.task labels) with a live terminal
         self.live, self.asked = set(), []
         p = [mock.patch.dict(os.environ, {"HERDR_TASK_STORE": self.store}), mock.patch.object(task_tmp, "STORE", self.store),
-             mock.patch.object(task_tmp, "hc_json", self.hc_json)]
+             mock.patch.object(task_tmp, "hc_json", self.hc_json), mock.patch.object(task_tmp, "_pressed", 0.0)]
         for x in p:
             x.start()
             self.addCleanup(x.stop)
@@ -176,8 +176,10 @@ class TaskTmp(unittest.TestCase):
 
     def test_a_restarted_scheduler_sees_the_lock_without_taking_it_again(self):
         """The lock is its users', not the scheduler's: a new scheduler process (a restart) refuses a held folder,
-        and takes it once its holder ends. A folder no task records, so only the lock decides (no herdr-core)."""
+        and takes it once its holder ends. A folder no task records and with no key, so only the lock decides: the
+        new process never asks herdr-core (it isn't faked there)."""
         p = task_tmp.ensure(self.s, {"id": 7})
+        os.remove(os.path.join(p, task_tmp.KEY_FILE))
         self.age(p)
         self.write_list([])
         agent = held_by(p)
@@ -241,8 +243,9 @@ class TaskTmp(unittest.TestCase):
         self.assertEqual(sorted(gone_names), sorted(os.path.basename(p) for p in (done, gone)))
         for p in (running, ready, fresh_done, busy_done, fresh_gone, other):
             self.assertTrue(os.path.isdir(p), p)
-        # herdr-core asked only about the Done ones past their grace
-        self.assertEqual(sorted(a[2] for a in self.asked), ["herdr.task=home-dev-shop#3", "herdr.task=home-dev-shop#5"])
+        # herdr-core asked only about the Done or gone ones past their grace
+        self.assertEqual(sorted(a[2] for a in self.asked), ["herdr.task=home-dev-shop#3", "herdr.task=home-dev-shop#5",
+                                                            "herdr.task=home-dev-shop#6"])  # gone: its key from its folder
 
     def test_when_herdr_core_cant_say_the_folder_stays(self):
         t = {"id": 11, "state": "done"}
@@ -258,6 +261,56 @@ class TaskTmp(unittest.TestCase):
             f.write("{not json")
         self.assertEqual(task_tmp.sweep(force=True), [])
         self.assertTrue(os.path.isdir(p))
+        # a Done task's folder, recorded in a list that reads, still goes: only the unrecorded ones wait
+        t = {"id": 13, "state": "done", "done_at": 1}
+        q = task_tmp.ensure(self.s, t)
+        self.age(q)
+        self.write_list([t])
+        with open(os.path.join(self.store, ".restarts.json"), "w") as f:
+            f.write('{"half')  # a sidecar caught mid-write
+        self.assertEqual(task_tmp.sweep(force=True), [os.path.basename(q)])
+        self.assertTrue(os.path.isdir(p))
+
+    def test_a_removed_tasks_folder_stays_while_its_helper_runs(self):
+        """A removed task's record is gone, but its folder keeps its key: a reviewer or helper still running (hc run
+        gives it no lock of its own) keeps it; the sweep takes it once that ends."""
+        p = task_tmp.ensure(self.s, {"id": 14})
+        self.age(p)
+        self.write_list([])
+        self.live.add("home-dev-shop#14")
+        self.assertEqual(task_tmp.sweep(force=True), [])
+        self.live.clear()
+        self.assertEqual(task_tmp.sweep(force=True), [os.path.basename(p)])
+
+    def test_a_launch_that_cant_take_the_lock_never_uses_the_folder(self):
+        """A folder being removed (_drop() holds it exclusively): what the launch starts gets the machine's own temp
+        folder, as the web app's shell does (the same TAKE)."""
+        import fcntl
+        p = task_tmp.ensure(self.s, {"id": 15})
+        fd = os.open(p, os.O_RDONLY)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        show = ["sh", "-c", 'echo "${TMPDIR-unset} ${TMP-unset} ${TEMP-unset}"; ls /proc/self/fd/9 2>/dev/null || echo no9']
+        env = dict(os.environ, **dict(v.split("=", 1) for v in task_tmp.env_for(p)))
+        got = subprocess.run(task_tmp.take_argv(p, show), env=env, capture_output=True, text=True, timeout=30).stdout
+        self.assertEqual(got.split(), ["unset", "unset", "unset", "no9"])
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        got = subprocess.run(task_tmp.take_argv(p, show[:2] + ['echo "$TMPDIR"']), env=env, capture_output=True,
+                             text=True, timeout=30).stdout
+        self.assertEqual(got.strip(), p)
+
+    def test_a_detached_action_never_uses_a_folder_being_removed(self):
+        import fcntl
+        from herdr_task import link
+        p = task_tmp.ensure(self.s, {"id": 16})
+        fd = os.open(p, os.O_RDONLY)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        seen = {}
+        with mock.patch.dict(os.environ, {"TMPDIR": p, "TMP": p, "TEMP": p}), \
+                mock.patch.object(link.subprocess, "Popen", lambda argv, **k: seen.update(k)):
+            link.local_start("job2", ["accept", "16"], "/bin/true")
+        self.assertFalse({"TMPDIR", "TMP", "TEMP"} & set(seen["env"]))
 
     def test_sweep_runs_at_once_then_every_ten_minutes(self):
         p = task_tmp.ensure(self.s, {"id": 13})
@@ -279,7 +332,25 @@ class TaskTmp(unittest.TestCase):
         self.age(q)
         self.assertEqual(task_tmp.pressed(), [])  # rate-limited, across processes too (a stamp beside the lists)
         self.age(os.path.join(self.store, ".tmp-swept"), task_tmp.PRESSED_EVERY_S + 1)
+        task_tmp._pressed = 0.0  # another process
         self.assertEqual(task_tmp.pressed(), [os.path.basename(q)])
+
+    def test_a_disk_too_full_for_the_stamp_still_sweeps_once(self):
+        self.write_list([])
+        p = task_tmp.ensure(self.s, {"id": 17})
+        self.age(p)
+        real_open = open
+
+        def full(f, mode="r", *a, **k):
+            if str(f).endswith(".tmp-swept"):
+                raise OSError(28, "No space left on device")
+            return real_open(f, mode, *a, **k)
+        with mock.patch("builtins.open", full):
+            self.assertEqual(task_tmp.pressed(), [os.path.basename(p)])
+            q = task_tmp.ensure(self.s, {"id": 18})
+            self.age(q)
+            self.assertEqual(task_tmp.pressed(), [])  # this process's own stamp: still rate-limited
+        self.assertTrue(os.path.isdir(q))
 
     def test_a_done_task_loses_its_folder_once_its_agents_ended(self):
         from herdr_task import tick
@@ -499,15 +570,19 @@ class CodexSandboxWrites(unittest.TestCase):
         codex = shutil.which("codex")
         if not codex or not os.path.isdir("/var/tmp"):
             self.skipTest("no codex here")
-        d = tempfile.mkdtemp(prefix="shep-sandbox-", dir="/var/tmp")
-        self.addCleanup(shutil.rmtree, d, True)
-        r = subprocess.run([codex, "sandbox", "-c", 'sandbox_mode="workspace-write"', "--", "sh", "-c",
-                            'f=$(mktemp) && echo ok > "$f" && echo "$f"'],
-                           env=dict(os.environ, TMPDIR=d), capture_output=True, text=True, timeout=120, cwd=d)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        made = r.stdout.strip()
-        self.assertEqual(os.path.dirname(made), d)
-        with open(made) as f:
+        d = tempfile.mkdtemp(prefix="shep-sandbox-", dir="/var/tmp")  # the task's temp folder
+        work = tempfile.mkdtemp(prefix="shep-work-")  # the worktree: another folder, writable on its own account
+        for x in (d, work):
+            self.addCleanup(shutil.rmtree, x, True)
+        sandboxed = lambda tmpdir: subprocess.run(
+            [codex, "sandbox", "-c", 'sandbox_mode="workspace-write"', "--", "sh", "-c",
+             f'echo ok > "{d}/f" && echo wrote || echo refused'],
+            env=dict(os.environ, TMPDIR=tmpdir), capture_output=True, text=True, timeout=120, cwd=work)
+        r = sandboxed(work)  # the folder isn't its TMPDIR: refused, so the write below is TMPDIR's doing
+        self.assertEqual(r.stdout.split()[-1:], ["refused"], r.stderr)
+        r = sandboxed(d)
+        self.assertEqual(r.stdout.split()[-1:], ["wrote"], r.stderr)
+        with open(os.path.join(d, "f")) as f:
             self.assertEqual(f.read(), "ok\n")
 
 

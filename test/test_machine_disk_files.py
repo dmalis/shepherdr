@@ -28,6 +28,12 @@ def blocks(total, free, files=0, ffree=0):
 
 
 class DiskFileSlots(unittest.TestCase):
+    def setUp(self):
+        # where task temp folders are: on the home's disk here (its own case below), so the faked disks stay two
+        p = mock.patch.object(machine, "_task_tmp_disk", lambda: None)
+        p.start()
+        self.addCleanup(p.stop)
+
     def read(self, home, tmp):
         disks = {machine.HOME: (home, 1), "/tmp": (tmp, 2)}
         with mock.patch.object(machine.os, "statvfs", lambda p: disks.get(p, disks[machine.HOME])[0]), \
@@ -96,16 +102,30 @@ class DiskFileSlots(unittest.TestCase):
         self.assertEqual([d["path"] for d in h["disks"] if d.get("fullest")], ["/tmp"])
         self.assertEqual(machine.hold_reason(h), "disk is 100% full (/tmp's file slots)")
 
-    def test_var_tmp_on_a_disk_of_its_own_counts_with_its_file_slots(self):
-        # dmalis/shepherdr#216: task temp folders live in /var/tmp off macOS; on the home's disk it is read once, as home
-        disks = {machine.HOME: (vfs(500, 50), 1), "/tmp": (vfs(32, 1), 2), "/var/tmp": (vfs(100, 5, files=1000, files_used=995), 3)}
+    def test_the_task_temp_folders_disk_counts_with_its_file_slots(self):
+        # dmalis/shepherdr#216: where task temp folders are (/var/tmp/shepherdr, a mount there, an install of its own's
+        # volume) is read too when it is a disk of its own; on the home's disk it is read once, as home
+        tmp = "/var/tmp/shepherdr"
+        disks = {machine.HOME: (vfs(500, 50), 1), "/tmp": (vfs(32, 1), 2), tmp: (vfs(100, 5, files=1000, files_used=995), 3)}
         with mock.patch.object(machine.os, "statvfs", lambda p: disks[p][0]), \
                 mock.patch.object(machine.os, "stat", lambda p: mock.Mock(st_dev=disks[p][1])), \
-                mock.patch.object(machine, "MAC", False):
+                mock.patch.object(machine, "_task_tmp_disk", lambda: tmp):
             d = {x["path"]: x for x in machine._disks()}
-        self.assertEqual((d["/var/tmp"]["pct"], d["/var/tmp"]["by"], d["/var/tmp"].get("fullest")), (100, "files", True))
-        with mock.patch.object(machine, "MAC", True):
-            self.assertNotIn("/var/tmp", self.read(vfs(500, 50), vfs(32, 1)))
+        self.assertEqual((d[tmp]["pct"], d[tmp]["by"], d[tmp].get("fullest")), (100, "files", True))
+        with mock.patch.object(machine, "_task_tmp_disk", lambda: machine.HOME + "/.shep-tmp"):
+            self.assertEqual(sorted(self.read(vfs(500, 50), vfs(32, 1))), ["/tmp", "home"])
+
+
+class TaskTmpDisk(unittest.TestCase):
+    def test_the_task_temp_folders_disk_is_the_nearest_folder_that_exists(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, d)
+        from herdr_task import task_tmp
+        with mock.patch.object(task_tmp, "root", lambda: os.path.join(d, "shepherdr")):
+            self.assertEqual(machine._task_tmp_disk(), d)
+        with mock.patch.object(task_tmp, "root", lambda: 1 / 0):
+            self.assertIsNone(machine._task_tmp_disk())
 
     def test_the_real_disks_read(self):
         for d in machine._disks():

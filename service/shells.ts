@@ -19,8 +19,9 @@ export interface ShellAt {
 }
 
 /** task_tmp.py's TAKE, the same words: locks the folder "$1" names on descriptor 9 (shared, never waiting) for what
- *  runs after, which inherits it, so herdr-task never removes the folder while the shell lives. */
-export const TAKE = '[ -d "$1" ] && command exec 9<"$1" && { flock -s -n 9 || python3 -c "import fcntl; fcntl.flock(9, fcntl.LOCK_SH | fcntl.LOCK_NB)"; } 2>/dev/null';
+ *  runs after, which inherits it, so herdr-task never removes the folder while the shell lives. Not held (being
+ *  removed): TMPDIR, TMP and TEMP are unset again, and the shell uses the machine's own temp folder. */
+export const TAKE = '[ -d "$1" ] && command exec 9<"$1" && { flock -s -n 9 || python3 -c "import fcntl; fcntl.flock(9, fcntl.LOCK_SH | fcntl.LOCK_NB)"; } 2>/dev/null || { command exec 9<&-; unset TMPDIR TMP TEMP; }';
 
 /** That machine's own shell (hc gives every program SHELL), with the task's temp folder as TMPDIR, TMP and TEMP when
  *  it is still there, held (TAKE): hc run has no way to set a variable, so a short sh sets them first
