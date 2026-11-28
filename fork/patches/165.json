@@ -1,0 +1,1 @@
+{"issue": 165, "name": "herdr-browser: screenshots that finish, at the size set", "files": ["bin/herdr-browser", "test/fake_ab.py"], "tests": ["test/test_herdr_browser_shots.py", "test/test_herdr_browser_args.py"]}

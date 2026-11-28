@@ -2,9 +2,11 @@
 herdr-browser asks to start a space's browser and join it (session list, get cdp-url, the space's own open about:blank,
 the join `tab <id>`), and hands every other call to `body` (sh) with the leading --session/--cdp/--pin-tab/
 --idle-timeout taken off, so "$@" is the command the agent typed. ENV goes on the run's environment: the new window's
-id comes from a command instead of a real Chrome."""
+id comes from a command instead of a real Chrome, and so does the page a screenshot brings to the front
+(bin/herdr-browser: shot_front)."""
 
-ENV = {"HERDR_BROWSER_NEW_WINDOW": "echo T1"}
+# The front-and-frame step before a screenshot draws at once, at the default size (its page 1280x720 at ratio 1).
+ENV = {"HERDR_BROWSER_NEW_WINDOW": "echo T1", "HERDR_BROWSER_FRAME": "echo 1280 720 1 1280 720"}
 
 SCRIPT = """#!/bin/sh
 [ "$1" = --version ] && { echo "agent-browser 0.41.1"; exit 0; }
