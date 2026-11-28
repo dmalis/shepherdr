@@ -74,7 +74,8 @@ test('one shortcut per state: Reply for a question, Open PR for a review, nothin
 
 test('the shortcut sits beside the row button, never inside it, and its name starts with what it shows', () => {
   const html = row(task('SHOP-12'))
-  expect(html).toMatch(/<\/button><button[^>]*class="[^"]*\btsc\b[^"]*"[^>]*aria-label="Open PR #212 for Faster product search"/)
+  // Open PR goes to a page: a real link, so Cmd/Ctrl-click and a middle click work (GitHub's own rows link it)
+  expect(html).toMatch(/<\/button><a class="btn s tsc[^"]*" href="https:\/\/github.com\/example\/shop\/pull\/212" target="_blank" rel="noopener noreferrer" aria-label="Open PR #212 for Faster product search">/)
   const btn = renderToStaticMarkup(<ShortcutBtn sc={shortcutOf(snap, task('SHOP-14'))!} />)
   expect(text(btn)).toBe('Reply')
   expect(btn).toContain('aria-label="Reply to Switch payment provider"')

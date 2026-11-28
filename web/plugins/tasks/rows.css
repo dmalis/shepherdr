@@ -10,6 +10,8 @@
    On touch it is in the row's menu instead (and later a swipe). */
 .rowx>.tsc{position:absolute;top:calc(8px + var(--over, 0px) + (var(--uil) - var(--btns))/2);right:calc(var(--ib) + 4px);z-index:1;opacity:0;pointer-events:none;background:linear-gradient(var(--control2),var(--control2)) var(--canvas)}
 .rowx>.tsc .i{width:var(--ic-sm);height:var(--ic-sm)}
+/* Open PR is a link (it goes to a page): it looks like the button beside it */
+.rowx>a.tsc{color:inherit;text-decoration:none}
 .rowx:has(:focus-visible)>.tsc{opacity:1;pointer-events:auto}
 .rowx:has(>.tsc):has(:focus-visible)>.row>.v{visibility:hidden}
 @media(hover:hover){

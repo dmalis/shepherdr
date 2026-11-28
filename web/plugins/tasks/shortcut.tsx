@@ -19,6 +19,8 @@ export interface Shortcut {
   /** its menu row's words */
   menu: string
   run: () => void
+  /** a shortcut that goes to a page is a link, so Cmd/Ctrl-click and a middle click work as on any link */
+  href?: string
 }
 
 /** the one shortcut a task's state calls for, or none */
@@ -33,7 +35,7 @@ export function shortcutOf(snap: Snapshot, t: Task): Shortcut | null {
   // ready for review with an open pull request: the pull request on GitHub, where it is reviewed
   if (s === 'ready' && t.pr && !t.pr.closed && !t.merged) {
     const url = t.pr.url
-    return { label: 'Open PR', name: `Open PR #${t.pr.number} for ${t.name}`, icon: 'pr', menu: `Open PR #${t.pr.number}`, run: () => void window.open(url, '_blank', 'noopener,noreferrer') }
+    return { label: 'Open PR', name: `Open PR #${t.pr.number} for ${t.name}`, icon: 'pr', menu: `Open PR #${t.pr.number}`, href: url, run: () => void window.open(url, '_blank', 'noopener,noreferrer') }
   }
   return null
 }
@@ -44,8 +46,16 @@ export function shortcutRow(snap: Snapshot, t: Task): MenuRow[] {
   return sc ? [{ icon: sc.icon, label: sc.menu, run: sc.run }] : []
 }
 
-/** the button on a row: only with a mouse (a touch screen has the menu) */
+/** the button on a row (a link for a page): only with a mouse (a touch screen has the menu) */
 export function ShortcutBtn({ sc, className, style }: { sc: Shortcut; className?: string; style?: React.CSSProperties }) {
+  if (sc.href) {
+    return (
+      <a className={cx('btn s tsc', className)} style={style} href={sc.href} target="_blank" rel="noopener noreferrer" aria-label={sc.name} onClick={(e) => e.stopPropagation()}>
+        <I n={sc.icon} />
+        {sc.label}
+      </a>
+    )
+  }
   return (
     <Btn small className={cx('tsc', className)} style={style} aria-label={sc.name} onClick={(e) => { e.stopPropagation(); sc.run() }}>
       <I n={sc.icon} />
