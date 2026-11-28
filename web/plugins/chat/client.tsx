@@ -1,7 +1,7 @@
 // The chat: an agent's messages (formatted text, code, tables, pictures), one quiet line while it works saying what
 // it is doing, one small folded row per turn ("Ran 4 commands · edited 2 files"), cards where it needs you, and the
 // message box. The same parts draw a space's chat and a task's thread.
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { copyText } from '@client/copy.ts'
 import { dictatedInto, TEXT_IN_CALL, useDictating } from '@client/dictate.tsx'
 import { attr } from '@client/attr.ts'
@@ -28,6 +28,7 @@ import { quickFit, type QuickFit } from './press.ts'
 import { replyToTask, SlideHint, useSlide } from './slide.tsx'
 import { dayLabel } from './days.ts'
 import { Markdown, withLinks } from './markdown.tsx'
+import { useNewestFirst } from './first-rows.ts'
 import { dropPicks, expandPicked, useMentions } from './mentions.tsx'
 import { KindLine, KindName } from './kind.tsx'
 import { taskKind } from '@shared/kinds.ts'
@@ -58,7 +59,7 @@ import { newsRow, type NewsRow } from './news.ts'
 import { waitsOnPerson } from '@shared/needs-you.ts'
 import { cardsAfter, cardsNow, stillLoading, TRIES, wantsEarlier } from './hold.ts'
 import { onPageReturn } from '@client/viewport.ts'
-import { keepAtEnd, rowEdges } from './stick.ts'
+import { keepAtEnd, movedUp, rowEdges } from './stick.ts'
 import { OFF_PX, asksBelow, isOffEnd, newSince, onAsk, onEnd, questionsBelow, setOffEnd, toAsk, toEnd, useOffEnd } from './newest.ts'
 import { editedDraft, heldOf, isHeld } from './queued.ts'
 import { AskLine, afterOf, boxLine } from './asking-box.tsx'
@@ -348,7 +349,13 @@ function CommandRow({ msg, state, failed, gap }: { msg: Message; state: CommandS
   )
 }
 
-function Bubble({ msg, chat, thread, gap, pending, failed, mark, onReply }: { msg: Message; chat: Chat; thread: Thread; gap: boolean; pending?: boolean; failed?: string; mark?: Shown['mark']; onReply?: () => void }) {
+type BubbleProps = { msg: Message; chat: Chat; thread: Thread; gap: boolean; pending?: boolean; failed?: string; mark?: Shown['mark']; onReply?: () => void }
+/** a bubble reads only its thread's chat and space: a thread made again for the same chat is the same to it */
+const sameBubble = (a: BubbleProps, b: BubbleProps) =>
+  a.msg === b.msg && a.chat === b.chat && a.gap === b.gap && a.pending === b.pending && a.failed === b.failed && a.mark === b.mark && a.onReply === b.onReply &&
+  a.thread.chat === b.thread.chat && a.thread.place === b.thread.place
+// redrawn only when what it shows changes: a long chat filling in, or a live update, leaves the drawn ones alone
+const Bubble = memo(function Bubble({ msg, chat, thread, gap, pending, failed, mark, onReply }: BubbleProps) {
   const [sel, setSel] = useState(false)
   const jump = useUI((u) => u.jump === msg.id)
   const mine = msg.who === 'you'
@@ -441,17 +448,21 @@ function Bubble({ msg, chat, thread, gap, pending, failed, mark, onReply }: { ms
       )}
     </>
   )
-}
+}, sameBubble)
 
 /** a very long message (a pasted JSON, a log) shows its first lines and Show more. All its words are on the page, so
  *  copy and the browser's find still see them; find scrolling into the folded part opens it. */
 export function Folded({ text, children }: { text: string; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  // folded again: it shows its first lines (not where it was scrolled to), its start in view
+  const was = useRef(open)
+  // folded again: it shows its first lines (not where it was scrolled to), its start in view. Not when it first comes
+  // in: a folded reply drawn above the reader (older rows coming in, an earlier page) leaves them where they are
   useLayoutEffect(() => {
     const el = box.current
-    if (!el || open) return
+    const folded = was.current && !open
+    was.current = open
+    if (!el || !folded) return
     el.scrollTop = 0
     if (el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'nearest' })
   }, [open])
@@ -641,6 +652,28 @@ function Messages({ thread }: { thread: Thread }) {
   const seen = useRef<{ id: string; mine: boolean }[]>([])
   seen.current = rows.map((r) => ({ id: keyOf(r.msg), mine: r.msg.who === 'you' }))
   const left = useRef<string | null>(null)
+  // a long chat opens on its newest rows and draws the older ones right after (first-rows.ts); the reader's row stays
+  // in place as they come in above it
+  const filling = useRef<{ row: HTMLElement; offset: number; start: number } | null>(null)
+  /** where the last step left the reader's row (its offset, aimed at, and the scroll that gave): the next step aims at
+   *  the same offset while the reader hasn't moved, so whole-pixel scrolls don't add up over the steps */
+  const aim = useRef<{ row: HTMLElement; offset: number; scrollTop: number } | null>(null)
+  const start = useNewestFirst(thread.chat, seen.current.map((r) => r.id), !!jump || !!link?.focus)
+  const drawnFrom = useRef({ chat: thread.chat, start })
+  const scroller = end.current?.closest<HTMLElement>('.scroll')
+  if (scroller && drawnFrom.current.chat === thread.chat && start < drawnFrom.current.start && filling.current?.start !== start) {
+    // This render draws a step of older rows. The page still shows the last one: where the reader is goes with it.
+    // They may have scrolled up in this very frame, before their scroll event came: the step mustn't put them back
+    if (stuck.current && movedUp(scroller, edge.current)) stuck.current = false
+    // kept by hand, as for an earlier page below (anchoring isn't in WebKit, and Chromium's skips the very top)
+    const was = aim.current
+    const row = stuck.current ? null : was && was.scrollTop === scroller.scrollTop && was.row.isConnected ? was : rowAtTop(scroller)
+    filling.current = row && { row: row.row, offset: row.offset, start }
+  }
+  // This render puts in rows above the reader that are then kept in place by hand (an earlier page, a step of a long
+  // chat): the browser's own anchoring is off until then, or both would move them, as Chromium does at times
+  const keeping = filling.current?.start === start || (!!earlierAnchor.current && earlierAnchor.current.first !== first)
+  if (keeping && scroller) scroller.style.overflowAnchor = 'none'
   // the newest page held only task rows (SHEP-445): earlier pages, by themselves, until a few real messages are in
   const [, bump] = useState(0)
   const tried = opened.get(thread.chat) ?? 0
@@ -678,11 +711,16 @@ function Messages({ thread }: { thread: Thread }) {
     }
     reopen()
     focused.current = null
+    // at the foot, unless the reader has just moved up from it (their scroll event may come after what grew)
+    const following = () => {
+      if (stuck.current && movedUp(sc, edge.current)) stuck.current = false
+      return stuck.current
+    }
 
     const on = () => {
       if (!sc.clientHeight) return
       const max = sc.scrollHeight - sc.clientHeight
-      if (stuck.current && max !== edge.current) {
+      if (following() && max !== edge.current) {
         reopen()
         return
       }
@@ -700,12 +738,12 @@ function Messages({ thread }: { thread: Thread }) {
       const key = thread.chat
       // A short chat is already at its newest. Only a scroll into older history asks for an earlier page.
       if (!stuck.current && sc.scrollTop < 40 && getState().chats[key]?.earlier && !loading.has(key)) {
-        // Browsers with scroll anchoring keep the reader's row in place when the page is prepended.
-        if (!CSS.supports('overflow-anchor', 'auto')) {
-          const top = sc.getBoundingClientRect().top
-          const row = [...box.querySelectorAll<HTMLElement>('[data-msg], [data-card]')].find((row) => row.getBoundingClientRect().bottom > top)
-          if (row) earlierAnchor.current = { first: getState().chats[key]?.messages[0]?.id, row, top: row.getBoundingClientRect().top - top + sc.scrollTop }
-        }
+        // The reader's row stays in place when the page is prepended. Kept by hand in every browser: scroll anchoring
+        // isn't in WebKit, and Chromium's skips a scroller at its very top, where a wheel or a fling ends up
+        // (dmalis/shepherdr#190). Where the browser did keep it, the hand finds nothing to move.
+        const top = sc.getBoundingClientRect().top
+        const row = [...box.querySelectorAll<HTMLElement>('[data-msg], [data-card]')].find((row) => row.getBoundingClientRect().bottom > top)
+        if (row) earlierAnchor.current = { first: getState().chats[key]?.messages[0]?.id, row, top: row.getBoundingClientRect().top - top + sc.scrollTop }
         loading.add(key)
         void act({ type: 'earlier', chat: key })
           .catch(() => undefined)
@@ -713,7 +751,7 @@ function Messages({ thread }: { thread: Thread }) {
       }
     }
     sc.addEventListener('scroll', on, { passive: true })
-    const stopKeeping = keepAtEnd(sc, box, () => stuck.current, () => { edge.current = sc.scrollHeight - sc.clientHeight })
+    const stopKeeping = keepAtEnd(sc, box, () => stuck.current, () => { edge.current = sc.scrollHeight - sc.clientHeight }, () => movedUp(sc, edge.current))
     const stopReturning = onPageReturn(reopen)
     const off = onEnd(thread.chat, reopen)
     const offAsk = onAsk(thread.chat, () => {
@@ -735,6 +773,8 @@ function Messages({ thread }: { thread: Thread }) {
     const reopened = (view.current.covered && !covered) || (link && view.current.link !== link)
     view.current = { covered, link }
     if (!sc || covered) return
+    // drawn again (more rows, a card's news) just as the reader moved up, before their scroll event: they stay there
+    if (stuck.current && movedUp(sc, edge.current)) stuck.current = false
     if (reopened) {
       stuck.current = true
       left.current = null
@@ -761,6 +801,12 @@ function Messages({ thread }: { thread: Thread }) {
       }
     }
     edge.current = sc.scrollHeight - sc.clientHeight
+    const place = filling.current?.start === start ? filling.current : null
+    aim.current = null
+    if (place && !stuck.current && sc.contains(place.row)) {
+      sc.scrollBy({ top: place.row.getBoundingClientRect().top - sc.getBoundingClientRect().top - place.offset, behavior: 'instant' })
+      aim.current = { ...place, scrollTop: sc.scrollTop }
+    }
     const anchor = earlierAnchor.current
     if (anchor && anchor.first !== first) {
       earlierAnchor.current = null
@@ -773,6 +819,13 @@ function Messages({ thread }: { thread: Thread }) {
     else if (left.current != null && edge.current - sc.scrollTop > OFF_PX) {
       setOffEnd(thread.chat, { count: newSince(seen.current, left.current), asks: asksBelow(sc).length })
     }
+  })
+  // the rows are in and kept in place: the browser's anchoring is back on (after the effect above, whatever it did,
+  // which may have returned early)
+  useLayoutEffect(() => {
+    if (keeping && scroller) scroller.style.overflowAnchor = ''
+    filling.current = null
+    drawnFrom.current = { chat: thread.chat, start }
   })
 
   if (!snap) return null
@@ -797,7 +850,10 @@ function Messages({ thread }: { thread: Thread }) {
     }
   }
   const stub: Chat = chat ?? { key: thread.chat, messages: [], cli: '' }
-  for (const { msg: m, pending, failed, mark } of rows) {
+  // while it fills in: only the newest rows, with the cards among them; the older cards come in with their rows
+  const from = rows[start]?.msg.at
+  if (start && from) while (cards.length && (cards[0]!.at ?? Infinity) < from) cards.shift()
+  for (const { msg: m, pending, failed, mark } of start ? rows.slice(start) : rows) {
     if (held && m.who !== 'you') continue
     if (m.at) cardsUntil(m.at)
     const who = m.who === 'you' ? 'me' : 'a'
@@ -892,6 +948,13 @@ function Messages({ thread }: { thread: Thread }) {
     </>
   )
 }
+/** the reader's row: the first one reaching into the scroller, and how far its top is from the scroller's */
+function rowAtTop(sc: HTMLElement): { row: HTMLElement; offset: number } | null {
+  const top = sc.getBoundingClientRect().top
+  const row = [...sc.querySelectorAll<HTMLElement>('.msgs [data-msg], .msgs [data-card]')].find((row) => row.getBoundingClientRect().bottom > top)
+  return row ? { row, offset: row.getBoundingClientRect().top - top } : null
+}
+
 const loading = new Set<string>()
 /** how many earlier pages a chat read by itself when it opened (SHEP-445), so opening it again doesn't read more */
 const opened = new Map<string, number>()
