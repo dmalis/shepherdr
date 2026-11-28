@@ -6,6 +6,9 @@
   and in an inline style's `fontSize`;
 - animations that never end (`infinite`, a huge iteration count outside `steps()`, `infinite` in an inline style, or
   a script animation with `iterations: Infinity`);
+- hover styles outside `@media (hover: hover)` (or `any-hover`), counted per selector that names `:hover`;
+- a monospace stack written out in `font:` or `font-family:` instead of `var(--mono)`, and a z-index above a
+  component's own 1 to 3 (or under -1) written as a number instead of a `--z-` layer;
 - the grey of second lines (`--muted`) at 4.5:1 on the page, a field, an agent's bubble and your own, in light, the
   device's dark, Dark and Night.
 
@@ -31,7 +34,7 @@ COLOURS = {
     "web/plugins/installed/installed.css": 1,
 }
 OFF_SCALE = {
-    "web/src/ds.css": 6,
+    "web/src/ds.css": 1,
     "web/src/styles.css": 1,
     "web/src/about.css": 1,
     "web/plugins/chat/kind.css": 1,
@@ -49,6 +52,26 @@ INLINE_OFF_SCALE = {
 INLINE_COLOURS = {
     "web/plugins/screens/client.tsx": 10,
     "web/plugins/terminal/client.tsx": 1,
+}
+# hover styles outside @media (hover: hover), which a tap leaves lit (ds.css held 25 before #150)
+BARE_HOVER = {
+    "web/src/styles.css": 2,
+    "web/src/dictate.css": 3,
+    "web/plugins/inbox/inbox.css": 1,
+    "web/plugins/tasks/where.css": 3,
+}
+# a monospace stack written out instead of var(--mono) (ds.css held 11)
+RAW_MONO = {
+    "web/src/styles.css": 4,
+    "web/src/about.css": 1,
+    "web/plugins/diff/diff.css": 3,
+    "web/plugins/files/files.css": 1,
+    "web/plugins/whatsnew/whats-new.css": 1,
+}
+# a layer's z-index written as a number instead of a --z- token (ds.css held 4)
+RAW_LAYERS = {
+    "web/src/styles.css": 5,
+    "web/plugins/chat/mentions.css": 1,
 }
 
 NAMES = "white|black|red|green|blue|gray|grey|silver|orange|yellow|purple|pink|navy|teal|maroon|olive|lime|aqua|fuchsia"
@@ -70,13 +93,18 @@ def text(rel):
         return f.read()
 
 
-def declarations(rel):
-    """(property, value) of each declaration in a stylesheet, at any depth (nested rules and @media included), with
-    its comments, strings and url()s taken out"""
+def bare(rel):
+    """a stylesheet with its comments, strings and url()s taken out"""
     # one pass, so an apostrophe in a comment opens no string and a /* in a string opens no comment
     s = re.sub(r"/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'",
                lambda m: "" if m.group(0).startswith("/*") else '""', text(rel), flags=re.S)
-    s = re.sub(r"url\([^)]*\)", "url()", s)
+    return re.sub(r"url\([^)]*\)", "url()", s)
+
+
+def declarations(rel):
+    """(property, value) of each declaration in a stylesheet, at any depth (nested rules and @media included), with
+    its comments, strings and url()s taken out"""
+    s = bare(rel)
     out = []
     # each piece of text up to a { (a selector or an at-rule), a ; or a } (the end of a declaration)
     for piece, end in re.findall(r"([^{};]*)([{};])", s):
@@ -84,6 +112,61 @@ def declarations(rel):
             prop, value = piece.split(":", 1)
             out.append((prop.strip().lower(), value.strip()))
     return out
+
+
+def rules(rel):
+    """(selector, the at-rules around it) of each style rule in a stylesheet, nested ones included"""
+    out, stack, piece = [], [], ""
+    for ch in bare(rel):
+        if ch == "{":
+            head = " ".join(piece.split())
+            if not head.startswith("@"):
+                out.append((head, [h for h in stack if h.startswith("@")]))
+            stack.append(head)
+            piece = ""
+        elif ch == "}":
+            if stack:
+                stack.pop()
+            piece = ""
+        elif ch == ";":
+            piece = ""
+        else:
+            piece += ch
+    return out
+
+
+def selectors(head):
+    """each selector of a selector list, split at its own commas (not those inside :is() or :not())"""
+    out, depth, cur = [], 0, ""
+    for ch in head:
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return [x for x in out + [cur.strip()] if x]
+
+
+HOVER_MEDIA = re.compile(r"@media\b.*\(\s*(?:any-)?hover\s*:\s*hover\s*\)")
+
+
+def bare_hover(rel):
+    """selectors with :hover outside an @media (hover: hover): on a touch screen a tap leaves them lit"""
+    return sum(1 for head, ats in rules(rel) if not any(HOVER_MEDIA.search(a) for a in ats)
+               for sel in selectors(head) if ":hover" in sel)
+
+
+def raw_mono(rel):
+    """font and font-family values that write out a monospace stack instead of var(--mono)"""
+    return sum(1 for prop, value in declarations(rel)
+               if prop in ("font", "font-family") and re.search(r"\bmonospace\b", no_tokens(value)))
+
+
+def raw_layers(rel):
+    """z-index values above a component's own 1 to 3 (or under -1) written as a number, not a --z- layer"""
+    return sum(1 for prop, value in declarations(rel) if prop == "z-index"
+               and any(not -1 <= int(x) <= 3 for x in re.findall(r"-?\d+", no_tokens(value))))
 
 
 def no_tokens(value):
@@ -225,10 +308,21 @@ class DesignTokens(unittest.TestCase):
     def test_inline_type_sizes_on_the_scale(self):
         self.ratchet(inline_off_scale, (".tsx",), INLINE_OFF_SCALE, "inline font sizes off the scale")
 
+    def test_hover_only_for_a_mouse(self):
+        # docs/design.md, Touch: a hover style sits under @media (hover: hover), so a tap never leaves one lit
+        self.ratchet(bare_hover, (".css",), BARE_HOVER, "hover styles outside @media (hover: hover)")
+
+    def test_code_font_from_its_token(self):
+        self.ratchet(raw_mono, (".css",), RAW_MONO, "monospace stacks written out (use var(--mono))")
+
+    def test_layers_from_the_scale(self):
+        self.ratchet(raw_layers, (".css",), RAW_LAYERS, "z-index layers written as numbers (use a --z- token)")
+
     def test_the_counts_are_current(self):
         stale = []
         for allowed, measure in ((COLOURS, colours), (OFF_SCALE, off_scale), (ENDLESS, endless), (INLINE_COLOURS, inline_colours),
-                                 (INLINE_OFF_SCALE, inline_off_scale)):
+                                 (INLINE_OFF_SCALE, inline_off_scale), (BARE_HOVER, bare_hover), (RAW_MONO, raw_mono),
+                                 (RAW_LAYERS, raw_layers)):
             for rel, cap in allowed.items():
                 if not os.path.exists(os.path.join(ROOT, rel)):
                     stale.append(f"{rel}: gone")
@@ -286,6 +380,21 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample("<a style={{ animation: on ? 'spin 1s infinite' : 'none' }} />", script_endless, ".tsx"), 1)
         js = "el.animate(k, { iterations: Infinity })\n// el.animate(k, { iterations: Infinity })\n/* iterations: Infinity */"
         self.assertEqual(self.sample(js, script_endless, ".ts"), 1)
+
+    def test_hover(self):
+        self.assertEqual(self.sample(".a:hover{color:red}.b:hover,.b.on,.c:focus{color:red}", bare_hover), 2)
+        self.assertEqual(self.sample("@media(hover:hover){.a:hover{x:1}}@media (any-hover: hover) and (pointer:fine){.b:hover{x:1}}", bare_hover), 0)
+        self.assertEqual(self.sample("@media(pointer:coarse){.a:hover{x:1}}@media(hover:none){.b:hover{x:1}}", bare_hover), 2)
+        self.assertEqual(self.sample(":is(.a,.b):hover{x:1}.c:not(:hover,.d){x:1}", bare_hover), 2)  # one each
+        self.assertEqual(self.sample(".a{color:red;&:hover{x:1}}/* .b:hover{} */.c[title=\":hover\"]{x:1}", bare_hover), 1)
+        self.assertEqual(self.sample("@media(hover:hover){@supports(x:y){.a:hover{x:1}}}", bare_hover), 0)
+
+    def test_mono_and_layers(self):
+        self.assertEqual(self.sample(".a{font:13px/20px ui-monospace,Menlo,monospace}.b{font-family:monospace}", raw_mono), 2)
+        self.assertEqual(self.sample(".a{font:var(--code)/var(--codel) var(--mono)}.b{--mono:ui-monospace,monospace}", raw_mono), 0)
+        self.assertEqual(self.sample(".a{font-family:var(--mono,monospace)}", raw_mono), 1)  # a fallback is written out
+        self.assertEqual(self.sample(".a{z-index:20}.b{z-index:1}.c{z-index:-1}.d{z-index:var(--z-layer)}", raw_layers), 1)
+        self.assertEqual(self.sample(".a{z-index:var(--z-layer,20)}.b{z-index:calc(var(--z-layer) + 1)}.c{z-index:-5}", raw_layers), 2)
 
     def test_inline(self):
         src = ("<a style={{ color: '#fff', ...(x ? { background: 'rgb(0 0 0)' } : {}) }} /> {/* style={{color:'#000'}} */}\n"
