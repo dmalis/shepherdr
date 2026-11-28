@@ -3,9 +3,10 @@
 // - on a phone, it ends at its newest message once it is all in;
 // - the reader's row stays where it was while the older rows come in above it, and when an earlier page comes;
 // - a quote of a message far up jumps to it, centred, even before that message was drawn;
-// - the browser's find reaches the oldest message, and a selection made at once keeps its words;
+// - the browser's find reaches the oldest message, and a selection made at once keeps its words and copies them;
 // - scrolling up through folded long replies never leaves the list blank and never jumps (upstream's "Scrolling up
-//   into a folded long reply makes the chat list go blank", in its window's chat).
+//   into a folded long reply makes the chat list go blank", in its window's chat);
+// - a message slid to reply, and its reply mark, show whole.
 // Run by web/demo/scroll-check.ts in Chromium, and in WebKit where one runs (SCROLL_WEBKIT).
 import assert from 'node:assert/strict'
 import type { Browser, Page } from 'playwright-core'
@@ -61,7 +62,7 @@ function install(ev: string, check: AtFirst, mark: string) {
         const drawn = sc.querySelectorAll('.msgs [data-msg]').length
         Promise.resolve()
           .then(() => check(sc, h))
-          .then((out) => done({ drawn, out }), (e) => done({ drawn, out: { error: String(e?.stack ?? e) } }))
+          .then((out) => done({ drawn, out }), (e) => done({ drawn, out: { error: `${e?.message ?? e}\n${e?.stack ?? ""}` } }))
       })
       return true
     }
@@ -89,6 +90,8 @@ async function serve(page: Page, rows: Message[], older: Message[] = [], under?:
     if (action?.type === 'earlier' && action.chat === EV && older.length) {
       chat = { ...chat, messages: [...older, ...chat.messages], earlier: false, top: true }
       older = []
+      // the page's check may wait on it
+      await page.evaluate(() => { (window as unknown as { __asked: boolean }).__asked = true }).catch(() => undefined)
       setTimeout(() => send?.(JSON.stringify({ type: 'chat', chat })), 50)
     }
     // the page may be closed by now (its check is done)
@@ -111,8 +114,10 @@ export async function longChat(browser: Browser, base: string, name: string) {
     return { ...got, page, close: () => ctx.close() }
   }
   const all = [...history(0, N), quote]
+  // WebKit scrolls by whole pixels, and a row may be kept twice (a step, then an earlier page): a pixel each
+  const near = name === 'WebKit' ? 2 : 1
   const held = (what: string, o: Place) =>
-    assert.ok(Math.abs(o.after - o.before) <= 1, `${name}: ${o.id} stays in place as ${what} (moved ${o.after - o.before}px)`)
+    assert.ok(Math.abs(o.after - o.before) <= near, `${name}: ${o.id} stays in place as ${what} (moved ${o.after - o.before}px)`)
 
   // the reader moves up into the history right after the first paint, before the first step and before their scroll
   // event (past the demo's cards at the foot, whose own evidence may still be coming in); the older rows come in
@@ -165,6 +170,36 @@ export async function longChat(browser: Browser, base: string, name: string) {
     await close()
   }
 
+  // the reader flings to the very top at the first paint, so an earlier page is asked for before the older rows are
+  // in; it comes while they still come in, which keep the reader's row in place first: it isn't moved twice
+  {
+    const { out, close } = await open<Place & { filling: boolean }>(history(400, 5 * N).concat(quote), async (sc, h) => {
+      await new Promise((res) => setTimeout(res))
+      // a fling up: the top is where it ends, frame after frame, until the earlier page is asked for
+      const asked = () => !!(window as unknown as { __asked?: boolean }).__asked
+      let filling = false
+      for (let i = 0; i < 300 && !asked(); i++) {
+        filling = !sc.querySelector('[data-msg="h400"]')
+        sc.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true }))
+        sc.scrollTop = 0
+        await h.frames(1)
+      }
+      const row = h.topRow(), before = h.rowAt(row)
+      await new Promise<void>((res, no) => {
+        let n = 0
+        const f = () => (sc.querySelector('[data-msg="h0"]') ? res() : ++n > 600 ? no(new Error('no earlier page came')) : requestAnimationFrame(f))
+        f()
+      })
+      await h.whole()
+      return { id: row.querySelector('[data-msg]')?.getAttribute('data-msg') ?? row.className, before, after: h.rowAt(row), filling }
+    }, history(0, 400))
+    // WebKit draws a step before the reader's scroll event says they are at the top: there the page is asked for once
+    // the rows are all in
+    if (name !== 'WebKit') assert.ok(out.filling, `${name}: the earlier page was asked for while the older rows still came in`)
+    held('an earlier page comes in while the rest does', out)
+    await close()
+  }
+
   // a quote of a message far up, tapped before it is drawn: it jumps there, centred. A longer chat, so the tap can wait
   // for the foot to settle (the demo's bar of things that need a look comes in a moment after the chat) and still
   // come before the older rows are in
@@ -198,6 +233,22 @@ export async function longChat(browser: Browser, base: string, name: string) {
     })
     assert.match(out.before, /History message 390[\s\S]*History message 395/, `${name}: the selection holds the messages it spans`)
     assert.equal(out.after, out.before, `${name}: the selection keeps its words as older messages come in`)
+    // and copies them: pasted into a box, they are the messages selected. WebKit asks the person before a page pastes,
+    // which a headless run can't answer: there the copy itself is checked, carrying the words selected
+    if (name === 'WebKit') {
+      const copied = await page.evaluate(() => new Promise<string>((done) => {
+        document.addEventListener('copy', () => done(getSelection()!.toString()), { once: true })
+        document.execCommand('copy')
+      }))
+      assert.match(copied, /History message 390[\s\S]*History message 395/, `${name}: a copy carries the messages selected`)
+    } else {
+      await page.keyboard.press('ControlOrMeta+c')
+      await page.evaluate(() => { const t = document.createElement('textarea'); t.id = 'pasted'; document.body.append(t); t.focus() })
+      await page.keyboard.press('ControlOrMeta+v')
+      const pasted = await page.locator('#pasted').inputValue()
+      await page.evaluate(() => document.getElementById('pasted')!.remove())
+      assert.match(pasted, /History message 390[\s\S]*History message 395/, `${name}: copy and paste give the messages selected`)
+    }
     const { blank, jumps } = await page.evaluate((ev) => new Promise<{ blank: number[]; jumps: number[][] }>((done) => {
       const sc = document.querySelector<HTMLElement>(`[data-scroll="${CSS.escape(ev)}"]`)!
       const blank: number[] = []
@@ -221,5 +272,43 @@ export async function longChat(browser: Browser, base: string, name: string) {
     assert.ok(folds >= 5, `${name}: the long replies are folded (${folds})`)
     await close()
   }
-  console.log(`${name}: a long chat opens on its newest messages; place, quotes, find, selection and folds hold`)
+  // a finger slides a message to reply: the message and the reply mark beside it show whole, not clipped by the list
+  // (real touches over the DevTools protocol, so Chromium only)
+  if (name === 'Chromium') {
+    const { page, close } = await open<null>(all, async (_sc, h) => { await h.whole(); return null }, undefined, true)
+    const box = await page.locator(`[data-scroll="${EV}"] [data-msg="h398"]`).evaluate((el) => {
+      el.scrollIntoView({ block: 'center' })
+      const r = el.getBoundingClientRect()
+      return { x: r.left + 24, y: r.top + r.height / 2 }
+    })
+    const cdp = await page.context().newCDPSession(page)
+    const touch = (type: string, x: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x, y: box.y }] })
+    await touch('touchStart', box.x)
+    for (let dx = 8; dx <= 56; dx += 8) await touch('touchMove', box.x + dx)
+    await page.waitForTimeout(100)
+    const seen = await page.evaluate((ev) => {
+      const sc = document.querySelector<HTMLElement>(`[data-scroll="${CSS.escape(ev)}"]`)!
+      const msg = sc.querySelector<HTMLElement>('[data-msg="h398"]')!
+      const moving = msg.closest<HTMLElement>('.bmv')!
+      const mark = moving.parentElement!.querySelector<HTMLElement>('.rpl')
+      const v = sc.getBoundingClientRect()
+      const whole = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.left >= v.left - 0.5 && r.right <= v.right + 0.5 && r.top >= v.top - 0.5 && r.bottom <= v.bottom + 0.5 }
+      // nothing between them and the list clips them: no box with its overflow hidden or its paint contained
+      const clips = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect()
+        for (let p = el.parentElement; p && p !== sc; p = p.parentElement) {
+          const cs = getComputedStyle(p), b = p.getBoundingClientRect()
+          const clipping = cs.overflowX !== 'visible' || cs.overflowY !== 'visible' || /paint|content|strict/.test(cs.contain) || cs.clipPath !== 'none'
+          if (clipping && (r.left < b.left - 0.5 || r.right > b.right + 0.5 || r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5)) return p.className || p.tagName
+        }
+        return null
+      }
+      return { slid: getComputedStyle(moving).transform, msg: whole(msg), mark: !!mark && whole(mark), clipped: clips(msg) ?? (mark && clips(mark)) }
+    }, EV)
+    await touch('touchCancel', 0)
+    assert.notEqual(seen.slid, 'none', `${name}: a finger slides the message`)
+    assert.ok(seen.msg && seen.mark && !seen.clipped, `${name}: the slid message and its reply mark show whole (${JSON.stringify(seen)})`)
+    await close()
+  }
+  console.log(`${name}: a long chat opens on its newest messages; place, quotes, find, selection, copy and folds hold${name === 'Chromium' ? ', and the reply slide' : ''}`)
 }

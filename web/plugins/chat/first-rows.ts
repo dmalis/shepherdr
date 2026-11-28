@@ -48,6 +48,8 @@ export function useNewestFirst(chat: string, keys: string[], whole: boolean): nu
     win.current.first = null
     start = 0
   }
+  // by its key too: an earlier page and a step in the same render leave the index where it was
+  const first = win.current.first
   useEffect(() => {
     if (!start) return
     return afterPaint(() => {
@@ -56,6 +58,6 @@ export function useNewestFirst(chat: string, keys: string[], whole: boolean): nu
       w.first = stepFrom(now.current, w.first)
       bump((n) => n + 1)
     })
-  }, [chat, start])
+  }, [chat, start, first])
   return start
 }

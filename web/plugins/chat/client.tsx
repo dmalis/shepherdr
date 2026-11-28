@@ -825,8 +825,11 @@ function Messages({ thread }: { thread: Thread }) {
     const place = filling.current?.start === start ? filling.current : null
     aim.current = null
     if (place && !stuck.current && sc.contains(place.row)) {
-      sc.scrollBy({ top: place.row.getBoundingClientRect().top - sc.getBoundingClientRect().top - place.offset, behavior: 'instant' })
+      const moved = place.row.getBoundingClientRect().top - sc.getBoundingClientRect().top - place.offset
+      sc.scrollBy({ top: moved, behavior: 'instant' })
       aim.current = { ...place, scrollTop: sc.scrollTop }
+      // an earlier page asked for before this step: its row's place counts the step's rows as kept already
+      if (earlierAnchor.current) earlierAnchor.current.top += moved
     }
     const anchor = earlierAnchor.current
     if (anchor && anchor.first !== first) {
