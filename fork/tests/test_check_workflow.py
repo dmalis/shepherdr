@@ -51,8 +51,12 @@ class CheckWorkflow(unittest.TestCase):
     def test_every_check_still_runs(self):
         j = jobs(text())
         browser = j["browser"]
+        # the reading check runs once more after a failure (its long-task bar reads the runner's speed): both runs fail
+        # the job when both fail
+        self.assertIn('            run: bun web/demo/reading-check.ts || { echo "::warning::the reading check failed once, '
+                      'running it again"; bun web/demo/reading-check.ts; }\n', browser)
         for f in ("tap-check", "scroll-check", "reply-check", "dict-check", "box-check", "phone-box-check",
-                  "draft-check.ts --phone", "edit-check", "still-check", "artifact-check", "reading-check",
+                  "draft-check.ts --phone", "edit-check", "still-check", "artifact-check",
                   "motion-check", "swipe-check", "fit-check"):
             f = f if " " in f else f + ".ts"
             self.assertIn(f"            run: bun web/demo/{f}\n", browser, f)
