@@ -824,7 +824,10 @@ def cmd_ready(args):
             raise Fail(after_merge.ready_words(s, t, after))
         brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before, its brief's rounds too
         refused = unmoved or collides or review_refusal(s, t, wt)
-        if refused:
+        # dmalis/shepherdr#388: its worktree gone with work of its own: kept as it is, as when refused (below: merged
+        # already, else said that the worktree is gone), never its attention, fix asked for and progress cleared
+        gone_tree = bool(wt) and not os.path.isdir(wt) and not (t.get("start") and in_base(s, t))
+        if refused or gone_tree:
             # Kept (the task's line says why it waits); refused after the store is saved.
             s.dirty = True
         else:
@@ -962,37 +965,57 @@ def review_refusal(s, t, wt):
     head = t.get("head") if wt else None
     if (any(r.get("head") == head for r in revs) if wt else bool(revs)):
         return None
-    if wt and head and carried_over(s, t, wt, {r.get("head") for r in revs if r.get("head")}, head):
+    heads = {r.get("head") for r in revs if r.get("head")}
+    if wt and head and head in moved_reviewed(t, heads):
+        return None  # dmalis/shepherdr#388: Herdr's own rebase of a reviewed commit onto a new base (stack.move)
+    if wt and head and carried_over(s, t, wt, heads, head):
         return None
     ref, ht, folder = s.ref(t), own_path(), shlex.quote(s.loc["folder"])
-    what = unreviewed_words(t, wt, head, revs)
+    what = f"your final commit {head[:7]}" if head else "this task's work"
+    seen = sorted({r["head"][:7] for r in revs if r.get("head")}) if wt else []
+    if seen:
+        what += f" (rounds are recorded on {', '.join(seen)})"
     # #1116: a round after an earlier one reviews what changed since the newest reviewed commit still on this branch,
     # never the whole task again (its reviewer found fresh nits in code it had passed)
     last = next((r["head"] for r in reversed(revs) if wt and r.get("head")
                  and git(wt, "merge-base", "--is-ancestor", r["head"], head or "HEAD")[0]), None)
     delta = (f" Since round on {last[:7]}, have only what changed reviewed (git diff {last[:7]}..HEAD, and any merge's "
              "conflict resolutions), with that round's findings.") if last else ""
-    return (f"Review is on and {what}. Have it reviewed as your brief says, fix what must be fixed, record the "
-            f"round with `{ht} reviewed {ref} --folder {folder} --report \"<findings, a line>\"` (it records your HEAD, the "
-            f"commit you'd say ready at), then run ready again.{delta} {rounds - rounds_used(t)} of {rounds} rounds left.")
+    # dmalis/shepherdr#388: the round is recorded right after the review, on the commit the reviewer read, never after
+    # a fix (a plain `reviewed` then would stamp the unseen fix as reviewed)
+    return (f"Review is on and {what} isn't reviewed.{checked_words(wt, head, revs)} Have your HEAD reviewed as your brief "
+            f"says and record the round right after the review, before you commit any fix: `{ht} reviewed {ref} --folder "
+            f"{folder} --report \"<findings, a line>\"` (it records your HEAD, the commit the reviewer read; committed since? "
+            f"add `--commit <the commit the reviewer read>`). Then fix what must be fixed and run ready again.{delta} "
+            f"{rounds - rounds_used(t)} of {rounds} rounds left.")
 
 
-def unreviewed_words(t, wt, head, revs):
+def moved_reviewed(t, heads):
+    """dmalis/shepherdr#388: the commits Herdr's own rebases (stack.move: its base task merged) made from a reviewed
+    commit, along a chain of moves: the same reviewed work on a new base, its review kept."""
+    got, moves = set(heads), [m for m in t.get("moved_heads") or [] if isinstance(m, dict)]
+    for m in moves:
+        if m.get("from") in got and m.get("to"):
+            got.add(m["to"])
+    return got - set(heads)
+
+
+def checked_words(wt, head, revs):
     """dmalis/shepherdr#388: what ready checked and what it found, for its refusal: the commit it expected a round on
     (HEAD, and where), and the commit the newest round is on (how far behind HEAD, or off its branch)."""
     if not wt:
-        return "no review round is recorded since this task started"
+        return ""
     if not head:
-        return f"ready couldn't tell which commit is your HEAD in {wt}, so no round counts"
-    on = f"ready checks your final commit, HEAD {head[:7]} in {wt}, and no round is recorded on it"
+        return f" Ready couldn't tell which commit is your HEAD in {wt}, so no round counts."
+    on = f" Ready checked your HEAD, {head[:7]} in {wt}"
     last = next((r for r in reversed(revs) if r.get("head")), None)
     if not last:
-        return on + " (no round is recorded yet)"
+        return on + ": no round is recorded yet."
     ok, n, _ = git(wt, "rev-list", "--count", f"{last['head']}..{head}")
     behind = git(wt, "merge-base", "--is-ancestor", last["head"], head)[0]
     how = (f", {n} commit{'' if n == '1' else 's'} before it" if behind and ok and n.isdigit()
            else ", not on this branch any more (rebased or reset since)" if not behind else "")
-    return on + f": the newest round (round {last.get('round', len(revs))}) is on {last['head'][:7]}{how}"
+    return on + f": the newest round (round {last.get('round', len(revs))}) is on {last['head'][:7]}{how}."
 
 
 def work_tree(s, t, folder=None):
@@ -1091,9 +1114,6 @@ def same_own_changes(s, t, wt, reviewed, head):
     remote): the review covers it, also after a merge whose conflicts were resolved keeping both sides. A resolution
     that changed the task's own lines or dropped the base's, or anything of its own since, differs."""
     main, base = s.loc["folder"], t.get("base") or "main"
-    # dmalis/shepherdr#388: moved onto a new base (stack.move: its base task merged), a commit reviewed before the move
-    # is compared from where it left its old base, the diff its reviewer read
-    fork = (t.get("base_was") or {}).get("fork")
     for b in (f"refs/remotes/{remote_of(main)}/{base}", base):
         if not git(wt, "rev-parse", "--verify", "--quiet", f"{b}^{{commit}}")[0]:
             continue
@@ -1101,7 +1121,7 @@ def same_own_changes(s, t, wt, reviewed, head):
         if not mine:
             continue   # unknown, or nothing of its own to compare (empty commits say nothing)
         for r in list(reviewed)[-10:]:
-            if own_diff(wt, b, r) == mine or (fork and own_diff(wt, fork, r) == mine):
+            if own_diff(wt, b, r) == mine:
                 return True
     return False
 

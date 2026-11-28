@@ -131,8 +131,10 @@ class ReadyTakesTheReviewedHead(unittest.TestCase):
         self.assertIn(f"for commit {seen[:7]}", said)
         self.assertIn(f"newer than it: {head[:7]}", said)
         msg = self.refusal(ref)
-        self.assertIn(f"HEAD {head[:7]}", msg)
-        self.assertIn(f"(round 1) is on {seen[:7]}, 1 commit before it", msg)
+        self.assertIn(f"your final commit {head[:7]} (rounds are recorded on {seen[:7]}) isn't reviewed", msg)
+        self.assertIn(f"Ready checked your HEAD, {head[:7]} in {wt}: the newest round (round 1) is on {seen[:7]}, "
+                      "1 commit before it.", msg)
+        self.assertIn("record the round right after the review, before you commit any fix", msg)
         self.assertNotIn("this task's work", msg)
         self.reviewed(ref)  # round 2, on HEAD
         self.ready(ref)
@@ -156,18 +158,24 @@ class ReadyTakesTheReviewedHead(unittest.TestCase):
         """#388: with its worktree folder gone, ready said "this task's work isn't reviewed"."""
         loc, ref = self.on_disk(rounds=2)
         wt = self.task["worktree"]
-        self.commit(wt, "work", "a.txt")
-        self.reviewed(ref)
+        self.commit(wt, "unreviewed work", "a.txt")
+        import herdr_task.store as store
+        with store.Store(loc) as s:
+            s.find(ref).update(attention="its agent asked something", fix_requested=1, back=1)
+            s.dirty = True
         shutil.rmtree(wt)
         msg = self.refusal(ref)
         self.assertIn("worktree", msg)
         self.assertIn("is gone", msg)
         self.assertNotIn("isn't reviewed", msg)
+        t = self.stored(loc, ref)
+        self.assertEqual((t["attention"], t["fix_requested"], t["back"]), ("its agent asked something", 1, 1))
 
-    def test_ready_moving_a_stacked_task_onto_its_merged_base_keeps_the_review(self):
-        """#389: its base, another task's branch, merged (squashed) and gone: ready rebases the reviewed commit onto
-        the new base itself; the same changes as reviewed, so the round holds."""
+    def stacked(self, also_in_base=False):
+        """A task on another task's branch (feature), reviewed on HEAD; then that task's work squash-merges into main
+        (with also_in_base, main also gets one of this task's own changes) and its task is done."""
         import herdr_task.stack as stack
+        import herdr_task.store as store
         self.patch(stack, "gh", lambda *a, **k: (True, "[]", ""))
         self.patch(self.commands, "mid_turn", lambda s, t: False)
         wt = self.task["worktree"]
@@ -176,22 +184,42 @@ class ReadyTakesTheReviewedHead(unittest.TestCase):
         self.task.update(base="feature", base_set=True, start=feature)
         parent = {"id": 2, "title": "Base", "state": "done", "merged": True, "mode": "worktree", "branch": "feature",
                   "base": "main", "worktree": os.path.join(self.root, "gone"), "agents": []}
-        loc, ref = self.on_disk(rounds=2)
-        import herdr_task.store as store
+        loc, ref = self.on_disk(rounds=3)
         with store.Store(loc) as s:
             s.data["tasks"].append(parent)
             s.dirty = True
-        reviewed = self.commit(wt, "work", "a.txt")
+        self.commit(wt, "work", "a.txt")
+        reviewed = self.commit(wt, "a shared helper", "d.txt")
         self.reviewed(ref)
-        with open(os.path.join(self.main, "f.txt"), "a") as f:   # its squash merge into main
-            f.write("the base task's work\n")
-        self.git(self.main, "add", "f.txt")
+        for name, words in [("f.txt", "the base task's work")] + ([("d.txt", "a shared helper")] if also_in_base else []):
+            with open(os.path.join(self.main, name), "a") as f:   # its squash merge into main
+                f.write(words + "\n")
+            self.git(self.main, "add", name)
         self.commit(self.main, "Base (#1)")
         self.git(self.main, "push", "-q", "origin", "main")
+        return loc, ref, reviewed
+
+    def test_ready_moving_a_stacked_task_onto_its_merged_base_keeps_the_review(self):
+        """#389: its base, another task's branch, merged (squashed) and gone: ready rebases the reviewed commit onto
+        the new base itself; Herdr's own clean rebase of the reviewed commit, so the round holds. A commit after it
+        still needs a round."""
+        loc, ref, reviewed = self.stacked()
         self.ready(ref)
         t = self.stored(loc, ref)
         self.assertEqual((t["state"], t["base"]), ("ready", "main"))
         self.assertNotEqual(t["head"], reviewed)
+        self.assertEqual(t["moved_heads"][-1]["from"], reviewed)
+        self.commit(self.task["worktree"], "more after the move", "a.txt")
+        self.assertIn("isn't reviewed", self.refusal(ref))
+
+    def test_a_move_whose_rebase_drops_a_change_the_base_already_has_keeps_the_review(self):
+        """#389 (review): the new base already has one of the task's changes, so ready's rebase drops it: still the
+        reviewed work, moved by Herdr."""
+        loc, ref, reviewed = self.stacked(also_in_base=True)
+        self.ready(ref)
+        t = self.stored(loc, ref)
+        self.assertEqual((t["state"], t["base"]), ("ready", "main"))
+        self.assertEqual(self.git(self.task["worktree"], "rev-list", "--count", "origin/main..HEAD"), "1")
 
 
 
