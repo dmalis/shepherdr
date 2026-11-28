@@ -12,6 +12,7 @@ import { AppliesTo, useAppliesTo } from '@client/applies-to.tsx'
 import { Choice as Seg } from '@client/choice.tsx'
 import { Own, SRow } from '@client/settings-rows.tsx'
 import { ActBtn, ActError, Btn, I, Tgl, useCardActs } from '@client/ui.tsx'
+import { useLayoutEffect, useRef } from 'react'
 import { openDialog } from '@client/overlay.tsx'
 import { TRIAGE_DRAFTS, triageAsk, triageDraftsWords, triagePlace, triageShown } from '@shared/attention.ts'
 import type { Automation, Snapshot, TriageCard, TriageKeys } from '@shared/types.ts'
@@ -165,14 +166,40 @@ const draftsIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).f
 export function TriageDraftsList({ place, close }: { place: string; close: () => void }) {
   const snap = useSnap()
   const drafts = snap ? draftsIn(snap, place) : []
+  const box = useRef<HTMLDivElement>(null)
+  const done = useRef<HTMLDivElement>(null)
+  // the card that last held focus: an answer takes it away with its button, so focus goes on to the card now in its
+  // place (the next one), as a mail app moves to the next message once one is archived; the last answered, to Close
+  const at = useRef(-1)
+  const ids = drafts.map((c) => c.id).join(' ')
+  useLayoutEffect(() => {
+    const f = document.activeElement
+    if (at.current < 0 || (f && f !== document.body && f.isConnected)) return
+    const cards = box.current?.children
+    const next = cards?.[Math.min(at.current, cards.length - 1)]
+    ;(next?.querySelector<HTMLElement>('.tri-text') ?? done.current?.querySelector('button'))?.focus()
+  }, [ids])
   return (
     <>
       <h2>{drafts.length ? triageDraftsWords(drafts.length) : 'Nothing waits to be posted'}</h2>
       <p>{drafts.length ? 'Each goes public only when you say yes. Answer them one by one, oldest first.' : 'Every finding here has its answer.'}</p>
-      {drafts.length > 0 && <div className="tri-list">{drafts.map((c) => <TriageCardView key={c.id} c={c} />)}</div>}
-      <div className="acts"><Btn onClick={close}>Close</Btn></div>
+      {drafts.length > 0 && (
+        <div className="tri-list" ref={box} onFocus={(e) => void (at.current = [...e.currentTarget.children].findIndex((c) => c.contains(e.target)))}>
+          {drafts.map((c) => <TriageCardView key={c.id} c={c} />)}
+        </div>
+      )}
+      <div className="acts" ref={done}><Btn onClick={close}>Close</Btn></div>
     </>
   )
+}
+
+/** the list closed after its one card went (answers left 3 or fewer, each its own card again): focus goes to the first
+ *  of them, not lost with the button that opened it */
+function focusLeft(opener: Element | null) {
+  setTimeout(() => {
+    if (opener?.isConnected) return
+    document.querySelector<HTMLElement>('[data-card^="triage:draft:"] .tri-text')?.focus()
+  })
 }
 
 /** more drafts than TRIAGE_GROUP_OVER in a space: one card that says how many, and opens their list */
@@ -182,7 +209,7 @@ export function TriageDraftsCard({ place, n }: { place: string; n: number }) {
       <span className="t" id="tri-drafts-q">{triageDraftsWords(n)}</span>
       <span className="s">Each goes public only when you say yes.</span>
       <div className="acts">
-        <Btn kind="pri" onClick={() => openDialog((close) => <TriageDraftsList place={place} close={close} />, { wide: true, label: 'Findings to post' })}>Show them</Btn>
+        <Btn kind="pri" onClick={(e) => { const opener = e.currentTarget; openDialog((close) => <TriageDraftsList place={place} close={close} />, { wide: true, label: 'Findings to post', onClose: () => focusLeft(opener) }) }}>Show them</Btn>
       </div>
     </section>
   )
