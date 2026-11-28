@@ -14,6 +14,7 @@
     "web/plugins/chat/attach.css",
     "web/demo/draft-check.ts",
     "web/demo/perf-check.ts",
+    ".github/workflows/check.yml",
     "docs/design.md"
   ],
   "tests": [
