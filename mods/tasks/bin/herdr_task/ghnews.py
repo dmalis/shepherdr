@@ -188,7 +188,9 @@ def pr_news(s, t, v, report):
             lines.append(f"  {collision_words(c)}")
     for c in news_checks[:10]:
         name, url = c.get("name") or c.get("context") or "A check", c.get("detailsUrl") or c.get("targetUrl") or ""
-        lines.append(f"- Check \"{name}\" failed: {url}")
+        # cutoff.read(): run again once by itself, and cut off at its time limit again (a test that hangs, a slow step)
+        lines.append(f"- Check \"{name}\" " + ("was cut off at its time limit, again after Herdr ran it once more"
+                                               if c.get("cut_off") else "failed") + f": {url}")
     tail = None
     for c in news_checks:
         rid = run_id(c.get("detailsUrl") or c.get("targetUrl"))

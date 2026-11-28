@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, brief_rounds, ghbudget, proof_hold, sandbox, stack, urgent
+from . import after_merge, brief_rounds, cutoff, ghbudget, proof_hold, sandbox, stack, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -1011,7 +1011,14 @@ def unchanged_folder(s, t):
         return False
     ok, head, _ = git(folder, "rev-parse", "HEAD")
     clean, changed, _ = git(folder, "status", "--porcelain", "--untracked-files=no")
-    return ok and head == t["folder_start"] and clean and not changed
+    if not (ok and clean and not changed):
+        return False
+    if head == t["folder_start"]:
+        return True
+    # dmalis/shepherdr (Needs you only when it's yours): other tasks' merges fast-forward the folder meanwhile
+    # (update_main()): only a commit of its own since it started, one no remote branch has, is its change
+    mine_ok, mine, _ = git(folder, "rev-list", f"{t['folder_start']}..HEAD", "--not", "--remotes")
+    return mine_ok and not mine.strip()
 
 
 def rounds_this_run(t):
@@ -2128,7 +2135,9 @@ def _merge_now(s, t, accept=False):
             return GITHUB_CATCHING_UP
         # only the base branch's required checks hold a merge (#1221); merge "on its own" (also a merge by hand) none
         # beyond them
-        v = merge_checks(t, v, now_=(t.get("auto_merge") or merge_policy(s, t)) == "auto")
+        on_its_own = (t.get("auto_merge") or merge_policy(s, t)) == "auto"
+        v = merge_checks(t, v, now_=on_its_own)
+        v = cutoff.read(s, t, v)  # a run cut off at its time limit runs again by itself (the tick), never a failure first
         problem = pr_problem(v) or queue_refusal(t, v)
         if problem:
             # #1174: never into GitHub's merge queue while it conflicts, nor again at the commit whose
@@ -2139,7 +2148,7 @@ def _merge_now(s, t, accept=False):
         if t.get("merge_queued"):
             return IN_QUEUE
         # #1044: no checks yet while some will come is never "none set up": it merges once they ran.
-        if pr_pending(v) or checks_missing(v, checks_since(s, t, v), expected_checks(s, t, v.get("headRefOid"))) == "waiting":
+        if pr_pending(v) or checks_missing(v, checks_since(s, t, v), expected_checks(s, t, v.get("headRefOid")), on_its_own) == "waiting":
             return CHECKS_RUNNING
         if needs_approval(v):
             t["pr"]["needs_approval"] = True
