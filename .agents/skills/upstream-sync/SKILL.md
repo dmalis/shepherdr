@@ -266,3 +266,10 @@ answer. Then, once per blocker:
 `preflight`, `baseline` and `select` can be held before there is a release to record. Nothing was written, so there
 is no hold: tell the person with `herdr-task alert "<what, a few words>" --body "<why>"`, add it to the open
 `pipeline` issue in fixed words unless it already says so, then step 7.
+
+## Schedules
+
+- "Upstream sync" runs at 06:00 and 18:00. A sync of an upstream release merges into `main` once its checks pass.
+- "Install each merge" runs each time a task in this space is merged: our own merges merge right away, without
+  waiting for CI, and install right away; CI on main reports after. Its health check also reads the web app and
+  herdr-task.
