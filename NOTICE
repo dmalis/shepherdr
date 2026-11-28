@@ -11,3 +11,10 @@ Some icons in the mods come from Lucide (https://lucide.dev, ISC license), as th
 Agent marks in web/public/agents include icons from Lobe Icons (https://github.com/lobehub/lobe-icons,
 MIT; LICENSE-LobeHub.txt), Droid from Factory (https://github.com/Factory-AI/factory, Apache 2.0;
 LICENSE-Droid.txt), and Pi from badlogic/pi-mono (https://github.com/badlogic/pi-mono, MIT; LICENSE-Pi.txt).
+
+Some agent skills in .agents/skills are unchanged copies of third-party skills, each under its own license, kept
+beside them: playwright-cli from microsoft/playwright-cli (https://github.com/microsoft/playwright-cli, Apache 2.0,
+Copyright (c) Microsoft Corporation; LICENSE-playwright-cli.txt), vercel-react-best-practices from
+vercel-labs/agent-skills (https://github.com/vercel-labs/agent-skills, MIT, Vercel;
+LICENSE-vercel-react-best-practices.txt), and mobile-ios-design from wshobson/agents
+(https://github.com/wshobson/agents, MIT, Copyright (c) 2024 Seth Hobson; LICENSE-mobile-ios-design.txt).
