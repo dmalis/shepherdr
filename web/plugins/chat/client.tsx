@@ -848,7 +848,7 @@ function Messages({ thread }: { thread: Thread }) {
       const line = endedLine(m.ended, lastEnded)
       if (!line) continue
       // dmalis/shepherdr#45: an answered permission says when, in the reader's clock; one nobody answered here, a warning
-      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span><KindLine text={line} />{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
+      out.push(<DoneRow key={k} icon={m.endedWaits ? 'warn' : 'check'}><span className="kline"><KindLine text={line} />{m.endedAt ? ` at ${clock(m.endedAt)}` : ''}</span></DoneRow>)
     }
     // a recap of what happened (the agent's own, or its answer to Recap), and a heads-up its CLI wrote: never bubbles
     else if (m.recap === 'heads') out.push(<QuietRow key={k} kind="heads" icon="info" label={m.text ?? ''} meta={m.at ? [{ word: clock(m.at) }] : []} />)
