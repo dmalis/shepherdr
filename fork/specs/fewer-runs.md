@@ -165,7 +165,7 @@ look at those first, and still end `--nothing` when none of it is news."
     main-red notice may tell a red main first, but the pipeline can't see that it reached anyone (its watch ends after
     three hours, and GitHub may be down meanwhile), so it never counts as told (review round 1).
   - `fork/bin/sync ci` stays, with `finish --wait-ci` to hand a run to it, for a run that wants the verdict now (the person's ask); no step calls them. The glance (`merged.ci_glance`) never stops a run: a read that fails is left for the next.
-  - FORK.md's "Our own merges" step 3 and the upstream-sync skill's step 7 and "CI after the install" say this.
+  - The upstream-sync skill's step 7, "CI after the install" and "Schedules" say this (FORK.md, slimmed on main, points there).
 - **Unchanged:** preflight, baseline, settle, the rehearsal, install, health, rollback, issues, `found installed`,
   `found`, the device-check words, and the run's told message. The install agent still follows the skill.
 

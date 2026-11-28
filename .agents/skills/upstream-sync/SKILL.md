@@ -271,5 +271,6 @@ is no hold: tell the person with `herdr-task alert "<what, a few words>" --body 
 
 - "Upstream sync" runs at 06:00 and 18:00. A sync of an upstream release merges into `main` once its checks pass.
 - "Install each merge" runs each time a task in this space is merged: our own merges merge right away, without
-  waiting for CI, and install right away; CI on main reports after. Its health check also reads the web app and
-  herdr-task.
+  waiting for CI, and install right away; CI on main reports after, and no run waits for it (CI after the install).
+  Merges that land during an install fold into one run after it, not one each (the schedule's `--fold`). Its health
+  check also reads the web app and herdr-task.
