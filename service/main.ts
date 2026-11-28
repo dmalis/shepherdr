@@ -103,7 +103,7 @@ function reachOf(machine: string | null) {
   if (was && Date.now() - was.at < 60_000) return was.got;
   const got = exec(hub, ["sh", "-c", REACH_FILE], machine, 20).then((r) => {
     const d = JSON.parse(r.stdout || "null");
-    return { from: d?.graph?.core?.name ?? machine, spaces: reachable(d?.graph, knownFrom(knownSpaces(), host.me?.name, machine)), checked: d?.at ?? null };
+    return { from: d?.graph?.core?.name ?? machine, spaces: reachable(d?.graph, knownFrom(knownSpaces(), host.me?.id, machine)), checked: d?.at ?? null };
   }).catch(() => null).then((r) => r?.checked ? r : {
     // no map there yet (its scheduler hasn't run): its own spaces, which it always reaches
     from: machine, checked: null,

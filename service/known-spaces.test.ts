@@ -44,7 +44,7 @@ const known = [
 const rows = (list: any[]) => list.map((s) => [s.name, s.machine, s.target]);
 
 test("an agent on another machine: each same-named space under its own machine, aimed at it", () => {
-  const list = reachable(laptopMap, knownFrom(known, "server", "laptop"));
+  const list = reachable(laptopMap, knownFrom(known, "c-server", "laptop"));
   expect(rows(list.filter((s: any) => s.name === ".agents"))).toEqual([
     [".agents", "laptop", "spLA"],
     [".agents", "server", "server/spSA"],
@@ -67,8 +67,8 @@ test("before: the known list as it was given to another machine's map put server
 });
 
 test("an agent on the serving machine: the known list is given as it is, and the list is unchanged", () => {
-  expect(knownFrom(known, "server", null)).toBe(known);
-  expect(rows(reachable(serverMap, knownFrom(known, "server", null)))).toEqual([
+  expect(knownFrom(known, "c-server", null)).toBe(known);
+  expect(rows(reachable(serverMap, knownFrom(known, "c-server", null)))).toEqual([
     ["Everything", "server", "home"],
     [".agents", "server", "spSA"],
     ["notes", "server", "spSN"],
@@ -77,10 +77,26 @@ test("an agent on the serving machine: the known list is given as it is, and the
   ]);
 });
 
-test("a third machine's spaces keep their machine; the serving machine's are left out when its name is unknown", () => {
+test("a third machine's spaces keep their machine; the serving machine's are left out when its id is unknown", () => {
   const more = [...known, { id: "spX", name: "x", folder: "/base/x", machine: "box", everything: false, assistant: false }];
-  expect(knownFrom(more, "server", "laptop").map((k) => [k.id, k.machine])).toEqual([
-    ["home", "server"], ["spLA", null], ["spSA", "server"], ["spSN", "server"], ["spX", "box"],
+  expect(knownFrom(more, "c-server", "laptop").map((k) => [k.id, k.machine])).toEqual([
+    ["home", "@c-server"], ["spLA", null], ["spSA", "@c-server"], ["spSN", "@c-server"], ["spX", "box"],
   ]);
   expect(knownFrom(more, "", "laptop").map((k) => k.id)).toEqual(["spLA", "spX"]);
+});
+
+test("the serving machine is found by its core id, even when another machine's link has its name", () => {
+  // laptop calls the serving machine "main", and a third machine "server", the serving machine's own core name
+  const map = {
+    core: { id: "c-laptop", name: "laptop" }, spaces: [{ id: "spLA", name: ".agents" }], links: [
+      { how: "herdr-core", to: "main", next: { core: { id: "c-server", name: "server" }, spaces: [], links: [] } },
+      { how: "herdr-core", to: "server", next: { core: { id: "c-other", name: "other" }, spaces: [{ id: "spOA", name: ".agents" }], links: [] } },
+    ],
+  };
+  const list = reachable(map, knownFrom(known, "c-server", "laptop"));
+  expect(rows(list.filter((s: any) => s.name === ".agents"))).toEqual([
+    [".agents", "laptop", "spLA"],
+    [".agents", "server", "main/spSA"],
+    [".agents", "other", "server/spOA"],
+  ]);
 });

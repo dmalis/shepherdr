@@ -43,7 +43,8 @@ export function reachable(graph, known = []) {
     const name = node.core?.name || route[route.length - 1] || node.host || "";
     const live = new Set((node.assistants ?? []).map((a) => a.space).filter(Boolean));
     const own = (node.spaces ?? []).filter((s) => s?.id && !s.machine);
-    const called = [name, route[route.length - 1]].filter(Boolean);  // the machine's core name, or the name its link gave
+    // the machine's core name, the name its link gave, or "@" and its core id (core/host.js)
+    const called = [name, route[route.length - 1], node.core?.id && `@${node.core.id}`].filter(Boolean);
     const mine = known.filter((k) => k?.id && (route.length ? called.includes(k.machine) : !k.machine || called.includes(k.machine)));
     const every = node.everything ?? mine.find((s) => s.everything)?.id;
     for (const s of [...own, ...mine]) {
