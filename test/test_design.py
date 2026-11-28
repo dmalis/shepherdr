@@ -10,15 +10,13 @@
 What each file holds today is its cap below: a count may go down, never up, and a new file starts at none. A cap above
 what a file holds fails too, so lower it with the change that removed some. Moving rules to another file moves their
 cap with them. Reduced motion, idle work and contrast on other states are checked in the browser, not here."""
+import home_guard  # noqa: F401  (first: a throwaway HOME)
+
 import os
 import re
-import sys
+import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "test"))
-import home_guard  # noqa: E402,F401  (first: a throwaway HOME)
-
-import unittest  # noqa: E402
 
 DS = "web/src/ds.css"
 # the type scale (docs/design.md, Type)
@@ -68,30 +66,33 @@ def text(rel):
 
 
 def declarations(rel):
-    """(property, value) of each declaration in a stylesheet, its comments, strings and url()s taken out"""
+    """(property, value) of each declaration in a stylesheet, at any depth (nested rules and @media included), with
+    its comments, strings and url()s taken out"""
     # one pass, so an apostrophe in a comment opens no string and a /* in a string opens no comment
     s = re.sub(r"/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'",
                lambda m: "" if m.group(0).startswith("/*") else '""', text(rel), flags=re.S)
     s = re.sub(r"url\([^)]*\)", "url()", s)
     out = []
-    for body in re.findall(r"\{([^{}]*)\}", s):  # innermost blocks: a rule inside @media is still one
-        for decl in body.split(";"):
-            if ":" in decl:
-                prop, value = decl.split(":", 1)
-                out.append((prop.strip().lower(), value.strip()))
+    # each piece of text up to a { (a selector or an at-rule), a ; or a } (the end of a declaration)
+    for piece, end in re.findall(r"([^{};]*)([{};])", s):
+        if end != "{" and ":" in piece:
+            prop, value = piece.split(":", 1)
+            out.append((prop.strip().lower(), value.strip()))
     return out
 
 
+def no_tokens(value):
+    """a value without its tokens' names, a var()'s fallback kept: var(--fg, red) still holds red"""
+    return re.sub(r"var\(\s*--[\w-]+\s*,?|--[\w-]+", "", value)
+
+
 def colours(rel):
-    n = 0
-    for prop, value in declarations(rel):
-        value = re.sub(r"var\([^)]*\)|--[\w-]+", "", value)  # a token's name is no colour (var(--red))
-        n += len(COLOUR.findall(value))
-    return n
+    return sum(len(COLOUR.findall(no_tokens(value))) for _, value in declarations(rel))
 
 
 def font_size(prop, value):
     """the size a font-size or font declaration sets, or None when a token, a keyword or a percentage sets it"""
+    value = re.sub(r"\s*!important\s*$", "", value)
     if prop == "font-size":
         v = value
     elif prop == "font":
@@ -126,12 +127,19 @@ def endless(rel):
     for prop, value in declarations(rel):
         if prop in ("animation", "animation-iteration-count"):
             n += len(re.findall(r"\binfinite\b", value))
-            n += sum(1 for x in re.findall(r"\b\d+\b", value) if prop == "animation-iteration-count" and int(x) >= 100)
+            # a bare whole number in the shorthand or the count is its iteration count: 100 or more is endless
+            n += sum(1 for x in re.findall(r"(?<![\w.-])(\d+)(?![\w.%])", value) if int(x) >= 100)
     return n
 
 
+def code(rel):
+    """a script's source with its comments taken out and its strings kept (a // inside 'https://' is no comment)"""
+    return re.sub(r"(\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|/\*.*?\*/|//[^\n]*",
+                  lambda m: m.group(1) or "", text(rel), flags=re.S)
+
+
 def script_endless(rel):
-    return len(re.findall(r"iterations\s*:\s*(?:Infinity|Number\.POSITIVE_INFINITY)", text(rel)))
+    return len(re.findall(r"iterations\s*:\s*(?:Infinity|Number\.POSITIVE_INFINITY)", code(rel)))
 
 
 def inline_styles(source):
@@ -150,8 +158,7 @@ def inline_styles(source):
 
 
 def inline_colours(rel):
-    src = re.sub(r"/\*.*?\*/|//[^\n]*", "", text(rel), flags=re.S)
-    return sum(len(COLOUR.findall(re.sub(r"var\([^)]*\)|--[\w-]+", "", m))) for m in inline_styles(src))
+    return sum(len(COLOUR.findall(no_tokens(m))) for m in inline_styles(code(rel)))
 
 
 class DesignTokens(unittest.TestCase):
@@ -204,9 +211,9 @@ class DesignTokens(unittest.TestCase):
 class Checks(unittest.TestCase):
     """the measures above on small samples, so a regex change can't quietly stop counting"""
 
-    def sample(self, css, measure):
+    def sample(self, css, measure, suffix=".css"):
         import tempfile
-        with tempfile.NamedTemporaryFile("w", suffix=".css", dir=os.path.join(ROOT, "test"), delete=False) as f:
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, dir=os.path.join(ROOT, "test"), delete=False) as f:
             f.write(css)
         try:
             return measure(os.path.relpath(f.name, ROOT))
@@ -219,19 +226,27 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample("#fade{color:var(--red);background:url(#feed) transparent}", colours), 0)
         self.assertEqual(self.sample("/* #fff */.a{content:\"#fff\";color:currentColor}", colours), 0)
         self.assertEqual(self.sample("@media (hover:hover){.a:hover{color:#000}}", colours), 1)
+        self.assertEqual(self.sample(".a{color:var(--fg, red)}", colours), 1)  # a fallback is a colour
+        self.assertEqual(self.sample(".a{color:#111; .b{color:#222} background:#333}", colours), 3)  # nested CSS
+        self.assertEqual(self.sample(".a{content:'it\\'s';color:#444}/* don't */.b{color:#555}", colours), 2)
 
     def test_sizes(self):
         self.assertEqual(self.sample(".a{font-size:13px}.b{font:600 14px/20px Inter}.c{font-size:var(--ui)}", off_scale), 0)
         self.assertEqual(self.sample(".a{font:italic 600 11px/18px Inter}.b{font-size:.5vw}.c{font-size:calc(10px*2)}", off_scale), 3)
         self.assertEqual(self.sample(".a{font-size:16PX}.b{font-size:15px}.c{font:500 var(--sec)/var(--secl) Inter}", off_scale), 1)
+        self.assertEqual(self.sample(".a{font-size:14px !important}.b{font-size:11px!important}", off_scale), 1)
 
     def test_endless(self):
         self.assertEqual(self.sample(".a{animation:spin 1s linear infinite}.b{animation-iteration-count:999999}", endless), 2)
         self.assertEqual(self.sample(".a{animation:fade .2s ease}", endless), 0)
+        self.assertEqual(self.sample(".a{animation:spin 1s 999999}.b{animation:fade 1.999s 2}", endless), 1)
+        js = "el.animate(k, { iterations: Infinity })\n// el.animate(k, { iterations: Infinity })\n/* iterations: Infinity */"
+        self.assertEqual(self.sample(js, script_endless, ".ts"), 1)
 
     def test_inline(self):
-        src = "<a style={{ color: '#fff', ...(x ? { background: 'rgb(0 0 0)' } : {}) }} /> {/* style={{color:'#000'}} */}"
-        self.assertEqual(sum(len(COLOUR.findall(m)) for m in inline_styles(re.sub(r"\{/\*.*?\*/\}", "", src))), 2)
+        src = ("<a style={{ color: '#fff', ...(x ? { background: 'rgb(0 0 0)' } : {}) }} /> {/* style={{color:'#000'}} */}\n"
+               "<a href='https://example.com' style={{ color: 'red', border: 'var(--line, #ddd)' }} /> // style={{color:'#000'}}")
+        self.assertEqual(self.sample(src, inline_colours, ".tsx"), 4)
 
 
 def theme(name):
@@ -283,9 +298,9 @@ class Contrast(unittest.TestCase):
         for name in ("light", "system-dark", "dark", "night"):
             t = theme(name)
             canvas = rgb(t["--canvas"])
-            muted = rgb(t["--muted"], canvas)
             for surface in ("--canvas", "--well", "--raised", "--mine"):
-                ratio = contrast(muted, rgb(t[surface], canvas))
+                under = rgb(t[surface], canvas)  # a see-through surface painted over the page, the grey over it
+                ratio = contrast(rgb(t["--muted"], under), under)
                 if ratio < 4.5:
                     low.append(f"{name} {surface}: {ratio:.2f}")
         self.assertEqual(low, [])

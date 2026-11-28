@@ -37,16 +37,28 @@ const holdRace = () => {
   if (i >= 0) raced.set(RACE, c!.messages.splice(i, 1)[0]!)
 }
 const ownCard = (key: string) => chats[key]?.messages.some((m) => m.question && !m.question.by && m.question.sent === undefined && !m.question.closed)
+// DEMO_LONG_CHAT=400 puts that many more messages in #blog, the same each time, for web/demo/perf-check.ts's long chat:
+// a short line, bold, a list with code and a long paragraph, in turn, the agent and you taking turns
+function longChat() {
+  const count = Number(process.env.DEMO_LONG_CHAT ?? 0), c = chats['p:mac-mini:blog']
+  if (!count || !c) return
+  const texts = ['Done. The page loads in 1.2 s now.', 'Can you look at the **RSS** feed too?', 'Here is what changed:\n\n- the feed has full posts\n- dates are ISO\n- `rss.xml` is cached for an hour', 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(6)]
+  const at = Date.now() - count * 60_000
+  const old = Array.from({ length: count }, (_, i): Message => ({ id: `long${i}`, who: i % 2 ? 'you' : 'agent', at: at + i * 60_000, text: `${i} ${texts[i % 4]}` }))
+  c.messages = [...old, ...c.messages]
+}
 function resetDemo() {
   for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
+  longChat()
   n = 1000
   removedDevices.clear()
   for (const [cid, h] of held) if (h.answer) held.delete(cid)
   holdRace()
 }
 holdRace()
+longChat()
 
 const push = () => socks.forEach((s) => s.send(JSON.stringify({ type: 'snapshot', snapshot: withAttention(state[s.data.mode]) })))
 /** your reaction toggles, as the real service's: the agent's own stays (the same emoji from both: 'both') */

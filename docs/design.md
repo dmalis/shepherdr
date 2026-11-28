@@ -191,7 +191,8 @@ lighter than the page, but they are roles, not a strict ladder (Night's overlay 
   or words; colour is never the only sign.
 - **Red is Needs you.** In navigation and in lists of work, a red mark or count (`.cnt.needs`, `--needs-fill` with
   `--needs-ink`) means a person has to act; every other count is quiet (`.cnt`). Red keeps its other meanings only
-  where the context says so: a danger row in a menu, an error's words, recording, a deleted line in a diff.
+  where the context says so: a danger row in a menu, an error's words, recording, a deleted line in a diff. Target:
+  today a task's ring is red for a stopped task and failed checks too.
 - **Links** are `--link`, underlined, and only links (`web/src/link-color.test.ts`).
 - **The terminal** is always dark (`--term`), in every theme.
 
@@ -243,10 +244,11 @@ The message box is where people spend their day. It never loses words, never lag
 - **Room:** the box grows with the draft, then scrolls inside itself; the chat above shrinks, not the box. Target: once
   a draft wraps on a phone, its words take the box's whole width and the buttons sit under them, the same field keeping
   its caret and selection.
-- **Never lost:** a send is in the outbox before the box clears, keeps one id through every retry, and one that fails
-  waits there with Try again. Words and folded pastes are kept per chat across reloads. Target: a draft is the whole
-  message (words, attachments, folded pastes, the message it replies to, what each `@` and `#` points at), kept until
-  its send is safely in the outbox; what can't be brought back after a reload (a file the browser let go) is said, not
+- **Never lost:** a send goes into the outbox (`web/src/outbox.ts`) before the box clears, and one that fails waits
+  there with Try again; one that went out but never came back is sent again under a new id that names the first
+  (`was`), so it isn't shown twice. Words and folded pastes are kept per chat across reloads. Target: a draft is the
+  whole message (words, attachments, folded pastes, the message it replies to, what each `@` and `#` points at), and
+  the box clears only once the outbox is saved (today a full storage is passed over); what can't be brought back after a reload (a file the browser let go) is said, not
   silently dropped; nothing writes over a draft (a suggested reply held to edit goes in at the caret, and can be reached
   by keyboard).
 - **The keyboard stays put** for what happens in place: sending, picking from a list, removing a chip. A file picker or
@@ -306,13 +308,13 @@ something that arrives, reorders or retries on its own.
 - **Safe areas:** headers, the bottom bar, sheets and the message box add `env(safe-area-inset-*)` to their own
   padding.
 - **Fields are 16 px** on a phone, so iOS never zooms the page, and the page never turns off pinch zoom.
-- **Taps are immediate:** controls have `touch-action: manipulation` and the app's own press style instead of the
+- **Taps are immediate** (Target: most controls don't yet): controls have `touch-action: manipulation` and the app's own press style instead of the
   browser's grey tap flash. Sheets, menus and panes that scroll keep their scroll to themselves
   (`overscroll-behavior: contain`).
-- **What changes on its own is announced:** a toast, a failed send, a filter's new count reach screen readers through a
+- **What changes on its own is announced** (Target): a toast, a failed send, a filter's new count reach screen readers through a
   polite live region.
 - **Undo or confirm:** an action that loses something (delete, discard, close without merging) asks first or offers
-  Undo; one that can be undone (archive, mark read) offers Undo.
+  Undo. Target: one that can be undone (archive, mark read) offers Undo instead of asking.
 - **Standard keys keep their meaning** on every keyboard layout: Esc closes, Cmd/Ctrl K searches, ? shows the
   shortcuts, Cmd/Ctrl with + − 0 zooms ([docs/shortcuts.md](shortcuts.md)). Focus is always visible on what the
   keyboard reached (`:focus-visible`), and goes back where it was when a layer closes.
@@ -326,17 +328,19 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
 |---|---|
 | A key press in the message box, to its paint | p98 50 ms, with a short and a 2000-character draft |
 | Switching to a space or task already loaded | p95 100 ms (a first load of its history is measured apart) |
-| Scrolling a 400-message chat or a 200-task list | p95 frame 33 ms, with the share of slower frames and long tasks reported |
+| Scrolling a 400-message chat or a 200-task list | p95 frame 33 ms, with the slower frames and long tasks counted |
 | A live update from the service | p95 4 ms of script per update |
 | An idle page, and a hidden one | no repeating visual work: nothing animating, no style or layout per second |
 | Script for the first screen | 250 kB sent, compressed, counting every script it loads before it can be used |
 | Memory | no growth in retained memory after the first minutes of live updates |
 
-- **Sent compressed,** and cached for good by the hashed file name; the page itself is checked each load.
-- **Features you open** (voice, screens, the terminal, Settings) load when opened.
+- **Cached for good by the hashed file name;** the page itself is checked each load. Target: sent compressed (today
+  the service sends files as they are).
+- **Features you open** load when opened, as the terminal does. Target: voice, screens and Settings too (today every
+  plugin is in the first script).
 - **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
   screen are options to prove against find, copy, jump-to-quote and keeping your place.
-- **Pictures** have a width and height, load lazily and come in the size they show at.
+- **Pictures** (Target) have a width and height and load lazily.
 
 ## Do and don't
 

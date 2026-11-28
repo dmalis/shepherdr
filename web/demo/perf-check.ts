@@ -1,7 +1,9 @@
 // The speed budgets of docs/design.md, measured on the demo: loads (cold and warm, a phone profile and full speed),
 // typing and switching (event timing), a long chat's scroll, script per live update, memory after a feed, idle work.
-// A fresh demo each run: the long part adds 400 messages to #blog. Run it 3 times and report the middle run.
-//   bun run build && bun web/demo/serve.ts 7841 &   then   bun web/demo/perf-check.ts 7841 [load|type|switch|long|live]
+// The demo starts its day over on each page load, so the long chat is seeded by the demo itself (DEMO_LONG_CHAT).
+// Run it 3 times and report the middle run. Event Timing only reports interactions of 16 ms or more: "n" says how many.
+//   bun run build && DEMO_LONG_CHAT=400 bun web/demo/serve.ts 7841 &   then   bun web/demo/perf-check.ts 7841 [part]
+// parts: load, type, switch, long, live (all when left out)
 import { chromium, type Page, type BrowserContext } from 'playwright-core'
 import { chrome } from './tap-check.ts'
 
@@ -20,18 +22,18 @@ const INIT = () => {
   new PerformanceObserver((l) => { for (const e of l.getEntries() as any[]) w.__ev.push({ name: e.name, d: e.duration, id: e.interactionId, t: e.startTime }) }).observe({ type: 'event', buffered: true, durationThreshold: 16 } as any)
   new PerformanceObserver((l) => { for (const e of l.getEntries()) w.__lt.push({ d: e.duration, t: e.startTime }) }).observe({ type: 'longtask', buffered: true })
   // time spent in socket message handlers, and DOM mutations after each
-  w.__ws = { n: 0, ms: 0, max: 0, muts: 0 }
+  w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] as number[] }
   const Orig = WebSocket
   w.WebSocket = class extends Orig {
     constructor(u: string | URL, p?: string | string[]) {
       super(u, p)
       super.addEventListener('message', () => { w.__wsT = performance.now() }, { capture: true } as any)
     }
-    set onmessage(f: any) { super.onmessage = (ev: MessageEvent) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d) } }
+    set onmessage(f: any) { super.onmessage = (ev: MessageEvent) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d); w.__ws.each.push(d) } }
     get onmessage() { return super.onmessage }
     addEventListener(type: string, f: any, o?: any) {
       if (type !== 'message' || typeof f !== 'function') return super.addEventListener(type, f, o)
-      return super.addEventListener(type, (ev: Event) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d) }, o)
+      return super.addEventListener(type, (ev: Event) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d); w.__ws.each.push(d) }, o)
     }
   }
   addEventListener('DOMContentLoaded', () => new MutationObserver((m) => { w.__ws.muts += m.length }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true }))
@@ -115,10 +117,12 @@ if (part === 'all' || part === 'switch') {
   await ctx.addInitScript(INIT)
   const page = await ctx.newPage(); const cdp = await ctx.newCDPSession(page)
   await page.goto(B + '?place=' + encodeURIComponent(EV), { waitUntil: 'networkidle' }); await page.waitForTimeout(800)
+  { const rows = page.locator('.side .rowx[data-project] > button.row'); for (let i = 0; i < Math.min(await rows.count(), 12); i++) { await rows.nth(i).click(); await page.waitForTimeout(400) } }
   for (const rate of [1, 4]) {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate })
     await page.evaluate(() => { (window as any).__ev.length = 0 })
-    const rows = page.locator('.side button.row')
+    // the spaces themselves, not the machines' headings; each was opened once before, so this is a warm switch
+    const rows = page.locator('.side .rowx[data-project] > button.row')
     const n = Math.min(await rows.count(), 12)
     for (let i = 0; i < n; i++) { await rows.nth(i).click(); await page.waitForTimeout(500) }
     // and the Tasks pane open and shut, a task open
@@ -128,14 +132,14 @@ if (part === 'all' || part === 'switch') {
 }
 
 if (part === 'all' || part === 'long') {
-  // a long chat: 400 messages in #blog, some long, some with lists and code
-  const texts = ['Done. The page loads in 1.2 s now.', 'Can you check the **RSS** feed too?', 'Here is what changed:\n\n- the feed has full posts\n- dates are ISO\n- `rss.xml` is cached for an hour', 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(6)]
-  for (let i = 0; i < 400; i++) await post({ type: 'send', chat: BLOG, text: `${i} ${texts[i % 4]}`, cid: `perf-${Date.now()}-${i}` })
+  // the long chat: #blog with the demo's DEMO_LONG_CHAT messages added
   const { ctx, page, cdp } = await phoneCtx(false)
   const t0 = Date.now()
   await page.goto(B + '?place=' + encodeURIComponent(BLOG), { waitUntil: 'networkidle' })
   await page.waitForSelector('.msgs .b')
   const open = Date.now() - t0
+  const seeded = await page.evaluate(() => document.querySelectorAll('.msgs .b').length)
+  if (seeded < 300) throw new Error(`#blog shows ${seeded} messages: start the demo with DEMO_LONG_CHAT=400`)
   await page.waitForTimeout(1500)
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
   const r = await page.evaluate(async () => {
@@ -143,17 +147,37 @@ if (part === 'all' || part === 'long') {
     const sc = [...document.querySelectorAll<HTMLElement>('.chat .scroll, .scroll')].find((s) => s.scrollHeight > s.clientHeight + 100)!
     const frames: number[] = []; let last = performance.now()
     const total = sc.scrollHeight
-    for (let i = 0; i < 120; i++) {
+    // from the newest to the oldest, 120 px a frame
+    for (let i = 0; i < 480 && sc.scrollTop > 0; i++) {
       sc.scrollTop = sc.scrollTop - 120
       await new Promise((r) => requestAnimationFrame(() => r(0)))
       const now = performance.now(); frames.push(now - last); last = now
     }
     frames.sort((a, b) => a - b)
-    return { scrollHeight: total, msgs: document.querySelectorAll('.msgs > *').length, dom: document.getElementsByTagName('*').length, frameP50: Math.round(frames[60]!), frameP95: Math.round(frames[114]!), frameMax: Math.round(frames.at(-1)!), over33: frames.filter((f) => f > 33).length, longTasks: w.__lt.length, longTaskMs: Math.round(w.__lt.reduce((s: number, x: any) => s + x.d, 0)) }
+    return { scrollHeight: total, msgs: document.querySelectorAll('.msgs > *').length, dom: document.getElementsByTagName('*').length, frames: frames.length, frameP50: Math.round(frames[Math.floor(frames.length / 2)]!), frameP95: Math.round(frames[Math.floor(frames.length * 0.95)]!), frameMax: Math.round(frames.at(-1)!), over33: frames.filter((f) => f > 33).length, longTasks: w.__lt.length, longTaskMs: Math.round(w.__lt.reduce((s: number, x: any) => s + x.d, 0)) }
   })
-  log('long-chat.open-ms', open)
+  log('long-chat.load-into-ms', open)
   log('long-chat.scroll.phone4x', r)
   await ctx.close()
+  // from another space into the long chat, the app already running, on a desktop at 4x slower CPU: the press to the
+  // frame after its last bubble is drawn
+  const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await desk.addInitScript(INIT)
+  const dp = await desk.newPage(), dc = await desk.newCDPSession(dp)
+  await dp.goto(B + '?place=' + encodeURIComponent(SHOP), { waitUntil: 'networkidle' }); await dp.waitForTimeout(800)
+  await dc.send('Emulation.setCPUThrottlingRate', { rate: 4 })
+  const row = (id: string) => '.side .rowx[data-project="' + id + '"] > button.row'
+  const into = async () => {
+    await dp.locator(row(SHOP)).click(); await dp.waitForTimeout(1000)
+    return dp.evaluate((sel) => new Promise<number>((res) => {
+      const t0 = performance.now()
+      ;(document.querySelector(sel) as HTMLElement).click()
+      const wait = () => (document.querySelectorAll('.msgs .b').length > 300 ? requestAnimationFrame(() => res(Math.round(performance.now() - t0))) : requestAnimationFrame(wait))
+      wait()
+    }), row(BLOG))
+  }
+  log('long-chat.switch-into-ms.desktop4x', [await into(), await into(), await into()])
+  await desk.close()
 }
 
 if (part === 'all' || part === 'live') {
@@ -162,14 +186,14 @@ if (part === 'all' || part === 'live') {
   await cdp.send('HeapProfiler.collectGarbage')
   const m0 = (await cdp.send('Performance.getMetrics')).metrics
   const get = (ms: any[], n: string) => ms.find((x) => x.name === n)?.value ?? 0
-  await page.evaluate(() => { const w = window as any; w.__ws = { n: 0, ms: 0, max: 0, muts: 0 }; w.__lt.length = 0 })
-  // an hour's feed, sped up: 300 updates from other chats (each pushes a snapshot to this page)
-  for (let i = 0; i < 300; i++) { await post({ type: 'send', chat: i % 2 ? 'p:mac-mini:notes' : 'p:mac-mini:docs', text: `update ${i}`, cid: `live-${Date.now()}-${i}` }); if (i % 20 === 0) await page.waitForTimeout(50) }
+  await page.evaluate(() => { const w = window as any; w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] }; w.__lt.length = 0 })
+  // an hour's feed, sped up: 300 snapshots from the service, each a task renamed (the page's state changes, its size doesn't)
+  for (let i = 0; i < 300; i++) { await post({ type: 'task-rename', chat: 'SHOP-14', name: `Fix the checkout total, take ${i % 2}` }); if (i % 20 === 0) await page.waitForTimeout(50) }
   await page.waitForTimeout(2500)
   await cdp.send('HeapProfiler.collectGarbage')
   const m1 = (await cdp.send('Performance.getMetrics')).metrics
   const ws = await page.evaluate(() => { const w = window as any; return { ...w.__ws, longTasks: w.__lt.length } })
-  log('live.per-update', { updates: ws.n, msTotal: Math.round(ws.ms), msPerUpdate: +(ws.ms / Math.max(1, ws.n)).toFixed(2), msMax: Math.round(ws.max), mutationsPerUpdate: Math.round(ws.muts / Math.max(1, ws.n)), longTasks: ws.longTasks, scriptMs: Math.round((get(m1, 'ScriptDuration') - get(m0, 'ScriptDuration')) * 1000), layoutMs: Math.round((get(m1, 'LayoutDuration') - get(m0, 'LayoutDuration')) * 1000), styleMs: Math.round((get(m1, 'RecalcStyleDuration') - get(m0, 'RecalcStyleDuration')) * 1000) })
+  log('live.per-update', { updates: ws.n, msTotal: Math.round(ws.ms), msPerUpdate: +(ws.ms / Math.max(1, ws.n)).toFixed(2), msP95: +([...ws.each].sort((a: number, b: number) => a - b)[Math.floor(ws.each.length * 0.95)] ?? 0).toFixed(2), msMax: Math.round(ws.max), mutationsPerUpdate: Math.round(ws.muts / Math.max(1, ws.n)), longTasks: ws.longTasks, scriptMs: Math.round((get(m1, 'ScriptDuration') - get(m0, 'ScriptDuration')) * 1000), layoutMs: Math.round((get(m1, 'LayoutDuration') - get(m0, 'LayoutDuration')) * 1000), styleMs: Math.round((get(m1, 'RecalcStyleDuration') - get(m0, 'RecalcStyleDuration')) * 1000) })
   log('memory.heapMB', { before: +(get(m0, 'JSHeapUsedSize') / 1e6).toFixed(1), after300Updates: +(get(m1, 'JSHeapUsedSize') / 1e6).toFixed(1), nodesBefore: get(m0, 'Nodes'), nodesAfter: get(m1, 'Nodes'), listenersBefore: get(m0, 'JSEventListeners'), listenersAfter: get(m1, 'JSEventListeners') })
 
   // idle: 20 s with nothing happening, visible, then hidden (another tab in front)
