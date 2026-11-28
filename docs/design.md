@@ -337,17 +337,21 @@ The message box is where people spend their day. It never loses words, never lag
   silently; a failed upload stays in the box with Try again when its words are sent, and a send cut off while its
   files were going up goes on from the kept copies, in its place in line. `web/demo/draft-check.ts` checks it with
   real reloads.
-  Target: nothing writes over a draft (a suggested reply held to edit goes in at the caret, and can be reached by
-  keyboard).
+  Nothing writes over a draft: a suggested reply held to edit (or Shift+Enter on its bubble, or its right-click) goes
+  in at the caret, or over only what is selected, the rest of the words kept, as a reply to the message it answers;
+  when the box already replies to another message, it asks first (`web/plugins/chat/edit-keeps.tsx`).
 - **The keyboard stays put** for what happens in place: sending, picking from a list, removing a chip. A file picker or
   a sheet may take it.
 - **Lists:** `@` tasks, `#` spaces, `/` commands, each filtered as you type, with the arrow keys, Enter and Esc, safe
   with an input method mid-word, naming the machine beside a space on another one. Target: a list fits the room left
   above the box with the keyboard up and keeps its chosen row in view.
-- **Attachments:** paste, drop or pick; each shows as a chip with its own Remove. Target: while dragging, the box shows
-  where to drop; a long paste folded into a chip is sent where it was pasted, not at the end.
-- **Replying:** the message replied to shows with a way to drop it. Target: suggested replies and the message they
-  answer show and hide together.
+- **Attachments:** paste, drop or pick; each shows as a chip with its own Remove. While a file is dragged over the
+  page, the box shows where to drop it, and says so again, darker, once the file is over it; a file dropped where
+  nothing takes it does nothing, never the browser opening it in place of the app. A long paste folded into a chip is
+  sent where it was pasted, and its Edit puts it back there, however the words around it change
+  (`web/plugins/chat/fold.ts`). `web/demo/edit-check.ts` checks these and the held suggestion in a real browser.
+- **Replying:** the message replied to shows with a way to drop it. Suggested replies and the "Replying to" line over
+  them show and hide together.
 - **Dictation** writes at the caret, never sends by itself, and a cancel or a refused microphone leaves the draft as it
   was.
 - **Fast:** see Performance. Nothing outside the box reflows per letter; the box itself grows by measuring its

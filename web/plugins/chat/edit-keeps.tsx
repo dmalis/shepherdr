@@ -6,6 +6,7 @@ import { getDraft, getState, setDraft, setUI } from '@client/kernel.ts'
 import { openDialog } from '@client/overlay.tsx'
 import { Btn } from '@client/ui.tsx'
 import type { ReplyQuote } from '@shared/types.ts'
+import { firstWords } from './reply-bubbles.tsx'
 
 /** `t` put into `text` over its `start`..`end`, a space either side where it would touch a word. The caret goes after
  *  it */
@@ -41,21 +42,23 @@ export function holdSuggestion(key: string, t: string, q: Quote | undefined, box
   askReply(was, q, put)
 }
 
-/** "Reply to this message instead?": the box replies to one message and the held suggestion answers another */
+/** "Change what you reply to?": the box replies to one message and the held suggestion answers another. Each is
+ *  named by its first words, short enough to tell them apart at a glance */
 function askReply(was: { text: string; task?: string }, now: Quote, put: (reply: boolean) => void) {
+  const TITLE = 'Change what you reply to?'
   openDialog(
     (done) => (
       <>
-        <h2>Reply to this message instead?</h2>
+        <h2>{TITLE}</h2>
         <p>
-          Your message replies to {was.task ? 'the task ' : ''}“{was.text}”. This suggestion answers “{now.text}”.
+          Your message replies to {was.task ? 'the task ' : ''}“{firstWords(was.text, 60)}”. This suggestion answers “{firstWords(now.text, 60)}”.
         </p>
         <div className="acts">
           <Btn onClick={() => { done(); put(false) }}>Keep my reply</Btn>
-          <Btn kind="pri" onClick={() => { done(); put(true) }}>Reply to this one</Btn>
+          <Btn kind="pri" onClick={() => { done(); put(true) }}>Switch the reply</Btn>
         </div>
       </>
     ),
-    { label: 'Reply to this message instead?' },
+    { label: TITLE },
   )
 }
