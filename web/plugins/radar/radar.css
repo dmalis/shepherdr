@@ -13,7 +13,7 @@
    disclosure, as GitHub's and Linear's view options); open, the controls under it */
 .rd-proto{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:3px;border:1px dashed var(--edge);border-radius:12px}
 .rd-ptog{display:flex;align-items:center;gap:8px;min-width:0;min-height:var(--btns);padding:2px 8px;border-radius:8px;text-align:start}
-.app.tap .rd-ptog{min-height:var(--btn)}
+.app.tap .rd-ptog{min-height:var(--hit)}
 @media(hover:hover){.rd-ptog:hover{background:var(--control)}}
 .rd-psum{flex:1;min-width:0;color:var(--muted);font-size:var(--sec);line-height:var(--secl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-ptog>.i{flex:none;width:var(--ic-sm);height:var(--ic-sm);color:var(--muted)}
@@ -71,6 +71,9 @@
 .rd-l2.warn .i{flex:none;width:var(--ic-sm);height:var(--ic-sm);color:var(--amber)}
 .rd-v{flex:none;max-width:40%;color:var(--muted);font-size:var(--sec);line-height:var(--uil);text-align:end}
 .rd-row .cnt{margin-top:2px}
+/* a row with its own red count beside it (Project pulse): the count opens the card, the row the project */
+.rd-rx{display:flex;align-items:center;gap:4px}
+.rd-rx>.rd-row{flex:1;min-width:0}
 /* a narrow page: the status leaves the end and starts the second line, so Held back and Needs you still show */
 .rd-sv{display:none;color:var(--sub);font-weight:500}
 .rd-sv.need{color:var(--red)}

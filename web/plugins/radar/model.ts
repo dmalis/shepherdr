@@ -42,6 +42,8 @@ export interface RadarItem {
   task?: string
   /** an issue draft already finished (a Watch and score project's): it posts on the next run, or on Resume when paused */
   draft?: boolean
+  /** that draft, posted (on Resume here): the issue it became. Out of the queue: a Watch and score project starts no fix */
+  posted?: string
   /** waits for the person: the Triage card that asks (its exact words are there), and what happens after Yes */
   needs?: { card: string; ask: string; after: string }
   /** what a Yes on its card did (this page's copy only) */
@@ -122,6 +124,28 @@ export function useRadar(): { day: RadarDemo | null; view: View } {
   return { day: s.day, view: s.view }
 }
 export function setView(p: Partial<View>) { s.view = { ...s.view, ...p }; emit() }
+/** the shared cards this day's items ask on (Start over forgets their presses: the same card comes back) */
+export const askCards = () => (s.seed?.items ?? []).flatMap((i) => (i.needs ? [i.needs.card] : []))
+/** Resume: a paused project's finished drafts post (this page's copy): each leaves the queue as the issue it became */
+export function resume(id: string): string[] {
+  if (!s.day) return []
+  const p = s.day.projects.find((x) => x.id === id)
+  if (!p) return []
+  const posted: string[] = []
+  let n = 57
+  s.day = {
+    ...s.day,
+    projects: s.day.projects.map((x) => (x.id === id ? { ...x, paused: undefined } : x)),
+    items: s.day.items.map((i) => {
+      if (i.project !== id || !i.draft || i.state !== 'next') return i
+      const issue = `${p.repo}#${++n}`
+      posted.push(issue)
+      return { ...i, draft: undefined, posted: issue, reason: `Its finished draft posted as ${issue} when you resumed ${p.name}. Watch and score starts no fixes, so it stays an open issue.` }
+    }),
+  }
+  emit()
+  return posted
+}
 /** Start over: this page's copy back to the day as it came (the shared card comes back from the demo's service) */
 export function reset() { s.day = s.seed ? structuredClone(s.seed) : null; s.view = { ...fresh(), opening: s.view.opening, fresh: s.view.fresh, proto: s.view.proto }; emit() }
 /** change one item (or a project) in this page's copy */
@@ -165,7 +189,7 @@ export const needsYou = (i: RadarItem, live: Live) => !!i.needs && !i.approved &
 export const open = (i: RadarItem) => i.state === 'new' || i.state === 'next' || i.state === 'held'
 /** what the grey count counts, and All items' "New or next up" shows: new and next, what could become work now. Held
  *  ones wait on something else, and a paused project's wait for Resume, so neither counts */
-export const waiting = (i: RadarItem, d: RadarDemo) => (i.state === 'new' || i.state === 'next') && !d.projects.find((p) => p.id === i.project)?.paused
+export const waiting = (i: RadarItem, d: RadarDemo) => (i.state === 'new' || i.state === 'next') && !i.posted && !d.projects.find((p) => p.id === i.project)?.paused
 /** the count's own words: what it counts, named (the row's label, the filter's) */
 export const waitingWords = (n: number) => `${n} new or next up`
 

@@ -5,7 +5,7 @@ const DAY = 86400_000
 
 /** the queue of one project: held after the rest, each by its rank */
 export const queue = (items: RadarItem[], project: string) =>
-  items.filter((i) => i.project === project && (i.state === 'next' || i.state === 'held')).sort((a, b) => (a.state === 'held' ? 1 : 0) - (b.state === 'held' ? 1 : 0) || (a.rank ?? 99) - (b.rank ?? 99))
+  items.filter((i) => i.project === project && !i.posted && (i.state === 'next' || i.state === 'held')).sort((a, b) => (a.state === 'held' ? 1 : 0) - (b.state === 'held' ? 1 : 0) || (a.rank ?? 99) - (b.rank ?? 99))
 
 export const SOURCE: Record<Source, string> = { agents: 'Agents', github: 'GitHub', sentry: 'Sentry', upstream: 'Upstream', you: 'You' }
 export const WORKFLOWS: Workflow[] = ['Start', 'Review', 'Install', 'Chat', 'Phone']
@@ -19,6 +19,7 @@ export const PREVIEW = 'Demo preview'
 export function stateWords(i: RadarItem): string {
   if (i.approved) return APPROVED
   if (i.needs) return 'Needs you'
+  if (i.posted) return `Posted · ${i.posted}`
   switch (i.state) {
     case 'new': return i.later?.returned ? 'Came back' : 'New'
     case 'next': return i.draft ? 'Draft finished' : 'Next up'

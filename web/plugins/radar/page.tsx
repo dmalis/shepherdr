@@ -10,11 +10,13 @@ import { act, notice, openLink, setUI, useSnap, useUI } from '@client/kernel.ts'
 import { openForm, openMenu } from '@client/overlay.tsx'
 import { PaneFrame } from '@client/App.tsx'
 import { Btn, cx, Empty, Hd, I, IB } from '@client/ui.tsx'
+import { clearPress } from '@client/pending.ts'
+import { NeedsCount, openNeeds } from '@client/needs-count.tsx'
 import { attentionOf } from '@shared/attention.ts'
 import type { IconName } from '@client/icons.ts'
 import type { Snapshot } from '@shared/types.ts'
-import { liveOf, radarOf } from './row.tsx'
-import { addItem, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, setView, useRadar, waiting, waitingWords, type Filter, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
+import { liveOf, radarNeeds, radarOf } from './row.tsx'
+import { addItem, askCards, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, resume, setView, useRadar, waiting, waitingWords, type Filter, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
 import { APPROVED, levelWords, PREVIEW, queue, SOURCE, stateWords, when, WORKFLOWS } from './say.ts'
 import './radar.css'
 
@@ -47,8 +49,10 @@ const openItemHere = (id: string) => setView({ item: id })
 
 /** Start over: this page's copy, and the shared card in #shop and Needs you, back as the day came */
 function startOver() {
+  const cards = askCards()
   reset()
-  void act({ type: 'radar', do: 'reset' }).catch(() => undefined)
+  // the card comes back the same (its id and words): forget the Yes or No pressed on it, so it can be answered again
+  void act({ type: 'radar', do: 'reset' }).catch(() => undefined).finally(() => cards.forEach(clearPress))
 }
 
 /** the prototype's controls, folded behind one button (folded at first on a phone, so the page keeps its first screen);
@@ -238,9 +242,12 @@ function Pulse({ c }: { c: Ctx }) {
       <ul className="rd-list">
         {c.projects.map((p) => {
           const { line, warn } = pulseLine(p, c)
-          const red = c.items.filter((i) => i.project === p.id && needsYou(i, c.live)).length
+          const asks = c.items.filter((i) => i.project === p.id && needsYou(i, c.live))
+          const red = asks.length
+          // the red count is its own button and opens the card itself, as the list's red counts do; the row opens the project
+          const cards = radarNeeds(c.snap, asks.map((i) => i.needs!.card))
           return (
-            <li key={p.id}>
+            <li key={p.id} className="rd-rx">
               <button type="button" className="rd-row" onClick={() => (p.level === 'none' ? openSetup(p) : setView({ project: p.id, tab: 'all', item: null }))}>
                 <span className={cx('rd-m', red > 0 && 'need')}><I n={p.level === 'none' ? 'plus' : p.paused ? 'pause' : red ? 'ask' : 'folder'} /></span>
                 <span className="rd-t">
@@ -248,8 +255,8 @@ function Pulse({ c }: { c: Ctx }) {
                   <span className="rd-l2">{line}</span>
                   {warn && <span className="rd-l2 warn"><I n="warn" />{warn}</span>}
                 </span>
-                {red > 0 && <span className="cnt needs">{red}</span>}
               </button>
+              <NeedsCount n={red} of={p.name} onOpen={() => (cards.length ? openNeeds(cards, [...new Set(cards.map((i) => i.place))]) : setView({ project: p.id, tab: 'all', item: asks[0]!.id }))} />
             </li>
           )
         })}
@@ -271,8 +278,14 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
       <span className="rd-sw"><b>{p.name}</b> {words}</span>
       {p.level !== 'none' && (
         <Btn small onClick={() => {
-          editProject(p.id, { paused: p.paused ? undefined : c.now })
-          notice(p.paused ? `${p.name} resumed` : `${p.name} paused`, { tone: 'ok' })
+          if (!p.paused) {
+            editProject(p.id, { paused: c.now })
+            notice(`${p.name} paused`, { tone: 'ok' })
+            return
+          }
+          // its finished draft posts now, as the paused line promised
+          const posted = resume(p.id)
+          notice(posted.length ? `${p.name} resumed · its draft posted as ${posted.join(', ')}` : `${p.name} resumed`, { tone: 'ok' })
         }}>
           <I n={p.paused ? 'play' : 'pause'} />
           {p.paused ? 'Resume' : 'Pause'}

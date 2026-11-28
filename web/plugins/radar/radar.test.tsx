@@ -11,9 +11,10 @@ import type { Snapshot } from '@shared/types.ts'
 import { projectAttention } from '@shared/attention.ts'
 import { snapshot } from '../../demo/data.ts'
 import { radarCard } from '../../demo/radar.ts'
-import { at, clock, dayOf, editProject, itemsAt, reset, rowCount, setView, shownDay, useRadar, waiting, type RadarDemo } from './model.ts'
+import { askCards, at, clock, dayOf, editProject, itemsAt, reset, resume, rowCount, setView, shownDay, useRadar, waiting, type RadarDemo } from './model.ts'
 import { liveOf, RadarRow, radarNeeds } from './row.tsx'
-import { APPROVED, stateWords } from './say.ts'
+import { APPROVED, queue, stateWords } from './say.ts'
+import { clearPress, press, pressOf, waiting as pressWaits } from '@client/pending.ts'
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const root = join(import.meta.dir, '..', '..', '..')
@@ -154,6 +155,46 @@ test('a new install keeps its project once it is watched, and Start over brings 
   // Start over asks the demo's service for the day again, which puts the card back in #shop and Needs you
   expect(readFileSync(join(import.meta.dir, 'page.tsx'), 'utf8')).toContain("act({ type: 'radar', do: 'reset' })")
   expect(readFileSync(join(root, 'web', 'demo', 'serve.ts'), 'utf8')).toContain("if (a.type === 'radar' && a.do === 'reset') {\n    state.radar = structuredClone(snapshot('radar'))")
+})
+
+test('Start over: the card that comes back can be answered at once (the Yes pressed on it is forgotten)', async () => {
+  dayOf(radarOf(day()))
+  expect(askCards()).toEqual([CARD])
+  // a held Yes: the card's buttons wait until the card moves on; the same card back (same id and words) would still wait
+  const at = radarCard(Date.now()).hash
+  await press(CARD, at, 'yes', async () => null)
+  expect(pressWaits(pressOf(CARD, at))).toBe(true)
+  // what Start over does with each of the day's cards once the service has put them back
+  askCards().forEach(clearPress)
+  expect(pressOf(CARD, at)).toBeUndefined()
+  expect(readFileSync(join(import.meta.dir, 'page.tsx'), 'utf8')).toContain(".finally(() => cards.forEach(clearPress))")
+})
+
+test('Resume posts the paused project’s finished draft: out of the queue, its issue named, not counted grey', () => {
+  reset()
+  const d0 = dayOf(radarOf(day()))!
+  const garden = d0.projects.find((p) => p.id === 'garden')!
+  expect(queue(d0.items, 'garden').map((i) => i.id)).toEqual(['r-gdraft'])
+  expect(resume('garden')).toEqual(['example/garden-app#58'])
+  const d = useRadarDay()!
+  const i = d.items.find((x) => x.id === 'r-gdraft')!
+  expect(d.projects.find((p) => p.id === 'garden')!.paused).toBeUndefined()
+  expect(i).toMatchObject({ draft: undefined, posted: 'example/garden-app#58' })
+  expect(stateWords(i)).toBe('Posted · example/garden-app#58')
+  expect(queue(d.items, 'garden')).toEqual([])
+  expect(waiting(i, d)).toBe(false)
+  expect(garden.level).toBe('score')
+  reset()
+  expect(useRadarDay()!.items.find((x) => x.id === 'r-gdraft')!.draft).toBe(true)
+})
+
+test('Project pulse: a project’s red count is its own button and opens the card, the row opens the project', () => {
+  const page = readFileSync(join(import.meta.dir, 'page.tsx'), 'utf8')
+  const pulse = page.slice(page.indexOf('function Pulse('), page.indexOf('/* ---------- Next up'))
+  expect(pulse).toContain('<NeedsCount n={red} of={p.name} onOpen={() => (cards.length ? openNeeds(cards,')
+  expect(pulse).not.toContain('className="cnt needs"')
+  // the count sits beside the row's button, not inside it
+  expect(pulse.indexOf('</button>')).toBeLessThan(pulse.indexOf('<NeedsCount'))
 })
 // the page's own copy of the day, as the page reads it (outside React: the store's snapshot)
 const useRadarDay = () => {
