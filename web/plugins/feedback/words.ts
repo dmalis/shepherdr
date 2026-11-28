@@ -1,6 +1,6 @@
 // What the Feedback page says (friction loop, slice 2, #94: fork/specs/friction-loop.md), as plain functions the tests
 // read. Never "Assistant", "worker" or a key: the person reads these, and an agent's name for itself is not theirs.
-import type { FeedbackList, FeedbackMatch, FeedbackRow } from '@shared/types.ts'
+import type { FeedbackDraft, FeedbackList, FeedbackMatch, FeedbackRow } from '@shared/types.ts'
 
 export const W = {
   title: 'Feedback',
@@ -31,6 +31,21 @@ export const W = {
   follow: 'Follow this one',
   unreachable: "GitHub isn't reachable here: this is the last check",
   checkLabel: 'What a check on GitHub found',
+  // slice 4: the draft, the yes, the post
+  fileIt: 'File it…',
+  fileItTitle: 'File it on GitHub',
+  draftLabel: 'What will be posted',
+  hiddenLine: 'Shepherdr adds a hidden line at the end, so it can find this post again.',
+  cancel: 'Cancel',
+  postIt: 'Post it',
+  postSent: 'Post it sent to',
+  sendAgain: 'Send again',
+  postAgain: 'Post it again',
+  sendAgainHint: 'Your yes is kept: Send again on its row.',
+  checkGitHub: 'Check on GitHub',
+  checkAgain: 'Check again',
+  checking: 'Checking…',
+  foundIt: 'Found on GitHub: filed',
 } as const
 
 /** Not now's menu, in the order Linear's Snooze and iOS Mail's Remind me list theirs */
@@ -95,9 +110,35 @@ export function backWords(until: number | null | undefined, now = Date.now()): s
   return `Comes back in ${days} days`
 }
 
+/** the person's message that asks the chat to post it (Post it); its hidden line names the draft's revision */
+export const postText = (line: string) => `Post the feedback about “${line}”`
+
+/** where a draft goes, as File it… says it first */
+export function whereWords(t: FeedbackDraft['target']): string {
+  if (t.action === 'create') return `A new issue in ${t.repo}`
+  return t.title ? `A comment on “${t.title}” (#${t.issue}) in ${t.repo}` : `A comment on issue #${t.issue} in ${t.repo}`
+}
+
+/** where to look for a post that may have gone out: the issue it comments on, or the person's own issues in the repo */
+export function lookUrl(t: FeedbackDraft['target']): string {
+  return t.action === 'comment' ? `https://github.com/${t.repo}/issues/${t.issue}`
+    : `https://github.com/${t.repo}/issues?q=${encodeURIComponent('is:issue author:@me')}`
+}
+
+/** each step of a post after the person's yes (slice 4), only from what herdr-task knows; null once it is filed */
+export function postWords(r: Pick<FeedbackRow, 'post' | 'approved' | 'url'>): string | null {
+  if (r.url || r.post?.state === 'posted') return null
+  const s = r.post?.state ?? (r.approved ? 'waiting' : null)
+  if (s === 'waiting') return 'Waiting to post: its chat posts it next'
+  if (s === 'posting') return 'Posting…'
+  if (s === 'refused') return `Couldn't post${r.post?.why ? `: ${r.post.why}` : ''}. Your yes is kept`
+  if (s === 'unsure') return "Couldn't tell whether it was posted, so it won't be posted again"
+  return null
+}
+
 /** a filed row's state, only from what herdr-task knows */
-export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url' | 'following'>) =>
-  r.following ? followingWords(r.following.title) : r.state === 'filing' ? 'Posting' : 'Filed'
+export const filedWords = (r: Pick<FeedbackRow, 'state' | 'url' | 'following' | 'post' | 'approved'>) =>
+  r.following ? followingWords(r.following.title) : postWords(r) ?? (r.state === 'filing' ? 'Posting' : 'Filed')
 
 /** a row that follows an issue the check found (Follow this one): nothing was posted */
 export const followingWords = (title: string) => `Following “${title}”`

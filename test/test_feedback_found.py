@@ -101,6 +101,16 @@ class World(unittest.TestCase):
         with open(self.state, "rb") as f:
             return f.read()
 
+    def post(self, key, *draft):
+        """As an Assistant: --file writes the draft (slice 4: nothing posted), the person's yes to it in chat, then
+        the post of that revision. -> (code, out) of the post."""
+        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1", "herdr.agent": "claude"}, "name": "assistant"}
+        code, out = self.say("--key", key, "--file", *draft, "--json")
+        self.assertEqual(code, 0, out)
+        rev = str(json.loads(out)["draft"]["rev"])
+        self.assertEqual(self.say("--key", key, "--approve", rev, "--by", "chat")[0], 0)
+        return self.say("--key", key, "--file", "--rev", rev)
+
 
 
 class Kept(World):
@@ -313,14 +323,14 @@ class Kept(World):
         self.say("Status lines vanish after a restart", "--fix", "First suggestion")
         self.say("Status lines vanish after a restart", "--fix", "Second suggestion")
         self.assertEqual(self.listed()[0]["fix"], "Second suggestion")
-        self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1", "herdr.agent": "claude"}, "name": "assistant"}
-        code, out = self.say("--key", self.listed()[0]["key"], "--file", "--new", "--fix", "First suggestion")
+        code, out = self.post(self.listed()[0]["key"], "--new", "--fix", "First suggestion")
         self.assertIn("Filed:", out)
         self.assertIn("## Suggested fix\n\nFirst suggestion", self.body)
         self.assertNotIn("Second suggestion", self.body)
-        self.say("--key", self.listed()[0]["key"], "--file", "--new")  # already filed: nothing more
+        self.assertIn("Already filed", self.say("--key", self.listed()[0]["key"], "--file", "--new")[1])
+        self.caller = TASK
         code, out = self.say("Ready hangs", "--fix", "Never in the issue")
-        self.say("--key", fb.id_of("Ready hangs"), "--file", "--new")
+        self.post(fb.id_of("Ready hangs"), "--new")
         self.assertIn("## Suggested fix\n\n_Not known._", self.body)
         (p, q) = self.listed()
         self.assertEqual((p["state"], p["count"], q["state"]), ("filed", 2, "filed"))
@@ -329,19 +339,22 @@ class Kept(World):
         self.say("Status lines vanish after a restart")
         key = self.listed()[0]["key"]
         self.caller = {"labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}, "name": "assistant"}
+        self.say("--key", key, "--file", "--new")  # the draft (slice 4), then the yes in chat
+        self.say("--key", key, "--approve", "1", "--by", "chat")
 
         def gh(args, **_):
-            self.caller, keep = TASK, self.caller
-            try:
-                self.say("Status lines vanish after a restart", "--details", "Meanwhile.")
-            finally:
-                self.caller = keep
+            if args[1:3] == ["issue", "create"]:
+                self.caller, keep = TASK, self.caller
+                try:
+                    self.say("Status lines vanish after a restart", "--details", "Meanwhile.")
+                finally:
+                    self.caller = keep
             return subprocess.CompletedProcess(args, 1, "", "HTTP 502")
         with mock.patch.object(fb, "run", gh):
-            code, out = self.say("--key", key, "--file", "--new")
-        self.assertEqual(code, 1)
+            code, out = self.say("--key", key, "--file", "--rev", "1")
+        self.assertIn("Couldn't tell whether it was posted", out)  # a 502: nobody knows (slice 4), never posted again
         (p,) = self.listed()
-        self.assertEqual((p["state"], p["count"]), ("told", 2))
+        self.assertEqual((p["state"], p["count"], p["post"]["state"]), ("told", 2, "unsure"))
         self.assertEqual(p["reports"][-1]["details"], "Meanwhile.")
 
 

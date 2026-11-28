@@ -258,8 +258,7 @@ class Checked(World):
         self.shape(key)
         self.gh.clear()
         self.issues = {UP: [issue(8, "Reply bubble message gone", "CLOSED", "COMPLETED")]}
-        self.caller = ASSISTANT
-        code, out = self.say("--key", key, "--file", "--goal", "Reply", "--json")
+        code, out = self.post(key, "--goal", "Reply")  # the draft, the yes, then the post (slice 4)
         self.assertEqual(code, 0, out)
         self.assertEqual(self.one(key)["checked"]["dupes"][0]["number"], 8)
         self.assertEqual(set(self.searched()), {"reply bubble message"})

@@ -95,7 +95,8 @@ def shape(args):
     """The fix and the public search words, kept on the problem; then the check, when there are search words."""
     fix = one_line(args.fix) if args.fix else None
     search = one_line(args.search, SEARCH_MAX) if getattr(args, "search", None) else None
-    if not (fix or search):
+    from . import feedback_post as post
+    if not (fix or search or post.wants_draft(args)):
         raise Fail("Shape it with --fix \"<the fix for every Shepherdr user, one line>\" and --search \"<public words>\".")
     with problems() as ps:
         p = ps.get(args.key)
@@ -106,11 +107,16 @@ def shape(args):
         ps[args.key] = {**p, **({"fix": fix} if fix else {}), **({"search": search} if search else {}),
                         **({"kind": args.kind} if getattr(args, "kind", None) else {})}
         has_search = bool(ps[args.key].get("search"))
+    # the draft's own fields (--title, --goal, --happened, --comment …): the exact post for the person's yes (slice 4)
+    drafted, more = ({}, "")
+    if post.wants_draft(args):
+        data, words = post.write_draft(args, args.key, "", None, None)
+        drafted, more = {"draft": data.get("draft"), "kept": data.get("kept", False)}, "\n\n" + words
     if not has_search:
-        return ({"key": args.key, "shaped": True, "checked": False, "why": "no-search"},
-                "Shaped: the person sees its fix on the Feedback page. Add --search \"<public words>\" to check GitHub for it.")
+        return ({"key": args.key, "shaped": True, "checked": False, "why": "no-search", **drafted},
+                "Shaped: the person sees its fix on the Feedback page. Add --search \"<public words>\" to check GitHub for it." + more)
     data, words = check(args.key)
-    return {**data, "key": args.key, "shaped": True}, "Shaped: the person sees its fix on the Feedback page. " + words
+    return {**data, "key": args.key, "shaped": True, **drafted}, "Shaped: the person sees its fix on the Feedback page. " + words + more
 
 
 # ---- check ----------------------------------------------------------------------------------

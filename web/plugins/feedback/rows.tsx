@@ -1,7 +1,8 @@
 // The Feedback page (friction loop, slice 2, #94): the box at the top, then Found, Filed, and the folded Not now and
 // Said no. Rows follow Linear's Triage and GitHub's notifications: the problem first, the fix under it, one quiet line
 // of where and when, then the buttons, one of them primary. Every call stays on this machine (service/feedback.ts):
-// nothing here posts anywhere. Write it up sends the person's own message to the chat of the space it came from.
+// nothing here posts anywhere. Write it up sends the person's own message to the chat of the space it came from;
+// File it… (slice 4) shows the draft it wrote, and Post it keeps the yes for that text and asks that chat to post it.
 import { useEffect, useRef, useState } from 'react'
 import { act, getState, go, notice, openSettings, setUI, useSnap, useUI } from '@client/kernel.ts'
 import { openMenu } from '@client/overlay.tsx'
@@ -10,7 +11,8 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromBox, LATER, matchWords, metaOf, newerWords, offWords, chatOfSpace, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
 
@@ -100,7 +102,7 @@ export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat
   return (!o.why && o.place) || everything(snap)
 }
 
-function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snapshot; now: number; leaving: boolean; leave: (on: boolean) => void }) {
+function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackRow; snap: Snapshot; now: number; note?: string; leaving: boolean; leave: (on: boolean) => void }) {
   const [busy, setBusy] = useState('')
   const o = originOf(snap, r)
   const where = o.place ? spaceLabel(snap, o.place.id) : ''
@@ -114,6 +116,7 @@ function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snaps
   const later = (el: HTMLElement) =>
     openMenu(el, LATER.map((x) => ({ label: x.label, run: () => void run('later', () => decide(r, 'later', x.when), true) })), { label: W.notNow })
   const btns = () => {
+    if (r.section === 'filed' && postWords(r)) return postBtns()
     if (r.section === 'filed') return r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
     if (r.section === 'later') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'later'), true)}>{W.restore}</Btn>
     if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'declined'), true)}>{W.undo}</Btn>
@@ -121,8 +124,31 @@ function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snaps
     if (r.off) return never
     return (
       <>
-        <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>
+        {r.draft
+          ? <Btn small kind="pri" disabled={!!busy} aria-haspopup="dialog" className={cx(busy === 'post' && 'going')} onClick={() => void run('post', () => openFileIt(snap, r, setNote), false)}>{W.fileIt}</Btn>
+          : <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>}
         <Btn small disabled={!!busy} aria-haspopup="menu" onClick={(e) => later(e.currentTarget)}>{W.notNow}<I n="down" c="s16" /></Btn>
+        {never}
+      </>
+    )
+  }
+  // after the person's yes (slice 4): Send again while it waits, Post it again once GitHub said no (the yes is kept); a post that may
+  // have gone out is never posted again: Check on GitHub, Check again (a read), or Never
+  function postBtns() {
+    const s = r.post?.state ?? 'waiting'
+    const never = <Btn small disabled={!!busy} onClick={() => void run('no', () => decide(r, 'no'), true)}>{W.never}</Btn>
+    if (s === 'posting') return null
+    if (s === 'unsure') return (
+      <>
+        {r.draft && <a className="btn s fb-gh" href={lookUrl(r.draft.target)} target="_blank" rel="noreferrer">{W.checkGitHub}<I n="ext" c="s16" /></a>}
+        <Btn small disabled={!!busy} className={cx(busy === 'look' && 'going')} aria-busy={busy === 'look' || undefined} onClick={() => void run('look', () => checkAgain(r), false)}>{busy === 'look' ? W.checking : W.checkAgain}</Btn>
+        {never}
+      </>
+    )
+    const rev = r.approved ?? r.post?.rev
+    return (
+      <>
+        {rev && <Btn small disabled={!!busy} className={cx(busy === 'again' && 'going')} onClick={() => void run('again', () => sendPost(snap, r, rev), false)}>{s === 'refused' ? W.postAgain : W.sendAgain}</Btn>}
         {never}
       </>
     )
@@ -145,6 +171,13 @@ function RowView({ r, snap, now, leaving, leave }: { r: FeedbackRow; snap: Snaps
   )
 }
 
+/** Check again: herdr-task looks on GitHub for the post's hidden line, and posts nothing */
+async function checkAgain(r: FeedbackRow): Promise<boolean> {
+  const a = await call({ do: 'reconcile', key: r.id })
+  notice(a.ok ? W.foundIt : a.error!, { tone: a.ok ? 'ok' : 'error' })
+  return a.ok === true
+}
+
 /** Write it up, with its toast: Open goes to the chat it went to */
 async function sendWriteUp(snap: Snapshot, r: FeedbackRow): Promise<boolean> {
   const to = writeUpTo(snap, r)
@@ -160,7 +193,7 @@ async function sendWriteUp(snap: Snapshot, r: FeedbackRow): Promise<boolean> {
   return true
 }
 
-function Section({ id, name, rows, snap, now, fold }: { id: string; name: string; rows: FeedbackRow[]; snap: Snapshot; now: number; fold?: boolean }) {
+function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: string; rows: FeedbackRow[]; snap: Snapshot; now: number; note?: string; fold?: boolean }) {
   const [open, setOpen] = useState(!fold)
   const [gone, setGone] = useState<Set<string>>(new Set())
   // a row that left and came back (Undo in its toast) shows again: only rows still here can be leaving
@@ -184,7 +217,7 @@ function Section({ id, name, rows, snap, now, fold }: { id: string; name: string
       {open && (
         <ul className="fb-list">
           {rows.map((r) => (
-            <RowView key={`${r.id}:${r.section}`} r={r} snap={snap} now={now} leaving={gone.has(r.id)}
+            <RowView key={`${r.id}:${r.section}`} r={r} snap={snap} now={now} note={note} leaving={gone.has(r.id)}
               leave={(on) => setGone((g) => { const n = new Set(g); if (on) n.add(r.id); else n.delete(r.id); return n })} />
           ))}
         </ul>
@@ -261,8 +294,8 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
           <Empty title={W.empty}>{W.emptySub}</Empty>
         ) : (
           <>
-            <Section id="found" name={W.found} rows={s.found} snap={snap} now={now} />
-            <Section id="filed" name={W.filed} rows={s.filed} snap={snap} now={now} />
+            <Section id="found" name={W.found} rows={s.found} snap={snap} now={now} note={list?.note} />
+            <Section id="filed" name={W.filed} rows={s.filed} snap={snap} now={now} note={list?.note} />
             <div className="fb-folds">
               <Section id="later" name={W.later} rows={s.later} snap={snap} now={now} fold />
               <Section id="declined" name={W.declined} rows={s.declined} snap={snap} now={now} fold />

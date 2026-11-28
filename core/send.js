@@ -110,12 +110,20 @@ export const isCommand = (text) => /^\s*!/.test(String(text ?? "")) && String(te
 
 // The words as the agent gets them: the reply tag, the task tags, then the person's text. task: a reply to a task
 // (the chat's Reply on a task row): its id on the reply tag, so the chat shows the quoted task; its tag line is in tags.
-/** @param {{ text: string, quote?: string | null, tags?: string, task?: string | null }} m */
-export function messageBody({ text, quote = null, tags = "", task = null }) {
+// feedback: the Feedback page's Post it (#94): a hidden line naming the problem and the draft revision the person
+// said yes to, so the Assistant posts exactly that one (the chat never shows it: chat-log.js).
+/** @param {{ text: string, quote?: string | null, tags?: string, task?: string | null, feedback?: { id: string, rev: number } | null }} m */
+export function messageBody({ text, quote = null, tags = "", task = null, feedback = null }) {
   // a `!` command runs in the agent's shell only when the `!` comes first: nothing goes before it
   if (isCommand(text)) return String(text).trim();
   const reply = quote ? `<hc reply-to="${excerpt(quote, 80)}"${task ? ` task="${attr(task)}"` : ""}/>\n` : "";
-  return reply + tags + text;
+  return reply + tags + feedbackLine(feedback) + text;
+}
+
+/** The hidden line of a Post it, or "" unless feedback names a problem's id and a revision. */
+export function feedbackLine(feedback) {
+  const id = String(feedback?.id ?? ""), rev = Number(feedback?.rev);
+  return /^[0-9A-Za-z_-]{1,64}$/.test(id) && Number.isSafeInteger(rev) && rev > 0 ? `<hc feedback id="${id}" rev="${rev}"/>\n` : "";
 }
 
 // The agent waits on its own dialog (a question, a permission): nothing is typed and no key closes it (AGENTS.md

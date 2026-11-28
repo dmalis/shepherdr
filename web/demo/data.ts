@@ -46,6 +46,25 @@ export const feedback: FeedbackList = {
   ],
 }
 
+/** `?case=post` (friction loop slice 4, #94): a draft for File it…, and each step of a post after the person's yes */
+const DRAFT_BODY = "## Goal\n\nSee which message a reply answers, at a glance.\n\n## What happened\n\nA reply in the chat shows only its own words: the message it answers isn't quoted above it.\n\n## Expected\n\nThe first line of the answered message above the reply, as Slack and iMessage show it.\n\n## Suggested fix\n\nShow the first line of the message it answers above it.\n\n## Environment\n\n- Shepherdr 3.2.22 (web)\n- Agent: claude"
+const draftOf = (rev: number, title: string, target: NonNullable<FeedbackList['rows'][number]['draft']>['target'] = { repo: 'example/shepherdr', action: 'create' }) => ({ rev, title, body: DRAFT_BODY, target })
+export const feedbackPost: FeedbackList = {
+  ...feedback,
+  note: 'Posting it also starts a fix here, in our own Shepherdr.',
+  rows: [
+    { ...feedback.rows[0], draft: draftOf(2, 'Reply bubble hides the message it answers') },
+    ...feedback.rows.slice(1, 3),
+    { id: 'g8e7d9', line: 'Dictation stops after the first sentence on a phone', fix: 'Keep listening until the person taps Stop', kind: 'bug', section: 'filed', state: 'told', space: 'mac-mini/notes', from: { chat: true }, count: 1, at: NOW - 3 * min,
+      draft: draftOf(1, 'Dictation stops after the first sentence on a phone'), approved: 1, post: { state: 'waiting', rev: 1 } },
+    { id: 'h9f8e0', line: 'A task row forgets its space after a restart', kind: 'bug', section: 'filed', state: 'told', space: 'vm/garden-app', from: { agent: true }, count: 1, at: NOW - 40 * min,
+      draft: draftOf(1, 'Task row forgets its space after a restart'), approved: 1, post: { state: 'refused', rev: 1, why: 'gh is not signed in: run gh auth login' } },
+    { id: 'i0a9f1', line: 'The Tasks panel loses its filter on reload', kind: 'bug', section: 'filed', state: 'told', space: 'mac-mini/shop', from: { task: 'Sticker book' }, count: 2, at: NOW - 2 * hour,
+      draft: draftOf(3, 'Tasks panel loses its filter on reload'), approved: 3, post: { state: 'unsure', rev: 3 } },
+    ...feedback.rows.slice(3),
+  ],
+}
+
 /** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
 const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
 export const inbox: InboxItem[] = [
@@ -247,7 +266,7 @@ const fiveMachines = (s: Snapshot): Snapshot => ({
   places: [...s.places, { ...s.places.find((p) => p.machine === 'pi')!, id: 'p:laptop:home', chat: 'p:laptop:home', machine: 'laptop' }, { ...s.places.find((p) => p.machine === 'studio' && !p.home)!, id: 'p:laptop:notes', chat: 'p:laptop:notes', machine: 'laptop', name: 'notes' }],
 })
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' = 'normal'): Snapshot {
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))
@@ -306,7 +325,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     config,
     // the bell's list (fork #37): what the push alerts said this week, some read, some still waiting
     inbox: empty ? [] : inbox,
-    feedback: empty ? { rows: [], found: 0, off: false } : feedback,
+    feedback: empty ? { rows: [], found: 0, off: false } : mode === 'post' ? feedbackPost : feedback,
     warnings: empty ? [] : down ? [{ id: 'm:vm', kind: 'machine', text: "Can't reach vm · last seen 14:02" }] : [{ id: 'u:elevenlabs', kind: 'usage', text: "You've used 76% of your ElevenLabs plan" }, { id: 'm:vm', kind: 'machine', text: 'vm: disk nearly full' }, ...(mode === 'more' ? [{ id: 'm:mini', kind: 'machine' as const, text: 'mac-mini: memory nearly full' }] : [])],
     screens: empty ? {} : {
       'task:SHOP-17': { b: { url: 'https://billing.example.com/login' }, d: { of: 'mac-mini', own: false, busy: 'Bigger checkout button on phones' }, active: true, driver: 'agent', hands: { what: 'Enter the sign-in code' } },

@@ -6343,6 +6343,17 @@ class Feedback(unittest.TestCase):
             code = self.cli.main()
         return code, out.getvalue() + err.getvalue()
 
+    def post(self, *argv):
+        """--file writes the draft and posts nothing (friction loop, slice 4, #94: a yes is for the exact text); then
+        the person's yes said in chat to the card that showed it, and the post of that revision."""
+        code, out = self.say(*argv, "--json")
+        d = json.loads(out)
+        if not d.get("kept"):
+            return code, d.get("error") or out
+        key, rev = d["key"], str(d["draft"]["rev"])
+        self.assertEqual(self.say("--key", key, "--approve", rev, "--by", "chat")[0], 0)
+        return self.say("--key", key, "--file", "--rev", rev)
+
     def test_a_report_returns_at_once_and_reaches_the_assistant(self):
         import time
         t = time.time()
@@ -6411,10 +6422,11 @@ class Feedback(unittest.TestCase):
         code, out = self.say("Ready refuses a reviewed commit", "--file", "--happened", "It said no round was recorded.")
         self.assertIn("#12 Ready refuses reviewed commits", out)
         self.assertIn("--comment", out)
+        self.assertIn("nothing posted", out)  # #94, slice 4: a draft, for the person's yes
         self.assertEqual([a[1:3] for a in self.gh], [["issue", "list"]])
         self.assertIn("eliasstravik/shepherdr", self.gh[0])  # the default repo
         self.assertEqual(self.gh[0][self.gh[0].index("--search") + 1], "ready refuses reviewed commit")
-        code, out = self.say("Ready refuses a reviewed commit", "--file", "--comment", "12", "--happened", "Again on 3.1.12.")
+        code, out = self.post("Ready refuses a reviewed commit", "--file", "--comment", "12", "--happened", "Again on 3.1.12.")
         self.assertEqual(self.gh[-1][:4], ["gh", "issue", "comment", "12"])
         self.assertIn("Commented: https://github.com/acme/shep/issues/42", out)
         self.assertIn("Already filed", self.say("Ready refuses a reviewed commit")[1])
@@ -6422,7 +6434,7 @@ class Feedback(unittest.TestCase):
     def test_the_issue_is_redacted_and_complete(self):
         self.assistant()
         self.settings({"everywhere": {"agents": {"feedback_repo": "https://github.com/acme/shep.git"}}})
-        code, out = self.say(
+        code, out = self.post(
             "Tasks panel loses a task's status line", "--file", "--surface", "web",
             "--goal", "Watch SHEP-7 from my phone.",
             "--happened", "Jane Doe saw it blank on janes-box.example.ts.net (100.101.1.2); log at /home/jane/.herdr/tasks/dev.json, "
@@ -6469,7 +6481,7 @@ class Feedback(unittest.TestCase):
                     locked.append(True)
             return subprocess.CompletedProcess(args, 0, "[]" if args[1:3] == ["issue", "list"] else "https://github.com/acme/shep/issues/9\n", "")
         with self.mock.patch.object(self.fb, "run", gh):
-            code, out = self.say("Status lines vanish after a restart", "--file")
+            code, out = self.post("Status lines vanish after a restart", "--file")
         self.assertIn("Filed: https://github.com/acme/shep/issues/9", out)
         self.assertTrue(locked and not any(locked), locked)  # every search and the create ran with the lock free
         self.assertIn("Already filed: https://github.com/acme/shep/issues/9", self.say("Status lines vanish after a restart")[1])
@@ -6481,11 +6493,14 @@ class Feedback(unittest.TestCase):
         self.issues = [{"number": 12, "title": "Status lines vanish", "url": "https://github.com/acme/shep/issues/12"}]
         self.say("Status lines vanish after a restart", "--file")  # duplicates: nothing filed, nothing held
         self.assertNotIn("filing", open(self.fb.STATE).read())
-        self.say("Status lines vanish after a restart", "--file", "--comment", "12")
+        self.post("Status lines vanish after a restart", "--file", "--comment", "12")
         n = len(self.gh)
         for again in (["--new"], ["--comment", "12"]):
             code, out = self.say("Status lines vanish after a restart", "--file", *again)
             self.assertIn("Already filed", out)
+        # the approved revision posted again (#94, slice 4): nothing
+        key = self.fb.find(json.load(open(self.fb.STATE))["problems"], "Status lines vanish after a restart")
+        self.assertIn("Already filed", self.say("--key", key, "--file", "--rev", "2")[1])
         self.assertEqual(len(self.gh), n)
         with self.fb.problems() as ps:
             ps[self.fb.key_of("Ready hangs")] = {"line": "Ready hangs", "state": "filing", "at": self.fb.now()}
@@ -6512,7 +6527,7 @@ class Feedback(unittest.TestCase):
         self.assistant()
         self.say("Status lines vanish after a restart", "--file", "--new", "--dry-run")
         self.assertEqual(self.gh, [])
-        code, out = self.say("Status lines vanish after a restart", "--file", "--new")
+        code, out = self.post("Status lines vanish after a restart", "--file", "--new")
         self.assertIn("every status line went blank", self.body)
         self.assertIn("- Agent CLI: Codex 0.9.1", self.body)
 
