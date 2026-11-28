@@ -496,6 +496,8 @@ def begin(s, t, argv, space, parent=None):
         # The folder's commit as it starts: still there, and nothing tracked changed, at ready means
         # it changed nothing, so there is nothing to review (review_refusal, #744).
         t["folder_start"] = git(s.loc["folder"], "rev-parse", "HEAD")[1] or None
+        # dmalis/shepherdr (Needs you only when it's yours): and its branch (unchanged_folder())
+        t["folder_branch"] = git(s.loc["folder"], "rev-parse", "--abbrev-ref", "HEAD")[1] or None
     parent = parent_for(parent, space)
     return launch(s, t, argv, space, brief(s, t, parent, space, argv), parent=parent, setup=setup)
 
@@ -1016,8 +1018,17 @@ def unchanged_folder(s, t):
     if head == t["folder_start"]:
         return True
     # dmalis/shepherdr (Needs you only when it's yours): other tasks' merges fast-forward the folder meanwhile
-    # (update_main()): only a commit of its own since it started, one no remote branch has, is its change
-    mine_ok, mine, _ = git(folder, "rev-list", f"{t['folder_start']}..HEAD", "--not", "--remotes")
+    # (update_main()): unchanged when it only moved forward, on its branch, to commits its branch's upstream already has
+    # (merged there by others). A move back, another branch, or a commit only it has (pushed elsewhere or not) is a change.
+    ok_b, start_branch, _ = git(folder, "rev-parse", "--abbrev-ref", "HEAD")
+    ok_u, upstream, _ = git(folder, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    if not (ok_b and ok_u and upstream and start_branch != "HEAD"):
+        return False
+    if t.get("folder_branch") and t["folder_branch"] != start_branch:
+        return False
+    if not git(folder, "merge-base", "--is-ancestor", t["folder_start"], "HEAD")[0]:
+        return False
+    mine_ok, mine, _ = git(folder, "rev-list", f"{t['folder_start']}..HEAD", "--not", upstream)
     return mine_ok and not mine.strip()
 
 

@@ -14839,12 +14839,22 @@ class NeedsOnlyYours(unittest.TestCase):
         return {"state": "OPEN", "mergeable": "MERGEABLE", "headRefOid": "abc", "mergeStateStatus": "BLOCKED",
                 "statusCheckRollup": list(rows) or [self.CUT]}
 
+    LIMIT = (True, '["The job running on runner r1 has exceeded the maximum execution time of 30 minutes."]', "")
+    ANNOTATIONS = ("api", "repos/o/r/check-runs/1/annotations")
+
     def github_gh(self, answers=None):
-        """github.gh (what cutoff.read() reruns with), each call kept."""
+        """github.gh (what cutoff.read() reruns with), each rerun kept in calls, each annotations read in self.asked.
+        Job 1's annotations say it hit its time limit unless answers say otherwise."""
         import herdr_task.cutoff as cutoff
         import herdr_task.github as github
-        calls = []
-        p = self.mock.patch.object(github, "gh", lambda *a, **k: (calls.append(a), (answers or {}).get(a[:2], (True, "", "")))[1])
+        calls, self.asked = [], []
+        said = {self.ANNOTATIONS: self.LIMIT, **(answers or {})}
+
+        def gh(*a, **k):
+            (calls if a[0] == "run" else self.asked).append(a)
+            got = said.get(a[:2], (True, "", ""))
+            return got(a) if callable(got) else got
+        p = self.mock.patch.object(github, "gh", gh)
         p.start()
         self.addCleanup(p.stop)
         return calls, cutoff
@@ -14863,6 +14873,14 @@ class NeedsOnlyYours(unittest.TestCase):
             self.assertEqual([c["status"] for c in kept], ["QUEUED"])
             self.assertIsNone(github.pr_problem({"statusCheckRollup": kept}))
             self.assertTrue(github.pr_pending({"statusCheckRollup": kept}))
+        # review: an older job still queued never hides a newer one's result (Actions jobs go by job id)
+        older = dict(queued, detailsUrl="https://github.com/o/r/actions/runs/70/job/1")
+        newer = dict(self.CUT, conclusion="FAILURE", detailsUrl="https://github.com/o/r/actions/runs/78/job/5")
+        for rows in ([older, newer], [newer, older]):
+            self.assertEqual(github.pr_problem({"statusCheckRollup": github.latest_checks(rows)}), "Checks failing: check.")
+        rerun = dict(queued, detailsUrl="https://github.com/o/r/actions/runs/78/job/9")
+        for rows in ([rerun, newer], [newer, rerun]):
+            self.assertEqual([c["status"] for c in github.latest_checks(rows)], ["QUEUED"])
 
     # 7e8f14546f: cut off at its time limit, it runs again by itself once, and nobody is needed; cut off again, it is
     # its agent's to fix, named as cut off
@@ -14901,16 +14919,52 @@ class NeedsOnlyYours(unittest.TestCase):
         import herdr_task.ghnews as ghnews
         t = self.pr_task()
         calls, cutoff = self.github_gh({("run", "rerun"): (False, "", "HTTP 403: Resource not accessible")})
-        self.at(cutoff, 10_000_000)
-        v = cutoff.read(self.store, t, self.cut_view(), rerun=True)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(self.tick.pr_problem(v), "Checks failing: check (cut off at its time limit).")
-        # pr_news leaves a plain CANCELLED out (a superseded run); this one reaches its agent
+        # refused: tried again later (a blip), a few times, then it stands
+        for n, clock in enumerate((10_000_000, 10_060_000, 10_400_000, 10_800_000, 11_200_000)):
+            self.at(cutoff, clock)
+            v = cutoff.read(self.store, t, self.cut_view(), rerun=True)
+            self.assertEqual(len(calls), (1, 1, 2, 3, 3)[n])
+            self.assertEqual(self.tick.pr_problem(v), None if n < 3 else "Checks failing: check (cut off at its time limit).")
+        self.assertEqual(len(self.asked), 1)  # its annotations read once
+        # pr_news leaves a plain CANCELLED out (a superseded run); this one reaches its agent, with GitHub's reason
         failed = [c for c in v["statusCheckRollup"] if (c.get("conclusion") or "").upper() in ghnews.BAD - {"CANCELLED"}]
         self.assertEqual([c["name"] for c in failed], ["check"])
-        # read again (a merge by hand): no second try
-        cutoff.read(self.store, t, self.cut_view(), rerun=True)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(cutoff.said(failed[0]), "was cut off at its time limit, and GitHub refused to run it again "
+                                                 "(HTTP 403: Resource not accessible)")
+
+    def test_github_request_limit_spends_no_try(self):
+        import herdr_task.ghbudget as ghbudget
+        t = self.pr_task()
+        calls, cutoff = self.github_gh({("run", "rerun"): (False, "", ghbudget.held_err(20_000_000))})
+        for clock in (10_000_000, 10_400_000, 10_800_000, 11_200_000, 11_600_000):
+            self.at(cutoff, clock)
+            v = cutoff.read(self.store, t, self.cut_view(), rerun=True)
+        self.assertEqual(len(calls), 5)
+        self.assertIsNone(self.tick.pr_problem(v))  # still to run again
+
+    # review: only a time limit counts; a run someone cancelled stays as it was
+    def test_a_run_someone_cancelled_is_never_run_again(self):
+        t = self.pr_task()
+        for said in ((True, '["The run was canceled by @someone."]', ""), (False, "", "HTTP 403")):
+            calls, cutoff = self.github_gh({self.ANNOTATIONS: said})
+            v = cutoff.read(self.store, t, self.cut_view(), rerun=True)
+            self.assertEqual(calls, [])
+            self.assertEqual(self.tick.pr_problem(v), "Checks failing: check.")
+
+    # review: GitHub reruns a run only once all of it ended: a sibling job still running holds the rerun
+    def test_a_cut_off_job_waits_for_its_run_to_end_before_running_again(self):
+        t = self.pr_task()
+        calls, cutoff = self.github_gh()
+        sibling = dict(self.CUT, name="e2e", status="IN_PROGRESS", conclusion="", completedAt="",
+                       detailsUrl="https://github.com/o/r/actions/runs/77/job/2")
+        self.at(cutoff, 10_000_000)
+        v = cutoff.read(self.store, t, self.cut_view(self.CUT, sibling), rerun=True)
+        self.assertEqual(calls, [])
+        self.assertIsNone(self.tick.pr_problem(v))
+        self.assertTrue(self.tick.pr_pending(v))
+        done = dict(sibling, status="COMPLETED", conclusion="SUCCESS", completedAt="1970-01-01T02:10:00Z")
+        cutoff.read(self.store, t, self.cut_view(self.CUT, done), rerun=True)
+        self.assertEqual(calls, [("run", "rerun", "77", "--repo", "o/r")])
 
     def test_a_merge_by_hand_never_calls_a_cut_off_run_a_failure(self):
         t = self.pr_task(auto_merge="checks")
@@ -14969,6 +15023,19 @@ class NeedsOnlyYours(unittest.TestCase):
         t["back"] = {"at": 1, "why": "the person asked"}
         self.assertFalse(ready_again.nudge(self.store, t, v, {}))
         self.assertEqual(len(sent), 1)
+        # review: its new commit failed a check before Herdr looked: told with the failure (pr_news passes a Working
+        # task's news on to nobody), once
+        t["back"] = {"at": 1, "why": "its agent is at work again", "auto": True}
+        failing = dict(v, statusCheckRollup=[{"name": "lint", "status": "COMPLETED", "conclusion": "FAILURE",
+                                              "detailsUrl": "https://example.com/lint"}])
+        self.assertTrue(ready_again.nudge(self.store, t, failing, {}, "Checks failing: lint."))
+        self.assertIn("failed: https://example.com/lint", sent[1][1])
+        self.assertIn("push, then run your ready command again", sent[1][1])
+        self.assertFalse(ready_again.nudge(self.store, t, failing, {}, "Checks failing: lint."))
+        # a problem that isn't a failed check (a conflict) isn't told here
+        t["pr"].pop("again_told")
+        self.assertFalse(ready_again.nudge(self.store, t, v, {}, "It conflicts with the base branch."))
+        self.assertEqual(len(sent), 2)
 
     # 594bb1f0ac, 03bf0dbdb4, ddb89fa3f7, d3a815a64c: a read-only run in the folder is judged by its own commits
     def test_a_read_only_run_in_the_folder_is_unchanged_when_only_other_merges_moved_it(self):
@@ -14981,8 +15048,9 @@ class NeedsOnlyYours(unittest.TestCase):
         for d in (folder, other):
             subprocess.run(["git", "clone", "-q", origin, d], check=True, capture_output=True)
         g(folder, "commit", "-q", "--allow-empty", "-m", "start")
-        g(folder, "push", "-q", "origin", "HEAD:main")
-        t = {"id": 3, "title": "Watch", "state": "running", "mode": "here", "folder_start": g(folder, "rev-parse", "HEAD")}
+        g(folder, "push", "-q", "-u", "origin", "HEAD:main")
+        t = {"id": 3, "title": "Watch", "state": "running", "mode": "here", "folder_start": g(folder, "rev-parse", "HEAD"),
+             "folder_branch": g(folder, "rev-parse", "--abbrev-ref", "HEAD")}
         store = Store([t])
         store.loc["folder"] = folder
         import herdr_task.base as base
@@ -15003,6 +15071,19 @@ class NeedsOnlyYours(unittest.TestCase):
             self.assertFalse(self.commands.unchanged_folder(store, t))
             g(folder, "commit", "-q", "-m", "its own")
             self.assertFalse(self.commands.unchanged_folder(store, t))
+            # review: its own commit pushed to another branch is still its change
+            g(folder, "push", "-q", "origin", "HEAD:elsewhere")
+            g(folder, "fetch", "-q", "origin")
+            self.assertFalse(self.commands.unchanged_folder(store, t))
+            # back on what main has: unchanged again; then moved back from where it started, or onto another branch: changed
+            g(folder, "reset", "-q", "--hard", "@{upstream}")
+            self.assertTrue(self.commands.unchanged_folder(store, t))
+            t["folder_start"] = g(folder, "rev-parse", "HEAD")
+            g(folder, "reset", "-q", "--hard", "HEAD~1")
+            self.assertFalse(self.commands.unchanged_folder(store, t))
+            g(folder, "reset", "-q", "--hard", t["folder_start"])
+            g(folder, "checkout", "-q", "-b", "other", "--track", "origin/elsewhere")  # forward, all on its upstream
+            self.assertFalse(self.commands.unchanged_folder(store, t))
 
     # d1dc02c84e: a merged task reopened is done again once its agent rests (BackToWork pins the rest)
     def test_a_reopened_merged_task_is_done_once_its_agent_rests(self):
@@ -15010,7 +15091,17 @@ class NeedsOnlyYours(unittest.TestCase):
         t.update(state="done", merged=True, started=1, reviews=[{"round": 1, "result": "pass"}])
         self.commands.cmd_state(self.args(), "reopen")
         self.live = [{"address": "t1", "status": {"state": "idle"}, "agent": "claude"}]
-        _, report = self.queue_tick({"state": "MERGED", "mergeCommit": {"oid": "f00"}, "headRefOid": "abc"})
+        # review: a draft not committed in its worktree (untracked too) keeps it open: closing would remove the folder
+        wt = tempfile.mkdtemp()
+        subprocess.run(["git", "-C", wt, "init", "-q"], check=True)
+        with open(os.path.join(wt, "draft.md"), "w") as f:
+            f.write("x\n")
+        t["worktree"] = wt
+        merged = {"state": "MERGED", "mergeCommit": {"oid": "f00"}, "headRefOid": "abc"}
+        self.queue_tick(merged)
+        self.assertEqual((t["state"], t.get("merged")), ("running", None))
+        os.remove(os.path.join(wt, "draft.md"))
+        _, report = self.queue_tick(merged)
         self.assertEqual((t["state"], t.get("merged"), report["done"]), ("done", True, [7]))
 
     # a6cd92d2d7, d67983f73d: no checks at all, GitHub saying it can merge: Merge on its own merges
@@ -15021,20 +15112,33 @@ class NeedsOnlyYours(unittest.TestCase):
             p = self.mock.patch.object(mod, "runs_pending", lambda repo, sha: False, create=True)
             p.start()
             self.addCleanup(p.stop)
-        fresh, merged = self.early_tick(self.NONE_YET, 1_040_000, "yes")
+        none = dict(self.NONE_YET, runs_none=True)  # Actions said no run is on its way (pr_view)
+        fresh, merged = self.early_tick(none, 1_040_000, "yes")
         self.assertEqual((fresh, merged), (True, [7]))
         self.assertNotIn("attention", t)
         # a required check GitHub doesn't list yet still holds it
-        fresh, merged = self.early_tick(dict(self.NONE_YET, mergeStateStatus="BLOCKED"), 1_050_000, "yes")
+        fresh, merged = self.early_tick(dict(none, mergeStateStatus="BLOCKED"), 1_050_000, "yes")
         self.assertEqual((fresh, merged), (False, []))
         # When all checks pass waits for them, as before
         t["auto_merge"] = "checks"
-        fresh, merged = self.early_tick(self.NONE_YET, 1_060_000, "yes")
+        fresh, merged = self.early_tick(none, 1_060_000, "yes")
         self.assertEqual((fresh, merged), (False, []))
-        # an Actions run on its way at its head is still waited for
         with self.mock.patch.object(github, "now", lambda: 1_040_000):
-            self.assertIsNone(github.checks_missing(self.NONE_YET, 1_000_000, "yes", now_=True))
-            self.assertEqual(github.checks_missing(dict(self.NONE_YET, runs_pending=True), 1_000_000, "yes", now_=True), "waiting")
+            self.assertIsNone(github.checks_missing(none, 1_000_000, "yes", now_=True))
+            # an Actions run on its way at its head is still waited for
+            self.assertEqual(github.checks_missing(dict(none, runs_none=None, runs_pending=True), 1_000_000, "yes", now_=True), "waiting")
+            # Actions couldn't be read (no runs_none): never taken as none on the way
+            self.assertEqual(github.checks_missing(self.NONE_YET, 1_000_000, "yes", now_=True), "waiting")
+            # GitHub's first moment after a push: not yet
+        with self.mock.patch.object(github, "now", lambda: 1_010_000):
+            self.assertEqual(github.checks_missing(none, 1_000_000, "yes", now_=True), "waiting")
+
+    def test_actions_unreadable_is_never_none_on_the_way(self):
+        import herdr_task.github as github
+        with self.mock.patch.object(github, "gh", lambda *a, **k: (False, "", "HTTP 403: Resource not accessible by integration")):
+            self.assertIsNone(github.runs_pending("o/r", "abc"))
+        with self.mock.patch.object(github, "gh", lambda *a, **k: (True, '["completed"]', "")):
+            self.assertIs(github.runs_pending("o/r", "abc"), False)
 
     # e3d307e8ea: the worker's own words keep it off a prompt only the person can answer
     def test_workers_change_files_without_code_inside_a_shell_command(self):

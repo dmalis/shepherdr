@@ -459,23 +459,29 @@ def pr_view(task):
             v["checks_unknown"] = True
     if v.get("statusCheckRollup"):
         v["statusCheckRollup"] = latest_checks(v["statusCheckRollup"])
-    if v.get("state") == "OPEN" and not pr_pending(v) and runs_pending(pr["repo"], v.get("headRefOid")):
-        # #1044: a workflow run at its head not finished, its jobs not all shown as checks yet (a job
-        # that waits on another's needs, a run waiting for a runner): its checks still run.
-        v["runs_pending"] = True
+    if v.get("state") == "OPEN" and not pr_pending(v):
+        pending = runs_pending(pr["repo"], v.get("headRefOid"))
+        if pending:
+            # #1044: a workflow run at its head not finished, its jobs not all shown as checks yet (a job
+            # that waits on another's needs, a run waiting for a runner): its checks still run.
+            v["runs_pending"] = True
+        elif pending is False:
+            v["runs_none"] = True  # dmalis/shepherdr: Actions said no run is on its way (checks_missing()); unreadable: unset
     return v
 
 
 def runs_pending(repo, sha):
     """GitHub Actions has a run at commit sha not finished yet (queued, waiting, in progress). False
-    when none, or GitHub couldn't say."""
+    when none; None when GitHub couldn't say (dmalis/shepherdr: falsy as before, told apart by checks_missing())."""
     if not sha:
-        return False
+        return None
     ok, out, _ = gh("api", f"repos/{repo}/actions/runs?head_sha={sha}&per_page=50", "-q", "[.workflow_runs[].status]")
+    if not ok:
+        return None
     try:
-        states = json.loads(out) if ok else []
+        states = json.loads(out)
     except ValueError:
-        return False
+        return None
     return any(st != "completed" for st in states if isinstance(st, str))
 
 
@@ -532,9 +538,17 @@ def latest_checks(rows):
             when = "9"  # dmalis/shepherdr: a run GitHub queued but hasn't started (0001-01-01) is the newest of its check
         else:
             when = "" if when.startswith("0001") else when
-        if key not in newest or when >= newest[key][0]:
-            newest[key] = (when, c)
-    return [c for _, c in newest.values()]
+        # dmalis/shepherdr: two Actions jobs of a check are ordered by job id (GitHub gives a rerun's new job a higher
+        # one), so an older run still queued never hides a newer one's result
+        job = re.search(r"/actions/runs/\d+/job/(\d+)", c.get("detailsUrl") or "")
+        job = int(job.group(1)) if job else None
+        if key in newest:
+            o_when, o_job, _ = newest[key]
+            newer = job > o_job if job is not None and o_job is not None and job != o_job else when >= o_when
+            if not newer:
+                continue
+        newest[key] = (when, job, c)
+    return [c for _, _, c in newest.values()]
 
 
 def not_started(c):
@@ -890,9 +904,10 @@ def checks_missing(v, since, expect=None, now_=False):
     if v.get("checks_unknown"):
         # Checks that can't be read here (SHEP-179): a moment for GitHub, then pr_wait() decides.
         return "waiting" if gone < NO_CHECKS_MS else None
-    if now_ and not v.get("runs_pending") and v.get("mergeStateStatus") in MERGES_NOW:
+    if now_ and gone >= NO_CHECKS_MS and v.get("runs_none") and v.get("mergeStateStatus") in MERGES_NOW:
         # dmalis/shepherdr (Needs you only when it's yours): GitHub says it can merge, nothing it requires is missing,
-        # and no Actions run is on its way (its workflows off for the repo, [skip ci]): none will come to wait for
+        # and Actions said no run is on its way (its workflows off for the repo, [skip ci]): none will come to wait
+        # for. Never while Actions couldn't be read (no runs_none), nor in GitHub's first moment after a push.
         return None
     blocked = v.get("mergeStateStatus") == "BLOCKED" and not needs_approval(v)
     if expect == "yes" or blocked:

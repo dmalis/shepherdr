@@ -5,7 +5,7 @@ import datetime
 import json
 import re
 
-from . import ghbudget
+from . import cutoff, ghbudget
 from .base import now
 from .agents import status_word
 from .github import _ASK, answer, BAD, collision, collision_words, gh
@@ -189,8 +189,7 @@ def pr_news(s, t, v, report):
     for c in news_checks[:10]:
         name, url = c.get("name") or c.get("context") or "A check", c.get("detailsUrl") or c.get("targetUrl") or ""
         # cutoff.read(): run again once by itself, and cut off at its time limit again (a test that hangs, a slow step)
-        lines.append(f"- Check \"{name}\" " + ("was cut off at its time limit, again after Herdr ran it once more"
-                                               if c.get("cut_off") else "failed") + f": {url}")
+        lines.append(f"- Check \"{name}\" {cutoff.said(c)}: {url}")
     tail = None
     for c in news_checks:
         rid = run_id(c.get("detailsUrl") or c.get("targetUrl"))

@@ -33,20 +33,43 @@ def due(s, t, v):
     return head
 
 
-def nudge(s, t, v, report):
-    """Tells its resting agent once (due()) to run its ready command again. True when told."""
+def failed_checks(v):
+    """Its failing checks as news lines ("- Check "x" failed: url"), cut off ones said so (cutoff.read())."""
+    from . import cutoff
+    from .github import BAD
+    lines = []
+    for c in (v or {}).get("statusCheckRollup") or []:
+        if (c.get("conclusion") or c.get("state") or "").upper() in BAD - {"CANCELLED"}:  # a cancel as pr_news()
+            name, url = c.get("name") or c.get("context") or "A check", c.get("detailsUrl") or c.get("targetUrl") or ""
+            lines.append(f"- Check \"{name}\" {cutoff.said(c)}: {url}")
+    return lines
+
+
+def nudge(s, t, v, report, problem=None):
+    """Tells its resting agent once (due()) to run its ready command again. True when told. problem (pr_problem()):
+    a failed check on its new commit is told with it, to fix first (a Working task's news isn't passed on otherwise:
+    ghnews.pr_news()); any other problem is not its agent's to hear here."""
     head = due(s, t, v)
     if not head:
+        return False
+    failed = failed_checks(v) if problem else []
+    if problem and not failed:
         return False
     from .ghnews import attr, esc, resting
     k = resting(s, t)
     if not k or last_question(t, k.get("address")):
         return False
     pr = t["pr"]
-    text = (f"GitHub news on pull request #{pr.get('number')} ({pr.get('url') or ''}): your new commit {head[:9]} is on "
-            "it, but the task is still Working since you went back to work, and it merges only after you run your "
-            "ready command again. If your fix is done, run it now with your summary (ready waits for the checks "
-            "itself). If you are still on it, carry on.")
+    if failed:
+        text = (f"GitHub news on pull request #{pr.get('number')} ({pr.get('url') or ''}): your new commit {head[:9]} "
+                "is on it, and a check failed there:\n" + "\n".join(failed) + "\nThe task is still Working since you "
+                "went back to work. Fix it if your change caused it (say so in one line if it is outside your change), "
+                "push, then run your ready command again: the task merges only after that.")
+    else:
+        text = (f"GitHub news on pull request #{pr.get('number')} ({pr.get('url') or ''}): your new commit {head[:9]} "
+                "is on it, but the task is still Working since you went back to work, and it merges only after you run "
+                "your ready command again. If your fix is done, run it now with your summary (ready waits for the "
+                "checks itself). If you are still on it, carry on.")
     if not news_send(k["address"], f'<herdr-github task="{attr(s.ref(t))}" pr="{pr.get("number")}">{esc(text)}</herdr-github>'):
         return False
     pr["again_told"] = head

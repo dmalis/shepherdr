@@ -89,9 +89,11 @@ def _view(p):
         v["statusCheckRollup"] = github.latest_checks(v["statusCheckRollup"])
     # #1044 as pr_view's runs_pending(): a workflow run at its head not finished, its jobs not all shown as checks yet
     suites = (commit.get("checkSuites") or {}).get("nodes") or []
-    if v["state"] == "OPEN" and not github.pr_pending(v) and any(
-            isinstance(su, dict) and su.get("workflowRun") and (su.get("status") or "") != "COMPLETED" for su in suites):
+    on_way = any(isinstance(su, dict) and su.get("workflowRun") and (su.get("status") or "") != "COMPLETED" for su in suites)
+    if v["state"] == "OPEN" and not github.pr_pending(v) and on_way:
         v["runs_pending"] = True
+    elif v["state"] == "OPEN" and not on_way and isinstance(commit.get("checkSuites"), dict):
+        v["runs_none"] = True  # dmalis/shepherdr: read, and no Actions run on its way (github.checks_missing())
     required = {c.get("name") or c.get("context") for c in raw if c.get("isRequired")}
     return v, required
 

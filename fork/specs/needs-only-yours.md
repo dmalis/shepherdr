@@ -26,15 +26,21 @@ the person can settle it. And a newer run of the same check that GitHub has queu
 (`0001-01-01`), so it lost to the older cut-off run: "failing" again while the newer run was on its way.
 
 **Fix** (`mods/tasks/bin/herdr_task/cutoff.py`, called once from `tick.facts()` and `commands.merge_now()`):
-- `latest_checks()`: a run not started yet is the newest of its check.
-- A check whose newest run was CANCELLED or TIMED_OUT, from a GitHub Actions run, is **cut off**. The first time at
-  a commit, Herdr runs it again by itself, once (`gh run rerun <run id>`, GitHub's documented command), and the
-  check reads as running: no attention, no news. Kept as `pr.rerun = {head, at, runs}`.
+- `latest_checks()`: two Actions jobs of one check go by job id (a rerun's new job has a higher one), so an older run
+  still queued never hides a newer result; otherwise by start time, and a run not started yet is the newest.
+- A check whose newest run ended TIMED_OUT, or CANCELLED with GitHub's annotation that the job "has exceeded the
+  maximum execution time" (read once per job, `GET repos/{repo}/check-runs/{job}/annotations`), is **cut off**. A run
+  someone cancelled, or one whose annotations can't be read, reads as before: only a time limit counts.
+- The first time at a commit, once its whole run has ended (GitHub refuses a rerun while a sibling job runs), Herdr
+  runs it again by itself, once (`gh run rerun <run id>`, GitHub's documented command), and the check reads as
+  running: no attention, no news. Kept as `pr.rerun = {head, why, runs, tries, failed}`.
+- A refused rerun is tried again 5 minutes later, three tries in all; GitHub's hourly request limit spends no try.
 - Until a run of it ends after that rerun, the old cut-off row still reads as running (GitHub shows the new attempt a
-  moment later). If GitHub never shows it, after 10 minutes it reads as cut off again.
-- Cut off again at the same commit (or the rerun was refused): the row reads TIMED_OUT, so `pr_news()` hands it to
-  the task's agent like any failure, and the card says "Checks failing: check (cut off at its time limit)". It is the
-  task's to fix (a test that hangs), and goes through the usual Shepherdr wait if its agent can't.
+  moment later). If GitHub never shows it, after 10 minutes (while Actions has no run on its way) it reads as cut off.
+- Cut off again at the same commit (or the rerun refused three times): the row reads TIMED_OUT, so `pr_news()` hands
+  it to the task's agent like any failure, saying it was cut off (and GitHub's reason when the rerun was refused), and
+  the card says "Checks failing: check (cut off at its time limit)". It is the task's to fix (a test that hangs), and
+  goes through the usual Shepherdr wait if its agent can't.
 - A commit status (not an Actions run) can't be rerun: as before.
 
 ## 2. A ready task that pushed a fix is told to say ready again
@@ -50,7 +56,9 @@ its own from Ready (`back.auto`), whose agent rests with no question asked, whos
 that is also its pull request's head on GitHub, hears once per commit, as GitHub news: its new commit is on the pull
 request, the task merges only after its ready command runs again, so run it now (ready waits for the checks
 itself). Its agent then runs ready, with every check ready makes (review rounds, proof), and Merge does the rest.
-Nothing is said to the person.
+A check that already failed on that commit is told with it (to fix, push, then ready): a Working task's GitHub news
+isn't passed on otherwise. Any other problem (a conflict, a cancelled run) is not said here. Nothing is said to the
+person.
 
 ## 3. A read-only scheduled run is judged by its own changes
 
@@ -59,9 +67,11 @@ while the folder's HEAD is the commit it started on (`commands.unchanged_folder(
 that folder (`github.update_main()`), so `ready --nothing` and `--told` were refused, and the run waited for the
 person with a card for "nothing new".
 
-**Fix:** `unchanged_folder()` counts only the run's own work: nothing tracked changed, and no commit since it
-started that isn't on a remote branch (`git rev-list <start>..HEAD --not --remotes` is empty). A fast-forward from
-the remote is not its change; a commit it made itself is. The same rule serves the review gate (`review_refusal()`).
+**Fix:** `unchanged_folder()` counts only the run's own work: nothing tracked changed, the folder is on the branch
+it started on (`folder_branch`, kept at start), HEAD only moved forward from where it started, and every commit since
+is already on that branch's upstream (`git rev-list <start>..HEAD --not @{upstream}` is empty). A fast-forward to
+others' merges is not its change; a commit of its own (pushed anywhere else or not), a move back or another branch
+is. The same rule serves the review gate (`review_refusal()`).
 
 8eab66bb32 (the "Watch upstream issues" schedule flags a fork issue a task already works on) is in that schedule's
 own brief, which lives in the person's schedules, not in this repo: its brief should skip an issue that
@@ -75,8 +85,9 @@ second pull request (#48): it is done again, and its later commits are offered a
 task could only sit Working, "0 of 2 review rounds", until someone finished it by hand.
 
 **Fix** (`tick.merge_held()`): a reopened task whose pull request merged is held open only while its agent is at work
-(mid-turn). Once it rests, it is done again, merged (`after_merge.close()`: later commits offered as a follow-up,
-its worktree kept while they are only there). No message to anyone.
+(mid-turn), or while its worktree holds anything not committed, untracked files too (closing removes a worktree
+with only untracked files in it). Once it rests with nothing unsaved, it is done again, merged (`finish()`: later
+commits offered as a follow-up, its worktree kept while they are only there). No message to anyone.
 
 ## 5. No checks at all: Merge on its own merges
 
@@ -86,8 +97,8 @@ minutes, then "Its checks never started on GitHub" and no merge by itself. GitHu
 CLEAN: nothing it requires is missing.
 
 **Fix** (`github.checks_missing()`): with Merge on its own (Right away, or a merge by hand under it), no check listed,
-no Actions run pending at its head, and GitHub saying it can merge (CLEAN, UNSTABLE or HAS_HOOKS), nothing is
-missing: it merges, as merge "on its own" already does with optional checks still running (`merge_checks()`). A
+Actions saying no run is on its way at its head (`runs_none`: never when Actions can't be read), 30 seconds since the
+commit, and GitHub saying it can merge (CLEAN, UNSTABLE or HAS_HOOKS), nothing is missing: it merges, as merge "on its own" already does with optional checks still running (`merge_checks()`). A
 required check GitHub doesn't list yet still blocks it (BLOCKED), as before. When all checks pass keeps waiting and,
 when none ever start, says so once with why (its card), as before: there the person asked for checks.
 
@@ -103,11 +114,12 @@ agent: it simply isn't asked.
 
 ## Ban check
 
-Only GitHub's documented `gh run rerun` with the person's own `gh` sign-in, once per commit; messages to Shepherdr's
+Only GitHub's documented `gh run rerun` and check-run annotations read with the person's own `gh` sign-in, once
+per run at a commit; messages to Shepherdr's
 own task agents through herdr-core's news (as `pr_deliver()` already does); no agent's interface driven, no prompt
 answered, no agent settings touched. `docs/agents-and-terms.md` is unchanged: nothing here touches an agent's terms.
 
 ## Tests
 
-`test/test_herdr_task.py::NeedsOnlyYours`, one test per fix, with fake gh/hc as the file does, and a real throwaway
-git repo for 3.
+`test/test_herdr_task.py::NeedsOnlyYours`, one test per fix and per review finding, with fake gh/hc as the file
+does, and real throwaway git repos for 2, 3 and 4. `BackToWork` and `MergedWhileWaiting` pin the reopened task's rule.
