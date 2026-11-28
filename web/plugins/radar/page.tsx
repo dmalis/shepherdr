@@ -6,22 +6,30 @@
 // wide page and over it on a narrow one or a phone, as Linear's and GitHub's inboxes do. Every click changes this
 // page's copy only (model.ts); the one real card is the error's Triage card in #shop, the same one Needs you opens.
 import { useState, type ReactNode } from 'react'
-import { notice, openLink, setUI, useSnap, useUI } from '@client/kernel.ts'
+import { act, notice, openLink, setUI, useSnap, useUI } from '@client/kernel.ts'
 import { openForm, openMenu } from '@client/overlay.tsx'
 import { PaneFrame } from '@client/App.tsx'
 import { Btn, cx, Empty, Hd, I, IB } from '@client/ui.tsx'
+import { clearPress } from '@client/pending.ts'
+import { NeedsCount, openNeeds } from '@client/needs-count.tsx'
 import { attentionOf } from '@shared/attention.ts'
 import type { IconName } from '@client/icons.ts'
 import type { Snapshot } from '@shared/types.ts'
-import { liveOf, radarOf } from './row.tsx'
-import { addItem, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, setView, useRadar, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
-import { levelWords, queue, SOURCE, stateWords, when, WORKFLOWS } from './say.ts'
+import { liveOf, radarNeeds, radarOf } from './row.tsx'
+import { addItem, askCards, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, resume, setView, useRadar, waiting, waitingWords, type Filter, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
+import { APPROVED, levelWords, PREVIEW, queue, SOURCE, stateWords, when, WORKFLOWS } from './say.ts'
 import './radar.css'
 
 const DAY = 86400_000
 const OPENINGS: [Opening, string][] = [['since', 'Since you last looked'], ['pain', 'Pain map'], ['pulse', 'Project pulse']]
 const TABS: [Tab, string][] = [['overview', 'Overview'], ['next', 'Next up'], ['all', 'All items'], ['shipped', 'Shipped']]
 const PROTO = '(prototype: nothing was really started or posted)'
+/** a toast-only action's notice: what it would do, and that nothing did */
+const preview = (would: string) => notice(`${PREVIEW}: ${would}. Nothing was opened or run.`, { tone: 'ok' })
+/** a toast-only action's button: its name, then "Demo preview", quieter */
+const PreviewBtn = ({ children, onClick, small }: { children: ReactNode; onClick: () => void; small?: boolean }) => (
+  <Btn small={small} onClick={onClick}>{children}<span className="rd-pv">{PREVIEW}</span></Btn>
+)
 
 interface Ctx { snap: Snapshot; day: RadarDemo; view: View; live: Live; now: number; items: RadarItem[]; projects: RadarProject[] }
 
@@ -39,23 +47,43 @@ const openItemHere = (id: string) => setView({ item: id })
 
 /* ---------- the prototype's own bar ---------- */
 
-function Proto({ view }: { view: View }) {
+/** Start over: this page's copy, and the shared card in #shop and Needs you, back as the day came */
+function startOver() {
+  const cards = askCards()
+  reset()
+  // the card comes back the same (its id and words): forget the Yes or No pressed on it, so it can be answered again
+  void act({ type: 'radar', do: 'reset' }).catch(() => undefined).finally(() => cards.forEach(clearPress))
+}
+
+/** the prototype's controls, folded behind one button (folded at first on a phone, so the page keeps its first screen);
+ *  the button says what is picked */
+function Proto({ view, phone }: { view: View; phone: boolean }) {
+  const shown = view.proto ?? !phone
+  const picked = [OPENINGS.find(([o]) => o === view.opening)![1], view.later ? 'A week later' : 'Today', view.fresh ? 'A new install' : ''].filter(Boolean).join(' · ')
   return (
-    <section className="rd-proto" aria-label="Prototype controls">
-      <span className="rd-tag">Prototype</span>
-      <div className="rd-pr">
-        <span className="rd-pl">Opening screen</span>
-        <Pick label="Opening screen" values={OPENINGS} value={view.opening} onChange={(opening) => setView({ opening, tab: 'overview', item: null })} />
-      </div>
-      <div className="rd-pr">
-        <span className="rd-pl">Clock</span>
-        <Pick label="Clock" values={[['now', 'Today'], ['later', 'A week later']]} value={view.later ? 'later' : 'now'} onChange={(v) => setView({ later: v === 'later' })} />
-      </div>
-      <div className="rd-pr">
-        <span className="rd-pl">Fixture</span>
-        <Pick label="Fixture" values={[['day', 'Today’s day'], ['fresh', 'A new install']]} value={view.fresh ? 'fresh' : 'day'} onChange={(v) => setView({ fresh: v === 'fresh', tab: 'overview', project: null, item: null })} />
-        <Btn small onClick={reset}>Start over</Btn>
-      </div>
+    <section className={cx('rd-proto', shown && 'on')} aria-label="Prototype controls">
+      <button type="button" className="rd-ptog" aria-expanded={shown} aria-controls="rd-pbody" onClick={() => setView({ proto: !shown })}>
+        <span className="rd-tag">Prototype</span>
+        <span className="rd-psum">{picked}</span>
+        <I n={shown ? 'up' : 'down'} />
+      </button>
+      {shown && (
+        <div className="rd-pbody" id="rd-pbody">
+          <div className="rd-pr">
+            <span className="rd-pl">Opening screen</span>
+            <Pick label="Opening screen" values={OPENINGS} value={view.opening} onChange={(opening) => setView({ opening, tab: 'overview', item: null })} />
+          </div>
+          <div className="rd-pr">
+            <span className="rd-pl">Clock</span>
+            <Pick label="Clock" values={[['now', 'Today'], ['later', 'A week later']]} value={view.later ? 'later' : 'now'} onChange={(v) => setView({ later: v === 'later' })} />
+          </div>
+          <div className="rd-pr">
+            <span className="rd-pl">Fixture</span>
+            <Pick label="Fixture" values={[['day', 'Today’s day'], ['fresh', 'A new install']]} value={view.fresh ? 'fresh' : 'day'} onChange={(v) => setView({ fresh: v === 'fresh', tab: 'overview', project: null, item: null })} />
+            <Btn small onClick={startOver}>Start over</Btn>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -95,7 +123,8 @@ function ItemRow({ i, c, n, sub }: { i: RadarItem; c: Ctx; n?: number; sub?: str
         {n != null ? <span className="rd-n num" aria-hidden="true">{n}</span> : <span className={cx('rd-m', m.c)}><I n={m.icon} /></span>}
         <span className="rd-t">
           <span className="rd-l1">{i.title}</span>
-          <span className="rd-l2">{sub ?? subOf(i, c, all)}</span>
+          {/* a narrow page has no room at the end: the status starts the second line instead */}
+          <span className="rd-l2"><span className={cx('rd-sv', red && 'need')}>{stateWords(i)} · </span>{sub ?? subOf(i, c, all)}</span>
         </span>
         <span className={cx('rd-v', red && 'need')}>{stateWords(i)}</span>
       </button>
@@ -139,14 +168,14 @@ function Since({ c }: { c: Ctx }) {
     <div className="rd-since">
       <p className="rd-intro">Since you looked {when(c.day.looked, c.now)}</p>
       <ul className="rd-stories">
-        {needs.map((i) => <Story key={i.id} icon="ask" tone="need" lead={`${projectOf(c, i.project).name} needs you.`} onClick={() => openItemHere(i.id)}>{i.title}: {i.events}. Its issue waits for your yes.</Story>)}
-        {yes.map((i) => <Story key={i.id} icon="working" tone="warm" lead="Your yes went through." onClick={() => openItemHere(i.id)}>{i.title}: a fix is being built. It waits for your merge.</Story>)}
-        {live.map((i) => <Story key={i.id} icon="check" tone="ok" lead="Fixed and holding." onClick={() => openItemHere(i.id)}>{i.title}: {i.shipped!.after}</Story>)}
-        {rising.map((i) => <Story key={i.id} icon="up" lead="Rising." onClick={() => openItemHere(i.id)}>{i.title}: {i.tasks} tasks this week, up from 3. It’s next.</Story>)}
+        {needs.map((i) => <Story key={i.id} icon="ask" tone="need" lead={`${projectOf(c, i.project).name} needs you.`} onClick={() => openItemHere(i.id)}>{i.title}: {i.events}. One yes posts its issue and starts a fix.</Story>)}
+        {yes.map((i) => <Story key={i.id} icon="working" tone="warm" lead="Your yes went through." onClick={() => openItemHere(i.id)}>{i.title}: {APPROVED}.</Story>)}
+        {live.map((i) => <Story key={i.id} icon="check" tone="ok" lead="Fixed and holding." onClick={() => openItemHere(i.id)}>{i.title}. {i.shipped!.after}</Story>)}
+        {rising.map((i) => <Story key={i.id} icon="up" lead="Rising." onClick={() => openItemHere(i.id)}>{i.title}: {i.tasks} tasks this week, up from 3. It’s first in line.</Story>)}
         {reverted.map((i) => <Story key={i.id} icon="reload" tone="warm" lead="Reverted." onClick={() => openItemHere(i.id)}>{i.title}. {i.shipped!.after}</Story>)}
         {merged.map((i) => <Story key={i.id} icon="merged" lead="Merged, not installed yet." onClick={() => openItemHere(i.id)}>{i.title}. Radar checks it after the next install.</Story>)}
         {back.length > 0 && <Story icon="clock" lead={back.length === 1 ? 'A parked idea came back.' : `${back.length} parked ideas came back.`} onClick={() => setView({ tab: 'all', item: back[0]!.id })}>{back.map((i) => i.title).join('; ')}.</Story>}
-        {paused.map((p) => <Story key={p.id} icon="pause" lead={`${p.name} is paused`} onClick={() => setView({ project: p.id, tab: 'next', item: null })}>since {when(p.paused!, c.now)}. Nothing is read or started there.</Story>)}
+        {paused.map((p) => <Story key={p.id} icon="pause" lead={`${p.name} is paused`} onClick={() => setView({ project: p.id, tab: 'next', item: null })}>since {when(p.paused!, c.now)}. Nothing is read or started there{c.items.some((i) => i.project === p.id && i.draft && i.state === 'next') ? '; a finished draft waits for Resume' : ''}.</Story>)}
         {none.map((p) => <Story key={p.id} icon="plus" lead={`${p.name} isn’t watched yet.`} onClick={() => openSetup(p)}>Set it up in under a minute.</Story>)}
       </ul>
       <p className="rd-note">Reading this answers nothing: what needs you stays under Needs you until you answer it.</p>
@@ -213,9 +242,12 @@ function Pulse({ c }: { c: Ctx }) {
       <ul className="rd-list">
         {c.projects.map((p) => {
           const { line, warn } = pulseLine(p, c)
-          const red = c.items.filter((i) => i.project === p.id && needsYou(i, c.live)).length
+          const asks = c.items.filter((i) => i.project === p.id && needsYou(i, c.live))
+          const red = asks.length
+          // the red count is its own button and opens the card itself, as the list's red counts do; the row opens the project
+          const cards = radarNeeds(c.snap, asks.map((i) => i.needs!.card))
           return (
-            <li key={p.id}>
+            <li key={p.id} className="rd-rx">
               <button type="button" className="rd-row" onClick={() => (p.level === 'none' ? openSetup(p) : setView({ project: p.id, tab: 'all', item: null }))}>
                 <span className={cx('rd-m', red > 0 && 'need')}><I n={p.level === 'none' ? 'plus' : p.paused ? 'pause' : red ? 'ask' : 'folder'} /></span>
                 <span className="rd-t">
@@ -223,8 +255,8 @@ function Pulse({ c }: { c: Ctx }) {
                   <span className="rd-l2">{line}</span>
                   {warn && <span className="rd-l2 warn"><I n="warn" />{warn}</span>}
                 </span>
-                {red > 0 && <span className="cnt needs">{red}</span>}
               </button>
+              <NeedsCount n={red} of={p.name} onOpen={() => (cards.length ? openNeeds(cards, [...new Set(cards.map((i) => i.place))]) : setView({ project: p.id, tab: 'all', item: asks[0]!.id }))} />
             </li>
           )
         })}
@@ -246,8 +278,14 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
       <span className="rd-sw"><b>{p.name}</b> {words}</span>
       {p.level !== 'none' && (
         <Btn small onClick={() => {
-          editProject(p.id, { paused: p.paused ? undefined : c.now })
-          notice(p.paused ? `${p.name} resumed` : `${p.name} paused`, { tone: 'ok' })
+          if (!p.paused) {
+            editProject(p.id, { paused: c.now })
+            notice(`${p.name} paused`, { tone: 'ok' })
+            return
+          }
+          // its finished draft posts now, as the paused line promised
+          const posted = resume(p.id)
+          notice(posted.length ? `${p.name} resumed · its draft posted as ${posted.join(', ')}` : `${p.name} resumed`, { tone: 'ok' })
         }}>
           <I n={p.paused ? 'play' : 'pause'} />
           {p.paused ? 'Resume' : 'Pause'}
@@ -259,13 +297,21 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
 
 function NextUp({ c }: { c: Ctx }) {
   const ps = c.projects.filter((p) => p.level !== 'none' && (!c.view.project || p.id === c.view.project))
-  if (!ps.length) return <SetupEmpty p={projectOf(c, c.view.project!)} />
+  if (!ps.length) {
+    // nothing watched in what is shown (a new install, or a project not set up): offer to set one up
+    const none = c.view.project ? projectOf(c, c.view.project) : c.projects.find((p) => p.level === 'none')
+    return none ? <SetupEmpty p={none} /> : <Empty title="Nothing is watched yet">Pick a project to watch, and its queue shows here.</Empty>
+  }
   return (
     <div className="rd-next">
       {ps.map((p) => {
         const q = queue(c.items, p.id)
         const running = c.items.filter((i) => i.project === p.id && i.state === 'running')
         const next = q.filter((i) => i.state === 'next'), held = q.filter((i) => i.state === 'held')
+        const draft = next.find((i) => i.draft)
+        // today's fixes all used: the first in line says when it can start, not only why it is first
+        const full = !p.paused && p.level === 'fix' && !!p.fixes && p.fixes.used >= p.fixes.cap
+        const first = (i: RadarItem) => (full ? `First eligible after the cap resets${running.length ? ' and the running fix finishes' : ''}.` : i.reason)
         return (
           <section key={p.id} className="rd-proj">
             <Strip p={p} c={c} />
@@ -273,11 +319,12 @@ function NextUp({ c }: { c: Ctx }) {
               <div className="rd-paused">
                 <p><b>What stops:</b> reading issues and findings, scoring, posting, and new fixes. Nothing merges or installs on its own.</p>
                 {running.length > 0 && <p><b>Still running:</b> {running.map((i) => `“${i.task}”`).join(', ')} finishes its work, then waits for your review.</p>}
-                {next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Nothing new starts until you Resume.</p>}
+                {draft ? <p><b>Waits for Resume:</b> “{draft.title}”, its issue draft finished before the pause. It posts once you Resume; nothing is posted until then.</p>
+                  : next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Nothing new starts until you Resume.</p>}
               </div>
             )}
             {running.length > 0 && <List label="Being fixed">{running.map((i) => <ItemRow key={i.id} i={i} c={c} sub={`Task: ${i.task}`} />)}</List>}
-            {next.length > 0 && <List label={p.paused ? 'Next, once resumed' : 'Next'}>{next.map((i, n) => <ItemRow key={i.id} i={i} c={c} n={n + 1} sub={n === 0 ? i.reason : undefined} />)}</List>}
+            {next.length > 0 && <List label={p.paused ? 'Next, once resumed' : 'Next'}>{next.map((i, n) => <ItemRow key={i.id} i={i} c={c} n={n + 1} sub={n === 0 ? first(i) : undefined} />)}</List>}
             {held.length > 0 && <List label="Held back">{held.map((i) => <ItemRow key={i.id} i={i} c={c} sub={i.held!.words} />)}</List>}
             {!running.length && !q.length && <p className="rd-note">Nothing queued here. New findings and issues land in All items first.</p>}
           </section>
@@ -287,22 +334,24 @@ function NextUp({ c }: { c: Ctx }) {
   )
 }
 
-type Filter = 'open' | 'later' | 'declined'
 function AllItems({ c }: { c: Ctx }) {
-  const [f, setF] = useState<Filter>('open')
+  const f = c.view.filter
   const p = c.view.project ? projectOf(c, c.view.project) : null
   if (p?.level === 'none') return <SetupEmpty p={p} />
   const mine = c.items.filter((i) => !p || i.project === p.id)
   const order: RadarItem['state'][] = ['new', 'next', 'held', 'running']
+  const fits = (i: RadarItem, x: Filter) => (x === 'open' ? order.includes(i.state) : x === 'waiting' ? waiting(i, c.day) : i.state === x)
   const rows = mine
-    .filter((i) => (f === 'open' ? order.includes(i.state) : i.state === f))
+    .filter((i) => fits(i, f))
     .sort((a, b) => Number(needsYou(b, c.live)) - Number(needsYou(a, c.live)) || order.indexOf(a.state) - order.indexOf(b.state))
-  const count = (x: Filter) => mine.filter((i) => (x === 'open' ? order.includes(i.state) : i.state === x)).length
+  const count = (x: Filter) => mine.filter((i) => fits(i, x)).length
   return (
     <div className="rd-all">
       <div className="rd-tools">
-        <Pick label="Show" values={[['open', `Open ${count('open')}`], ['later', `Parked ${count('later')}`], ['declined', `Not doing ${count('declined')}`]]} value={f} onChange={setF} />
+        <Pick label="Show" values={[['open', `Open ${count('open')}`], ['waiting', `New or next up ${count('waiting')}`], ['later', `Parked ${count('later')}`], ['declined', `Not doing ${count('declined')}`]]} value={f} onChange={(filter) => setView({ filter, item: null })} />
       </div>
+      {/* the row's grey count opens this: say what it counts, and what it leaves out */}
+      {f === 'waiting' && !p && rows.length > 0 && <p className="rd-note">What the Radar row’s grey count counts: {waitingWords(rows.length)}, what could become work now. Held back items wait on something else, and a paused project’s wait for Resume, so they aren’t counted.</p>}
       {rows.length ? <ul className="rd-list">{rows.map((i) => <ItemRow key={i.id} i={i} c={c} />)}</ul> : <Empty title={f === 'later' ? 'Nothing parked' : f === 'declined' ? 'Nothing here' : 'Nothing waits here'}>{f === 'open' ? 'New findings and issues show here first. Jot something to keep an idea.' : ''}</Empty>}
     </div>
   )
@@ -353,11 +402,13 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
   const need = red ? attentionOf(c.snap).actions.find((a) => a.card === i.needs!.card) : undefined
   const [all, setAll] = useState(false)
   const shown = (all ? i.sightings : i.sightings?.slice(0, 5)) ?? []
-  const act = (patch: Partial<RadarItem>, words: string, undo = true) => {
+  const change = (patch: Partial<RadarItem>, words: string, undo = true) => {
     const was = { state: i.state, task: i.task, later: i.later }
     edit(i.id, patch)
     notice(words, { tone: 'ok', ...(undo ? { act: { label: 'Undo', run: () => edit(i.id, was) } } : {}) })
   }
+  // only a project that starts fixes, not paused, offers one; never a release (the sync takes those) or a held item
+  const fixable = !p.paused && p.level === 'fix' && !i.held && i.kind !== 'release'
   return (
     <article className="rd-detail" aria-labelledby="rd-dt">
       <div className="rd-dh">
@@ -377,8 +428,8 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
       )}
       {i.approved && (
         <section className="rd-blk">
-          <h3 className="rd-h">Approved · waits for your merge</h3>
-          <Steps steps={[['You said yes on its card', 'done'], ['Posted to example/shop as written', 'done'], [`A fix is being built: “${i.task}”`, 'now'], ['You review and merge it', 'next'], ['Installed, then Radar checks the error stops', 'next']]} />
+          <h3 className="rd-h">What happens now</h3>
+          <Steps steps={[['You said yes on its card', 'done'], [`Posted to ${p.repo} as written`, 'done'], [`A fix is being built: “${i.task}”`, 'now'], ['You review and merge it', 'next'], ['Installed, then Radar checks the error stops', 'next']]} />
         </section>
       )}
       {i.held && i.state === 'held' && (
@@ -386,7 +437,13 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
           <h3 className="rd-h">Why it’s held</h3>
           <p>{i.held.words}</p>
           <p className="rd-q">{i.held.mover}</p>
-          {!(p.paused && i.held.why === 'cap') && <div className="rd-acts"><Btn small kind={i.held.why === 'cap' ? 'pri' : undefined} onClick={() => (i.held!.why === 'cap' ? act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`) : notice(i.held!.why === 'stale' ? 'Checked: still no answer from the release list' : `Opens that task ${PROTO}`, { tone: 'ok' }))}>{i.held.act}</Btn></div>}
+          {!(p.paused && i.held.why === 'cap') && (
+            <div className="rd-acts">
+              {i.held.why === 'cap'
+                ? <Btn small kind="pri" onClick={() => change({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`)}>{i.held.act}</Btn>
+                : <PreviewBtn small onClick={() => preview(i.held!.why === 'stale' ? 'this would ask the release list again' : 'this would open the task “Main is red”')}>{i.held.act}</PreviewBtn>}
+            </div>
+          )}
         </section>
       )}
       {i.shipped && (
@@ -432,14 +489,14 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
       <div className="rd-acts">
         {(i.state === 'new' || i.state === 'next' || i.state === 'held') && !red && (
           <>
-            {!p.paused && (!i.held || i.held.why === 'stale') && <Btn kind="pri" onClick={() => act({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`)}>Fix now</Btn>}
+            {fixable && <Btn kind="pri" onClick={() => change({ state: 'running', task: 'Fix: ' + i.title }, `Fix started ${PROTO}`)}>Fix now</Btn>}
             <Btn onClick={(e) => laterMenu(e.currentTarget, i, c.now)}>Park it…</Btn>
-            <Btn onClick={() => { act({ state: 'declined' }, 'Moved to Not doing'); setView({ item: null }) }}>Not doing</Btn>
+            <Btn onClick={() => { change({ state: 'declined' }, 'Moved to Not doing'); setView({ item: null }) }}>Not doing</Btn>
           </>
         )}
-        {(i.state === 'later' || i.state === 'declined') && <Btn onClick={() => act({ state: 'new', later: undefined }, 'Back in Open')}>Bring it back</Btn>}
-        {i.state === 'running' && !i.approved && <Btn onClick={() => notice(`Opens “${i.task}” ${PROTO}`, { tone: 'ok' })}>Open the task</Btn>}
-        <Btn onClick={() => notice(`Opens a chat about it in #${p.name} ${PROTO}`, { tone: 'ok' })}><I n="chat" />Ask about this</Btn>
+        {(i.state === 'later' || i.state === 'declined') && <Btn onClick={() => change({ state: 'new', later: undefined }, 'Back in Open')}>Bring it back</Btn>}
+        {i.state === 'running' && !i.approved && <PreviewBtn onClick={() => preview(`this would open “${i.task}”`)}>Open the task</PreviewBtn>}
+        <PreviewBtn onClick={() => preview(`this would open a chat about it in #${p.name}`)}><I n="chat" />Ask about this</PreviewBtn>
       </div>
     </article>
   )
@@ -486,8 +543,9 @@ function openJot(c: Ctx) {
   const choices = c.projects
   openForm(({ close }) => {
     const [text, setText] = useState('')
-    const [pid, setPid] = useState(c.view.project ?? 'shepherdr')
-    const p = choices.find((x) => x.id === pid)!
+    // the project shown, else the first one there is (a new install has only its own)
+    const [pid, setPid] = useState(c.view.project ?? choices[0]!.id)
+    const p = choices.find((x) => x.id === pid) ?? choices[0]!
     return (
       <div className="rd-form">
         <h2>Jot something</h2>
@@ -543,10 +601,10 @@ export function RadarPage() {
   return (
     <PaneFrame scrollKey="radar" head={(sc) => <Hd back={{ label: full ? 'Back to Radar' : 'Back', run: back }} title={full ? projectOf(c, item!.project).name : 'Radar'} sub={full ? undefined : 'What might become work, before it’s a task'} scrolled={sc} />}>
       <div className={cx('rdp', item && 'open', full && 'full')}>
-        {!full && <Proto view={view} />}
+        {!full && <Proto view={view} phone={phone} />}
         {!full && (
           <div className="rd-bar">
-            <Pick label="Radar views" values={TABS.map(([k, w]) => [k, k === 'overview' ? OPENINGS.find(([o]) => o === view.opening)![1] : w] as [Tab, string])} value={view.tab} onChange={(tab) => setView({ tab, item: null })} />
+            <Pick label="Radar views" values={TABS} value={view.tab} onChange={(tab) => setView({ tab, item: null })} />
             <div className="rd-barr">
               <Btn small className="rd-pp" onClick={(e) => projectMenu(e.currentTarget, c)}>{proj ? proj.name : 'All projects'}<I n="down" /></Btn>
               <Btn small onClick={() => openJot(c)}><I n="plus" />Jot something</Btn>

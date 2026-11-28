@@ -16,8 +16,9 @@ import { waitOf } from "./wait-record.ts";
 import { setTriage, triageConfig } from "./triage-keys.ts";
 
 /** the plugins: Tasks, Artifacts, Search and Alerts are always on; the rest each have a switch */
-/** offByDefault: off until switched on in Settings › Plugins (kept in everywhere.plugins_on) */
-export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault?: boolean }[] = [
+/** offByDefault: off until switched on in Settings › Plugins (kept in everywhere.plugins_on). demo: only the demo
+ *  (web/demo) shows it, a prototype: always off here, and not in Settings › Plugins, so it can't be switched on */
+export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault?: boolean; demo?: boolean }[] = [
   { id: "tasks", name: "Tasks", always: true }, { id: "artifacts", name: "Artifacts", always: true }, { id: "terminal", name: "Terminal" },
   { id: "screens", name: "Screens" }, { id: "voice", name: "Voice" }, { id: "schedules", name: "Schedules" }, { id: "reactions", name: "Reactions" },
   { id: "recaps", name: "Recaps" },
@@ -26,7 +27,7 @@ export const PLUGINS: { id: string; name: string; always?: boolean; offByDefault
   { id: "diff", name: "Diff viewer", offByDefault: true },
   { id: "feedback", name: "Feedback" },
   { id: "triage", name: "Triage" },
-  { id: "radar", name: "Radar (prototype)", offByDefault: true },
+  { id: "radar", name: "Radar (prototype)", offByDefault: true, demo: true },
 ];
 
 function file(): any { try { return readSettings(); } catch { return {}; } }
@@ -34,7 +35,7 @@ function file(): any { try { return readSettings(); } catch { return {}; } }
 /** The plugins switched off (Settings › Plugins): left out of the page, their buttons, menu items and settings gone. */
 export function offPlugins(): string[] {
   const e = file()?.everywhere, off = Array.isArray(e?.plugins_off) ? e.plugins_off : [], on = Array.isArray(e?.plugins_on) ? e.plugins_on : [];
-  return PLUGINS.filter((p) => !p.always && (off.includes(p.id) || (p.offByDefault && !on.includes(p.id)))).map((p) => p.id);
+  return PLUGINS.filter((p) => !p.always && (p.demo || off.includes(p.id) || (p.offByDefault && !on.includes(p.id)))).map((p) => p.id);
 }
 export const pluginOn = (id: string) => !offPlugins().includes(id);
 
@@ -170,7 +171,7 @@ export function configOf(input: { defaults: Defaults; spaces: string[]; secrets:
   return {
     all, spaces, repos,
     secrets: input.secrets.map((s) => ({ name: s.name, scope: s.space ?? "all" })),
-    plugins: PLUGINS.map((p) => ({ id: p.id, name: p.name, on: !off.includes(p.id), ...(p.always ? { always: true } : {}) })),
+    plugins: PLUGINS.filter((p) => !p.demo).map((p) => ({ id: p.id, name: p.name, on: !off.includes(p.id), ...(p.always ? { always: true } : {}) })),
     plans: input.plans,
     shortcuts: shortcutsOf(f),
     // Settings › Triage (fork #235): its keys, Everywhere's and each of this machine's repos'
@@ -188,6 +189,7 @@ export function setConfig(place: string, key: string, value: unknown, scope?: { 
   if (key.startsWith("plugin.")) {
     const id = key.slice(7);
     if (!PLUGINS.some((p) => p.id === id && !p.always)) throw new Error("That plugin is always on.");
+    if (PLUGINS.some((p) => p.id === id && p.demo)) throw new Error("That plugin is a prototype: only the demo shows it.");
     const e = (next.everywhere ??= {});
     const off = new Set<string>(Array.isArray(e.plugins_off) ? e.plugins_off : []), on = new Set<string>(Array.isArray(e.plugins_on) ? e.plugins_on : []);
     if (value) { off.delete(id); on.add(id); } else { off.add(id); on.delete(id); }

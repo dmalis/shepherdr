@@ -82,6 +82,8 @@ const chatFor = (s: Sock, key: string): Chat => {
   let chat = chats[key] ?? { key, messages: [], cli: 'claude' as const, top: true, agent: chats[EV]!.agent }
   // a link to the app itself (APP/?artifact=…) gets this page's own address, as `herdr-artifact link` prints it (SHEP-339)
   if (s.data.app) chat = { ...chat, messages: chat.messages.map((m) => (m.text?.includes('APP/') ? { ...m, text: m.text.replaceAll('APP/', s.data.app!) } : m)) }
+  // ?case=radar: #shop's payment question was answered (data.ts RADAR_PAID), so Radar's card is #shop's one question
+  if (s.data.mode === 'radar') chat = { ...chat, messages: chat.messages.map((m) => (m.question?.id === 'q-pay' && m.question.sent === undefined ? { ...m, question: { ...m.question, sent: 0, said: m.question.choices[0]?.label } } : m)) }
   return s.data.mode === 'down' ? { ...chat, messages: chat.messages.map(({ suggest, suggests, ...m }) => m) } : chat
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
@@ -329,6 +331,12 @@ function action(a: Record<string, any>): unknown {
         t.repos[key] = { ...r, [k]: a.value ?? (k === 'level' ? 'off' : (t.all as any)[k]), own: a.value === null ? r.own.filter((x) => x !== k) : [...new Set([...r.own, k])] }
       }
     })
+    return { ok: true }
+  }
+  // ?case=radar's Start over: its day as it came, the card in #shop and Needs you asking again
+  if (a.type === 'radar' && a.do === 'reset') {
+    state.radar = structuredClone(snapshot('radar'))
+    push()
     return { ok: true }
   }
   if (a.type === 'triage') {

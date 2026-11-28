@@ -53,6 +53,7 @@ export const NOT_DATA: Record<string, string> = {
   "action:catalog": "the picker's lists (a machine's agents and their models): look data's models has the same menus",
   "action:voice-check": "Settings › Voice's test of the ElevenLabs key: a call that is on already proves it works",
   "action:send-state": "fork #59: the page asking about its own message waiting for an answer (waiting, went, failed): its row over the box says it",
+  "action:radar": "fork #406: the Radar prototype's Start over, answered only by the demo (web/demo/serve.ts); Radar is off for real users",
 };
 
 /** The web app's actions that change something (act, send or screen do them), not data to read: every one the page

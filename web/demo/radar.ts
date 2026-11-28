@@ -13,7 +13,10 @@ const seen = (now: number, n: number, note: string, every = 5 * hour): Sighting[
 export const RADAR_REPO = 'example/shop'
 /** the error's yes card: a Triage draft in #shop's chat, so Needs you counts it as it counts every Triage card */
 export const radarCard = (now: number): TriageCard => ({
-  id: 'draft:f:err7', kind: 'draft', key: 'err7', copy: false, rev: 1, repo: RADAR_REPO, action: 'create', at: now - 26 * min, why: 'written', hash: 'e'.repeat(64),
+  // the newest thing in #shop's chat, so it opens with nothing below it (no "question below" pill over its Yes)
+  id: 'draft:f:err7', kind: 'draft', key: 'err7', copy: false, rev: 1, repo: RADAR_REPO, action: 'create', at: now - 2 * min, why: 'written', hash: 'e'.repeat(64),
+  // Radar's shop starts fixes: its Yes posts the issue and starts one, and says so beside Yes
+  then: 'Yes also starts a fix. You review and merge it.',
   title: 'Checkout fails with “Cannot read properties of undefined (reading ‘total’)” on an empty cart',
   body: '## What happened\n\nThe error tracker saw this 48 times since 09:10, for 31 visitors. It happens when the cart is emptied in another tab and checkout is opened.\n\n## Where\n\n`checkout/summary.ts`, line 42: the summary reads `cart.total` before the cart has loaded.\n\n## Suggested fix\n\nShow the empty cart’s message when there is no cart, instead of the summary.',
 })
@@ -31,16 +34,16 @@ export function radarDay(now: number): RadarDemo {
   const days = (xs: number[]) => xs
   const items: RadarItem[] = [
     // Shepherdr: the grey count's three open items, the one 12 agents hit on top
-    { id: 'r-trust', project: 'shepherdr', kind: 'problem', title: 'A new task waits on the folder trust prompt before it starts', sources: ['agents', 'github'], state: 'next', rank: 1, tasks: 12, trend: 'rising', workflow: 'Start',
-      days: days([0, 0, 1, 0, 1, 1, 0, 2, 1, 3, 2, 4, 3, 5]), sightings: seen(now, 17, 'Started, then sat at “Trust this folder?” for 4 min'),
-      reason: 'Next because 12 tasks hit it this week, up from 3 last week, and the fix is small: one setting at start.' },
+    { id: 'r-base', project: 'shepherdr', kind: 'problem', title: 'A new task starts from an old main when main moved minutes before', sources: ['agents', 'github'], state: 'next', rank: 1, tasks: 12, trend: 'rising', workflow: 'Start',
+      days: days([0, 0, 1, 0, 1, 1, 0, 2, 1, 3, 2, 4, 3, 5]), sightings: seen(now, 17, 'Started from main as it was 20 min earlier, then had to rebase'),
+      reason: 'Next because 12 tasks hit it this week, up from 3 last week, and the fix is small: fetch main before the task’s branch is made.' },
     { id: 'r-badge', project: 'shepherdr', kind: 'problem', title: 'The phone’s app badge keeps a count after everything is answered', sources: ['agents'], state: 'next', rank: 2, tasks: 4, trend: 'steady', workflow: 'Phone',
       days: days([0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0]), sightings: seen(now, 4, 'Badge showed 1 with nothing in Needs you', 30 * hour),
       reason: 'Second: 4 tasks hit it, steady for two weeks.' },
     { id: 'r-cap', project: 'shepherdr', kind: 'problem', title: 'Archive asks again for a task that already merged', sources: ['agents'], state: 'held', rank: 3, tasks: 3, trend: 'steady', workflow: 'Review',
       days: days([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]), sightings: seen(now, 3, 'Archive showed “Close without merging?”', 50 * hour),
-      held: { why: 'cap', words: 'Today’s 2 fixes are used.', mover: 'It starts tomorrow at 09:00 by itself, or now if you pick it.', act: 'Fix it now' },
-      reason: 'Would be next, but today’s fixes are used.' },
+      held: { why: 'cap', words: 'Today’s 2 fixes are used.', mover: 'It starts in its turn after the cap resets tomorrow at 09:00, or now if you pick it.', act: 'Fix it now' },
+      reason: 'Third in line, and today’s fixes are used.' },
     // held for the two other reasons: a source gone quiet and the base branch's checks
     { id: 'r-stale', project: 'shepherdr', kind: 'release', title: 'Upstream 3.2.26 came out', sources: ['upstream'], state: 'held', rank: 4,
       held: { why: 'stale', words: 'Upstream’s release list hasn’t answered since yesterday 18:00.', mover: 'It checks again every hour; nothing for you to do unless it stays quiet.', act: 'Check now' },
@@ -73,10 +76,12 @@ export function radarDay(now: number): RadarDemo {
     { id: 'r-no', project: 'shepherdr', kind: 'idea', title: 'A second inbox for support requests', sources: ['you'], state: 'declined', reason: 'Not doing: no one owns support intake yet.' },
     // shop: the one red item (its card waits in #shop's chat and under Needs you)
     { id: 'r-err', project: 'shop', kind: 'error', title: 'Checkout fails on an empty cart', sources: ['sentry'], state: 'new', events: '48 times since 09:10 · 31 visitors', workflow: 'Start',
-      needs: { card: 'triage:draft:f:err7', ask: 'Post this error as an issue in example/shop?', after: 'After your Yes it is posted as written and a fix starts as a task. It never merges on its own: you merge it.' },
+      needs: { card: 'triage:draft:f:err7', ask: 'Post this error as an issue in example/shop, and start a fix?', after: 'One Yes on its card does both: it posts the issue as written and starts a fix as a task. It never merges on its own: you review and merge it.' },
       reason: 'New today and rising fast: 48 times in 5 hours.' },
     { id: 'r-shop2', project: 'shop', kind: 'problem', title: 'Coupon field accepts an expired code', sources: ['github'], state: 'shipped', shipped: { how: 'live', at: now - 2 * day, words: 'Installed on the shop’s server Wednesday.' }, reason: 'Fixed.' },
-    // garden-app: paused, one parked idea
+    // garden-app: paused, one finished draft that posts on Resume, one parked idea
+    { id: 'r-gdraft', project: 'garden', kind: 'problem', title: 'The seed list loses its order after a sync', sources: ['agents'], state: 'next', rank: 1, tasks: 2, draft: true,
+      reason: 'Its issue draft was finished and scored 4 before the pause. It posts to example/garden-app once you Resume.' },
     { id: 'r-garden', project: 'garden', kind: 'idea', title: 'Water reminders by weather', sources: ['you'], state: 'later', reason: 'Parked until spring.', later: { until: now + 90 * day, trigger: 'Back on 1 Mar' } },
   ]
   // each sighting's task: as many distinct tasks as the item says hit it

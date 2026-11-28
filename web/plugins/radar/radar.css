@@ -9,16 +9,30 @@
 /* grid and flex children may shrink, so only a tab row scrolls sideways and the page keeps its width */
 .rdp>*,.rd-bar>*{min-width:0}
 
-/* the prototype's own bar: dashed, so it never reads as the app's */
-.rd-proto{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 12px;border:1px dashed var(--edge);border-radius:12px}
-.rd-tag{padding:0 8px;border-radius:999px;background:var(--control2);color:var(--fg);font-size:12px;line-height:20px;font-weight:600}
-.rd-pr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+/* the prototype's own bar: dashed, so it never reads as the app's. Folded, one button that says what is picked (a
+   disclosure, as GitHub's and Linear's view options); open, the controls under it */
+.rd-proto{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:3px;border:1px dashed var(--edge);border-radius:12px}
+.rd-ptog{display:flex;align-items:center;gap:8px;min-width:0;min-height:var(--btns);padding:2px 8px;border-radius:8px;text-align:start}
+.app.tap .rd-ptog{min-height:var(--hit)}
+@media(hover:hover){.rd-ptog:hover{background:var(--control)}}
+.rd-psum{flex:1;min-width:0;color:var(--muted);font-size:var(--sec);line-height:var(--secl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-ptog>.i{flex:none;width:var(--ic-sm);height:var(--ic-sm);color:var(--muted)}
+.rd-pbody{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:4px 8px 8px}
+.rd-tag{flex:none;padding:0 8px;border-radius:999px;background:var(--control2);color:var(--fg);font-size:12px;line-height:20px;font-weight:600}
+.rd-pr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;max-width:100%}
 .rd-pl{color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
-/* one line that scrolls sideways when it can't fit, as a phone's tabs do (GitHub, Linear), never two rows */
-.rd-seg{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+/* one line that scrolls sideways when it can't fit, as a phone's tabs do (GitHub, Linear), never two rows; while more
+   is hidden past an edge, that edge fades (a scroll-linked mask: none when it all fits) */
+.rd-seg{min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
 .rd-seg::-webkit-scrollbar{display:none}
 .rd-seg button{flex:none}
 .app.tap .rd-seg button{height:var(--btns)}
+@property --rd-l{syntax:"<length>";inherits:false;initial-value:0px}
+@property --rd-r{syntax:"<length>";inherits:false;initial-value:0px}
+@keyframes rd-edges{from{--rd-l:0px;--rd-r:24px}to{--rd-l:24px;--rd-r:0px}}
+@supports (animation-timeline:scroll()){
+  .rd-seg{animation:rd-edges linear both;animation-timeline:scroll(self inline);-webkit-mask:linear-gradient(to right,transparent,var(--fg) var(--rd-l),var(--fg) calc(100% - var(--rd-r)),transparent);mask:linear-gradient(to right,transparent,var(--fg) var(--rd-l),var(--fg) calc(100% - var(--rd-r)),transparent)}
+}
 
 .rd-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .rd-barr{display:flex;gap:8px;flex-wrap:wrap}
@@ -57,7 +71,15 @@
 .rd-l2.warn .i{flex:none;width:var(--ic-sm);height:var(--ic-sm);color:var(--amber)}
 .rd-v{flex:none;max-width:40%;color:var(--muted);font-size:var(--sec);line-height:var(--uil);text-align:end}
 .rd-row .cnt{margin-top:2px}
-@container (max-width:520px){.rd-v{display:none}}
+/* a row with its own red count beside it (Project pulse): the count opens the card, the row the project */
+.rd-rx{display:flex;align-items:center;gap:4px}
+.rd-rx>.rd-row{flex:1;min-width:0}
+/* a narrow page: the status leaves the end and starts the second line, so Held back and Needs you still show */
+.rd-sv{display:none;color:var(--sub);font-weight:500}
+.rd-sv.need{color:var(--red)}
+@container (max-width:520px){.rd-v{display:none}.rd-sv{display:inline}}
+/* an action that only shows a toast here says so on its button */
+.rd-pv{margin-inline-start:6px;color:var(--muted);font-size:12px;font-weight:400}
 
 /* Since you last looked: a short account, one sentence a line */
 .rd-story{min-height:var(--row)}
