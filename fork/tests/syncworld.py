@@ -65,6 +65,20 @@ if a[:2] == ["pr", "merge"]:
     git("push", "-q", "origin", "main", cwd=w)
     pr.update(state="MERGED", mergeCommit={"oid": sha})
     save(); sys.exit(0)
+if a[:1] == ["api"] and a[1].startswith("repos/dmalis/shepherdr/actions/runs?"):
+    # main's workflow runs, newest commit first, from the same `checks` the commits' check runs come from
+    if cfg.get("checks_unread"):
+        sys.exit("HTTP 502")
+    checks = cfg.get("checks", {})
+    commits = git("rev-list", "main", cwd=cfg["origin"]).split()
+    files = {"check": ".github/workflows/check.yml", "fork-check": ".github/workflows/fork-check.yml"}
+    out = []
+    for sha in commits + [k for k in checks if k != "*" and k not in commits]:
+        for r in checks.get(sha, checks.get("*", [])):
+            if r.get("name") in files:
+                out.append({"head_sha": sha, "path": files[r["name"]], "name": r["name"].title(),
+                            "status": r.get("status"), "conclusion": r.get("conclusion")})
+    print(json.dumps({"total_count": len(out), "workflow_runs": out[:100]})); sys.exit(0)
 if a[:1] == ["api"]:
     path = a[1]
     prefix = "repos/dmalis/shepherdr/commits/"

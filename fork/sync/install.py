@@ -1100,6 +1100,10 @@ def passed(p, s, run_key, folder, repo, sha, words, want_tag):
     over = [h.get("blocker") for h in held
             if state.SHA.match((h.get("release") or {}).get("sha") or "") and is_ancestor(repo, h["release"]["sha"], sha)]
     with state.locked(p) as st:
+        before = (st.get("baseline") or {}).get("sha")
+    from . import merged
+    titles = merged.install_titles(repo, sha, before)       # what it brought, for CI's words to the person
+    with state.locked(p) as st:
         state.owns_lease(st, run_key, folder)
         for blocker in over:
             state.clear_held(st, blocker)
@@ -1111,8 +1115,7 @@ def passed(p, s, run_key, folder, repo, sha, words, want_tag):
             {"sha": sha, "version": rec.get("version"), "at": state.stamp(), "tag": pushed,
              "run": r.get("key"), "path": r.get("path")}]
         if r.get("path") == OURS:
-            from . import merged
-            merged.track(st, sha, rec.get("version"), pushed, r.get("key"))     # CI on main reports after it
+            merged.track(st, sha, rec.get("version"), pushed, r.get("key"), titles)    # CI on main reports after it
         else:
             # a release sync's install passed main's checks before it went in: a point the person can go back to
             st["recovery"] = {"sha": sha, "version": rec.get("version"), "tag": pushed, "at": state.stamp()}

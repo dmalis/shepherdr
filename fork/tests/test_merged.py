@@ -354,8 +354,9 @@ class CiAfterInstall(syncworld.World):
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual(code, 0, out)
         self.assertEqual(out["ci"], {self.main0: "red"})
-        self.assertIn("The button works CI on main failed after the install of 3.2.21", out["told"])
-        self.assertIn("CI never rolls back: open a task to fix it.", out["told"])
+        self.assertIn("The button works CI on main failed after the install of 3.2.21: GitHub's Check failed on "
+                      "“our patch”. Nothing was rolled back: open a task to fix it.", out["told"])
+        self.assertNotIn(self.main0[:7], out["told"], "no commit's hash in the person's words")
         self.assertIn("--told", out["command"])
         # told once: a later run's finish doesn't say it again
         with state.locked(self.p) as st:
@@ -381,7 +382,8 @@ class CiAfterInstall(syncworld.World):
         code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
         code, out = self.sync("ci", paths_ok=True)
         self.assertEqual(code, 0, out)
-        self.assertIn("hadn't reported", out["told"])
+        self.assertIn("GitHub's checks on main haven't finished for the install of 3.2.21 yet", out["told"])
+        self.assertNotIn("minutes", out["told"], "no claim of how long it waited")
         self.set_gh(checks={self.main0: RED})
         with state.locked(self.p) as st:
             state.take_lease(st, "SYNC-2", self.space, owner=lambda *a: "done")
@@ -398,7 +400,7 @@ class CiAfterInstall(syncworld.World):
         code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
         self.assertEqual((code, out["outcome"]), (0, "installed"), out)
         code, out = self.sync("ci", paths_ok=True)
-        self.assertIn("never reported", out["told"])
+        self.assertIn("CI on main never gave a verdict on the install of 3.2.21 within 2 hours", out["told"])
 
     def test_ci_without_finish_stops(self):
         code, out = self.sync("ci", paths_ok=True)
@@ -448,8 +450,8 @@ class CiAfterInstall(syncworld.World):
         with state.locked(self.p) as st:
             said = merged.ci_untold(st, mark=False)
         words = [w for _, w in said if w]
-        self.assertEqual(words, [f"CI on main failed after 5 installs of 3.2.22 (the newest {shas[-1][:12]}): "
-                                 f"fork-check failed on {by[:12]}. CI never rolls back: open a task to fix it."])
+        self.assertEqual(words, ["CI on main failed after 5 installs of 3.2.22: the fork check failed. Nothing was "
+                                 "rolled back: open a task to fix it."])
         self.assertEqual(sorted(s for s, _ in said), shas, "every install it covers is marked told with it")
         told, _ = merged.with_ci_words("The button works.", "installed", [w for _, w in said])
         self.assertEqual(told.count("CI on main failed"), 1)
@@ -471,7 +473,7 @@ class CiAfterInstall(syncworld.World):
         # a new failure on another commit is told
         self.red_on(["4" * 40], "d" * 40)
         with state.locked(self.p) as st:
-            self.assertIn("fork-check failed on " + "d" * 12, " ".join(w for _, w in merged.ci_untold(st) if w))
+            self.assertEqual(len([w for _, w in merged.ci_untold(st) if w]), 1, "the new failure is told")
 
     def test_a_failure_shared_by_installs_with_other_failures_is_still_one_sentence(self):
         """A: check red on A and fork-check red on C; B: only fork-check red on C. fork-check on C is said once."""
@@ -485,18 +487,20 @@ class CiAfterInstall(syncworld.World):
             said = merged.ci_untold(st, mark=True)
             self.assertTrue(all(st["ci"][s]["told"] for s in (a, b)))
         text = " ".join(w for _, w in said if w)
-        self.assertEqual(text.count("fork-check failed on " + c[:12]), 1, text)
-        self.assertEqual(text.count("check failed on " + a[:12]), 1, text)
-        self.assertIn(f"2 installs of 3.2.22 (the newest {b[:12]})", text)
+        self.assertEqual(text.count("the fork check failed"), 1, text)
+        self.assertEqual(text.count("GitHub's Check failed"), 1, text)
+        self.assertIn("2 installs of 3.2.22", text)
 
-    def test_the_newest_is_by_install_time_not_by_sha(self):
+    def test_the_words_carry_no_commit_hash(self):
         e, c = "e" * 40, "c" * 40
         with state.locked(self.p) as st:
             st["ci"] = {sha: {"verdict": "red", "version": "3.2.22", "installed": at, "told": False,
                               "names": {"fork-check": {"state": "red", "by": "f" * 40}}}
                         for sha, at in ((e, "2026-11-27T10:00:00Z"), (c, "2026-11-27T10:02:00Z"))}
             said = merged.ci_untold(st, mark=False)
-        self.assertIn(f"(the newest {c[:12]})", " ".join(w for _, w in said if w))
+        text = " ".join(w for _, w in said if w)
+        self.assertNotIn("cccccc", text)
+        self.assertNotIn("ffffff", text)
 
     def test_a_failure_told_meanwhile_by_another_install_drops_out_under_the_lock(self):
         by = "c" * 40
