@@ -298,9 +298,11 @@ Motion shows where something came from or went. It is short, it stops, and it ne
   taken back mid-way, and settles from its own speed.
 - **A press shows at once** on every control, by finger, mouse or keyboard, with no transition: one press style
   (`ds.css`, after the touch reset). A control drawn as a surface (a row, an icon button, a tab, a tile) lays `--press`
-  over its own fill, whatever that fill is (`--control2`, or a dark bar's own), as a state layer does; one that is a
-  word, a filled round button or a picture dims to .6. `.btn` and `.chip` darken and shrink a touch (to .97). A new
-  control joins one of the two lists, never a press of its own.
+  over its own fill, whatever that fill is (`--control2`, or a dark bar's own), as a state layer does (a sheet's rows
+  and its Cancel too); a filled round button, a chip or a picture dims to .6; a word that rests quiet (`--muted`,
+  `--sub`) lifts to `--fg`, as its hover does, so it keeps 4.5:1 while held. `.btn` and `.chip` darken and shrink a
+  touch (to .97), by `--press-scale`, which is 1 (no shrink) under either reduced-motion switch. A new control joins one of the three lists,
+  never a press of its own.
 - **Easings** come from `web/src/motion.ts` (`OUT`, `AWAY`, `IOS`, `SPRING`), not new curves.
 - **Only transform and opacity move.** No animated colour, size, shadow or layout (Target: an attachment chip still
   fades its colour, `web/plugins/chat/attach.css`). A transition names its properties, never `all`, and a new tap or

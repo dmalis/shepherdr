@@ -148,12 +148,21 @@ def selectors(head):
     return [x for x in out + [cur.strip()] if x]
 
 
-HOVER_MEDIA = re.compile(r"@media\b.*\(\s*(?:any-)?hover\s*:\s*hover\s*\)")
+HOVER = re.compile(r"\(\s*hover\s*:\s*hover\s*\)")
+
+
+def for_a_mouse(at):
+    """an @media whose every branch asks for a primary pointer that hovers: (hover: hover), not negated, not or-ed;
+    any-hover is not enough (a phone with a mouse paired still taps)"""
+    if not at.startswith("@media"):
+        return False
+    branches = at[len("@media"):].lower().split(",")
+    return all(HOVER.search(b) and not re.search(r"\b(?:not|or)\b", b) for b in branches)
 
 
 def bare_hover(rel):
     """selectors with :hover outside an @media (hover: hover): on a touch screen a tap leaves them lit"""
-    return sum(1 for head, ats in rules(rel) if not any(HOVER_MEDIA.search(a) for a in ats)
+    return sum(1 for head, ats in rules(rel) if not any(for_a_mouse(a) for a in ats)
                for sel in selectors(head) if ":hover" in sel)
 
 
@@ -383,7 +392,12 @@ class Checks(unittest.TestCase):
 
     def test_hover(self):
         self.assertEqual(self.sample(".a:hover{color:red}.b:hover,.b.on,.c:focus{color:red}", bare_hover), 2)
-        self.assertEqual(self.sample("@media(hover:hover){.a:hover{x:1}}@media (any-hover: hover) and (pointer:fine){.b:hover{x:1}}", bare_hover), 0)
+        self.assertEqual(self.sample("@media(hover:hover){.a:hover{x:1}}@media (hover: hover) and (pointer:fine){.b:hover{x:1}}", bare_hover), 0)
+        # a branch that still matches a touch screen: or-ed with a width, negated, any-hover, or level 4 `or`
+        self.assertEqual(self.sample("@media (hover: hover), (max-width: 767px){.a:hover{x:1}}", bare_hover), 1)
+        self.assertEqual(self.sample("@media not all and (hover: hover){.a:hover{x:1}}", bare_hover), 1)
+        self.assertEqual(self.sample("@media (any-hover: hover){.a:hover{x:1}}", bare_hover), 1)
+        self.assertEqual(self.sample("@media (hover: hover) or (width > 1px){.a:hover{x:1}}", bare_hover), 1)
         self.assertEqual(self.sample("@media(pointer:coarse){.a:hover{x:1}}@media(hover:none){.b:hover{x:1}}", bare_hover), 2)
         self.assertEqual(self.sample(":is(.a,.b):hover{x:1}.c:not(:hover,.d){x:1}", bare_hover), 2)  # one each
         self.assertEqual(self.sample(".a{color:red;&:hover{x:1}}/* .b:hover{} */.c[title=\":hover\"]{x:1}", bare_hover), 1)
