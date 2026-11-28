@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Snapshot, Task } from '@shared/types.ts'
-import { expandPicked, mentionItems, takeItem, taskFor, typed, withMentions, type Got, type Item } from './mentions.tsx'
+import { dropPicks, expandPicked, mentionItems, takeItem, taskFor, typed, withMentions, type Got, type Item } from './mentions.tsx'
 
 // GitHub #1552: # and @ in the message box open the space and task picker again, and what is picked goes to the agent
 // as the links the renderer and the templates know.
@@ -63,7 +63,8 @@ test('a pick puts the short form in the box, and at send the agent gets the full
   const b = takeItem('p:sp1', `${a.text} and @me`, '', menu)
   expect(b.text).toBe('ask #cafe about it and @CAFE-4 ')
   expect(expandPicked('p:sp1', b.text)).toBe('ask [#cafe](space:sp2) about it and [@New menu](task:CAFE-4?folder=~/dev/cafe) ')
-  // picks are spent at send: typed again by hand, it goes as typed
+  // picks are spent once their draft is sent: typed again by hand, it goes as typed
+  dropPicks('p:sp1')
   expect(expandPicked('p:sp1', '#cafe')).toBe('#cafe')
 })
 

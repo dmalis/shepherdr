@@ -17,7 +17,7 @@ const log = (k: string, v: unknown) => { out[k] = v; console.log(k, JSON.stringi
 const browser = await chromium.launch({ executablePath: chrome(), args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'] })
 
 const INIT = () => {
-  try { for (const k of ['shepherdr.ui', 'shepherdr.at', 'shepherdr.drafts']) localStorage.removeItem(k) } catch {}
+  try { for (const k of ['shepherdr.ui', 'shepherdr.at', 'shepherdr.drafts', ...Object.keys(localStorage).filter((k) => k.startsWith('shepherdr.draft:'))]) localStorage.removeItem(k) } catch {}
   const w = window as any
   w.__ev = []; w.__lt = []
   new PerformanceObserver((l) => { for (const e of l.getEntries() as any[]) w.__ev.push({ name: e.name, d: e.duration, id: e.interactionId, t: e.startTime }) }).observe({ type: 'event', buffered: true, durationThreshold: 16 } as any)

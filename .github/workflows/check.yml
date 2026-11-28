@@ -76,6 +76,10 @@ jobs:
         # fork #134: web/demo/phone-box-check.ts types a line, Return for a new line, sends with the button and with
         # Enter on a hardware keyboard, and measures the box's rows, in the runner's own Chrome
         run: bun web/demo/phone-box-check.ts
+      - name: a draft is never lost (the built demo at phone width, with real reloads)
+        # fork #149: web/demo/draft-check.ts reloads a draft with everything in it, a file still going up, a send cut
+        # off mid-upload, files the browser couldn't keep and a full storage, in the runner's own Chrome
+        run: bun web/demo/draft-check.ts --phone
       - name: a still page does no work while pictures wait (the built demo, phone and desktop)
         # fork/specs/ui-polish.md slice 2: web/demo/still-check.ts, no running animation and almost no style work over
         # 10 s with pictures blocked, hung and served, and no layout shift as they load, in the runner's own Chrome

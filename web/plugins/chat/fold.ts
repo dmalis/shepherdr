@@ -3,6 +3,7 @@
 // sent as text, exactly as pasted, after what you typed. In the chat a very long message shows its first lines and
 // Show more; its words are all there (copy, and the browser's find, see them).
 import { useSyncExternalStore } from 'react'
+import { draftParts, keepDraft } from '@client/draft.ts'
 
 /** a paste this long becomes a chip: many lines (a log, a JSON) or many characters (one long line of JSON) */
 export const PASTE_LINES = 25
@@ -38,14 +39,8 @@ export function joined(typed: string, pastes: string[]): string {
 /* ---------- a box's pastes, kept with its draft across reloads ---------- */
 
 export type Paste = { id: string; text: string }
-const KEY = 'shepherdr.pastes'
-let all: Record<string, Paste[]> = (() => {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}') ?? {}
-  } catch {
-    return {}
-  }
-})()
+// kept with the rest of its box's draft (draft.ts, fork #149)
+let all: Record<string, Paste[]> = draftParts('pastes')
 const listeners = new Set<() => void>()
 const none: Paste[] = []
 
@@ -55,11 +50,7 @@ export function setPastes(key: string, fn: (ps: Paste[]) => Paste[]) {
   all = { ...all }
   if (next.length) all[key] = next
   else delete all[key]
-  try {
-    localStorage.setItem(KEY, JSON.stringify(all))
-  } catch {
-    /* too big to keep, or no storage: it stays for this page */
-  }
+  keepDraft(key, 'pastes', next.length ? next : undefined)
   listeners.forEach((l) => l())
 }
 let n = 0
