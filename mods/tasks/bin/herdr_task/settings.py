@@ -752,11 +752,11 @@ def codex_login_now():
     return False, "" if re.search(r"^\s*not logged in\b", out, re.I | re.M) else "Sign-in status could not be confirmed."
 
 
-def reviewer_command(who, model=None, effort=None, folder=None, fast=None, compact=None):
+def reviewer_command(who, model=None, effort=None, folder=None, fast=None, compact=None, tmp=None):
     """The worker's read-only reviewer. Codex keeps its own project trust and runs without user hooks."""
     if who == "codex":
-        # dmalis/shepherdr#250: read-only, but its own temp folder writable, for the task's tests (review_sandbox.py)
-        a = ["codex", "--no-daemon", *review_sandbox.ARGS, "--ask-for-approval", "never", "--disable", "hooks"]
+        # dmalis/shepherdr#250: read-only, but its task's temp folder (tmp) writable for its tests (review_sandbox.py)
+        a = ["codex", "--no-daemon", *review_sandbox.args(review_sandbox.writable(tmp, folder)), "--ask-for-approval", "never", "--disable", "hooks"]
         a += ["-m", model] if model else []
         a += ["-c", f'model_reasoning_effort="{effort}"'] if effort else []
         a += compact_args(who, compact)
@@ -870,7 +870,8 @@ def task_settings(s, t, space=None, argv=None, live=False):
         folder = t.get("worktree") or getattr(s, "loc", {}).get("folder")
         if speed:
             text += f", {SPEED_NAMES[speed]}"
-        cmd = reviewer_command(who, rv.get("model"), rv.get("effort"), folder, rv.get("fast"), rv.get("compact"))
+        cmd = reviewer_command(who, rv.get("model"), rv.get("effort"), folder, rv.get("fast"), rv.get("compact"),
+                               review_sandbox.folder_of(s, t, folder))
         if cmd:
             text += f"; start it as `{cmd}`"
             # dmalis/shepherdr#215: hc wait alone ends on its startup idle, before the prompt it was started with

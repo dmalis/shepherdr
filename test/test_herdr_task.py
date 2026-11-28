@@ -3677,11 +3677,11 @@ class ReviewerLine(unittest.TestCase):
     def test_codex_runs_on_its_own_server(self):
         r = self.line("ready")
         self.assertEqual(r["value"]["agent"], "codex")
-        # dmalis/shepherdr#250: read-only, its temp folder writable
-        self.assertIn("codex --no-daemon -c 'sandbox_mode=\"read-only\"' -c 'permissions.shepherdr-reviewer.", r["value"]["command"])
-        self.assertIn("-c 'default_permissions=\"shepherdr-reviewer\"' --ask-for-approval never", r["value"]["command"])
+        # dmalis/shepherdr#250: read-only but for its task's own temp folder
+        self.assertIn("codex --no-daemon -c 'permissions.shepherdr-reviewer.filesystem={\":root\"=\"read\",", r["value"]["command"])
+        self.assertIn("=\"write\"}' -c 'default_permissions=\"shepherdr-reviewer\"' --ask-for-approval never", r["value"]["command"])
         self.assertIn("(the other CLI); start it as `env ${TMPDIR:+", r["text"])
-        self.assertIn(" codex --no-daemon -c 'sandbox_mode=\"read-only\"'", r["text"])
+        self.assertIn(" codex --no-daemon -c 'permissions.shepherdr-reviewer.", r["text"])
 
     def test_signed_out_codex_never_reviews(self):
         r = self.line("signed-out")
@@ -9795,7 +9795,7 @@ class CodexBatch278(unittest.TestCase):
     def test_reviewer_command_brings_nvm_s_folder(self):
         bin_dir = self.nvm()
         cmd = self.settings.reviewer_command("codex")
-        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" ' + self.settings.TASK_TMP + 'codex --no-daemon -c \'sandbox_mode="read-only"\''), cmd)
+        self.assertTrue(cmd.startswith(f'env "PATH={bin_dir}:$PATH" ' + self.settings.TASK_TMP + 'codex --no-daemon --sandbox read-only'), cmd)
         # as hc run starts it: a bare PATH. The brief's command starts; the bare name doesn't.
         bare = {"PATH": "/usr/bin:/bin", "HOME": self.dir}
         ok = subprocess.run(["sh", "-c", cmd.replace("--sandbox", "x --sandbox", 1).split(" --no-daemon")[0] + " --version"],

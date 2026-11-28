@@ -228,7 +228,7 @@ def tool_name(word, path):
 # fork #219: its speed exactly as reviewer_command writes it (settings.py tier_args: Standard, Fast, Ultrafast), as a
 # Reviews pick saved in Settings › Agents always says one
 TIERS = {who: "|".join(sorted({re.escape(tier_args(who, f)[1]) for f in (False, True, "ultrafast")})) for who in ("codex", "claude")}
-REVIEWERS = {"codex": (["codex", "--no-daemon", *review_sandbox.ARGS, "--ask-for-approval", "never"],
+REVIEWERS = {"codex": (["codex", "--no-daemon", "--sandbox", "read-only", "--ask-for-approval", "never"],
                        {"--disable": re.compile(r"hooks"), "-m": re.compile(r"[\w.:-]+"),
                         # fork #219: its Compact at (settings.py compact_args) and its speed
                         "-c": re.compile(r'model_reasoning_effort="?\w+"?|model_auto_compact_token_limit=[1-9][0-9]{5,7}|'
@@ -254,6 +254,8 @@ def helper_hc(words):
     opts, cmd = words[2:i], words[i + 1:]
     if cmd[:2] == ["env", "PATH=@herdr-reviewer"]:
         cmd = cmd[2:]
+    # dmalis/shepherdr#250: a Codex reviewer that may write its task's temp folder is still the read-only reviewer
+    cmd = review_sandbox.as_read_only(cmd)
     j = 0
     while j < len(opts):
         if opts[j] == "--bg":
@@ -264,9 +266,7 @@ def helper_hc(words):
             j += 2
         else:
             return False
-    # dmalis/shepherdr#250: a Codex reviewer's line before its temp folder became writable, as an older brief gives it
-    before = ["codex", "--no-daemon", *review_sandbox.BEFORE, "--ask-for-approval", "never"]
-    for base, flags in [*REVIEWERS.values(), (before, REVIEWERS["codex"][1])]:
+    for base, flags in REVIEWERS.values():
         if cmd[:len(base)] != base:
             continue
         rest = cmd[len(base):]
