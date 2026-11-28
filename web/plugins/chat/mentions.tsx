@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import * as MN from '@core/mentions.js'
 import { go, notice, openTask, useSnap } from '@client/kernel.ts'
+import { draftOf, keepDraft } from '@client/draft.ts'
 import { Row } from '@client/ui.tsx'
 import { SpaceIcon } from '@client/space-icon.tsx'
 import { StatusIcon } from '@plugins/tasks/icon.tsx'
@@ -89,19 +90,20 @@ export function mentionItems(snap: Snapshot, here: string, kind: '#' | '@', q: s
 
 /* ---------- what was picked in each chat's box: its full link goes in at send ---------- */
 
-const picks = new Map<string, Reach[]>()
-const taskPicks = new Map<string, TaskPick[]>()
+// kept with the rest of its box's draft, so a reloaded draft still sends what each one points at (draft.ts, fork #149)
+const spacesOf = (chatKey: string) => (draftOf(chatKey).picks?.spaces ?? []) as Reach[]
+const tasksOf = (chatKey: string) => (draftOf(chatKey).picks?.tasks ?? []) as TaskPick[]
 
 function remember(chatKey: string, i: Item) {
-  if (i.kind === 'space') picks.set(chatKey, [...(picks.get(chatKey) ?? []).filter((x) => x.name !== i.space.name), i.space])
-  else taskPicks.set(chatKey, [...(taskPicks.get(chatKey) ?? []).filter((x) => x.ref !== i.pick.ref), i.pick])
+  const spaces = i.kind === 'space' ? [...spacesOf(chatKey).filter((x) => x.name !== i.space.name), i.space] : spacesOf(chatKey)
+  const tasks = i.kind === 'space' ? tasksOf(chatKey) : [...tasksOf(chatKey).filter((x) => x.ref !== i.pick.ref), i.pick]
+  keepDraft(chatKey, 'picks', { spaces, tasks })
 }
 
 /** the words to send: each picked "#name" and "@REF" as its link */
 export function expandPicked(chatKey: string, text: string): string {
-  const out = M.expandTasks(M.expand(text, picks.get(chatKey) ?? []), taskPicks.get(chatKey) ?? [])
-  picks.delete(chatKey)
-  taskPicks.delete(chatKey)
+  const out = M.expandTasks(M.expand(text, spacesOf(chatKey)), tasksOf(chatKey))
+  keepDraft(chatKey, 'picks', undefined)
   return out
 }
 

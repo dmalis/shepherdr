@@ -13,6 +13,7 @@ import type { IconName } from './icons.ts'
 import { catchLink } from './applink.ts'
 import { heartbeatDue, OPEN_WITHIN, PONG_LATE, PONG_WITHIN, retryIn, SAY_LOST_AFTER } from './link.ts'
 import { expire, loadOutbox, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
+import { draftParts, keepDraft, keepEach, settleDrafts } from './draft.ts'
 import { setupGuarded } from './guard.tsx'
 import { HttpError, wakeAll } from './uploads.ts'
 import { SHOW_AFTER } from './pending.ts'
@@ -273,8 +274,8 @@ export interface UI {
   call: boolean
   callMuted: boolean
   /** what the call heard or says, one line */
-  /** files in each message box, not sent yet */
-  files: Record<string, { name: string; path?: string; id?: string; failed?: string }[]>
+  /** files in each message box, not sent yet; `lost`: its bytes didn't come back after a reload (draft.ts) */
+  files: Record<string, { name: string; path?: string; id?: string; failed?: string; lost?: boolean }[]>
   /** the message each box replies to */
   reply: Record<string, ReplyQuote & { id: string }>
   /** the on-screen keyboard is up */
@@ -377,8 +378,9 @@ let state: State = {
     tf: NO_FILTER,
     call: false,
     callMuted: false,
-    files: {},
-    reply: {},
+    // a draft is never lost (draft.ts, fork #149): each box's files and the message it replies to come back after a reload
+    files: draftParts('files'),
+    reply: draftParts('reply') as UI['reply'],
     keyboard: false,
     offline: null,
     jump: params.get('focus'),
@@ -415,6 +417,8 @@ export function setUI(patch: Partial<UI> | ((ui: UI) => Partial<UI>)) {
   state = { ...state, ui: { ...state.ui, ...p } }
   if (keys.some((k) => KEPT.includes(k))) store('shepherdr.ui', Object.fromEntries(KEPT.map((k) => [k, state.ui[k]])))
   if (p.at) store('shepherdr.at', p.at)
+  if (p.files) keepEach('files', ui.files, state.ui.files)
+  if (p.reply) keepEach('reply', ui.reply, state.ui.reply)
   if (keys.some((k) => STEPS.includes(k))) writeUrl(false)
   watchVisible()
   emit()
@@ -436,14 +440,15 @@ export const useChat = (key: string | null | undefined) => useStore((s) => (key 
 
 /* ---------- drafts: a letter typed redraws only its own box ---------- */
 
-let drafts: Record<string, string> = stored('shepherdr.drafts', {})
+// kept with the rest of its box's draft (draft.ts, fork #149): in storage once typing pauses, not on every letter
+let drafts: Record<string, string> = draftParts('text')
 const draftListeners = new Set<() => void>()
 export const getDraft = (key: string): string => drafts[key] ?? ''
 export function setDraft(key: string, text: string) {
   if ((drafts[key] ?? '') === text) return
   drafts = { ...drafts, [key]: text }
   if (!text) delete drafts[key]
-  store('shepherdr.drafts', drafts)
+  keepDraft(key, 'text', text || undefined)
   draftListeners.forEach((l) => l())
 }
 export function useDraft(key: string): [string, (v: string) => void] {
@@ -459,16 +464,21 @@ export function useDraft(key: string): [string, (v: string) => void] {
 
 /* ---------- the outbox: what you sent shows at once ---------- */
 
-export function setOutbox(fn: (out: Outgoing[]) => Outgoing[]) {
+/** false when storage couldn't keep the outbox (a full storage): what was sent then shows, but a reload loses it */
+export function setOutbox(fn: (out: Outgoing[]) => Outgoing[]): boolean {
   let out = fn(state.outbox)
   for (const key of new Set(out.map((o) => o.chat))) if (state.chats[key]) out = settle(out, state.chats[key])
-  putOutbox(out)
+  const kept = putOutbox(out)
   emit()
+  return kept
 }
-function putOutbox(out: Outgoing[]) {
-  if (out === state.outbox) return
+function putOutbox(out: Outgoing[]): boolean {
+  if (out === state.outbox) return true
   state = { ...state, outbox: out }
-  saveOutbox(out)
+  const kept = saveOutbox(out)
+  // a draft held for a send the outbox couldn't keep goes once that send is delivered (draft.ts)
+  settleDrafts(out, kept)
+  return kept
 }
 if (typeof window !== 'undefined')
   setInterval(() => {

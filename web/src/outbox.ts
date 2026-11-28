@@ -383,14 +383,17 @@ export function loadOutbox(): Outgoing[] {
   }
 }
 
-export function saveOutbox(out: Outgoing[]) {
+/** false when storage refused it (full, or none): it still shows until the screen reloads, and the box's draft is
+ *  kept until it is delivered (draft.ts, fork #149) */
+export function saveOutbox(out: Outgoing[]): boolean {
   // a tab still holding an older outbox never writes back one that came back meanwhile
   syncDone()
   out = out.filter((o) => !cameBack(o.cid))
   try {
     if (out.length) localStorage.setItem(STORE, JSON.stringify(out))
     else localStorage.removeItem(STORE)
+    return true
   } catch {
-    /* private window: it still shows until the screen reloads */
+    return false
   }
 }

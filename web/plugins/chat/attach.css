@@ -14,3 +14,6 @@
 @media(prefers-reduced-motion:reduce){.addt{transition:background-color .12s ease}.addt:active{transform:none}}
 :root[data-motion="reduced"] .addt{transition:background-color .12s ease}
 :root[data-motion="reduced"] .addt:active{transform:none}
+/* fork #149: a file a reload could not bring back is named under the files, in words (its tile says Not kept) */
+.alost{display:flex;align-items:flex-start;gap:6px;margin:0;padding:0 12px 4px;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.alost .i{flex:none;margin-top:calc((var(--secl) - 16px) / 2);color:var(--red)}

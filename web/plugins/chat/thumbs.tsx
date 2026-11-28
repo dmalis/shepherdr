@@ -87,21 +87,27 @@ function Face({ name, src }: { name: string; src: string }) {
   )
 }
 
-/** a file in the message box: its thumbnail opens the preview (or, when its upload failed, tries again) */
-export function BoxThumb({ chat, f, onRetry, onRemove }: { chat: string; f: { name: string; path?: string; id?: string; failed?: string }; onRetry: () => void; onRemove: () => void }) {
+/** a file in the message box: its thumbnail opens the preview (or, when its upload failed, tries again; when its bytes
+ *  didn't come back after a reload, fork #149, picks files to add it again) */
+export function BoxThumb({ chat, f, onRetry, onRemove, onAdd }: { chat: string; f: { name: string; path?: string; id?: string; failed?: string; lost?: boolean }; onRetry: () => void; onRemove: () => void; onAdd?: () => void }) {
   const { small } = sourcesOf(chat, f)
-  const up = !f.path && !f.failed
-  const state = f.failed ? `. Not added: ${f.failed}. Try again` : up ? '. Adding' : ''
+  const up = !f.path && !f.failed && !f.lost
+  const state = f.lost ? ". Not kept when the page reloaded. Add it again" : f.failed ? `. Not added: ${f.failed}. Try again` : up ? '. Adding' : ''
   return (
-    <div className={cx('ath', f.failed && 'bad')}>
-      <button type="button" className="atb" aria-label={`${f.name}${state || '. Preview'}`} onClick={f.failed ? onRetry : () => openPreview(chat, f)}>
+    <div className={cx('ath', (f.failed || f.lost) && 'bad')}>
+      <button type="button" className="atb" aria-label={`${f.name}${state || '. Preview'}`} onClick={f.lost ? onAdd : f.failed ? onRetry : () => openPreview(chat, f)}>
         <Face name={f.name} src={small} />
         {up && (
           <span className="ast">
             <I n="working" c="s20" />
           </span>
         )}
-        {f.failed && (
+        {f.lost ? (
+          <span className="ast bad">
+            <I n="plus" c="s16" />
+            <span>Not kept</span>
+          </span>
+        ) : f.failed && (
           <span className="ast bad">
             <I n="reload" c="s16" />
             <span>Failed</span>

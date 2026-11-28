@@ -5,6 +5,7 @@ import type { ReplyQuote } from '@shared/types.ts'
 import { act, getState, holdReload, notice, setOutbox, setUI, type Outgoing } from './kernel.ts'
 import { anchorOf, priorOf, reasonOf, SEND_TIMEOUT } from './outbox.ts'
 import { HttpError, postFile, retrying } from './uploads.ts'
+import { dropFile, fileOf, holdDraft, keepFile, sweepFiles } from './draft.ts'
 
 /** an id of the screen's own (randomUUID needs https, and a tailnet link may be plain http) */
 const newCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -31,6 +32,8 @@ function upload(key: string, chat: string, id: string, f: File) {
   up.then(
     (path) => {
       fromPath.set(path, id)
+      // its draft keeps the upload from now on: the bytes kept for a reload go (draft.ts)
+      dropFile(id)
       setBox(key, (fs) => fs.map((x) => (x.id === id ? { ...x, path, failed: undefined } : x)))
     },
     (e) => {
@@ -55,19 +58,52 @@ export function attach(key: string, chat: string, files: File[]) {
     } catch {
       /* no object links here: its tile waits for the upload */
     }
-    const l: { file: File; url: string; w?: number; h?: number } = { file: f, url }
-    local.set(id, l)
-    if (url && f.type.startsWith('image/') && typeof Image === 'function') {
-      const img = new Image()
-      img.onload = () => {
-        l.w = img.naturalWidth
-        l.h = img.naturalHeight
-      }
-      img.src = url
-    }
-    setBox(key, (fs) => [...fs, { name: f.name, id }])
+    hold(id, f, url)
+    // its bytes wait for a reload until its upload is done (draft.ts)
+    void keepFile(id, f)
+    // added again: the one a reload lost by this name goes (fork #149)
+    setBox(key, (fs) => [...fs.filter((x) => !(x.lost && x.name === f.name)), { name: f.name, id }])
     upload(key, chat, id, f)
   }
+}
+
+/** this screen's own copy of a file: its picture's link and, once read, its size */
+function hold(id: string, f: File, url: string) {
+  const l: { file: File; url: string; w?: number; h?: number } = { file: f, url }
+  local.set(id, l)
+  if (url && f.type.startsWith('image/') && typeof Image === 'function') {
+    const img = new Image()
+    img.onload = () => {
+      l.w = img.naturalWidth
+      l.h = img.naturalHeight
+    }
+    img.src = url
+  }
+}
+const linkOf = (f: File) => {
+  try {
+    return URL.createObjectURL(f)
+  } catch {
+    return ''
+  }
+}
+
+/** after a reload, each box's files whose upload wasn't done come back from their kept bytes: one on its way goes up
+ *  again, a failed one waits for Try again, and one whose bytes are gone says so on its tile (fork #149) */
+export async function restoreFiles() {
+  const boxes = getState().ui.files
+  const mark = (key: string, id: string, p: Partial<UIFile>) => setBox(key, (fs) => fs.map((x) => (x.id === id ? { ...x, ...p } : x)))
+  await Promise.all(
+    Object.entries(boxes).flatMap(([key, fs]) =>
+      fs.map(async (f) => {
+        if (f.path || f.lost || !f.id || local.has(f.id)) return
+        const file = await fileOf(f.id)
+        if (!file) return mark(key, f.id, { lost: true, failed: undefined })
+        hold(f.id, file, linkOf(file))
+        if (!f.failed) upload(key, key, f.id, file)
+      }),
+    ),
+  )
 }
 
 /** try a failed upload again */
@@ -85,6 +121,7 @@ export function detach(key: string, index: number) {
     if (l?.url) URL.revokeObjectURL(l.url)
     local.delete(gone.id)
     uploads.delete(gone.id)
+    dropFile(gone.id)
   }
   setBox(key, (fs) => fs.filter((_, i) => i !== index))
 }
@@ -136,11 +173,11 @@ async function deliver(cid: string, pending: Promise<string>[]) {
 /** Send what a box holds: its words, its files and the message it replies to. `hold`: the agent is working, so it
  *  waits its turn and is delivered when the agent is free. `quote`: what a message sent alone replies to (a tapped
  *  suggested reply: the message it came with, dmalis/shepherdr#51). */
-export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble', quote?: ReplyQuote & { id: string }) {
+export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble', quote?: ReplyQuote & { id: string }): string | undefined {
   const s = getState()
   // one that failed to go up stays out of it (its tile said so). Alone (a suggested reply tapped): only the text, the
   // box's files and quoted reply stay where they are for the draft
-  const boxed = alone ? [] : (s.ui.files[key] ?? []).filter((f) => !f.failed)
+  const boxed = alone ? [] : (s.ui.files[key] ?? []).filter((f) => !f.failed && !f.lost)
   const reply = alone ? quote : (s.ui.reply[key] as (ReplyQuote & { id: string }) | undefined)
   if (!text.trim() && !boxed.length) return
   const cid = newCid()
@@ -160,13 +197,16 @@ export function send(key: string, chat: string, text: string, hold = false, alon
     // personal analytics: how it was written (typed, dictated or a suggested reply's bubble), never what
     how: how ?? (alone ? 'bubble' : 'typed'),
   }
-  setOutbox((all) => [...all, out])
+  // fork #149: a send the outbox couldn't keep (a full storage) leaves its box's stored draft as it was until it is
+  // delivered, so a reload before then brings the draft back instead of losing both
+  if (!setOutbox((all) => [...all, out]) && out.how !== 'bubble') holdDraft(key, cid)
   if (!alone) {
     const { [key]: _f, ...files } = s.ui.files
     const { [key]: _r, ...replies } = s.ui.reply
     setUI({ files, reply: replies })
   }
   void deliver(cid, pending)
+  return cid
 }
 
 /** send again what didn't go through: it moves down to the end, like a new message */
@@ -178,7 +218,9 @@ export function retry(cid: string) {
   // the agent's log doesn't have the first after all (it came back late: never twice)
   const again: Outgoing = { ...o, cid: o.lost ? newCid() : o.cid, was: o.lost ? (o.was ?? o.cid) : o.was, state: 'sending', error: undefined, lost: undefined, waiting: undefined, waitsFor: undefined, queued: undefined, serverAt: undefined, wentAt: undefined, busyAt: undefined, pastAt: undefined, offline: undefined, at: Date.now(), prior: priorOf(s.chats[o.chat]), after: anchorOf(s.chats[o.chat]), before: s.outbox.filter((x) => x.chat === o.chat && x.cid !== cid).map((x) => x.cid) }
   setOutbox((all) => all.map((x) => (x.cid === cid ? again : x)))
-  void deliver(again.cid, [])
+  // fork #149: one whose files never went up (a reload cut them off) takes them from their kept bytes
+  if (again.files.every((f) => f.path)) void deliver(again.cid, [])
+  else void resumeFiles(again)
 }
 
 export const dropOut = (cid: string) => setOutbox((all) => all.filter((x) => x.cid !== cid))
@@ -186,9 +228,49 @@ export const dropOut = (cid: string) => setOutbox((all) => all.filter((x) => x.c
 /** a reload (or the phone dropping the page) cut these off on their way: they go on with the same id, which the
  *  server answers once (a send asked again never goes twice). Ones whose files had not gone up yet fail in time. */
 export function resumeSending() {
-  for (const o of getState().outbox) if (o.state === 'sending' && !gates.has(o.cid) && o.files.every((f) => f.path)) void deliver(o.cid, [])
+  for (const o of getState().outbox) {
+    if (o.state !== 'sending' || gates.has(o.cid)) continue
+    if (o.files.every((f) => f.path)) void deliver(o.cid, [])
+    // fork #149: one whose files were still going up goes on from their kept bytes (draft.ts)
+    else void resumeFiles(o)
+  }
 }
-if (typeof window !== 'undefined') setTimeout(resumeSending, 0)
+/** a send whose files never went up: they go up now, then it goes */
+async function resumeFiles(o: Outgoing) {
+  // this screen's own copy first (a Retry), else the bytes kept across the reload
+  const kept = await Promise.all(o.files.map((f) => (f.path || !f.id ? null : (local.get(f.id)?.file ?? fileOf(f.id)))))
+  if (gates.has(o.cid)) return
+  if (o.files.some((f, i) => !f.path && !kept[i])) {
+    const gone = o.files.filter((f, i) => !f.path && !kept[i]).map((f) => f.name).join(', ')
+    setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sending' ? { ...x, state: 'failed', error: `${gone} wasn't kept when the page reloaded.` } : x)))
+    return
+  }
+  const pending = o.files.map((f, i) => {
+    if (f.path) return Promise.resolve(f.path)
+    const file = kept[i]!
+    hold(f.id!, file, linkOf(file))
+    const up = retrying(() => postFile(o.chat, file), Date.now())
+    up.then((path) => {
+      fromPath.set(path, f.id!)
+      dropFile(f.id!)
+    }, () => undefined)
+    return up
+  })
+  void deliver(o.cid, pending)
+}
+/** the kept bytes no box and no send names any more go */
+export function sweepKept() {
+  const s = getState()
+  const live = new Set<string>()
+  for (const fs of Object.values(s.ui.files)) for (const f of fs) if (f.id && !f.path) live.add(f.id)
+  for (const o of s.outbox) for (const f of o.files) if (f.id && !f.path) live.add(f.id)
+  return sweepFiles(live)
+}
+if (typeof window !== 'undefined')
+  setTimeout(() => {
+    resumeSending()
+    void restoreFiles().then(sweepKept)
+  }, 0)
 
 /** dmalis/shepherdr#59: ones waiting for their agent's answer are asked about now and then, by their id: still waiting,
  *  went in (it then shows in the chat like any sent message, timed from now), failed (Retry is the person's), or

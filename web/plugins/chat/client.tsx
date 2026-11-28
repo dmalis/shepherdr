@@ -1192,6 +1192,9 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     requestAnimationFrame(() => box.setSelectionRange(t.length, t.length))
   }
   const filled = !!text.trim() || !!files?.length || !!pastes.length
+  // fork #149: a file whose bytes didn't come back after a reload is named, never sent as if it were there
+  const lost = files?.filter((f) => f.lost) ?? []
+  const addAgain = () => ref.current?.closest('.cbox')?.querySelector<HTMLInputElement>('input[type="file"]:not([data-pick])')?.click()
   const after = boxLine(chat, filled)
   const BoxEnd = has('voice') ? registry.views.boxEnd : undefined
   const stop = busy && !filled
@@ -1237,10 +1240,16 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
         <div className="athr box" role="list" aria-label="Files to send">
           {files.map((f, i) => (
             <div role="listitem" key={f.id ?? i}>
-              <BoxThumb chat={key} f={f} onRetry={() => f.id && reupload(key, key, f.id)} onRemove={() => detach(key, i)} />
+              <BoxThumb chat={key} f={f} onRetry={() => f.id && reupload(key, key, f.id)} onRemove={() => detach(key, i)} onAdd={addAgain} />
             </div>
           ))}
         </div>
+      )}
+      {!!lost.length && (
+        <p className="alost" role="status">
+          <I n="warn" c="s16" />
+          <span>{lost.length === 1 ? `${lost[0].name} wasn't` : `${lost.length} files weren't`} kept when the page reloaded. Add {lost.length === 1 ? 'it' : 'them'} again, or remove {lost.length === 1 ? 'it' : 'them'}.</span>
+        </p>
       )}
       {!!pastes.length && <PasteChips pastes={pastes} onRemove={(id) => dropPaste(key, id)} onEdit={editPaste} />}
       {mode && (
