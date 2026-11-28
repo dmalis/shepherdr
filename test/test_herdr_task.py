@@ -13884,7 +13884,9 @@ class Urgent(unittest.TestCase):
         lines = self.sent[0][1].split("\n")
         self.assertTrue(lines[0].startswith('<herdr-setting name="urgent"'))
         self.assertEqual(lines[1], '<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>')
-        self.assertEqual(self.labelled, [])
+        import herdr_task.urgent as urgent
+        self.assertEqual(self.labelled, [["hc", "label", "asst-1", f"herdr.urgent={urgent._hash()}"]])
+        self.assertNotIn("herdr.settings", " ".join(self.labelled[0]))
 
     # ---- the settings note ------------------------------------------------------------------------
 
@@ -13946,3 +13948,22 @@ class Urgent(unittest.TestCase):
         self.assertTrue(sent["t6"].startswith('<herdr-setting name="all">Your settings: '))
         self.assertNotIn("Urgent tasks", sent["t6"])
         self.assertNotIn("urgent", self.aset.parse(self.terminals["t6"]["labels"]["herdr.settings"]))
+
+    def test_a_chat_the_news_told_hears_it_once(self):
+        """Round 2 of its review: a chat never labelled that a news lead told (herdr.urgent) gets the whole block without
+        the row, and the pass after only notes it, sending nothing; a running chat not told gets it in the block."""
+        self.settings_setup()
+        import herdr_task.urgent as urgent
+        self.assistant("t5", "sp1", **{urgent.TOLD: urgent._hash()})
+        self.assistant("t7", "sp1")
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertTrue(sent["t5"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertNotIn("Urgent tasks", sent["t5"])
+        self.assertIn("\n- Urgent tasks: ", sent["t7"])
+        self.sent.clear()
+        self.write({})  # the next pass at once
+        self.aset.settings_pass({}, {})
+        self.assertEqual(self.sent, [])
+        for addr in ("t5", "t7"):
+            self.assertEqual(self.aset.parse(self.terminals[addr]["labels"]["herdr.settings"]).get(urgent.KEY), urgent._hash())

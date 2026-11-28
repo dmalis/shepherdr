@@ -150,36 +150,44 @@ def _hash():
     return hashlib.sha1(TEXT.encode()).hexdigest()[:6]
 
 
+TOLD = "herdr.urgent"  # a chat never labelled herdr.settings that lead() told: this row's hash (settings_pass skips it)
+
+
 def lead(k, batch):
-    """The settings notice a message with an urgent line starts with, for a running Shepherdr chat whose settings label
-    doesn't have this row yet (meaning before mark): (notice, its new label), else None. Never for a chat whose agent
+    """The settings notice a message with an urgent line starts with, for a running Shepherdr chat not told this row
+    yet (meaning before mark): (notice, (label, value) to set once it went), else None. Never for a chat whose agent
     isn't in front (a shell: its next start's note says it), nor one just started (its hook is telling it). One never
-    labelled (started before settings were told) gets it too, its label left for settings_pass's whole block."""
+    labelled (started before settings were told) gets it too, noted in TOLD: settings_pass's whole block leaves it out."""
     from .assistant_settings import LABEL as SETTINGS, notice, parse
     if not any(x.get("urgent") for x in batch) or not running(k):
         return None
-    had = parse((k.get("labels") or {}).get(SETTINGS))
-    if (had is None and not k.get("turn")) or (had or {}).get(KEY) == _hash():
+    labels = k.get("labels") or {}
+    had = parse(labels.get(SETTINGS))
+    if had is None and (not k.get("turn") or labels.get(TOLD) == _hash()):
         return None
-    label = None if had is None else ",".join(f"{a}:{b}" for a, b in {**had, KEY: _hash()}.items())
+    if had is not None and had.get(KEY) == _hash():
+        return None
+    label = (TOLD, _hash()) if had is None else (SETTINGS, ",".join(f"{a}:{b}" for a, b in {**had, KEY: _hash()}.items()))
     return notice([{"key": KEY, "label": LABEL, "text": TEXT, "value": "on", "by": None, "scope": "everywhere"}]), label
 
 
 def told(to, lead_):
-    """After the message went: its chat's settings label has this row now, so settings_pass doesn't say it again."""
-    if lead_ and lead_[1]:
-        from .assistant_settings import LABEL as SETTINGS
-        run(["hc", "label", to, f"{SETTINGS}={lead_[1]}"])
+    """After the message went: its chat's label says it has this row now, so settings_pass doesn't say it again."""
+    if lead_:
+        run(["hc", "label", to, "=".join(lead_[1])])
 
 
 def for_running(changed, k):
     """settings_pass: this row goes only to a chat whose agent is running now, never to one a shell is in front of
-    (sending would start it again). The other rows as they are (changed ones, or the whole block's); None when nothing
-    is left to send now."""
-    if running(k) or not any(r.get("key") == KEY for r in changed):
+    (sending would start it again), nor again to one lead() told (TOLD). The other rows as they are (changed ones, or
+    the whole block's); None when nothing is left to send now, [] when it was told (settings_pass notes it)."""
+    if not any(r.get("key") == KEY for r in changed):
+        return changed
+    knew = (k.get("labels") or {}).get(TOLD) == _hash()
+    if running(k) and not knew:
         return changed
     rest = [r for r in changed if r.get("key") != KEY]
-    return rest or None
+    return rest or ([] if knew else None)
 
 
 def row():
