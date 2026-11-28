@@ -14,7 +14,7 @@ per-row actions; swipe actions; and speed, "as I live inside this UI".
 
 The two biggest daily costs found are **a message box that can lose parts of a draft** and **a Tasks list that makes
 you read too much before you know where to act**. The biggest measured costs are **the uncompressed first load** (6.4 s
-to first paint on a phone, every time, as nothing is cached) and **a pulse that keeps a still page busy**. Typing,
+to first paint on a phone the first time, or after each update) and **a pulse that keeps a still page busy**. Typing,
 scrolling a long chat and live updates are inside their budgets; switching is, except for one slow space and a long
 chat. The plan starts there, ahead of the visual cleanup.
 
@@ -108,26 +108,33 @@ fixes it. **High** hurts every day, **medium** is visible and inconsistent, **lo
 
 **How:** `bun run build`, then `DEMO_LONG_CHAT=400 bun web/demo/serve.ts 7841` and `bun web/demo/perf-check.ts 7841`,
 at commit e1fcc818 with this change's demo seed, headless Google Chrome 158 (playwright-core) on a 4-core Linux VM,
-three runs, the middle one shown (the three agree within a few per cent). Each part starts with empty storage and a
+three runs, the middle one shown (the three agree within a few per cent; the long chat, typing and live parts were
+run three more times after the review changed their endpoints). Each part starts with empty storage and a
 cold cache, except the warm load. "Phone" is a 390 × 844 touch context with 4× slower CPU over 1.6 Mbps down, 750 kbps
-up and 150 ms. The demo, like the service today, sends files uncompressed, so the cold load is the service's too. The
+up and 150 ms. The demo, like the service today, sends files uncompressed, so its cold load stands for the service's; the service
+also caches hashed files for a year, which the demo doesn't, so the demo's warm load is not the service's. The
 demo starts its day over on each page load, so what a part needs is seeded by the demo, not sent beforehand.
 
 - **Loads:** bytes on the wire (CDP `encodedDataLength`), first contentful paint, and "ready" (the first message or
   empty state on screen). The bundle's split by module is from the build's source map (raw bytes), and its
   compressed size is gzip −9.
 - **Typing and switching:** Event Timing (`interactionId`; the time from the input to the next paint, in steps of
-  8 ms; only interactions of 16 ms or more are reported, and "n" says how many were): typing a 90-character line at
+  8 ms; only interactions of 16 ms or more are reported, and the percentiles count the others as under 16 ms): typing a 90-character line at
   60 ms a key into a space's box with an empty and a 2000-character draft, on the phone; switching presses 12 spaces in
   the list one after another on a desktop, each opened once before (warm), at full speed and 4× slower CPU. With 12
   switches, p98 is the slowest one.
-- **The long chat:** #blog with 400 seeded messages on top of its 13 (a short line, bold, a list with code, a long
+- **The long chat:** #blog with 400 seeded messages on top of its 4 (a short line, bold, a list with code, a long
   paragraph, in turn). Loaded straight into it at full speed (the app and the chat, to its first bubble); scrolled from
   the newest to the oldest, 120 px a frame, at 4× slower CPU on the phone (frame times between animation frames); and
-  switched into from another space on a desktop at 4× slower CPU, three times, the press to the frame after its last
-  bubble.
-- **Live updates:** 300 snapshots from the service (a task renamed each time) while a space is open: script per
-  message handler call, the page's changes per update, all script over the run, and the heap after a forced GC.
+  switched into from another space on a desktop at 4× slower CPU, three times, the press to the frame after its newest
+  message shows. Both endpoints hold if a fix draws only part of the chat; the seed is checked from what the socket
+  sent, not from the bubbles drawn.
+- **Live updates:** 300 snapshots from the demo (a task renamed each time) while a space is open: the socket's message
+  handler alone, and the handler to the end of the work it queued (a `MessageChannel` message posted after the
+  handler runs after React's render; this also counts any frame drawn and any task waiting in between, so it is an
+  upper bound); the page's changes per update, all script over the run, and the heap after a forced GC. The demo sends
+  each update as a whole snapshot; the service sends a patch after the first, so the service's own cost is not measured
+  here.
 - **Idle:** 20 s with nothing happening, Performance metrics (style recalculations, layouts, task time).
 - **Not measured:** a 200-task list's scroll (the demo's day has 20), a hidden page (headless Chrome keeps it
   visible), and loads through the real service and tailscale serve.
@@ -135,14 +142,13 @@ demo starts its day over on each page load, so what a part needs is seeded by th
 | What | Before | Budget (docs/design.md) |
 |---|---|---|
 | Cold load on a phone | 1021 kB over 12 requests; first paint 6.35 s, ready 6.45 s; 3 long tasks (225 ms) | first screen's script 250 kB sent |
-| Warm load on a phone | first paint 6.06 s: 1011 kB again, as nothing is cached | |
 | Main script | 847 kB raw, 283 kB gzip: react-dom 202, `web/src` 174, chat 84, core 45, marked 45, screens 36, tasks 31, shared 29, dompurify 29, voice 28 (raw kB) | 250 kB sent |
-| A key press, phone | p98 32 ms with an empty and a 2000-character draft | p98 50 ms |
+| A key press, phone | p98 32 ms with an empty and a 2000-character draft (every press was over 16 ms, so all were counted) | p98 50 ms |
 | Switching spaces, desktop, warm | p50 24 ms; the slowest of 12 is 64 ms at full speed and 280 ms at 4× slower CPU | p95 100 ms |
-| Switching into the 413-message chat, desktop at 4× | 385 ms the first time, then 213 and 192 ms | p95 100 ms when warm |
-| Loading straight into that chat | 702 ms at full speed | measured apart (a first load) |
+| Switching into the 404-message chat, desktop at 4× | 362 ms the first time, then 219 and 190 ms | p95 100 ms when warm |
+| Loading straight into that chat | 228 ms to its first bubble at full speed | measured apart (a first load) |
 | Scrolling that chat end to end, phone | frames p50 17 ms, p95 18 ms; 1 of 479 over 33 ms (52 ms); no long task | p95 33 ms |
-| 300 live updates | 0.17 ms per handler call, p95 0.3 ms; about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms |
+| 300 live updates | handler p95 0.3 ms; handler to the end of its render p50 5.1 ms, p95 7.9 ms (an upper bound, see above); about 1 ms of script per update in all; ~10 changes in the page each | p95 4 ms: not settled, a trace decides (slice 4) |
 | Memory over those updates | heap 4.1 → 6.0 MB after GC, nodes and listeners flat | no growth after the first minutes: needs a longer run to tell |
 | An idle page with a waiting picture | 60 style recalculations a second, ~455 ms of work per 20 s | none |
 
@@ -182,9 +188,10 @@ field and both bubbles pass AA (table above). Dark and night already pass.
    tailscale serve on the dev machine. The demo's own handler (`web/demo/serve.ts`) stays plain. Before: 283 kB gzip
    sent as 847 kB; first paint 6.2 s on a phone. After: sent compressed; first paint re-measured. After: none.
 2. **A still waiting picture.** `.prev.wait` gets a still placeholder and fades in once loaded, its retry and its
-   first-lines fallback kept. Files: `web/src/styles.css`, `web/plugins/artifacts/client.tsx`. Tests: a demo check
+   first-lines fallback kept; every picture the app draws has a width and height (or an aspect ratio) and loads lazily
+   below the first screen. Files: `web/src/styles.css`, `web/plugins/artifacts/client.tsx`. Tests: a demo check
    with the pictures blocked (`?case=nopics`): no running animation (`document.getAnimations()`), style
-   recalculations near zero over 10 s; `test_design.py`'s endless count down. Before: ~60 recalculations a second.
+   recalculations near zero over 10 s; no layout shift as pictures load; `test_design.py`'s endless count down. Before: ~60 recalculations a second.
    After: none. After: none.
 3. **Start without waiting in line.** The page today loads every plugin statically in one script, and `start()`
    (`web/src/main.tsx`) would await lazy plugins one by one before asking `/api/me`, connecting and drawing. Ask
@@ -195,7 +202,7 @@ field and both bubbles pass AA (table above). Dark and night already pass.
    first screen's script size with room; turning a plugin off still removes it. Before: one 847 kB script. After: the
    first screen's script under 250 kB sent. After: 1.
 4. **Switching stays quick.** Warm switches are quick but for two: one space of the demo's twelve takes 280 ms at 4×
-   slower CPU (64 ms at full speed), and switching into a 413-message chat takes 385 ms the first time and about
+   slower CPU (64 ms at full speed), and switching into a 404-message chat takes 362 ms the first time and about
    200 ms after. Profile both first, apart (React mounting, markdown, the scroll handlers that read the scroller and
    walk the row model, snapshot work), then fix what the profile shows: drawing the newest messages first and the rest
    after the first paint, keeping parsed markdown per message, or skipping off-screen rendering
@@ -204,7 +211,9 @@ field and both bubbles pass AA (table above). Dark and night already pass.
    so both are tested. Files: `web/plugins/chat/client.tsx`, `web/plugins/chat/*.css`, `web/demo/scroll-check.ts`.
    Tests: `scroll-check.ts` extended with the long chat (keeping your place on prepend, jump to a quote, find in page,
    selection and copy, the fold upstream fixed in "Scrolling up into a folded long reply makes the chat list go
-   blank"), in Chromium and WebKit; the perf check's switch and long parts. Before: 280 ms and 385/200 ms. After: p95
+   blank"), in Chromium and WebKit; the perf check's switch and long parts. The same profile takes a live update: a
+   trace of one snapshot from arrival to paint says whether the 4 ms budget holds (the perf check's upper bound is
+   7.9 ms). Before: 280 ms and 362/200 ms. After: p95
    100 ms warm. After: none to profile; the fix after "Chat box: two rows again" and 7 (they share
    `chat/client.tsx`).
 
@@ -289,11 +298,18 @@ around it.
     request in the header. The header keeps its status whole and cuts the model. At most one shortcut button per row
     on a desktop, the one its state calls for (Reply in its chat for a question, Open the pull request for a review),
     named with the task, in the menu too; on touch the menu and, later, the swipe. Files: `web/plugins/tasks/client.tsx`
-    (`TaskRow`, `TaskHead`), `web/plugins/tasks/*.css`. After: "Needs you 5: one list", "Needs you 4: exact links",
-    "Urgent 2: in the app" (it changes `TaskRow` and `TaskHead`).
-15. **The review card says what happens.** Its words say what Accept does ("Merges into main when you accept"), its
-    buttons share the card's width on a phone with the primary last, and "Not now" says it stays under Needs you.
-    Files: `web/plugins/tasks/client.tsx` (`ReviewCard`), `web/shared/ready-words.ts`. After: 14.
+    (`TaskRow`, `TaskHead`), `web/plugins/tasks/*.css`. Tests: a row's accessible name and its one shortcut per state
+    (`web/plugins/tasks/*.test.tsx`); two spaces with one name keep their machine; screenshots `tasks--*` and
+    `task-*--*` at 390 px and desktop, light and dark, the header's status whole at 390 px. After: "Needs you 5: one
+    list", "Needs you 4: exact links", "Urgent 2: in the app" (it changes `TaskRow` and `TaskHead`).
+15. **The review card says what happens.** Its question and buttons already say what Accept does in each case
+    (`readyWords()`, `web/shared/ready-words.ts`: merge into its branch, mark a folder's work done, close one with
+    nothing to merge) and "Not now, keep it here". What changes: the line on why it waits reads as a sentence, not a
+    setting's name and value ("Waits for you: Merge in this repo is When I mark it as done" becomes "Waits for you:
+    this repo merges when you accept"), and its buttons share the card's width on a phone with the primary last.
+    Files: `mods/tasks/bin/herdr_task/waits.py` (`waits_why()`), `web/plugins/tasks/client.tsx` (`ReviewCard`).
+    Tests: `waits_why()`'s line for each merge setting and source in `test/test_herdr_task.py`;
+    `web/plugins/tasks/ready-words.test.tsx` updated; screenshots `task-ready-review--*` at 390 px. After: 14.
 16. **Alerts read whole.** An alert's name is the task's name, and its body, place and status are its description
     (`aria-describedby`), not replaced by an `aria-label`; the row cuts its kind before the task's name. Files:
     `web/plugins/inbox/client.tsx`. Tests: the row's accessible name and description. After: "Needs you 4: exact
@@ -310,11 +326,14 @@ around it.
 ### States
 
 18. **Empty, loading and offline.** One empty layout (a line, one action) for a space, Tasks, Artifacts, Files and
-    Changes; loading, saved-from-before, offline and try-again said apart; one content edge per pane. Files:
-    `web/src/ds.css` (`.empty`), `web/plugins/files/`, `web/plugins/diff/`. Screens: `case-*`, `files--*`,
-    `changes--*`. After: 6.
+    Changes; loading, saved-from-before, offline and try-again said apart; one content edge per pane. What changes on
+    its own (a toast, a failed send, going offline and back, a filter's new count) reaches screen readers through one
+    polite live region. Files: `web/src/ds.css` (`.empty`), `web/src/ui.tsx` (the live region),
+    `web/plugins/files/`, `web/plugins/diff/`. Tests: each state's words; the live region speaks a toast and a failed
+    send once. Screens: `case-*`, `files--*`, `changes--*`. After: 6.
 19. **The demo's pages in dark.** First reproduce why the demo's artifacts show light words on white in dark and
-    night (the page or the frame), then fix it there. Files: `web/demo/`, possibly the artifact frame. After: none.
+    night (the page or the frame), then fix it there. Files: `web/demo/`, possibly the artifact frame. Tests: the
+    demo's artifacts in dark and night, the words' contrast measured in the frame (4.5:1). After: none.
 
 ### Feel
 

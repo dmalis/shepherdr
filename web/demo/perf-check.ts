@@ -1,7 +1,8 @@
 // The speed budgets of docs/design.md, measured on the demo: loads (cold and warm, a phone profile and full speed),
 // typing and switching (event timing), a long chat's scroll, script per live update, memory after a feed, idle work.
 // The demo starts its day over on each page load, so the long chat is seeded by the demo itself (DEMO_LONG_CHAT).
-// Run it 3 times and report the middle run. Event Timing only reports interactions of 16 ms or more: "n" says how many.
+// Run it 3 times and report the middle run. Event Timing only reports interactions of 16 ms or more: "n" says how many
+// were reported, and the percentiles count the rest of the presses as under 16 ms.
 //   bun run build && DEMO_LONG_CHAT=400 bun web/demo/serve.ts 7841 &   then   bun web/demo/perf-check.ts 7841 [part]
 // parts: load, type, switch, long, live (all when left out)
 import { chromium, type Page, type BrowserContext } from 'playwright-core'
@@ -22,18 +23,32 @@ const INIT = () => {
   new PerformanceObserver((l) => { for (const e of l.getEntries() as any[]) w.__ev.push({ name: e.name, d: e.duration, id: e.interactionId, t: e.startTime }) }).observe({ type: 'event', buffered: true, durationThreshold: 16 } as any)
   new PerformanceObserver((l) => { for (const e of l.getEntries()) w.__lt.push({ d: e.duration, t: e.startTime }) }).observe({ type: 'longtask', buffered: true })
   // time spent in socket message handlers, and DOM mutations after each
-  w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] as number[] }
+  // and, per message, the handler to the end of the work it queued (React renders in a task of its own after the
+  // handler: a MessageChannel message posted after the handler runs after it)
+  w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] as number[], full: [] as number[] }
+  // what the chat socket sent: the messages of each chat, so the long chat's seed is checked without counting bubbles
+  w.__chats = {} as Record<string, { n: number; last: string }>
+  const seen = (ev: MessageEvent) => {
+    if (typeof ev.data !== 'string' || !ev.data.startsWith('{"type":"chat"')) return
+    try { const c = JSON.parse(ev.data).chat; const m = c?.messages ?? []; if (c?.key) w.__chats[c.key] = { n: m.length, last: String(m.at(-1)?.text ?? '').slice(0, 40) } } catch {}
+  }
+  const timed = (f: (ev: MessageEvent) => void, self: unknown) => (ev: MessageEvent) => {
+    seen(ev)
+    const t = performance.now(); f.call(self, ev); const d = performance.now() - t
+    w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d); w.__ws.each.push(d)
+    const ch = new MessageChannel(); ch.port1.onmessage = () => { w.__ws.full.push(performance.now() - t); ch.port1.close() }; ch.port2.postMessage(0)
+  }
   const Orig = WebSocket
   w.WebSocket = class extends Orig {
     constructor(u: string | URL, p?: string | string[]) {
       super(u, p)
       super.addEventListener('message', () => { w.__wsT = performance.now() }, { capture: true } as any)
     }
-    set onmessage(f: any) { super.onmessage = (ev: MessageEvent) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d); w.__ws.each.push(d) } }
+    set onmessage(f: any) { super.onmessage = typeof f === 'function' ? timed(f, this) : f }
     get onmessage() { return super.onmessage }
     addEventListener(type: string, f: any, o?: any) {
       if (type !== 'message' || typeof f !== 'function') return super.addEventListener(type, f, o)
-      return super.addEventListener(type, (ev: Event) => { const t = performance.now(); f.call(this, ev); const d = performance.now() - t; w.__ws.n++; w.__ws.ms += d; w.__ws.max = Math.max(w.__ws.max, d); w.__ws.each.push(d) }, o)
+      return super.addEventListener(type, timed(f, this) as any, o)
     }
   }
   addEventListener('DOMContentLoaded', () => new MutationObserver((m) => { w.__ws.muts += m.length }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true }))
@@ -74,12 +89,14 @@ async function load(page: Page, cdp: any, url: string) {
   return { loadMs, readyMs, kB: Math.round(bytes / 1024), reqs, ...paint }
 }
 
-function interactions(evs: { name: string; d: number; id: number }[]) {
+// presses: how many interactions there were; those Event Timing didn't report took under 16 ms and count as 0
+function interactions(evs: { name: string; d: number; id: number }[], presses: number) {
   const by = new Map<number, number>()
   for (const e of evs) if (e.id) by.set(e.id, Math.max(by.get(e.id) ?? 0, e.d))
-  const ds = [...by.values()].sort((a, b) => a - b)
+  const reported = by.size
+  const ds = [...Array(Math.max(0, presses - reported)).fill(0), ...by.values()].sort((a, b) => a - b)
   const p = (q: number) => ds.length ? Math.round(ds[Math.min(ds.length - 1, Math.floor(ds.length * q))]!) : 0
-  return { n: ds.length, p50: p(0.5), p98: p(0.98), max: Math.round(ds.at(-1) ?? 0) }
+  return { presses: ds.length, reported, p50: p(0.5), p98: p(0.98), max: Math.round(ds.at(-1) ?? 0) }
 }
 
 const post = (a: object) => fetch(B + 'api/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(a) })
@@ -104,9 +121,10 @@ if (part === 'all' || part === 'type') {
   for (const [label, pre] of [['short', ''], ['long-draft-2k', 'Lorem ipsum dolor sit amet, the checkout button is cut off on small phones. '.repeat(27)]] as const) {
     await box.fill(pre)
     await page.evaluate(() => { (window as any).__ev.length = 0 })
-    await page.keyboard.type('The total jumps when the coupon field opens, can you check it on the small iPhone too?', { delay: 60 })
+    const line = 'The total jumps when the coupon field opens, can you check it on the small iPhone too?'
+    await page.keyboard.type(line, { delay: 60 })
     await page.waitForTimeout(600)
-    log(`inp.typing.phone4x.${label}`, interactions(await page.evaluate(() => (window as any).__ev)))
+    log(`inp.typing.phone4x.${label}`, interactions(await page.evaluate(() => (window as any).__ev), line.length))
   }
   await box.fill('')
   await ctx.close()
@@ -126,7 +144,7 @@ if (part === 'all' || part === 'switch') {
     const n = Math.min(await rows.count(), 12)
     for (let i = 0; i < n; i++) { await rows.nth(i).click(); await page.waitForTimeout(500) }
     // and the Tasks pane open and shut, a task open
-    log(`inp.switch-chat.desktop${rate}x`, interactions(await page.evaluate(() => (window as any).__ev)))
+    log(`inp.switch-chat.desktop${rate}x`, interactions(await page.evaluate(() => (window as any).__ev), n))
   }
   await ctx.close()
 }
@@ -134,12 +152,15 @@ if (part === 'all' || part === 'switch') {
 if (part === 'all' || part === 'long') {
   // the long chat: #blog with the demo's DEMO_LONG_CHAT messages added
   const { ctx, page, cdp } = await phoneCtx(false)
+  // the start of the load to its first bubble, however much of the chat is drawn
   const t0 = Date.now()
-  await page.goto(B + '?place=' + encodeURIComponent(BLOG), { waitUntil: 'networkidle' })
-  await page.waitForSelector('.msgs .b')
+  await page.goto(B + '?place=' + encodeURIComponent(BLOG), { waitUntil: 'commit' })
+  await page.waitForSelector('.msgs .b', { timeout: 15000 })
   const open = Date.now() - t0
-  const seeded = await page.evaluate(() => document.querySelectorAll('.msgs .b').length)
-  if (seeded < 300) throw new Error(`#blog shows ${seeded} messages: start the demo with DEMO_LONG_CHAT=400`)
+  await page.waitForLoadState('networkidle')
+  const seed = await page.evaluate((k) => (window as any).__chats[k], BLOG) as { n: number; last: string } | undefined
+  if (!seed || seed.n < 300) throw new Error(`#blog has ${seed?.n ?? 0} messages: start the demo with DEMO_LONG_CHAT=400`)
+  log('long-chat.messages', seed.n)
   await page.waitForTimeout(1500)
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
   const r = await page.evaluate(async () => {
@@ -160,7 +181,7 @@ if (part === 'all' || part === 'long') {
   log('long-chat.scroll.phone4x', r)
   await ctx.close()
   // from another space into the long chat, the app already running, on a desktop at 4x slower CPU: the press to the
-  // frame after its last bubble is drawn
+  // frame after its newest message is drawn (-1: not within 10 s)
   const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   await desk.addInitScript(INIT)
   const dp = await desk.newPage(), dc = await desk.newCDPSession(dp)
@@ -169,12 +190,14 @@ if (part === 'all' || part === 'long') {
   const row = (id: string) => '.side .rowx[data-project="' + id + '"] > button.row'
   const into = async () => {
     await dp.locator(row(SHOP)).click(); await dp.waitForTimeout(1000)
-    return dp.evaluate((sel) => new Promise<number>((res) => {
+    return dp.evaluate(([sel, last]) => new Promise<number>((res) => {
+      const shown = () => [...document.querySelectorAll('.msgs .b')].some((b) => b.textContent?.includes(last))
+      if (shown()) return res(-2)
       const t0 = performance.now()
       ;(document.querySelector(sel) as HTMLElement).click()
-      const wait = () => (document.querySelectorAll('.msgs .b').length > 300 ? requestAnimationFrame(() => res(Math.round(performance.now() - t0))) : requestAnimationFrame(wait))
+      const wait = () => (shown() ? requestAnimationFrame(() => res(Math.round(performance.now() - t0))) : performance.now() - t0 > 10000 ? res(-1) : requestAnimationFrame(wait))
       wait()
-    }), row(BLOG))
+    }), [row(BLOG), seed.last.slice(0, 24)] as const)
   }
   log('long-chat.switch-into-ms.desktop4x', [await into(), await into(), await into()])
   await desk.close()
@@ -186,13 +209,16 @@ if (part === 'all' || part === 'live') {
   await cdp.send('HeapProfiler.collectGarbage')
   const m0 = (await cdp.send('Performance.getMetrics')).metrics
   const get = (ms: any[], n: string) => ms.find((x) => x.name === n)?.value ?? 0
-  await page.evaluate(() => { const w = window as any; w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [] }; w.__lt.length = 0 })
+  await page.evaluate(() => { const w = window as any; w.__ws = { n: 0, ms: 0, max: 0, muts: 0, each: [], full: [] }; w.__lt.length = 0 })
   // an hour's feed, sped up: 300 snapshots from the service, each a task renamed (the page's state changes, its size doesn't)
   for (let i = 0; i < 300; i++) { await post({ type: 'task-rename', chat: 'SHOP-14', name: `Fix the checkout total, take ${i % 2}` }); if (i % 20 === 0) await page.waitForTimeout(50) }
   await page.waitForTimeout(2500)
   await cdp.send('HeapProfiler.collectGarbage')
   const m1 = (await cdp.send('Performance.getMetrics')).metrics
   const ws = await page.evaluate(() => { const w = window as any; return { ...w.__ws, longTasks: w.__lt.length } })
+  const q = (xs: number[], p: number) => +([...xs].sort((a, b) => a - b)[Math.floor(xs.length * p)] ?? 0).toFixed(2)
+  // the demo sends each update as a whole snapshot; the service sends a patch after the first, so this is the heavier case
+  log('live.through-render', { updates: ws.full.length, msP50: q(ws.full, 0.5), msP95: q(ws.full, 0.95), msMax: Math.round(Math.max(0, ...ws.full)) })
   log('live.per-update', { updates: ws.n, msTotal: Math.round(ws.ms), msPerUpdate: +(ws.ms / Math.max(1, ws.n)).toFixed(2), msP95: +([...ws.each].sort((a: number, b: number) => a - b)[Math.floor(ws.each.length * 0.95)] ?? 0).toFixed(2), msMax: Math.round(ws.max), mutationsPerUpdate: Math.round(ws.muts / Math.max(1, ws.n)), longTasks: ws.longTasks, scriptMs: Math.round((get(m1, 'ScriptDuration') - get(m0, 'ScriptDuration')) * 1000), layoutMs: Math.round((get(m1, 'LayoutDuration') - get(m0, 'LayoutDuration')) * 1000), styleMs: Math.round((get(m1, 'RecalcStyleDuration') - get(m0, 'RecalcStyleDuration')) * 1000) })
   log('memory.heapMB', { before: +(get(m0, 'JSHeapUsedSize') / 1e6).toFixed(1), after300Updates: +(get(m1, 'JSHeapUsedSize') / 1e6).toFixed(1), nodesBefore: get(m0, 'Nodes'), nodesAfter: get(m1, 'Nodes'), listenersBefore: get(m0, 'JSEventListeners'), listenersAfter: get(m1, 'JSEventListeners') })
 

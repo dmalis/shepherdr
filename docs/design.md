@@ -13,7 +13,7 @@ Two kinds of line here:
   from one.
 
 `test/test_design.py` checks a few rules a machine can: raw colours, font sizes off the scale and endless animations in
-stylesheets may only get fewer, and the grey of second lines passes contrast on its main surfaces.
+stylesheets and inline styles may only get fewer, and the grey of second lines passes contrast on its main surfaces.
 
 People keep Shepherdr open all day, on a phone between other things and on a desktop beside their editor. They come
 back to ask four things: what needs me, what is stuck, what just landed, what is going on in this project. The app
@@ -262,7 +262,8 @@ The message box is where people spend their day. It never loses words, never lag
   answer show and hide together.
 - **Dictation** writes at the caret, never sends by itself, and a cancel or a refused microphone leaves the draft as it
   was.
-- **Fast:** see Performance. Nothing on the page reflows per letter.
+- **Fast:** see Performance. Nothing outside the box reflows per letter; the box itself grows by measuring its
+  height on each change, its frame held meanwhile so nothing around it moves (`fitBox()`, `web/src/grow.ts`).
 
 ## Motion
 
@@ -274,8 +275,9 @@ Motion shows where something came from or went. It is short, it stops, and it ne
   taken back mid-way, and settles from its own speed.
 - **A press shows at once** on every control.
 - **Easings** come from `web/src/motion.ts` (`OUT`, `AWAY`, `IOS`, `SPRING`), not new curves.
-- **Only transform and opacity move.** No animated colour, size, shadow or layout. A transition names its properties,
-  never `all`, and a new tap or drag takes over from it.
+- **Only transform and opacity move.** No animated colour, size, shadow or layout (Target: an attachment chip still
+  fades its colour, `web/plugins/chat/attach.css`). A transition names its properties, never `all`, and a new tap or
+  drag takes over from it.
 - **Nothing runs forever.** A waiting mark runs only while it waits and while it can be seen, and never animates a
   colour. Target: today the waiting picture's pulse (`.prev.wait`) runs for as long as it shows.
 - **Reduced motion:** when the device asks for less (`prefers-reduced-motion`) or Settings › General › Motion is
@@ -294,7 +296,8 @@ something that arrives, reorders or retries on its own.
 - **Where it fits:** a gesture crossing the point where it acts (the reply slide does, `tick()`), and as the plan adds
   them, your send entering the outbox and a failed send.
 - **Sounds** are short and very quiet, follow the device's silent switch, and only play for your own send.
-- Reduced motion turns the app's own haptics off.
+- Reduced motion turns the app's own haptics off (Target: the reply slide's and a held press's don't check it yet,
+  `web/plugins/chat/slide.tsx`).
 
 ## Touch, gestures and keys
 

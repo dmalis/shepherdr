@@ -2,8 +2,10 @@
 
 - raw colours (hex, rgb()/hsl()/hwb()/oklch()/lab()/lch()/color() and the common colour names) in the values of the
   app's stylesheets outside the design system (web/src/ds.css), and in literal `style={{…}}` props in TSX;
-- font sizes off the type scale in `font-size:` and `font:` values (a size from a token, `inherit` or `%` passes);
-- animations that never end (`infinite`, a huge iteration count, or a script animation with `iterations: Infinity`);
+- font sizes off the type scale in `font-size:` and `font:` values (a size from a token, `inherit` or `%` passes),
+  and in an inline style's `fontSize`;
+- animations that never end (`infinite`, a huge iteration count outside `steps()`, `infinite` in an inline style, or
+  a script animation with `iterations: Infinity`);
 - the grey of second lines (`--muted`) at 4.5:1 on the page, a field, an agent's bubble and your own, in light, the
   device's dark, Dark and Night.
 
@@ -40,6 +42,9 @@ ENDLESS = {
     "web/src/ds.css": 5,
     "web/src/styles.css": 3,
     "web/src/dictate.css": 4,
+}
+INLINE_OFF_SCALE = {
+    "web/plugins/screens/client.tsx": 1,
 }
 INLINE_COLOURS = {
     "web/plugins/screens/client.tsx": 10,
@@ -128,7 +133,9 @@ def endless(rel):
         if prop in ("animation", "animation-iteration-count"):
             n += len(re.findall(r"\binfinite\b", value))
             # a bare whole number in the shorthand or the count is its iteration count: 100 or more is endless
-            n += sum(1 for x in re.findall(r"(?<![\w.-])(\d+)(?![\w.%])", value) if int(x) >= 100)
+            # (not the steps of a steps() timing, which is how a finite one moves in frames)
+            plain = re.sub(r"\b(?:steps|cubic-bezier|linear)\([^)]*\)", "", value)
+            n += sum(1 for x in re.findall(r"(?<![\w.-])(\d+)(?![\w.%])", plain) if int(x) >= 100)
     return n
 
 
@@ -139,26 +146,46 @@ def code(rel):
 
 
 def script_endless(rel):
-    return len(re.findall(r"iterations\s*:\s*(?:Infinity|Number\.POSITIVE_INFINITY)", code(rel)))
+    src = code(rel)
+    n = len(re.findall(r"iterations\s*:\s*(?:Infinity|Number\.POSITIVE_INFINITY)", src))
+    # and an endless CSS animation written in an inline style
+    return n + sum(len(re.findall(r"\binfinite\b", m)) for m in inline_styles(src))
 
 
 def inline_styles(source):
     """the text of each literal style={{…}} prop, its nested braces kept"""
-    out, i = [], 0
-    while (i := source.find("style={{", i)) != -1:
-        depth, j = 0, i + len("style=")
+    out = []
+    for m in re.finditer(r"\bstyle\s*=\s*\{\s*\{", source):
+        i = m.start()
+        depth, j = 0, source.index("{", i)
         while j < len(source):
             depth += {"{": 1, "}": -1}.get(source[j], 0)
             j += 1
             if depth == 0:
                 break
         out.append(source[i:j])
-        i = j
     return out
 
 
+# a string a style compares with (state === 'red' ? …) is no colour it paints
+COMPARED = re.compile(r"""[=!]==?\s*(['"`])[^'"`]*\1|(['"`])[^'"`]*\2\s*[=!]==?""")
+
+
 def inline_colours(rel):
-    return sum(len(COLOUR.findall(no_tokens(m))) for m in inline_styles(code(rel)))
+    return sum(len(COLOUR.findall(no_tokens(COMPARED.sub("", m)))) for m in inline_styles(code(rel)))
+
+
+def inline_off_scale(rel):
+    """fontSize in an inline style, a number or a px string off the scale (a token or a % is fine)"""
+    n = 0
+    for m in inline_styles(code(rel)):
+        for v in re.findall(r"\bfontSize\s*:\s*([^,}]+)", m):
+            if "var(" in v:
+                continue
+            # each plain number or px length in it, so `phone ? 14 : 11` counts its 11 (em and % follow the text around)
+            for x in re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)(?:px|PX)?(?![\w.%])", v):
+                n += float(x) not in SCALE
+    return n
 
 
 class DesignTokens(unittest.TestCase):
@@ -186,9 +213,13 @@ class DesignTokens(unittest.TestCase):
     def test_no_colours_in_inline_styles(self):
         self.ratchet(inline_colours, (".tsx",), INLINE_COLOURS, "raw colours in inline styles")
 
+    def test_inline_type_sizes_on_the_scale(self):
+        self.ratchet(inline_off_scale, (".tsx",), INLINE_OFF_SCALE, "inline font sizes off the scale")
+
     def test_the_counts_are_current(self):
         stale = []
-        for allowed, measure in ((COLOURS, colours), (OFF_SCALE, off_scale), (ENDLESS, endless), (INLINE_COLOURS, inline_colours)):
+        for allowed, measure in ((COLOURS, colours), (OFF_SCALE, off_scale), (ENDLESS, endless), (INLINE_COLOURS, inline_colours),
+                                 (INLINE_OFF_SCALE, inline_off_scale)):
             for rel, cap in allowed.items():
                 if not os.path.exists(os.path.join(ROOT, rel)):
                     stale.append(f"{rel}: gone")
@@ -240,6 +271,8 @@ class Checks(unittest.TestCase):
         self.assertEqual(self.sample(".a{animation:spin 1s linear infinite}.b{animation-iteration-count:999999}", endless), 2)
         self.assertEqual(self.sample(".a{animation:fade .2s ease}", endless), 0)
         self.assertEqual(self.sample(".a{animation:spin 1s 999999}.b{animation:fade 1.999s 2}", endless), 1)
+        self.assertEqual(self.sample(".a{animation:film 2s steps(120) 1}", endless), 0)  # finite, in 120 frames
+        self.assertEqual(self.sample("<a style = {{ animation: 'spin 1s infinite' }} />", script_endless, ".tsx"), 1)
         js = "el.animate(k, { iterations: Infinity })\n// el.animate(k, { iterations: Infinity })\n/* iterations: Infinity */"
         self.assertEqual(self.sample(js, script_endless, ".ts"), 1)
 
@@ -247,6 +280,11 @@ class Checks(unittest.TestCase):
         src = ("<a style={{ color: '#fff', ...(x ? { background: 'rgb(0 0 0)' } : {}) }} /> {/* style={{color:'#000'}} */}\n"
                "<a href='https://example.com' style={{ color: 'red', border: 'var(--line, #ddd)' }} /> // style={{color:'#000'}}")
         self.assertEqual(self.sample(src, inline_colours, ".tsx"), 4)
+        self.assertEqual(self.sample("<a style ={ { color: '#fff' } } />", inline_colours, ".tsx"), 1)
+        cmp = "<a style={{ color: state === 'red' ? 'var(--red)' : 'var(--fg)', borderColor: 'red' !== k ? 'var(--line)' : 'var(--fg)' }} />"
+        self.assertEqual(self.sample(cmp, inline_colours, ".tsx"), 0)
+        sizes = "<a style={{ fontSize: 11, lineHeight: 1 }} /><u style={{ fontSize: p ? 14 : 15, x: '1.25em' }} /><b style={{ fontSize: '13px' }} /><i style={{ fontSize: 'var(--ui)' }} />"
+        self.assertEqual(self.sample(sizes, inline_off_scale, ".tsx"), 2)
 
 
 def theme(name):
