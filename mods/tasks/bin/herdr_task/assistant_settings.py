@@ -15,7 +15,7 @@ import sys
 from .base import hc_json, now, run, STORE
 from .settings import DEFAULTS, LOCAL_MACHINE, MUST_WORDS, REPO_SECTIONS, SETTINGS, agent_key, bare, read_settings, repo_own
 from .launch import coordinators, is_coordinator
-from . import reactions
+from . import reactions, urgent
 
 # What an Assistant was last told, on its terminal: "review:1a2b3c,merge:…", a short hash of each line.
 LABEL = "herdr.settings"
@@ -181,6 +181,7 @@ def rows(space, d=None, folder=None):
             ("feedback", "Feedback offers", f"on (offer once to file a Shepherdr problem as an issue on {repo}, only on the person's yes)"
              if offering else "off (never offer feedback for Shepherdr; file nothing)", "on" if offering else "off",
              [("agents", "feedback"), ("agents", "feedback_repo")]),
+            urgent.row(),  # dmalis/shepherdr#119: what urgent means (no setting sets it)
         ]
     have = lines(resolve(ls))
     default = {x[0]: x[2] for x in lines(resolve([]))}
@@ -225,7 +226,7 @@ def notice(changed):
     out = []
     for i, r in enumerate(changed):
         words = (reactions.TURNED_ON if r["value"] == "on" else reactions.TURNED_OFF) if r["key"] == "reactions" else \
-            INSTRUCTIONS_GONE if r["key"] == "instructions" else \
+            INSTRUCTIONS_GONE if r["key"] == "instructions" else urgent.NOTICE if r["key"] == urgent.KEY else \
             f"{r['label']} is now {r['text']}" + (f"; {BY[r['by']]}" if r["by"] else "; Herdr's default") + \
             ("." if r["key"] == "feedback" else ". Tasks you add from now on get it; running ones keep their brief.")
         if r["key"] == "repos":
@@ -298,6 +299,7 @@ def settings_pass(report, quiet):
             if not k.get("turn"):
                 continue  # just started: its hook is about to tell it
             # started before Assistants were told their settings: the whole block, once
+            rs = urgent.for_running(rs, k)  # dmalis/shepherdr#119: its row only to a running agent
             on = next(r for r in rs if r["key"] == "reactions")["value"] == "on"
             guide = reactions.GUIDE if on and labels.get(reactions.LABEL) != "on" else ""
             text = (f'<herdr-setting name="all">{block(rs)}' + (f"\n{guide}" if guide else "") + f" {NOTICE_END}</herdr-setting>")
@@ -306,6 +308,9 @@ def settings_pass(report, quiet):
             changed = [r for r in rs if had.get(r["key"]) != now_digest[r["key"]]]
             if had.get("instructions") not in (None, NO_INSTRUCTIONS):  # it was told some: once, that they're gone
                 changed.append({"key": "instructions", "value": "off", "scope": "everywhere"})
+            changed = urgent.for_running(changed, k)  # dmalis/shepherdr#119: its row only to a running agent
+            if changed is None:
+                continue
             if not changed:  # a line no longer said: just note it
                 run(["hc", "label", addr, f"{LABEL}={digest(rs)}"])
                 continue

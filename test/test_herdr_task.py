@@ -6052,7 +6052,7 @@ class AssistantSettings(unittest.TestCase):
         # nothing differs from Herdr's default: no line says who set it
         self.assertNotIn("; set for", note)
         self.assertNotIn("; your setting", note)
-        self.assertEqual(len(note.split("\n")), 14)  # head, 12 lines (Suggested replies, Repo settings), the Reactions guide
+        self.assertEqual(len(note.split("\n")), 15)  # head, 13 lines (Suggested replies, Urgent tasks: dmalis/shepherdr#119, Repo settings), the Reactions guide
         self.assertIn("- Repo settings: none (every repo has the task lines above)", note)
         self.assertIn("the task lines below are Everywhere's", note)
         self.assertIn("- Suggested replies: on (end each reply with one to three replies", note)
@@ -6087,7 +6087,7 @@ class AssistantSettings(unittest.TestCase):
         labels = self.terminals["t5"]["labels"]
         self.assertEqual(labels["herdr.reactions"], "off")
         self.assertEqual(sorted(self.aset.parse(labels["herdr.settings"])),
-                         sorted(["review", "merge", "proof", "agent", "base", "worktrees", "notes", "setup", "reactions", "suggestions", "feedback", "repos"]))
+                         sorted(["review", "merge", "proof", "agent", "base", "worktrees", "notes", "setup", "reactions", "suggestions", "feedback", "urgent", "repos"]))
         # a space on / (root), its file not moved yet: its task values are the / folder's, not the shop repo's
         self.assistant("t6", "sp2")
         other = self.aset.session_note("t6")
@@ -13520,3 +13520,450 @@ class StartAfterReady(unittest.TestCase):
         self.github([])
         self.assertEqual(self.ready_said(policy="ask"), "ready")
         self.assertFalse(os.path.exists(self.wake_file))
+
+
+# A fake hc for Urgent's real CLI runs: every call logged (calls.log beside it), `get` answers from terminals.json.
+URGENT_HC = r'''#!/usr/bin/env python3
+import json, os, sys
+d = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(d, "calls.log"), "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\n")
+try:
+    with open(os.path.join(d, "terminals.json")) as f:
+        terms = json.load(f)
+except (OSError, ValueError):
+    terms = {}
+a = [x for x in sys.argv[1:] if x != "--json"]
+if a[:1] == ["get"]:
+    t = terms.get(a[1])
+    if not t:
+        sys.exit(1)
+    print(json.dumps(t))
+elif a[:1] == ["ls"]:
+    print(json.dumps({"terminals": []}))
+elif a[:1] in (["exec"], ["run"], ["send"], ["file"]):
+    sys.exit(1)  # nothing is ever sent anywhere: a test that gets here fails on the log
+else:
+    print("{}")
+'''
+
+
+class Urgent(unittest.TestCase):
+    """dmalis/shepherdr#119 (fork/specs/urgent-tasks.md, slice 1): a task the person marks urgent. The real CLI on a
+    throwaway store with a fake hc for the mark, its refusals and what show and list say; news and the settings note
+    in-process with hc faked, as AcceptCommandNews and AssistantSettings do."""
+
+    # ---- the real CLI ------------------------------------------------------------------------
+
+    def cli_setup(self):
+        import shutil
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+        with open(os.path.join(self.bin, "hc"), "w") as f:
+            f.write(URGENT_HC)
+        os.chmod(os.path.join(self.bin, "hc"), 0o755)
+        self.store = os.path.join(self.tmp, "store")
+        self.folder, self.other = os.path.join(self.tmp, "shop"), os.path.join(self.tmp, "blog")
+        os.makedirs(self.folder)
+        os.makedirs(self.other)
+        self.env = {"HOME": os.environ["HOME"], "PATH": f"{self.bin}:/usr/bin:/bin", "HC_SESSION": "urgent-t", "SHEPHERDR_SESSION": "urgent-t",
+                    "HERDR_TASK_STORE": self.store, "HERDR_TASK_SETTINGS": os.path.join(self.tmp, "settings.json"),
+                    "SHEPHERDR_NO_MIGRATE": "1", "TMPDIR": self.tmp}
+
+    def ht(self, *args, env=None, ok=True):
+        # on this run's throwaway HOME herdr-task refuses hc (base.not_real): this hc is a fake, so let it
+        b = ("import sys, runpy; sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[1]);"
+             "import herdr_task.base as base; base.not_real = lambda: None;"
+             "sys.argv = sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')")
+        p = subprocess.run([sys.executable, "-c", b, BIN, os.path.join(BIN, "herdr-task"), *args], capture_output=True, text=True,
+                           env={**self.env, **(env or {})}, cwd=self.folder, timeout=60)
+        if ok:
+            self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        return p
+
+    def tasks(self, folder=None):
+        out = []
+        for name in os.listdir(self.store) if os.path.isdir(self.store) else []:
+            if name.endswith(".json") and not name.startswith("."):
+                with open(os.path.join(self.store, name)) as f:
+                    d = json.load(f)
+                if isinstance(d, dict) and os.path.realpath(d.get("folder") or "") == os.path.realpath(folder or self.folder):
+                    out += d["tasks"]
+        return out
+
+    def listed(self, folder=None):
+        return {t["title"]: t for t in json.loads(self.ht("list", "--json", "--folder", folder or self.folder).stdout)["tasks"]}
+
+    def hc_calls(self):
+        try:
+            with open(os.path.join(self.bin, "calls.log")) as f:
+                return [json.loads(x) for x in f if x.strip()]
+        except OSError:
+            return []
+
+    def test_mark_unmark_show_and_list(self):
+        self.cli_setup()
+        self.ht("add", "Fix checkout", "--here", "--space", "sp1", "--urgent")
+        self.ht("add", "Tidy footer", "--here", "--space", "sp1")
+        [fix, tidy] = self.tasks()
+        self.assertIsInstance(fix["urgent"], int)
+        self.assertNotIn("urgent", tidy)
+        first = fix["urgent"]
+        rows = self.listed()
+        self.assertIs(rows["Fix checkout"]["urgent"], True)  # true, never the raw time
+        self.assertNotIn("urgent", rows["Tidy footer"])
+        self.assertIn("\nUrgent: yes\n", self.ht("show", "1").stdout)
+        self.assertNotIn("Urgent:", self.ht("show", "2").stdout)
+        self.assertIs(json.loads(self.ht("show", "1", "--json").stdout)["urgent"], True)
+        # marked again: the first time stays; a second task marked by edit
+        self.ht("edit", "1", "--urgent")
+        self.ht("edit", "2", "--urgent", "on")
+        self.assertEqual(self.tasks()[0]["urgent"], first)
+        self.assertIs(self.listed()["Tidy footer"]["urgent"], True)
+        # unmarked
+        self.ht("edit", "1", "--urgent", "off")
+        self.assertNotIn("urgent", self.tasks()[0])
+        self.assertNotIn("urgent", self.listed()["Fix checkout"])
+        self.assertNotIn("Urgent:", self.ht("show", "1").stdout)
+        self.assertNotIn(["send"], [c[:1] for c in self.hc_calls()])  # marking sends nothing to anyone
+
+    def test_done_by_any_path_ends_it_and_reopening_never_brings_it_back(self):
+        self.cli_setup()
+        self.ht("add", "Fix checkout", "--here", "--space", "sp1", "--urgent")
+        self.ht("done", "1")
+        self.assertNotIn("urgent", self.listed()["Fix checkout"])
+        p = self.ht("edit", "1", "--urgent", ok=False)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn('"Fix checkout" is done: only an open task can be urgent.', p.stderr)
+        self.ht("reopen", "1")
+        self.assertEqual(self.tasks()[0]["state"], "todo")
+        self.assertNotIn("urgent", self.listed()["Fix checkout"])  # done after it was marked: still not urgent
+        self.assertIn("urgent", self.tasks()[0])  # the old time is kept, and changes nothing
+        self.ht("edit", "1", "--urgent")  # marked again: a new time, after its done
+        t = self.tasks()[0]
+        self.assertGreater(t["urgent"], t["done_at"])
+        self.assertIs(self.listed()["Fix checkout"]["urgent"], True)
+        # archived: refused, and an archived one is never urgent
+        self.ht("archive", "1")
+        self.assertNotIn("urgent", json.loads(self.ht("show", "1", "--json").stdout))
+        p = self.ht("edit", "1", "--urgent", ok=False)
+        self.assertIn('"Fix checkout" is archived: only an open task can be urgent.', p.stderr)
+        self.ht("edit", "1", "--urgent", "off")  # unmarking always goes
+        self.assertNotIn("urgent", self.tasks()[0])
+
+    def test_a_refused_mark_moves_nothing_and_a_good_one_moves_with_it(self):
+        self.cli_setup()
+        self.ht("add", "Fix checkout", "--here", "--space", "sp1")
+        self.ht("archive", "1")
+        p = self.ht("edit", "1", "--urgent", "--space", "sp2", "--move-to", self.other, ok=False)
+        self.assertIn("is archived: only an open task can be urgent", p.stderr)
+        self.assertEqual([t["title"] for t in self.tasks()], ["Fix checkout"])
+        self.assertEqual(self.tasks(self.other), [])
+        self.ht("unarchive", "1")
+        self.ht("edit", "1", "--urgent", "--space", "sp2", "--move-to", self.other)
+        self.assertEqual(self.tasks(), [])
+        self.assertIs(self.listed(self.other)["Fix checkout"]["urgent"], True)
+
+    def test_a_tasks_own_agent_is_refused_before_anything_is_sent(self):
+        self.cli_setup()
+        self.ht("add", "Fix checkout", "--here", "--space", "sp1")
+        worker = {"HERDR_BROWSER_TASK": "shop#1"}
+        n = len(self.hc_calls())
+        for args in (["add", "Another", "--here", "--space", "sp1", "--urgent"], ["edit", "1", "--urgent"], ["edit", "1", "--urgent", "off"],
+                     ["edit", "1", "--urg"], ["edit", "1", "--urgent=on"], ["--on", "vm-a", "edit", "SHOP-3", "--urgent"],
+                     ["--detach", "edit", "1", "--urgent"], ["--detach", "--on", "vm-a", "add", "X", "--urgent"]):
+            with self.subTest(args=args):
+                p = self.ht(*args, env=worker, ok=False)
+                self.assertEqual(p.returncode, 1)
+                self.assertEqual(p.stderr.strip(), "herdr-task: Only the person marks a task urgent.")
+        p = self.ht("edit", "1", "--urgent", "--json", env=worker, ok=False)
+        self.assertEqual(json.loads(p.stdout), {"error": "Only the person marks a task urgent."})
+        self.assertEqual(len(self.hc_calls()), n)  # nothing went to vm-a, nothing ran as a job
+        self.assertEqual(len(self.tasks()), 1)
+        self.assertNotIn("urgent", self.tasks()[0])
+        # a reviewer or helper: no HERDR_BROWSER_TASK, but its terminal is labelled with its task
+        with open(os.path.join(self.bin, "terminals.json"), "w") as f:
+            json.dump({"t9": {"address": "t9", "state": "live", "labels": {"herdr.task": "shop#1", "herdr.role": "reviewer"}},
+                       "t5": {"address": "t5", "state": "live", "labels": {"herdr.role": "coordinator", "herdr.space": "sp1"}}}, f)
+        p = self.ht("--on", "vm-a", "edit", "SHOP-1", "--urgent", env={"HC_TERMINAL_ID": "t9"}, ok=False)
+        self.assertEqual(p.stderr.strip(), "herdr-task: Only the person marks a task urgent.")
+        self.assertEqual([c[0] for c in self.hc_calls()[n:]], ["get"])
+        # the same agent's other edits go as before; Shepherdr's own chat marks it
+        self.ht("edit", "1", "--title", "Fix the checkout", env=worker)
+        self.ht("edit", "1", "--urgent", env={"HC_TERMINAL_ID": "t5"})
+        # after a bare --, --urgent is a word (a title), not the flag
+        self.ht("add", "--here", "--space", "sp1", "--", "--urgent", env=worker)
+        self.assertNotIn("urgent", self.listed()["--urgent"])
+        self.assertIs(self.listed()["Fix the checkout"]["urgent"], True)
+
+    def test_the_rule(self):
+        """urgent_now: the one reader herdr-task has (slice 2's web/shared/urgent.ts isUrgent takes the same cases)."""
+        sys.path.insert(0, BIN)
+        from herdr_task.urgent import urgent_now
+        cases = [({}, False), ({"state": "todo"}, False), ({"state": "todo", "urgent": 5}, True),
+                 *[({"state": st, "urgent": 5}, True) for st in ("scheduled", "queued", "running", "ready")],
+                 ({"state": "done", "urgent": 5}, False), ({"state": "todo", "urgent": 5, "archived": 9}, False),
+                 ({"state": "running", "urgent": 5, "done_at": 7}, False),   # done after it was marked: reopen, resume, switch, a reply
+                 ({"state": "running", "urgent": 9, "done_at": 7}, True),    # marked again after
+                 ({"state": "ready", "urgent": 5, "done_at": 5}, False),
+                 ({"state": "todo", "urgent": True}, False), ({"state": "todo", "urgent": "5"}, False), ({"state": "todo", "urgent": 0}, False),
+                 ({"state": "todo", "urgent": None}, False), ({"state": "migrated", "urgent": 5}, False)]
+        for t, want in cases:
+            self.assertIs(urgent_now(t), want, t)
+
+    def test_pins(self):
+        """What the mark relies on in herdr-task: if one of these changes, adapt the patch (fork-patch skill, step 4)."""
+        import inspect
+        sys.path.insert(0, BIN)
+        from herdr_task import assistant_settings, browsers, commands, news
+        # the variable a task's worker shell carries (the agent check reads it)
+        self.assertEqual(browsers.browser_env("shop#1", "sp1")[0], "HERDR_BROWSER_TASK=shop#1")
+        # edit: the mark's check, then the move, then the store for the other changes
+        src = inspect.getsource(commands.cmd_edit)
+        self.assertLess(src.index("urgent.check_before_move(args)"), src.index("move_task(args)"))
+        self.assertLess(src.index("move_task(args)"), src.index("with open_store(args) as s"))
+        # nothing that reopens a task forgets when it was done (the rule reads done_at)
+        pkg = os.path.join(BIN, "herdr_task")
+        for name in os.listdir(pkg):
+            if name.endswith(".py"):
+                with open(os.path.join(pkg, name)) as f:
+                    body = f.read()
+                self.assertNotRegex(body, r'pop\(\s*"done_at"', name)
+                self.assertNotRegex(body, r'for k in \([^)]*"done_at"', name)
+        # settings_pass tells a running chat a changed row by its label's digest, and the row's check sits before the send
+        src = inspect.getsource(assistant_settings.settings_pass)
+        for part in ("had = parse(labels.get(LABEL))", "now_digest = parse(digest(rs))", "if had == now_digest:",
+                     "changed = [r for r in rs if had.get(r[\"key\"]) != now_digest[r[\"key\"]]]"):
+            self.assertIn(part, src)
+        self.assertLess(src.index("urgent.for_running(changed, k)"), src.index("news_send(addr, text)"))
+        # news_line's tag: task and event first, the wait's kind, then the mark
+        store = Store([{"id": 4, "title": "Fix checkout", "state": "running", "space": "sp1", "urgent": 5}])
+        t = store.data["tasks"][0]
+        v = {"status": "needs", "needs": "reply", "why": "Which plan?"}
+        self.assertRegex(news.news_line(store, t, v, "waiting"),
+                         r'^<herdr-news task="SHEP-4" event="waiting" needs="reply" urgent="yes">"Fix checkout" is waiting: [^<]*</herdr-news>$')
+        t.pop("urgent")
+        self.assertRegex(news.news_line(store, t, v, "waiting"), r'^<herdr-news task="SHEP-4" event="waiting" needs="reply">')
+
+    # ---- news ----------------------------------------------------------------------------------
+
+    def news_setup(self, k=None):
+        AcceptCommandNews.setUp(self)
+        import herdr_task.urgent as urgent
+        self.store.data["tasks"] = [{"id": 4, "title": "Tidy footer", "state": "running", "space": "sp1"},
+                                    {"id": 5, "title": "Fix checkout", "state": "running", "space": "sp1"}]
+        self.status = {4: "working", 5: "working"}
+        self.labelled = []
+        # by default a running chat told what urgent means already (its label has the row)
+        self.k = k or self.k_of(settings=f"review:aaaaaa,{urgent.KEY}:{urgent._hash()}")
+        for mod, name, value in ((self.news, "live_agents", lambda key: []), (self.news, "stall_of", lambda *a: None),
+                                 (self.news, "view", lambda s, t, live=None: {"status": self.status[t["id"]], "needs": None, "why": None}),
+                                 (self.news, "hc_json", lambda *a: self.k if a[:2] == ("get", "asst-1") else {}),
+                                 (urgent, "run", lambda argv, **kw: self.labelled.append(argv))):
+            p = self.mock.patch.object(mod, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.news.news_pass({})  # a first look
+
+    def nth(self, n):
+        return next(t for t in self.store.data["tasks"] if t["id"] == n)
+
+    def test_news_of_an_urgent_task_says_so_and_comes_first(self):
+        self.news_setup()
+        self.nth(5)["urgent"] = 1
+        self.status.update({4: "ready", 5: "ready"})
+        self.news.news_pass({})
+        self.assertEqual(len(self.sent), 1)
+        lines = self.sent[0][1].split("\n")
+        self.assertEqual(lines, ['<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>',
+                                 '<herdr-news task="SHEP-4" event="ready">"Tidy footer" is ready</herdr-news>'])
+        # several urgent: first among themselves, in their usual order
+        self.sent.clear()
+        self.nth(4)["urgent"] = 1
+        self.nth(5).pop("urgent")
+        self.store.data["tasks"].append({"id": 6, "title": "Sort images", "state": "running", "space": "sp1", "urgent": 1})
+        self.status.update({4: "working", 5: "working", 6: "working"})
+        self.news.news_pass({})
+        self.status.update({4: "ready", 5: "ready", 6: "ready"})
+        self.news.news_pass({})
+        self.assertEqual([re.search(r'task="([^"]+)"', x).group(1) for x in self.sent[-1][1].split("\n")], ["SHEP-4", "SHEP-6", "SHEP-5"])
+
+    def test_the_mark_is_read_again_when_the_message_goes(self):
+        self.news_setup()
+        with self.mock.patch.object(self.news, "NEWS_SETTLE_MS", 10 ** 9):
+            self.nth(4)["urgent"] = 1
+            self.status.update({4: "ready", 5: "ready"})
+            self.news.news_pass({})  # queued: 4 marked, 5 not
+            self.assertEqual(self.sent, [])
+        # before it goes: 4 unmarked, 5 marked
+        self.nth(4).pop("urgent")
+        self.nth(5)["urgent"] = 1
+        self.news.news_pass({})
+        self.assertEqual(self.sent[0][1].split("\n"), ['<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>',
+                                                       '<herdr-news task="SHEP-4" event="ready">"Tidy footer" is ready</herdr-news>'])
+
+    def test_a_folder_scoped_pass_keeps_what_was_noted_for_other_lists(self):
+        self.news_setup()
+        with open(self.news.NEWS) as f:
+            st = json.load(f)
+        # queued earlier from another folder's list, urgent then; this pass doesn't read that list
+        st["outbox"] = [{"key": "blog#2", "space": "sp1", "folder": "blog", "event": "ready", "status": "ready", "stall": None,
+                         "text": '<herdr-news task="BLOG-2" event="ready" urgent="yes">"Draft post" is ready</herdr-news>', "at": int(time.time() * 1000) - 10000, "urgent": True}]
+        with open(self.news.NEWS, "w") as f:
+            json.dump(st, f)
+        self.status[5] = "ready"
+        self.news.news_pass({}, folder=self.tmp)
+        self.assertEqual(self.sent[0][1].split("\n"), ['<herdr-news task="BLOG-2" event="ready" urgent="yes">"Draft post" is ready</herdr-news>',
+                                                       '<herdr-news task="SHEP-5" event="ready">"Fix checkout" is ready</herdr-news>'])
+
+    def k_of(self, fg="claude", settings="review:aaaaaa,merge:bbbbbb"):
+        labels = {"herdr.role": "coordinator", "herdr.space": "sp1"}
+        if settings is not None:
+            labels["herdr.settings"] = settings
+        return {"address": "asst-1", "state": "live", "turn": 3, "foreground": {"name": fg}, "labels": labels}
+
+    def test_the_first_urgent_line_to_a_chat_not_told_yet_leads_with_what_it_means(self):
+        self.news_setup(self.k_of())
+        import herdr_task.urgent as urgent
+        self.nth(5)["urgent"] = 1
+        self.status[5] = "ready"
+        self.news.news_pass({})
+        lines = self.sent[0][1].split("\n")
+        import herdr_task.assistant_settings as aset
+        self.assertEqual(lines[0], f'<herdr-setting name="urgent" value="on" scope="everywhere">{urgent.NOTICE} {aset.NOTICE_END}</herdr-setting>')
+        self.assertTrue(lines[0].startswith('<herdr-setting name="urgent" value="on" scope="everywhere">New in Shepherdr: Urgent tasks: '))
+        self.assertTrue(lines[0].endswith(" if nothing, reply only <hc no-reply/>.</herdr-setting>"))
+        self.assertEqual(lines[1:], ['<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>'])
+        # its label has the row now, the rest as it was (settings_pass still tells what else changed)
+        [label] = self.labelled
+        self.assertEqual(label[:3], ["hc", "label", "asst-1"])
+        told = dict(x.split(":") for x in label[3].split("=", 1)[1].split(","))
+        self.assertEqual(set(told), {"review", "merge", "urgent"})
+        self.assertEqual((told["review"], told["merge"]), ("aaaaaa", "bbbbbb"))
+        # told: the next urgent line goes alone
+        self.k["labels"]["herdr.settings"] = label[3].split("=", 1)[1]
+        self.status[5] = "working"
+        self.news.news_pass({})
+        self.status[5] = "ready"
+        self.news.news_pass({})
+        self.assertFalse(any(x.startswith("<herdr-setting") for x in self.sent[-1][1].split("\n")))
+        self.assertEqual(len(self.labelled), 1)
+
+    def test_no_notice_without_an_urgent_line_nor_to_a_shell_or_a_chat_just_started(self):
+        just_started = self.k_of(settings=None)
+        just_started["turn"] = 0
+        for k, urgent_line in ((self.k_of(), False), (self.k_of(fg="zsh"), True), (just_started, True)):
+            with self.subTest(k=k, urgent=urgent_line):
+                self.news_setup(k)
+                if urgent_line:
+                    self.nth(5)["urgent"] = 1
+                self.status[5] = "ready"
+                self.news.news_pass({})
+                self.assertFalse(any(x.startswith("<herdr-setting") for x in self.sent[0][1].split("\n")), self.sent)
+                self.assertEqual(self.labelled, [])
+
+    def test_a_shell_in_front_gets_no_mark(self):
+        """news_send starts a chat with a shell in front again, its news its first message: the mark never goes that way
+        (its new session's settings note says what urgent means, and `list` which tasks are)."""
+        self.news_setup(self.k_of(fg="zsh"))
+        self.nth(5)["urgent"] = 1
+        self.status.update({4: "ready", 5: "ready"})
+        self.news.news_pass({})
+        self.assertNotIn("urgent=", self.sent[0][1])
+        self.assertIn('<herdr-news task="SHEP-5" event="ready">"Fix checkout" is ready</herdr-news>', self.sent[0][1])
+
+    def test_a_running_chat_never_labelled_hears_what_it_means_first(self):
+        """One started before Shepherdr told chats their settings: the notice leads its urgent line too; its label is
+        left for settings_pass, which tells it the whole block once."""
+        self.news_setup(self.k_of(settings=None))
+        self.nth(5)["urgent"] = 1
+        self.status[5] = "ready"
+        self.news.news_pass({})
+        lines = self.sent[0][1].split("\n")
+        self.assertTrue(lines[0].startswith('<herdr-setting name="urgent"'))
+        self.assertEqual(lines[1], '<herdr-news task="SHEP-5" event="ready" urgent="yes">"Fix checkout" is ready</herdr-news>')
+        import herdr_task.urgent as urgent
+        self.assertEqual(self.labelled, [["hc", "label", "asst-1", f"herdr.urgent={urgent._hash()}"]])
+        self.assertNotIn("herdr.settings", " ".join(self.labelled[0]))
+
+    # ---- the settings note ------------------------------------------------------------------------
+
+    def settings_setup(self):
+        AssistantSettings.setUp(self)
+        self.write = types.MethodType(AssistantSettings.write, self)
+        self.assistant = types.MethodType(AssistantSettings.assistant, self)
+
+    def test_the_row_in_every_chats_settings_note(self):
+        self.settings_setup()
+        self.assistant()
+        note = self.aset.session_note("t5")
+        import herdr_task.urgent as urgent
+        self.assertIn(f"\n- Urgent tasks: {urgent.TEXT}\n", note)
+        self.assertIn("urgent", self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"]))
+        for words in ("`urgent: true` in `herdr-task list --json`", "`urgent=\"yes\"` on its news", "before other tasks'",
+                      "as soon as only they can settle it", "only when the person asks", "`herdr-task edit <id> --urgent` / `--urgent off`"):
+            self.assertIn(words, urgent.TEXT)
+
+    def test_a_running_chat_gets_the_row_once_and_one_a_shell_is_in_front_of_none(self):
+        self.settings_setup()
+        self.assistant()
+        self.aset.session_note("t5")
+        told = self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"])
+        before = ",".join(f"{k}:{v}" for k, v in told.items() if k != "urgent")  # as an older herdr-task labelled it
+        self.terminals["t5"]["labels"]["herdr.settings"] = before
+        self.assistant("t6", "sp2", **{"herdr.settings": before})
+        self.terminals["t6"]["foreground"] = {"name": "zsh"}  # its agent ended: a plain shell in front
+        report = {}
+        self.aset.settings_pass(report, {})
+        self.assertEqual([a for a, _ in self.sent], ["t5"])  # nothing to t6: sending would start it again
+        import herdr_task.urgent as urgent
+        self.assertEqual(self.sent[0][1], f'<herdr-setting name="urgent" value="on" scope="everywhere">{urgent.NOTICE} '
+                                          f'{self.aset.NOTICE_END}</herdr-setting>')
+        self.assertEqual(report["settings"], [{"to": "t5", "changed": ["urgent"]}])
+        self.assertIn("urgent", self.aset.parse(self.terminals["t5"]["labels"]["herdr.settings"]))
+        self.assertEqual(self.terminals["t6"]["labels"]["herdr.settings"], before)  # its next start's note says it
+        self.write({})
+        self.aset.settings_pass({}, {})
+        self.assertEqual(len(self.sent), 1)  # once
+        # t6's shell, with another setting changed too: that one goes as before, without the row
+        self.write({"everywhere": {"tasks": {"merge": "auto"}}})
+        self.aset.settings_pass({}, {})
+        self.assertEqual([a for a, _ in self.sent], ["t5", "t5", "t6"])
+        self.assertNotIn('name="urgent"', self.sent[2][1])
+        self.assertIn('name="merge"', self.sent[2][1])
+
+    def test_the_whole_block_to_a_chat_never_labelled_has_the_row_only_while_its_agent_runs(self):
+        """settings_pass tells one started before chats were told their settings the whole block once: with its row only
+        to a running agent; to a shell in front (sending starts it again) without it."""
+        self.settings_setup()
+        self.assistant("t5", "sp1")
+        self.assistant("t6", "sp2")
+        self.terminals["t6"]["foreground"] = {"name": "zsh"}
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertTrue(sent["t5"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertIn("\n- Urgent tasks: ", sent["t5"])
+        self.assertTrue(sent["t6"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertNotIn("Urgent tasks", sent["t6"])
+        self.assertNotIn("urgent", self.aset.parse(self.terminals["t6"]["labels"]["herdr.settings"]))
+
+    def test_a_chat_the_news_told_hears_it_once(self):
+        """Round 2 of its review: a chat never labelled that a news lead told (herdr.urgent) gets the whole block without
+        the row, and the pass after only notes it, sending nothing; a running chat not told gets it in the block."""
+        self.settings_setup()
+        import herdr_task.urgent as urgent
+        self.assistant("t5", "sp1", **{urgent.TOLD: urgent._hash()})
+        self.assistant("t7", "sp1")
+        self.aset.settings_pass({}, {})
+        sent = dict(self.sent)
+        self.assertTrue(sent["t5"].startswith('<herdr-setting name="all">Your settings: '))
+        self.assertNotIn("Urgent tasks", sent["t5"])
+        self.assertIn("\n- Urgent tasks: ", sent["t7"])
+        self.sent.clear()
+        self.write({})  # the next pass at once
+        self.aset.settings_pass({}, {})
+        self.assertEqual(self.sent, [])
+        for addr in ("t5", "t7"):
+            self.assertEqual(self.aset.parse(self.terminals[addr]["labels"]["herdr.settings"]).get(urgent.KEY), urgent._hash())

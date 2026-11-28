@@ -8,6 +8,7 @@ from .agents import (
     stopped_facts, task_status,
 )
 from .queues import waiting_ext, waiting_for
+from .urgent import shown as urgent_shown
 
 
 # ---- output ---------------------------------------------------------------------------------
@@ -48,6 +49,7 @@ def view(s, task, live=None):
     v["ref"], v["prefix"] = s.ref(task), s.prefix
     v["waiting_for"] = waiting_for(s, task)
     v["waiting_ext"] = waiting_ext(task)
+    urgent_shown(v, task)  # dmalis/shepherdr#119
     return v
 
 
