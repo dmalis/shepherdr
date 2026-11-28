@@ -13,6 +13,8 @@
     "web/src/outbox.ts",
     "web/src/toasts.ts",
     "web/src/list.tsx",
+    "web/src/commands.ts",
+    "web/plugins/chat/client.tsx",
     "web/plugins/files/client.tsx",
     "web/plugins/files/files.css",
     "web/plugins/files/paths.ts",
