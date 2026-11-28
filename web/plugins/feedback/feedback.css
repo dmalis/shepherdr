@@ -74,3 +74,8 @@ a.btn.fb-gh{color:inherit;text-decoration:none}
 .fb-st .i{flex:none;margin-block-start:calc((var(--secl) - 16px) / 2);color:var(--muted)}
 .fb-st.fixed .i{color:var(--green)}
 .fb-st>span{min-width:0}
+/* on this machine (slice 6): Try it is the fix's own words, at the row's fix line size, its label quiet as Fix:'s is; a
+   row that came back says so first, on the status line's size */
+.fb-try{color:var(--fg);overflow-wrap:anywhere;text-wrap:pretty}
+.fb-try .fb-k{color:var(--muted)}
+.fb-st.back{color:var(--fg)}

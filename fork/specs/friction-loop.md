@@ -631,6 +631,18 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   and its comment is a draft; a report after Works is "came back".
 - **Demo:** on a throwaway root and store: install, close the fake issue with a commit the build has, `--track`: On
   this machine, Try it.
+- **As built:** the look lives in its own module, `feedback_ship.py`; `feedback.py` (report, list, the call),
+  `feedback_track.py` (after each `--track`) and `feedback_post.py` (a posted comment ends came back) call it in one
+  line each. The install's build is its checkout's HEAD when the checkout is its own repo and clean; a pack carries
+  its sender's as `.shepherdr-build.json`, and an installed folder packed on carries its record's while none of its
+  files changed. The closing commit is read once per close (a reopen drops it); the release is the oldest of the
+  newest stable tags of the issue's own repo that contain it, looked for again on each read until one does; the
+  build is compared where the issue is, then in the feedback repo (a fork's build is unknown upstream). Reads show
+  `shipped` only for the build installed now, so a build change clears On this machine before any read, and the next
+  `--track` looks again for the new build. `--installed <build> --issues <url>…` may add `--try-it <url> "<words>"`;
+  without one, Try it is the first line of the draft's Expected. Works ends the following and folds into Fixed a day
+  later; Still broken keeps what was posted as `before`, so its comment can be drafted, approved and posted like any
+  other. The Feedback count adds fixes on this machine not tried yet.
 
 ### Slice 7: report from a failed action
 

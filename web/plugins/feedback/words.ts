@@ -48,6 +48,17 @@ export const W = {
   foundIt: 'Found on GitHub: filed',
   // slice 5: GitHub's side of a filed issue
   trackFailed: 'GitHub isn’t reachable here: this is the last it showed',
+  // slice 6: on this machine, and whether it works
+  fixed: 'Fixed',
+  here: 'On this machine',
+  tryIt: 'Try it:',
+  works: 'Works',
+  broken: 'Still broken',
+  worked: 'Works on this machine',
+  unknown: 'This machine’s build isn’t known, so only you can tell whether the fix is here',
+  worksDone: 'Noted: it works',
+  brokenDone: 'Back under Found',
+  backIssue: 'Its issue',
 } as const
 
 /** Not now's menu, in the order Linear's Snooze and iOS Mail's Remind me list theirs */
@@ -64,7 +75,7 @@ export const writeUpText = (line: string) => `Write up the feedback about “${l
 export function sectionsOf(list: FeedbackList | undefined) {
   const rows = list?.rows ?? []
   const of = (s: FeedbackRow['section']) => rows.filter((r) => r.section === s)
-  return { found: of('found'), filed: of('filed'), later: of('later'), declined: of('declined') }
+  return { found: of('found'), filed: of('filed'), later: of('later'), declined: of('declined'), fixed: of('fixed') }
 }
 
 /** a herdr space id ("sp3", "vm/sp3") and its chat's key ("p:sp3", "p:vm:sp3"), both ways (service/compat.ts placeKey).
@@ -167,6 +178,35 @@ export function outcomeWords(o: Outcome): { icon: 'check' | 'x' | 'clock' | 'cop
   if (c) return { icon, fixed, lead: 'Closed as a duplicate of ', link: { title: c.title, url: c.url }, tail: whichWords(c) }
   return { icon, fixed, lead: issueWords(o) }
 }
+
+/** a fixed row's status line (slice 6), only from what herdr-task proved: the person's Works first, then its fix on this
+ *  machine (this build has the closing commit, or its install said so), then a release with it that this machine is
+ *  older than, then the release alone. null: the row says GitHub's side (outcomeWords) instead */
+export function shipWords(r: Pick<FeedbackRow, 'ship' | 'tried'>): { icon: 'check' | 'clock'; fixed: boolean; text: string } | null {
+  if (r.tried?.result === 'works') return { icon: 'check', fixed: true, text: W.worked }
+  const s = r.ship
+  if (!s) return null
+  if (s.here) return { icon: 'check', fixed: true, text: s.release ? `Fixed in ${s.release} · ${W.here}` : W.here }
+  if (s.update && s.release) return { icon: 'clock', fixed: false, text: `Fixed in ${s.release}: update Shepherdr to get it` }
+  if (s.release) return { icon: 'check', fixed: true, text: `Fixed in ${s.release}` }
+  return null
+}
+
+/** whether the row asks the person to try it: its fix is here (or this machine's build isn't known), not tried yet */
+export const tryable = (r: Pick<FeedbackRow, 'ship' | 'tried' | 'section'>) =>
+  r.section === 'filed' && !r.tried && !!(r.ship?.here || r.ship?.unknown)
+
+/** what to do to see the fix: the install's own words, else the first line of the draft's Expected (what should happen) */
+export function tryWords(r: Pick<FeedbackRow, 'ship' | 'draft'>): string | null {
+  if (r.ship?.tryIt) return r.ship.tryIt
+  const m = /(?:^|\n)## Expected\n+([\s\S]*?)(?:\n## |$)/.exec(r.draft?.body ?? '')
+  const t = m?.[1].trim().split('\n')[0]?.trim()
+  return t ? t.slice(0, 200) : null
+}
+
+/** a row that came back under Found (slice 6): why */
+export const cameBackWords = (b: NonNullable<FeedbackRow['back']>) =>
+  b.why === 'broken' ? 'Came back: it still happens with its fix installed' : 'Came back: it happened again after its fix'
 
 /** a row that follows an issue the check found (Follow this one): nothing was posted */
 export const followingWords = (title: string) => `Following “${title}”`

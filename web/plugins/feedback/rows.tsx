@@ -11,7 +11,7 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
@@ -101,6 +101,37 @@ function OutcomeView({ o }: { o: NonNullable<FeedbackRow['outcome']> }) {
   )
 }
 
+/** a fixed row's status (slice 6): Works, On this machine with what to try, or the release that has it; GitHub's side
+ *  (OutcomeView) when none of that is known. Try it follows TestFlight's "What to Test" and Linear's release notes:
+ *  one plain line of what to do and what to see, under the status */
+function ShipView({ r }: { r: FeedbackRow }) {
+  const w = shipWords(r)
+  const ask = tryable(r)
+  const t = ask ? tryWords(r) : null
+  return (
+    <>
+      {w ? (
+        <p className={cx('fb-st', w.fixed && 'fixed')}><I n={w.icon} c="s16" /><span>{w.text}</span></p>
+      ) : r.outcome && <OutcomeView o={r.outcome} />}
+      {w && r.outcome?.failed && <p className="fb-note">{W.trackFailed}</p>}
+      {t && <p className="fb-try"><span className="fb-k">{W.tryIt}</span> {t}</p>}
+      {ask && r.ship?.unknown && !r.ship.here && <p className="fb-note">{W.unknown}</p>}
+    </>
+  )
+}
+
+/** the person's Works or Still broken (slice 6): kept for the build installed now; Still broken brings it back under
+ *  Found with a comment for its issue to file */
+export async function tried(r: FeedbackRow, result: 'works' | 'broken'): Promise<boolean> {
+  const a = await call({ do: result, key: r.id })
+  if (!a.ok) {
+    notice(a.error!, { tone: 'error' })
+    return false
+  }
+  notice(result === 'works' ? W.worksDone : W.brokenDone, { tone: 'ok' })
+  return true
+}
+
 /** where a row's space is now: its place, and whether Write it up reaches it */
 export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'>): { place?: Place; why?: 'gone' | 'away' | 'asleep' } {
   const place = r.space ? snap.places.find((p) => p.chat === chatOfSpace(r.space!)) : undefined
@@ -132,7 +163,16 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     openMenu(el, LATER.map((x) => ({ label: x.label, run: () => void run('later', () => decide(r, 'later', x.when), true) })), { label: W.notNow })
   const btns = () => {
     if (r.section === 'filed' && postWords(r)) return postBtns()
-    if (r.section === 'filed') return r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
+    const gh = r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
+    // its fix is here (slice 6): Works is the row's one primary; Still broken sends it back under Found
+    if (tryable(r)) return (
+      <>
+        <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'works' && 'going')} onClick={() => void run('works', () => tried(r, 'works'), false)}>{W.works}</Btn>
+        <Btn small disabled={!!busy} className={cx(busy === 'broken' && 'going')} onClick={() => void run('broken', () => tried(r, 'broken'), true)}>{W.broken}</Btn>
+        {gh}
+      </>
+    )
+    if (r.section === 'filed' || r.section === 'fixed') return gh
     if (r.section === 'later') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'later'), true)}>{W.restore}</Btn>
     if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'declined'), true)}>{W.undo}</Btn>
     const never = <Btn small disabled={!!busy} onClick={() => void run('no', () => decide(r, 'no'), true)}>{W.never}</Btn>
@@ -170,6 +210,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
   }
   const note = r.section === 'later' ? backWords(r.until, now)
     : r.section === 'filed' ? filedWords(r)
+    : r.section === 'fixed' ? ''
     : r.off ? offWords(where)
     : r.section === 'found' && o.why ? elsewhereWords(where, o.why) : ''
   return (
@@ -178,9 +219,15 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
         <p className="fb-line">{r.line}</p>
         <p className={cx('fb-fix', !r.fix && 'none')}>{r.fix ? <><span className="fb-k">Fix:</span> {r.fix}</> : W.noFix}</p>
         <p className="fb-meta">{metaOf(r, where, now)}</p>
+        {r.back && r.section === 'found' && (
+          <p className="fb-st back">
+            <I n="reload" c="s16" />
+            <span>{cameBackWords(r.back)}{r.back.issue && <>{' · '}<a className="fb-ml" href={r.back.issue} target="_blank" rel="noreferrer">{W.backIssue}</a></>}</span>
+          </p>
+        )}
         {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
-        {r.section === 'filed' && r.outcome && !postWords(r) && <OutcomeView o={r.outcome} />}
+        {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} />}
         <div className="fb-acts">{btns()}</div>
       </div>
     </li>
@@ -385,6 +432,7 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
             <div className="fb-folds">
               <Section id="later" name={W.later} rows={s.later} snap={snap} now={now} fold />
               <Section id="declined" name={W.declined} rows={s.declined} snap={snap} now={now} fold />
+              <Section id="fixed" name={W.fixed} rows={s.fixed} snap={snap} now={now} fold />
             </div>
           </>
         )}
