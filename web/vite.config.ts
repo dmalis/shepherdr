@@ -8,6 +8,7 @@ import { buildStamp } from './build-stamp.ts'
 import { STAMP_ID, stampJson } from './shared/build-stamp.ts'
 import { changelog, onTopCount } from './changelog.ts'
 import { CHANGELOG_ID } from './shared/changelog.ts'
+import { compressAssets } from './compress.ts'
 
 const at = (p: string) => fileURLToPath(new URL(p, import.meta.url))
 
@@ -27,7 +28,9 @@ export default defineConfig({
   root: at('./'),
   base: './',
   plugins: [react(), { name: 'shepherdr-version', transformIndexHtml: () => [{ tag: 'meta', attrs: { name: 'shepherdr-version', content: VERSION }, injectTo: 'head' }, ...(STAMP ? [{ tag: 'script', attrs: { type: 'application/json', id: STAMP_ID }, children: stampJson(STAMP), injectTo: 'head' as const }] : [])] },
-    { name: 'shepherdr-changelog', resolveId: (id) => (id === CHANGELOG_ID ? '\0' + id : null), load: (id) => (id === '\0' + CHANGELOG_ID ? `export default ${JSON.stringify(LOG)}` : null) }],
+    { name: 'shepherdr-changelog', resolveId: (id) => (id === CHANGELOG_ID ? '\0' + id : null), load: (id) => (id === '\0' + CHANGELOG_ID ? `export default ${JSON.stringify(LOG)}` : null) },
+    // a brotli and a gzip copy of each hashed file, for the service to send (fork patch #148)
+    compressAssets()],
   // Zoom (Settings › General): every px of the CSS times --zoom
   css: { postcss: { plugins: [zoomCss()] } },
   resolve: { alias: { '@shared': at('./shared'), '@client': at('./src'), '@plugins': at('./plugins'), '@core': at('../core') } },

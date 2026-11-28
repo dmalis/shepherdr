@@ -1,0 +1,15 @@
+{
+  "issue": 148,
+  "name": "the app's files sent compressed, cached right",
+  "files": [
+    "service/static.ts",
+    "service/main.ts",
+    "web/compress.ts",
+    "web/vite.config.ts",
+    "web/demo/live.ts",
+    "docs/design.md"
+  ],
+  "tests": [
+    "service/static.test.ts"
+  ]
+}

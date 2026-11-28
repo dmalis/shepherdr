@@ -23,7 +23,9 @@ Bun.serve<{ url: string; up?: WebSocket; early: (string | Uint8Array)[]; proto?:
     const headers = new Headers(req.headers)
     for (const h of ['origin', 'host', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']) headers.delete(h)
     headers.set('authorization', `Bearer ${token}`)
-    const r = await fetch(`http://${base}${url.pathname}${url.search}`, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer(), redirect: 'manual' })
+    // decompress: false passes the service's compressed files on as they are (Bun's fetch unpacks them but keeps their
+    // content-encoding, which the page would then fail to read)
+    const r = await fetch(`http://${base}${url.pathname}${url.search}`, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer(), redirect: 'manual', decompress: false } as RequestInit)
     return new Response(r.body, { status: r.status, headers: r.headers })
   },
   websocket: {

@@ -12,7 +12,7 @@ import { useSession } from "./session.ts";
 import { spawn } from "./spawn.ts";
 useSession();
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, rmSync, watchFile } from "node:fs";
-import { join, normalize } from "node:path";
+import { join } from "node:path";
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
 import { DATA, SOCK, TOKEN, PORT, HOME, ensureData, settingsFile, where } from "./paths.ts";
@@ -21,6 +21,7 @@ import { gate, localCaller, type Gate } from "./auth.ts";
 import { refusedWhy, trustedPeer } from "./peer.ts";
 import { whoami, share, served, unshare, restoreShare, httpsPort, webLink, webOrigin, deviceOf, forwardedFrom, HTTPS_PORT_FILE, type Me } from "./tailscale.ts";
 import { qrFile } from "./qr.ts";
+import { webFile } from "./static.ts";
 import { Hub } from "./hub.ts";
 import { Store } from "./store.ts";
 import { Host } from "./host.ts";
@@ -596,18 +597,8 @@ setInterval(tailnet, 60_000);
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
-function file(path: string): Response {
-  const rel = normalize(path).replace(/^(\.\.[/\\])+/, "").replace(/^\/+/, "");
-  let p = join(WEB, rel);
-  if (!p.startsWith(WEB) || !existsSync(p) || rel === "") p = join(WEB, "index.html");
-  if (!existsSync(p)) return new Response("The web app isn't built: run bun run build.", { status: 503 });
-  const immutable = rel.startsWith("assets/");
-  return new Response(Bun.file(p), { headers: {
-    "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
-    "x-content-type-options": "nosniff",
-    "referrer-policy": "no-referrer",
-  } });
-}
+// the web app's files, compressed when the browser takes it (fork patch #148, service/static.ts)
+const file = (path: string, req: Request): Response => webFile(WEB, path, req.headers.get("accept-encoding"));
 
 // what a voice call reads of a chat
 function chatView(addr: string): ChatView {
@@ -1270,7 +1261,7 @@ const server = Bun.serve<{ who: string }>({
       return json(id ? { ok: true, id } : { ok: false });
     }
     if (path.startsWith("/api/")) return json({ error: "not found" }, 404);
-    return file(path);
+    return file(path, req);
   },
   websocket: {
     open(ws) {
