@@ -11,7 +11,7 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
@@ -28,10 +28,10 @@ export async function call(b: Record<string, unknown>): Promise<Answer> {
 
 /** The box's Send: kept as the person's report first; the text leaves the box only once it is kept. : the open
  *  place's chat key, which names its space */
-export async function saveBox(text: string, chat: string, setText: (v: string) => void): Promise<Answer> {
+export async function saveBox(text: string, chat: string, setText: (v: string) => void, action?: string): Promise<Answer> {
   const t = text.trim()
   if (!t) return { ok: false, error: 'Write what should be better first.' }
-  const r = await call({ do: 'report', text: t, space: spaceOfChat(chat) })
+  const r = await call({ do: 'report', text: t, space: spaceOfChat(chat), ...(action ? { action } : {}) })
   if (r.ok) setText('')
   return r
 }
@@ -228,14 +228,71 @@ function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: 
 
 /** what the box held when the page closed: it waits there until it is sent (the composer keeps its drafts too) */
 let draft = ''
+/** a failed action's Report (slice 7, report.ts): its label and the space it acted in, kept with the box's words until
+ *  they are sent or cleared; `words` what it put there */
+let reported: { action: string; place: string; words: string } | null = null
+let focusBox = false
+const prefilled = new Set<() => void>()
 
-function Box({ snap, place }: { snap: Snapshot; place: string }) {
+/** an empty box, as a fresh page load has it (a test's clean start) */
+export function clearBox() {
+  draft = ''
+  reported = null
+  focusBox = false
+}
+
+/** the box's words once Report put its line in: an unsent draft of the person's own stays, under it; an earlier
+ *  Report's untouched words give way */
+export function boxWith(draft: string, before: string | undefined, words: string) {
+  const own = draft.trim() && draft.trim() !== before
+  return own ? `${words}\n\n${draft.trim()}` : words
+}
+
+/** Report's words in the box, for the person to add to and send; nothing is sent here */
+export function prefillBox(words: string, action: string, place: string) {
+  draft = boxWith(draft, reported?.words, words)
+  reported = { action, place, words }
+  focusBox = true
+  prefilled.forEach((f) => f())
+}
+
+function Box({ snap, place: open }: { snap: Snapshot; place: string }) {
   const [text, setTextNow] = useState(draft)
-  const setText = (v: string) => { draft = v; setTextNow(v) }
+  const [from, setFrom] = useState(reported)
+  const setText = (v: string) => {
+    draft = v
+    setTextNow(v)
+    if (!v.trim()) {
+      reported = null
+      setFrom(null)
+    }
+  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
   useGrow(box, text)
+  // Report fills the box (on the page already, or as it opens), and puts the caret after its words
+  useEffect(() => {
+    const take = () => {
+      setTextNow(draft)
+      setFrom(reported)
+      setError('')
+      if (!focusBox) return
+      focusBox = false
+      requestAnimationFrame(() => {
+        const el = box.current
+        if (!el) return
+        el.focus()
+        const end = reported ? reported.words.length : el.value.length
+        el.setSelectionRange(end, end)
+      })
+    }
+    prefilled.add(take)
+    if (focusBox) take()
+    return () => void prefilled.delete(take)
+  }, [])
+  // a Report's space is the one it acted in, while it is still here
+  const place = from && snap.places.some((p) => p.id === from.place) ? from.place : open
   const where = isEverything(snap, place) ? 'Everything' : spaceLabel(snap, place) || 'Everything'
   const chat = snap.places.find((p) => p.id === place)?.chat ?? everything(snap)?.chat ?? ''
   const send = async () => {
@@ -244,10 +301,13 @@ function Box({ snap, place }: { snap: Snapshot; place: string }) {
     setError('')
     const sent = text.trim()
     // kept: the box empties only if it still holds what was sent (what was typed meanwhile stays)
-    const r = await saveBox(text, chat, (v) => { if (draft.trim() === sent) setText(v) })
+    const r = await saveBox(text, chat, (v) => { if (draft.trim() === sent) setText(v) }, from?.action)
     setBusy(false)
-    if (r.ok) notice(W.saved, { tone: 'ok' })
-    else setError(r.off ? W.boxOff : r.error!)
+    if (r.ok) {
+      reported = null
+      setFrom(null)
+      notice(W.saved, { tone: 'ok' })
+    } else setError(r.off ? W.boxOff : r.error!)
   }
   return (
     <form className="fb-box" onSubmit={(e) => { e.preventDefault(); void send() }}>
@@ -256,7 +316,7 @@ function Box({ snap, place }: { snap: Snapshot; place: string }) {
           placeholder={W.box} value={text} onChange={(e) => { setText(e.target.value); if (error) setError('') }}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send() } }} />
         <div className="cbar">
-          <span className="fb-from">{fromBox(where)}</span>
+          <span className="fb-from">{from ? fromAction(from.action, where) : fromBox(where)}</span>
           <span className="sp" />
           <DictateButton setText={setText} scope="feedback" />
           <Btn kind="pri" small type="submit" className={cx(busy && 'going')} aria-busy={busy || undefined}>{busy ? W.saving : W.send}</Btn>

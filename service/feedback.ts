@@ -19,6 +19,8 @@ export type Runner = (args: string[]) => Promise<Ran>;
 const KEY = /^[A-Za-z0-9][\w-]{0,39}$/;
 const SPACE = /^(?:[\w.][\w.-]{0,79}\/)?[\w.~][\w.~-]{0,79}$/;
 const WHEN = new Set(["tomorrow", "week", "again"]);
+// a failed action's label from the app's fixed list (slice 7: its error's Report), as herdr-task takes it: plain words only
+const ACTION = /^[A-Z][a-z]*(?: [a-z-]+){0,4}$/;
 const EXPECT = new Set(["later", "declined", "following"]);
 const REASONS = new Set(["completed", "not_planned", "duplicate"]);
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -283,7 +285,9 @@ export function argsOf(b: any): string[] {
       if (typeof b.space !== "string" || !SPACE.test(b.space)) throw new Error("That space isn't here any more.");
       const long = text.length > LINE_MAX || text.includes("\n");
       // the line last, after --: one that starts like a flag is still the line
-      return ["--person", "--space", b.space, ...(long ? [`--details=${text}`] : []), "--json", "--", text];
+      if (b.action !== undefined && (typeof b.action !== "string" || b.action.length > 40 || !ACTION.test(b.action))) throw new Error("That action isn't one the app knows.");
+      const from = typeof b.action === "string" ? ["--action", b.action] : [];
+      return ["--person", ...from, "--space", b.space, ...(long ? [`--details=${text}`] : []), "--json", "--", text];
     }
     case "later":
       if (!WHEN.has(b.when)) throw new Error("Not now is tomorrow, next week or when it happens again.");

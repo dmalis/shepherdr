@@ -386,6 +386,7 @@ def main():
     c.add_argument("--all", action="store_true", help="--list: every problem kept, in every space and state (read only)")
     c.add_argument("--space", help="the space a report comes from, for a caller outside any space (the web app)")
     c.add_argument("--person", action="store_true", help="the person's own report or No, from the Feedback page (never an agent)")
+    c.add_argument("--action", metavar="LABEL", help="--person: the label of the app's action that failed (\"Mark as done\"), from its error's Report")
     c.add_argument("--title", help="--file: the issue's title (default: the one line)")
     c.add_argument("--surface", choices=["web", "window", "both"], help="--file: where the person used Shepherdr")
     c.add_argument("--repo", help=argparse.SUPPRESS)  # a test's throwaway repo; Settings' otherwise
