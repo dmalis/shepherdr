@@ -60,7 +60,8 @@ test('quick choices: this space only follows where you are, hide done, clear', (
 test('chips: one per choice that is on, each one takes itself off', () => {
   const f: TaskFilter = { state: ['working'], machine: ['vm'], space: ['shop', 'home'], repo: ['vm:/srv/shop'], here: true, hideDone: true }
   const chips = chipsOf(snap, f, 'blog')
-  expect(chips.map((c) => c.label)).toEqual(['#blog only', 'Done hidden', 'Working', 'vm', 'shop', 'Everything', 'shop'])
+  // fork UI 13: in the sheet's order, Project, Space, Machine, State
+  expect(chips.map((c) => c.label)).toEqual(['#blog only', 'Done hidden', 'shop', 'shop', 'Everything', 'vm', 'Working'])
   let g = f
   for (const c of chips) g = c.off(g)
   expect(g).toEqual(NO_FILTER)
@@ -76,7 +77,7 @@ test('the count follows what the list shows: what needs you in it', () => {
 })
 
 test('the choices come from the tasks there are; a space keeps its machine to tell two shops apart', () => {
-  expect(choices(snap, 'state', NO_FILTER).map((c) => `${c.label} ${c.n}`)).toEqual(['Needs you 1', 'Working 1', 'Ready for review 1', 'Up next 1', 'Scheduled 1', 'Stopped 1', 'Done 1', 'Archived 1'])
+  expect(choices(snap, 'state', NO_FILTER).map((c) => `${c.label} ${c.n}`)).toEqual(['Working 1', 'Ready for review 1', 'Up next 1', 'Scheduled 1', 'Stopped 1', 'Done 1', 'Archived 1'])
   expect(choices(snap, 'machine', NO_FILTER).map((c) => `${c.label} ${c.n}`)).toEqual(['mini 6', 'vm 2'])
   expect(choices(snap, 'space', NO_FILTER).map((c) => `${c.label} ${c.machine}`)).toEqual(['Everything mini', '#shop mini', '#blog mini', '#shop vm'])
 })
@@ -90,7 +91,8 @@ test('Repo is one more group (SHEP-325): picks add up, it narrows the others', (
   expect(ids({ repo: ['vm:/srv/shop'] })).toBe('DE')
   expect(ids({ repo: ['vm:/srv/shop', 'mini:/w/site'] })).toBe('ADE')
   expect(ids({ repo: ['vm:/srv/shop'], state: ['scheduled'] })).toBe('E')
-  expect(choices(snap, 'repo', NO_FILTER).map((c) => `${c.label} ${c.machine} ${c.n}`)).toEqual(['shop vm 2', 'site mini 1'])
+  // fork UI 13: no machine beside a name on one machine only
+  expect(choices(snap, 'repo', NO_FILTER).map((c) => `${c.label} ${c.machine ?? ''} ${c.n}`)).toEqual(['shop  2', 'site  1'])
   expect(chipsOf(snap, { ...NO_FILTER, repo: ['mini:/w/site'] }, 'shop').map((c) => [c.label, c.icon])).toEqual([['site', 'folder']])
 })
 
