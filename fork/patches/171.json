@@ -17,7 +17,8 @@
     "docs/design.md",
     "docs/develop.md",
     "test/test_design.py",
-    "web/src/viewport.test.ts"
+    "web/src/viewport.test.ts",
+    "web/plugins/voice/box.test.tsx"
   ],
   "tests": [
     "test/test_design.py::ReducedMotion",
