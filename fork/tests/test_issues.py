@@ -237,6 +237,10 @@ class IssuePass(World):
                             [], {20}, {20: {30: True}}, "ours-1-2", None)
         self.assertEqual(issues.status_at(edits[0]["body"])[2], "live since `ours-1-1`; #20: live; #30: live.")
         self.assertEqual((edits[0]["add"], edits[0]["remove"], edits[0]["close"]), ([], [], True))
+        # the pass before #233 put its own lead in front of a "live since" line (#105, #144): the first tag stays
+        text, _ = issues.carried_text("carried since `ours-3.2.22-82`. live since `ours-3.2.22-65` (built in #111); "
+                                      "not seen on a device yet.", "ours-3.2.22-90", {}, True)
+        self.assertEqual(text, "live since `ours-3.2.22-65` (built in #111); not seen on a device yet.")
         # an unquoted older tag keeps its sentence's full stop out
         text, _ = issues.carried_text("carried since ours-1-1. What it does: A.", "ours-1-2", {}, False)
         self.assertEqual(text, "live since ours-1-1. What it does: A.")

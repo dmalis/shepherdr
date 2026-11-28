@@ -43,6 +43,7 @@ PART = re.compile(r"#\d+(?: \([^()]*\))?: ")           # a fix's own part, on a 
 CLAUSE_END = re.compile(r"; |\. |\.$")
 # "live since `ours-…`", or the older "carried since `ours-…`, not filed yet": the tag is the first install's
 CARRIED = re.compile(r"(?:carried|live) since (`ours-[0-9][\w.-]*`|ours-[0-9](?:[\w.-]*\w)?)(?:, not filed yet\b)?")
+DOUBLED = re.compile(r"^(?:carried|live) since `?ours-[0-9][\w.-]*?`?(?:, not filed yet)?\.\s+(?=(?:carried|live) since )")
 LEAD_BUILDING = re.compile(r"^building\b[.,;:]?\s*", re.I)
 # a fix's part: "#30: building", "#30 (the spec): building", or a slice's "Slice 3 (what it is, #210): building"
 PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?\)?): building\b")
@@ -182,6 +183,10 @@ def carried_text(text, tag, landed, device):
     ({number: newly}, newly true when this install brought it)."""
     out = text
     newly_landed = False
+    # the pass before #233 didn't know "live since" and put its own lead in front of one: the older one is the first
+    # install's
+    while DOUBLED.match(out):
+        out = DOUBLED.sub("", out, count=1)
     had = CARRIED.search(out)
     if had:
         out = out[:had.start()] + f"live since {had.group(1)}" + out[had.end():]
