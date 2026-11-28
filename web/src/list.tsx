@@ -233,7 +233,7 @@ export function newSpaceDialog(machine?: string, pre?: { name: string; folder: s
       const [repoOff, setRepoOff] = useState(false)
       const offerRepo = !!info && offersRepo(untilde(path.replace(/\/+$/, ''), info.home), inRepo, info.home)
       // a folder that has its space already only opens that one: not offered among the recent ones
-      const has = new Set((snap?.places ?? []).filter((p) => (p.machine ?? snap.host) === m).map((p) => p.folder))
+      const has = new Set((snap?.places ?? []).filter((p) => (p.machine ?? snap.host) === m).flatMap((p) => (p.folder ? [p.folder] : [])))
       const ok = async () => {
         if (!path || busy) return
         setBusy(true)
