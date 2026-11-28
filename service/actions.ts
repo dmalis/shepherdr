@@ -85,7 +85,7 @@ async function sendNow(hub: Hub, b: any, compat: Compat, again = false) {
     if (put.code !== 0 || !landed) throw new Error("A file didn't reach that machine.");
     return landed;
   }));
-  const body = [messageBody({ text, quote: typeof b.quote === "string" ? b.quote.slice(0, 2000) : null, tags: typeof b.tags === "string" ? b.tags : "", task: typeof b.quoteTask === "string" ? b.quoteTask : null }), ...files].filter(Boolean).join("\n\n");
+  const body = [messageBody({ text, quote: typeof b.quote === "string" ? b.quote.slice(0, 2000) : null, tags: typeof b.tags === "string" ? b.tags : "", task: typeof b.quoteTask === "string" ? b.quoteTask : null, feedback: b.feedback ?? null }), ...files].filter(Boolean).join("\n\n");
   // held on purpose (Ctrl+Enter, a long press): it goes once the agent stops working
   const st = (hub.terminals.get(a) as any)?.status?.state;
   const cid = typeof b.cid === "string" ? b.cid.slice(0, 80) : undefined;

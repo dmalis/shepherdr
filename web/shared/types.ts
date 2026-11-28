@@ -1531,6 +1531,21 @@ export interface FeedbackRow {
   check?: { matches: FeedbackMatch[]; newest?: string; installed?: string; failed?: true }
   /** the issue it follows (the person's Follow this one): nothing was posted */
   following?: { title: string; url: string }
+  /** the text an Assistant wrote up for GitHub (slice 4): File it… shows it whole, Post it is the yes for this revision */
+  draft?: FeedbackDraft
+  /** the person said yes to this revision of the draft (Post it, or in chat) */
+  approved?: number
+  /** its post, once there was a yes: waiting (for the Assistant), posting, posted, refused (a clear no from GitHub before
+      anything was written: why), unsure (it may have gone out: never posted again, looked for by its hidden line) */
+  post?: { state: 'waiting' | 'posting' | 'posted' | 'refused' | 'unsure'; rev: number; why?: string }
+}
+
+/** a draft for GitHub: where it goes, its title and its body as posted (without the hidden line that finds it again) */
+export interface FeedbackDraft {
+  rev: number
+  target: { repo: string; action: 'create' | 'comment'; issue?: number; title?: string }
+  title: string
+  body: string
 }
 
 /** an issue on GitHub a check found that may be the same problem (a duplicate's canonical issue, when GitHub names one) */
@@ -1553,6 +1568,8 @@ export interface FeedbackList {
   off: boolean
   /** the record couldn't be read just now: the rows are the last ones read */
   error?: string
+  /** Everywhere's agents.feedback_note: the line File it… shows above Post it (what a post also starts, say) */
+  note?: string
 }
 
 export type Action =

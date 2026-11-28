@@ -3,6 +3,8 @@
 // --json`, read only): read when the record's file changes, at most every few seconds, and after each call. A read
 // that fails keeps the last list. The person's calls (Not now, Never, Undo, the box's report) run herdr-task's
 // person-only commands, outside any agent's terminal. Nothing here posts anywhere: the decisions stay on this machine.
+// Post it (slice 4) keeps the person's yes to one draft revision; the post itself is the Assistant's (herdr-task
+// feedback --file --rev), and Check again only reads GitHub.
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
@@ -71,6 +73,8 @@ export function offersOn(d: any, space?: string | null): boolean {
 export function sectionOf(p: any, now: number): FeedbackRow["section"] {
   if (p.state === "filed" || p.state === "filing" || p.url || p.decision === "following") return "filed";
   if (p.state === "declined" || p.decision === "declined") return "declined";
+  // the person's yes to a draft (slice 4): under Filed, each step of its post said there
+  if (p.decision === "approved" || postOf(p, now)) return "filed";
   if (p.decision === "later" && (p.until == null || p.until > now)) return "later";
   return "found";
 }
@@ -96,6 +100,34 @@ export function checkOf(p: any): FeedbackRow["check"] | undefined {
     ...(VERSION.test(c?.installed ?? "") ? { installed: c.installed } : {}),
     ...(p.check_error ? { failed: true as const } : {}),
   };
+}
+
+// Slice 4: a draft, the person's yes to one revision, and its post (herdr-task's feedback_post.py).
+const POSTS = new Set(["waiting", "posting", "posted", "refused", "unsure"]);
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+const MARK = /\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+ -->\s*$/;
+/** herdr-task's FILING_MS: a post marked posting this long ago never came back, so it may have gone out */
+export const POSTING_MS = 10 * 60_000;
+
+/** the draft as File it… shows it: where it goes, its title, and its body as posted without the hidden line */
+export function draftOf(p: any): FeedbackRow["draft"] | undefined {
+  const d = p?.draft, t = d?.target;
+  if (!d || !Number.isInteger(d.rev) || d.rev < 1 || typeof d.title !== "string" || typeof d.body !== "string") return undefined;
+  if (!t || !REPO.test(String(t.repo)) || (t.action !== "create" && t.action !== "comment")) return undefined;
+  if (t.action === "comment" && !Number.isInteger(t.issue)) return undefined;
+  const dupe = (Array.isArray(p.checked?.dupes) ? p.checked.dupes : []).find((m: any) => m?.number === t.issue && m?.repo === t.repo);
+  return { rev: d.rev, title: d.title, body: d.body.replace(MARK, ""),
+    target: { repo: t.repo, action: t.action, ...(t.action === "comment" ? { issue: t.issue } : {}),
+      ...(t.action === "comment" && typeof dupe?.title === "string" ? { title: dupe.title } : {}) } };
+}
+
+/** its post's step, as of now: a posting that never came back reads as unsure (herdr-task writes it so on its next look) */
+export function postOf(p: any, now: number): FeedbackRow["post"] | undefined {
+  const x = p?.post;
+  if (!x || !POSTS.has(x.state) || !Number.isInteger(x.rev)) return undefined;
+  const state = x.state === "posting" && now - (Number(x.started) || 0) > POSTING_MS ? "unsure" : x.state;
+  const why = typeof x.why === "string" && x.why ? x.why.split("\n")[0].slice(0, 200) : "";
+  return { state, rev: x.rev, ...(why && state === "refused" ? { why } : {}) };
 }
 
 /** herdr-task's rows as the page shows them: only what it draws (no report text), newest first */
@@ -125,10 +157,15 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...((c) => (c ? { check: c } : {}))(checkOf(p)),
       ...(p.decision === "following" && githubUrl(p.outcome?.url) ? { following: { title: String(p.outcome.title || p.outcome.issue || ""), url: githubUrl(p.outcome.url)! } } : {}),
       ...(!offersOn(settings, p.space) ? { off: true } : {}),
+      ...((d) => (d ? { draft: d } : {}))(draftOf(p)),
+      ...(p.decision === "approved" && Number.isInteger(p.approval?.rev) ? { approved: p.approval.rev } : {}),
+      ...((x) => (x ? { post: x } : {}))(postOf(p, now)),
     });
   }
   rows.sort((a, b) => b.at - a.at);
-  return { rows, found: rows.filter((r) => r.section === "found").length, off: settings?.everywhere?.agents?.feedback === false };
+  const note = settings?.everywhere?.agents?.feedback_note;
+  return { rows, found: rows.filter((r) => r.section === "found").length, off: settings?.everywhere?.agents?.feedback === false,
+    ...(typeof note === "string" && note.trim() ? { note: note.trim().slice(0, 300) } : {}) };
 }
 
 const settingsNow = () => { try { return readSettings(); } catch { return {}; } };
@@ -196,7 +233,7 @@ export class Feedback {
   }
 
   /** One of the person's calls from the page: report (the box), later, no, undo, follow. -> {ok, ...} or {ok: false, error} */
-  async act(b: any): Promise<{ ok: boolean; error?: string; off?: boolean; key?: string; changed?: boolean }> {
+  async act(b: any): Promise<{ ok: boolean; error?: string; off?: boolean; key?: string; changed?: boolean; filed?: boolean }> {
     if (!this.on()) return { ok: false, error: "Feedback is switched off in Settings › Plugins." };
     let args: string[];
     try { args = argsOf(b); } catch (e) { return { ok: false, error: (e as Error).message }; }
@@ -206,12 +243,32 @@ export class Feedback {
     if (this.reading) await this.reading;
     await this.read();
     if (r.code !== 0 || !out || out.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "That didn't work." };
+    // Post it (slice 4): the yes is kept, or was already (a second tap, another device): either way the chat is told
+    if (b.do === "approve") return out.approved === b.rev ? { ok: true, key: out.key, changed: out.changed } : { ok: false, error: NO_POST[out.why] ?? NO_POST.changed };
+    // Check again: found on GitHub (filed), or still not known (and never posted again)
+    if (b.do === "reconcile") return out.filed ? { ok: true, key: out.key, filed: true } : { ok: false, error: out.why === "unsure" ? STILL_UNSURE : "Nothing to look for: the list shows it as it is now." };
     // a decision already made (another device, a list that was old): said as it is, no Undo that would reverse theirs
     if (b.do !== "report" && out.changed === false) return { ok: false, error: "That was already decided: the list shows it as it is now." };
     if (b.do === "report" && out.why === "off") return { ok: false, off: true, error: "Feedback offers are off in that space, so nothing was kept. Settings › Agents › Feedback offers turns them on." };
     return { ok: true, key: out.key, changed: out.changed };
   }
 }
+
+/** why a Post it wasn't kept (herdr-task feedback_post.refusal's why), as the person reads it */
+const NO_POST: Record<string, string> = {
+  changed: "The draft changed since you opened it: open File it… again to see the new one.",
+  "no-draft": "There's no draft for this one yet: Write it up first.",
+  target: "Where it goes changed in Settings: Write it up again for the new place.",
+  filed: "It's already filed: the list shows it.",
+  following: "It already follows an issue on GitHub.",
+  posting: "It's being posted right now.",
+  unsure: "It may have been posted already, so it's never posted again: Check on GitHub.",
+  declined: "You said no to this one: Undo first.",
+  later: "It's put off: Restore it first.",
+  off: "Feedback offers are off in its space: nothing is posted from there.",
+};
+const STILL_UNSURE = "Still not found on GitHub: it isn't posted again. Check on GitHub, and post it there yourself if it isn't there.";
+const REV_MAX = 9999;
 
 /** the person's call as herdr-task's arguments; anything else is refused */
 export function argsOf(b: any): string[] {
@@ -243,6 +300,13 @@ export function argsOf(b: any): string[] {
       if (!url || !/\/issues\/\d+\/?$/.test(url)) throw new Error("That isn't an issue on GitHub.");
       return ["--key", key(), "--follow", url, "--json"];
     }
+    case "approve": {
+      // Post it (slice 4): the person's yes to the one revision File it… showed; the post is the Assistant's
+      if (!Number.isInteger(b.rev) || b.rev < 1 || b.rev > REV_MAX) throw new Error(NO_POST.changed);
+      return ["--key", key(), "--approve", String(b.rev), "--json"];
+    }
+    // Check again on a post that may have gone out: herdr-task reads GitHub for its hidden line, and posts nothing
+    case "reconcile": return ["--key", key(), "--reconcile", "--json"];
   }
   throw new Error("Shepherdr can't do that yet.");
 }

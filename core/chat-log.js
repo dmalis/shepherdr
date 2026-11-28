@@ -365,6 +365,8 @@ function cleanWords(t) {
   }
   // Task mentions (#4) come with a tag line each for the agent; the chat shows the "#4".
   t = replaceOutsideCode(t, /<hc task="[^"]*"[^>]*>[\s\S]*?<\/hc>\n?/g, "");
+  // The Feedback page's Post it (#94): <hc feedback id="…" rev="N"/> on a line of its own, for the Assistant only.
+  t = replaceOutsideCode(t, /^<hc feedback id="[^"]*" rev="\d+"\/>\n?/gm, "");
   // Herdr's own tags for the agent (<herdr-news>, <herdr-github>, ...), wherever they are in a
   // message: never shown, the words typed around them are. Not in code: a template's examples stay.
   t = replaceOutsideCode(t, /<(herdr-[\w-]+)\b[^>]*>[\s\S]*?<\/\1\s*>\n?/g, "");
