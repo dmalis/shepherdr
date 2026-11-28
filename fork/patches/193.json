@@ -1,0 +1,22 @@
+{
+  "issue": 193,
+  "name": "Readability: dim rows and control edges",
+  "files": [
+    "web/src/ds.css",
+    "web/src/styles.css",
+    "web/shared/view.ts",
+    "web/plugins/tasks/icon.tsx",
+    "web/plugins/tasks/client.tsx",
+    "web/demo/contrast-check.ts",
+    "web/demo/data.ts",
+    "docs/design.md",
+    "test/test_design.py",
+    "web/shared/view.test.ts",
+    "web/plugins/tasks/checks-card.test.tsx"
+  ],
+  "tests": [
+    "test/test_design.py::Contrast",
+    "web/shared/view.test.ts",
+    "web/plugins/tasks/checks-card.test.tsx"
+  ]
+}

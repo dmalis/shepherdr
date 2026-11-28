@@ -24,8 +24,8 @@ test('red is Needs you: a ring or a word is red only while the task waits on the
     task({ status: 'need', stopped: { by: 'limit' } }),
     task({ status: 'need', stopped: { by: 'you' } }),
     task({ status: 'need', stopped: { by: 'error' }, action: { id: 'a', owner: 'shepherdr', kind: 'prompt', what: '', since: 0 } }),
-    task({ status: 'ready', checksWait: { state: 'failed', line: 'A check failed · back to its agent to fix', next: '', passed: 1, total: 2, runs: [] } as Task['checksWait'] }),
-    task({ status: 'ready', checksWait: { state: 'running', line: 'Waiting', next: '', passed: 1, total: 2, runs: [] } as Task['checksWait'] }),
+    task({ status: 'ready', checksWait: { state: 'failed', line: 'A check failed · back to its agent to fix', next: '', passed: 1, total: 2, runs: [], more: false, auto: true } as Task['checksWait'] }),
+    task({ status: 'ready', checksWait: { state: 'running', line: 'Waiting', next: '', passed: 1, total: 2, runs: [], more: false, auto: true } as Task['checksWait'] }),
     task({ status: 'work' }), task({ status: 'ready' }), task({ status: 'done' }), task({ status: 'queued' }),
   ]
   for (const t of tasks) {
