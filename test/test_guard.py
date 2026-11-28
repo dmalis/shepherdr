@@ -394,12 +394,16 @@ class Starts(unittest.TestCase):
         self.assertEqual(sh, guard.GUARD_SH)
 
     def test_the_start_points(self):
-        self.assertIn("${CLEAN_ENV} ${AGENT_PATH} ${GUARD} exec", self.read("core", "clean-env.js"))   # the service's
+        js = self.read("core", "clean-env.js")
+        self.assertIn("${CLEAN_ENV} ${AGENT_PATH} ${GUARD} exec", js)   # the service's
+        self.assertIn("${CLEAN_ENV} ${AGENT_PATH} ${GUARD} set --", js)   # the same, MCP Apps' wrap (upstream 3.2.25)
         restart = self.read("service", "restart.sh")
-        self.assertIn('sh -c "$clean $apath $guard"', restart)        # a restart on its own conversation
-        self.assertIn('"$clean $apath $guard exec $line"', restart)   # a handoff
+        self.assertIn('sh -c "$clean $apath $guard $mcpwrap"', restart)   # a restart on its own conversation
+        self.assertIn('"$clean $apath $guard set -- $line; $mcpwrap', restart)   # a handoff: claude, codex
+        self.assertIn('"$clean $apath $guard exec $line"', restart)   # a handoff: any other agent
         self.assertIn("clean_env(assistant_argv(argv))", self.read("mods", "tasks", "bin", "herdr_task", "revive.py"))
-        self.assertIn("cleanCommand(cmd)", self.read("service", "spaces.ts"))   # execTemplate: new space, first message
+        spaces = self.read("service", "spaces.ts")   # execTemplate: new space, first message
+        self.assertIn("wrappedCommand(cmd) : cleanCommand(cmd)", spaces)
 
     def test_guard_sh_names_the_folder_herdr_task_writes(self):
         with tempfile.TemporaryDirectory() as t:

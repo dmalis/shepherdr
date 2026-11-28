@@ -23,6 +23,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | voice | yes | Voice over the whole app, dictation in the message box, and Settings › Voice (the ElevenLabs key) | No voice or mic button, no Voice page |
 | schedules | yes | Tasks › Scheduled | No Scheduled tab |
 | reactions | yes | Emoji reactions on messages | No emoji row in a message's menu |
+| mcp-apps | yes | MCP Apps: the view of an MCP tool an agent called, drawn in the chat ([mcp-apps.md](mcp-apps.md)) | Calls show as plain steps |
 | recaps | yes | Recap in a chat's menu and the palette: a short recap, asked only when you pick it | No Recap row (an agent's own recaps still show) |
 | feedback | yes | The Feedback page: problems in Shepherdr itself that your agents and you noted, under Found, Filed, Not now and Said no, each with its fix and what a check on GitHub found (Follow this one follows a match, nothing posted); the list's Feedback row counts what waits under Found, and the box at the top keeps what you write; a failed action's error has Report, which opens the box with that action's name (fork #94) | The Feedback row opens the old Feedback box; an error has no Report |
 | triage | yes | Triage (fork #235): files what agents found as issues in the repos you switch it on for, and scores them (docs/settings.md, Triage). Its page is Settings › Triage; what it holds for your yes is a card under Needs you | Settings › Triage and its cards are gone, and nothing is filed, scored or started, Run now included |
