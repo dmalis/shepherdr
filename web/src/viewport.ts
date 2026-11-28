@@ -80,8 +80,13 @@ export function watchViewport(onKeyboard: (up: boolean) => void) {
     // the keyboard coming or going (not the phone turning): what moves glides
     const turned = vv.width !== width
     width = vv.width
-    if (now !== was && !turned && !calm()) glide(vv, apply)
-    else apply()
+    const keyboard = now !== was && !turned
+    if (keyboard && !calm()) glide(vv, apply)
+    else {
+      apply()
+      // still tell what follows the keyboard (a sheet scrolls its field into view), with reduced motion too
+      if (keyboard) dispatchEvent(new Event('app-resized'))
+    }
     if (now !== was) onKeyboard((was = now))
   }
   vv.addEventListener('resize', update)

@@ -434,6 +434,19 @@ class Checks(unittest.TestCase):
         self.assertEqual(n(".a{animation:none}.b{animation:spin 0s}"), 0)
         self.assertEqual(self.sample("@keyframes up{from{transform:none}}@keyframes in{50%{opacity:.5}}", styled)[0][1], ["@keyframes up"])
 
+    def test_stops(self):
+        k = {"rxpop"}
+        self.assertEqual(stops([("animation", "none")], k), {"animation"})
+        self.assertEqual(stops([("animation-duration", "0s")], k), {"animation"})
+        self.assertEqual(stops([("animation", "fade .18s")], k), {"animation"})
+        self.assertEqual(stops([("transition", "none!important")], k), {"transition"})
+        self.assertEqual(stops([("transition", "background-color .12s ease")], k), {"transition"})
+        self.assertEqual(stops([("opacity", ".99")], k), set())  # names the selector, leaves its pop running
+        self.assertEqual(stops([("animation-delay", ".4s")], k), set())
+        self.assertEqual(stops([("transform", "none")], k), set())
+        self.assertEqual(stops([("animation", "rxpop 280ms")], k), set())
+        self.assertEqual(stops([("transition", "transform .2s")], k), set())
+
     def test_covers(self):
         self.assertTrue(covers(".settle", ".tslide .settle"))
         self.assertTrue(covers(".settle", ".bmv.settle"))
@@ -518,20 +531,32 @@ def moves(decls, keyframes):
     return out
 
 
+STOPPERS = {"transition": ("transition", "transition-property", "transition-duration"),
+            "animation": ("animation", "animation-name", "animation-duration")}
+
+
+def stops(decls, keyframes):
+    """what a reduced rule stops: "transition" when it sets the transition again to one that moves nothing (none, a
+    fade, no time), "animation" the same for the animation; a delay or a transform alone stops neither"""
+    left = {m.split(":")[0].split("-")[0] for m in moves(decls, keyframes)}
+    return {kind for kind, props in STOPPERS.items() if kind not in left and any(p in props for p, _ in decls)}
+
+
 def reduced_rules():
     """the selectors each switch writes its own rules for: the device's (@media (prefers-reduced-motion: reduce)) and
-    Settings › General › Motion's (html[data-motion="reduced"]), each without what says which, and the rules
-    themselves; html and :root are one"""
-    device, setting, rules_ = set(), set(), []
+    Settings › General › Motion's (html[data-motion="reduced"]), each without what says which and with what its rules
+    stop (stops()), and the rules themselves; html and :root are one"""
+    keyframes = moving_keyframes()
+    device, setting, rules_ = {}, {}, []
     for rel in files(".css"):
         for head, ats, decls in styled(rel):
             in_media = any(re.search(r"prefers-reduced-motion\s*:\s*reduce", a) for a in ats)
             for sel in selectors(head):
                 if in_media:
-                    device.add(re.sub(r"^:root$", "html", sel))
+                    device.setdefault(re.sub(r"^:root$", "html", sel), set()).update(stops(decls, keyframes))
                     rules_.append((rel, sel, decls))
                 elif REDUCED.match(sel):
-                    setting.add(REDUCED.sub("", sel) or "html")
+                    setting.setdefault(REDUCED.sub("", sel) or "html", set()).update(stops(decls, keyframes))
                     rules_.append((rel, sel, decls))
     return device, setting, rules_
 
@@ -555,7 +580,8 @@ def covers(over, sel):
 
 
 def moving_without_cover():
-    """each selector whose rule moves something, outside a reduced rule, that one of the two switches doesn't stop"""
+    """each selector whose rule moves something, outside a reduced rule, that one of the two switches doesn't stop: a
+    reduced rule reaching it (covers()) has to stop that kind of move (stops()), not only name it"""
     keyframes = moving_keyframes()
     device, setting, _ = reduced_rules()
     out = []
@@ -572,8 +598,11 @@ def moving_without_cover():
                 if REDUCED.match(sel):
                     continue
                 for name, under in (("the device's setting", device), ("Motion › Reduced", setting)):
-                    if not any(covers(o, sel) for o in under):
-                        out.append(f"{rel}: {sel} ({what[0]}) moves under {name}")
+                    for w in what:
+                        kind = w.split(":")[0].split("-")[0]
+                        if not any(kind in stopped and covers(o, sel) for o, stopped in under.items()):
+                            out.append(f"{rel}: {sel} ({w}) moves under {name}")
+                            break
     return out
 
 
@@ -587,8 +616,9 @@ class ReducedMotion(unittest.TestCase):
 
     def test_both_switches_stop_the_same_rules(self):
         device, setting, _ = reduced_rules()
-        self.assertEqual(sorted(device - setting), [], 'stopped for the device only: add an html[data-motion="reduced"] rule')
-        self.assertEqual(sorted(setting - device), [], "stopped for Motion › Reduced only: add a prefers-reduced-motion rule")
+        self.assertEqual(sorted(device.keys() - setting.keys()), [], 'stopped for the device only: add an html[data-motion="reduced"] rule')
+        self.assertEqual(sorted(setting.keys() - device.keys()), [], "stopped for Motion › Reduced only: add a prefers-reduced-motion rule")
+        self.assertEqual([s for s in device if device[s] != setting[s]], [], "each switch stops the same kinds of move")
 
     def test_what_moves_stops_under_each(self):
         self.assertEqual(moving_without_cover(), [])

@@ -16,11 +16,13 @@
     ".github/workflows/check.yml",
     "docs/design.md",
     "docs/develop.md",
-    "test/test_design.py"
+    "test/test_design.py",
+    "web/src/viewport.test.ts"
   ],
   "tests": [
     "test/test_design.py::ReducedMotion",
     "test/test_design.py::Checks",
-    "web/src/edge-swipe.test.ts"
+    "web/src/edge-swipe.test.ts",
+    "web/src/viewport.test.ts"
   ]
 }

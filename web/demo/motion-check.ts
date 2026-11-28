@@ -170,7 +170,10 @@ const STEPS: Step[] = [
     act: async (p) => {
       await p.locator('button[aria-label="Spaces"]').first().tap()
       await settle(p, 600)
-      await p.locator('.edgeshade, .shade').first().tap({ position: { x: 370, y: 400 }, force: true }).catch(() => p.keyboard.press('Escape'))
+      // the drawer's own shade, beside the panel: no Escape to fall back on, which would close it without its slide
+      await p.locator('.scrim').last().tap({ position: { x: 370, y: 400 }, force: true, timeout: 3000 })
+      await settle(p, 600)
+      if (await p.locator('nav.drawer').count()) throw new Error('the spaces list did not close from its shade')
     },
   },
 ]

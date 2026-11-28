@@ -15,7 +15,6 @@ const EVERY = 60
 export function Wave({ on, sample, className = 'dwave', tint }: { on: boolean; sample: () => Sample; className?: string; tint?: (s: Sample) => string | null }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const bars = useRef<number[]>([])
-  const calm = useRef(reduced())
   useEffect(() => {
     const c = ref.current
     if (!c) return
@@ -41,7 +40,8 @@ export function Wave({ on, sample, className = 'dwave', tint }: { on: boolean; s
       const v = s && tint?.(s)
       g.fillStyle = (v && css.getPropertyValue(v).trim()) || css.color
       const level = s ? s.level : 0
-      if (calm.current) {
+      // asked each frame: either switch can change while a call or dictation runs
+      if (reduced()) {
         // reduced motion: one bar that fills with how loud you are, eased so it doesn't flicker
         smooth += (level - smooth) * 0.2
         g.globalAlpha = 0.18
