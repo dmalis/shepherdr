@@ -191,12 +191,16 @@ async function bare(browser: Browser, base: string, look: Look, size: (typeof WI
     await page.waitForFunction(() => { const f = document.querySelector('iframe.page'); return !!f && getComputedStyle(f).backgroundColor !== 'rgb(255, 255, 255)' })
     const frame = (await (await el.elementHandle())!.contentFrame())!
     await frame.waitForLoadState('load')
-    // a moment on the page first, as a person reads before a tap: a word within a second of a load counts for it
+    // a moment on the page first, as a person reads before a tap: a word within a second of a load counts for it, so
+    // this is the viewer's rule, not a wait for it (the frame's load is in: its word came before it)
     await page.waitForTimeout(1500)
+    // the artifact's own page never gets the notice: the viewer heard its word (it once missed it on a busy runner)
+    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown, before any tap: the viewer missed the page\'s own word'
     // a tap on a link to a file of the artifact, as a page offers its diagram or picture
     await frame.evaluate(() => { const a = document.createElement('a'); a.href = 'pic1.jpg'; a.textContent = 'The picture'; document.body.append(a); a.click() })
-    await page.waitForSelector('iframe.page.bare')
-    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown'
+    // the picture's load and the viewer's look after it (1.2s): the frame's white then, or the notice
+    await page.waitForSelector('iframe.page.bare, .page-lost', { timeout: 10_000 }).catch(() => { throw new Error('the picture never got the viewer\'s look within 10s: neither white nor the notice') })
+    if (await page.locator('.page-lost').count()) return 'the notice that it can\'t be shown, after the tap'
     return await el.evaluate((f) => getComputedStyle(f).backgroundColor)
   } finally {
     await ctx.close()

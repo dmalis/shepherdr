@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
-import { onFrameSaid, spotOf } from './client.tsx'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { lookAfter, onFrameSaid, spotOf } from './client.tsx'
 
 // A link to another site in an artifact took over its frame and left a dead grey panel. The page's link catcher tells
 // the app instead; the panel and the full-screen view (one Page) open another site in a new tab and the app's own
@@ -41,4 +43,24 @@ test('a pin is only a spot the page said, kept inside the page', () => {
   expect(spotOf({ shepherdr: 'spot', x: Number.NaN, y: 0.5 })).toBeNull()
   expect(spotOf({ shepherdr: 'page' })).toBeNull()
   expect(spotOf(null)).toBeNull()
+})
+
+// A picture opened inside an artifact on a busy machine got "Couldn't show this page" (a flaky CI check): what the look
+// after each load finds, and who hears the page's word.
+test('the look after a load: a page that spoke is shown, a picture tapped to is white, a tap after the load waits', () => {
+  // the page said so as it loaded: shown, nothing kept
+  expect(lookAfter(10_000, 10_005, 0)).toEqual({ bare: false, lost: false, keep: false })
+  // a picture tapped to: no word near its load, the tap before it: white, the tap used
+  expect(lookAfter(10_000, 12_000, 11_900)).toEqual({ bare: true, lost: false, keep: false })
+  // another site the page's own script went to: no word, no tap: the notice
+  expect(lookAfter(10_000, 12_000, 0)).toEqual({ bare: true, lost: true, keep: false })
+  // the page's look comes late, after a tap that sends the frame on: the page is shown and the tap kept for the next load
+  expect(lookAfter(10_000, 10_005, 11_300)).toEqual({ bare: false, lost: false, keep: true })
+})
+
+test("the frame's words are heard from the moment it is in the page", () => {
+  const src = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
+  const listen = /\n {2}(use\w*Effect)\(\(\) => \{\n {4}const on = \(e: MessageEvent\)/.exec(src)
+  // a passive effect ran after a quick page's words on a busy runner: the page got the notice that it can't be shown
+  expect(listen?.[1]).toBe('useLayoutEffect')
 })
