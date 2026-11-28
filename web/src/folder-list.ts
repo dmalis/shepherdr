@@ -44,16 +44,20 @@ export function wanted(text: string, home: string): string {
   return (isPath(t) && NS.typedDir(t, home)?.dir) || home
 }
 
+// a whole path, with no doubled / (the service lists /'s folders as //srv: a space there would be a second one)
+const whole = (path: string, home: string) => NS.untilde(path, home).replace(/\/{2,}/g, '/')
+
 const folderRow = (path: string, home: string, kind: FRow['kind'], repo?: boolean): FRow => ({
   kind,
-  text: NS.asDir(NS.untilde(path, home), home),
-  label: NS.base(NS.untilde(path, home), home),
-  ...(kind === 'recent' ? { sub: NS.tilde(NS.untilde(path, home), home) } : {}),
+  text: NS.asDir(whole(path, home), home),
+  label: NS.base(whole(path, home), home),
+  ...(kind === 'recent' ? { sub: NS.tilde(whole(path, home), home) } : {}),
   ...(repo ? { repo } : {}),
 })
 
-/** the rows for the field's text, from the machine's info and the wanted folder's listing (undefined: not asked yet) */
-export function shown(text: string, info: Info, asked: Asked | undefined): Shown {
+/** the rows for the field's text, from the machine's info and the wanted folder's listing (undefined: not asked yet).
+ *  skip: folders (whole paths) that have their space already: not suggested, though a typed path still lists them. */
+export function shown(text: string, info: Info, asked: Asked | undefined, skip?: Set<string>): Shown {
   const { home } = info
   const t = text.trim()
   const listing = asked && asked !== 'loading' && !('error' in asked) ? asked : null
@@ -61,8 +65,8 @@ export function shown(text: string, info: Info, asked: Asked | undefined): Shown
   const fail = asked && asked !== 'loading' && 'error' in asked ? asked.error : null
   // a word (or nothing): recent folders and home's own, by name
   if (!isPath(t)) {
-    const recent = NS.matching(info.recent.filter((p) => !NS.scratch(p)), t).map((p) => folderRow(p, home, 'recent'))
-    const seen = new Set(recent.map((r) => r.text))
+    const recent = NS.matching(info.recent.filter((p) => !NS.scratch(p) && !skip?.has(p)), t).map((p) => folderRow(p, home, 'recent'))
+    const seen = new Set([...recent.map((r) => r.text), ...[...(skip ?? [])].map((p) => NS.asDir(p, home))])
     const inHome = listing ? NS.matching(listing.entries.map((e) => e.path), t).map((p) => folderRow(p, home, 'folder', listing.entries.find((e) => e.path === p)?.repo)).filter((r) => !seen.has(r.text)) : []
     const groups = [...(recent.length ? [{ label: 'Recent', rows: recent }] : []), ...(inHome.length ? [{ label: 'In ~', rows: inHome }] : [])]
     // home couldn't be listed: said under the recent folders too, never a list that looks whole
@@ -86,18 +90,12 @@ export function step(at: number, n: number, down: boolean): number {
 }
 
 /** what a key in the field does: open the list, move in it, pick a row, create (Enter on no row, or the list shut),
- *  or nothing (the key goes on as usual). Escape isn't here: the dialog's stack gives it to the list first. */
+ *  or nothing (the key goes on as usual: Tab moves to the next field). Escape isn't here: the dialog's stack gives it
+ *  to the list first. */
 export type KeyDo = { do: 'open' } | { do: 'move'; at: number } | { do: 'pick'; row: FRow } | { do: 'create' } | { do: 'none' }
 
 export function onKey(key: string, s: { open: boolean; at: number; rows: FRow[]; value: string; shift?: boolean }): KeyDo {
   if (key === 'ArrowDown' || key === 'ArrowUp') return s.open ? { do: 'move', at: step(s.at, s.rows.length, key === 'ArrowDown') } : { do: 'open' }
   if (key === 'Enter') return s.open && s.rows[s.at] ? { do: 'pick', row: s.rows[s.at]! } : { do: 'create' }
-  if (key === 'Tab' && !s.shift && s.open) {
-    // as a shell: the word typed completes to the row moved to, else to the first folder it matches
-    const t = s.value.trim()
-    const word = isPath(t) ? t.slice(t.lastIndexOf('/') + 1) : t
-    const r = s.rows[s.at] ?? (word ? s.rows.find((x) => x.kind !== 'up') : undefined)
-    if (r && r.text !== s.value) return { do: 'pick', row: r }
-  }
   return { do: 'none' }
 }

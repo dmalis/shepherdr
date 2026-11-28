@@ -1,7 +1,8 @@
 // New space's Folder field with its folder list (folder-list.ts says what it shows): it opens as the field is focused
 // or typed in, follows the machine picked, and is asked once per folder (cached while the dialog is open). Up and down
-// move through it, Enter picks the row moved to (or, on none, creates as before), Tab completes the word typed, Escape
-// closes the list and leaves the dialog open. A tap picks without the field losing its focus (the phone's keyboard
+// move through it, Enter picks the row moved to (or, on none, creates as before), Tab moves on to the next field,
+// Escape closes the list and leaves the dialog open. A listing that failed is asked again when the list reopens or
+// its machine is picked again. A tap picks without the field losing its focus (the phone's keyboard
 // stays). It sits in the dialog's flow under the field, so it is never cut off and the dialog scrolls to it.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { escapeFirst } from './overlay.tsx'
@@ -26,9 +27,49 @@ export function FolderField({ machine, skip, value, onChange, onEnter, placehold
   const asking = useRef(new Set<string>())
   const list = useRef<HTMLDivElement>(null)
   const info = infos[machine]
-  const got = info && info !== 'loading' && !('error' in info) ? info : null
-  // a recent folder that has its space already (skip) isn't offered: Create would only open that space
-  const home = got && skip ? { ...got, recent: got.recent.filter((f) => !skip.has(f)) } : got
+  const home = info && info !== 'loading' && !('error' in info) ? info : null
+  // a press outside the field (Create, the git switch) keeps the list until its click is done: closing it at the
+  // press would move what is under the pointer, and the click would land on nothing
+  const pressing = useRef(false)
+
+  // what failed is asked again: as the list opens, and when its machine is picked again
+  useEffect(() => {
+    if (!open) return
+    const failed = (v: unknown) => !!v && typeof v === 'object' && 'error' in v
+    setInfos((x) => (Object.values(x).some(failed) ? Object.fromEntries(Object.entries(x).filter(([, v]) => !failed(v))) : x))
+    setDirs((x) => {
+      const bad = Object.keys(x).filter((k) => failed(x[k]))
+      if (!bad.length) return x
+      for (const k of bad) asking.current.delete(k)
+      return Object.fromEntries(Object.entries(x).filter(([k]) => !bad.includes(k)))
+    })
+  }, [open, machine])
+  useEffect(() => {
+    const down = () => void (pressing.current = true)
+    const up = () => void setTimeout(() => (pressing.current = false))
+    document.addEventListener('pointerdown', down, true)
+    document.addEventListener('pointerup', up, true)
+    document.addEventListener('pointercancel', up, true)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      document.removeEventListener('pointerup', up, true)
+      document.removeEventListener('pointercancel', up, true)
+    }
+  }, [])
+  const close = () => {
+    if (!pressing.current) return setOpen(false)
+    // after the press's click (a click follows pointerup in the same task)
+    const later = () => {
+      document.removeEventListener('pointerup', later, true)
+      document.removeEventListener('pointercancel', later, true)
+      setTimeout(() => {
+        if (document.activeElement !== field.current) setOpen(false)
+      })
+    }
+    document.addEventListener('pointerup', later, true)
+    document.addEventListener('pointercancel', later, true)
+  }
+  const field = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open || infos[machine]) return
@@ -56,7 +97,7 @@ export function FolderField({ machine, skip, value, onChange, onEnter, placehold
     return () => clearTimeout(t)
   }, [open, key, dir, machine, dirs])
 
-  const view = home ? shown(value, home, key ? dirs[key] : undefined) : { groups: [], note: info && info !== 'loading' && 'error' in info ? info.error : 'Loading…' }
+  const view = home ? shown(value, home, key ? dirs[key] : undefined, skip) : { groups: [], note: info && info !== 'loading' && 'error' in info ? info.error : 'Loading…' }
   const rows = view.groups.flatMap((g) => g.rows)
   // the list changed under the row moved to: back to none
   useEffect(() => setAt(-1), [value, machine])
@@ -102,13 +143,15 @@ export function FolderField({ machine, skip, value, onChange, onEnter, placehold
         autoCapitalize="off"
         spellCheck={false}
         onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        ref={field}
+        onBlur={close}
         onChange={(e) => {
           onChange(e.target.value)
           setOpen(true)
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || (e.key !== 'Enter' && (e.altKey || e.ctrlKey || e.metaKey))) return
+          // an IME's word being chosen (Safari says so by keyCode 229 alone)
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || (e.key !== 'Enter' && (e.altKey || e.ctrlKey || e.metaKey))) return
           const k = onKey(e.key, { open, at, rows, value, shift: e.shiftKey })
           if (k.do === 'none') return
           e.preventDefault()

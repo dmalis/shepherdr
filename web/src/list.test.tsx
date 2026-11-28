@@ -368,6 +368,17 @@ test('a typed path lists the folder up to its last /, narrowing by the word afte
   expect(FL.shown('~/', info, inHome).groups[0]!.rows[0]).toMatchObject({ kind: 'up', text: '/Users/', sub: '/Users' })
 })
 
+test("folders that have their space already aren't suggested, recent or in home; a typed path still lists them", () => {
+  const skip = new Set(['/Users/sam/notes'])
+  expect(texts(FL.shown('', info, inHome, skip))).toEqual([['Recent', ['~/dev/shop/']], ['In ~', ['~/dev/', '~/Downloads/']]])
+  expect(texts(FL.shown('~/', info, inHome, skip))[0]![1]).toContain('~/notes/')
+})
+
+test("/'s folders as the service lists them (//srv) are picked as /srv, never a second path to the same folder", () => {
+  const root = { exists: true, entries: [{ name: 'srv', path: '//srv', repo: false }] }
+  expect(FL.shown('/', info, root).groups[0]!.rows).toEqual([{ kind: 'folder', text: '/srv/', label: 'srv' }])
+})
+
 test("a folder that isn't there yet says Create makes it; an error is a quiet line, never a crash", () => {
   expect(FL.shown('~/dev/newthing', info, inDev).note).toBe("This folder doesn't exist. It will be created.")
   expect(FL.shown('~/nope/', info, { exists: false, entries: [] })).toEqual({ groups: [{ rows: [{ kind: 'up', text: '~/', label: '..', sub: '~' }] }], note: "This folder doesn't exist. It will be created." })
@@ -380,7 +391,7 @@ test("a folder that isn't there yet says Create makes it; an error is a quiet li
   expect(failed.note).toBe("Couldn't list that folder on vm.")
 })
 
-test('keys: down and up move through the rows and wrap, Enter picks the row moved to or creates, Tab completes', () => {
+test('keys: down and up move through the rows and wrap, Enter picks the row moved to or creates, Tab moves on', () => {
   const rows = FL.shown('~/dev/sh', info, inDev).groups[0]!.rows
   const s = { open: true, at: -1, rows, value: '~/dev/sh' }
   expect(FL.onKey('ArrowDown', s)).toEqual({ do: 'move', at: 0 })
@@ -394,9 +405,9 @@ test('keys: down and up move through the rows and wrap, Enter picks the row move
   expect(FL.onKey('Enter', s)).toEqual({ do: 'create' })
   expect(FL.onKey('Enter', { ...s, at: 1 })).toEqual({ do: 'pick', row: rows[1] })
   expect(rows[1]!.text).toBe('~/dev/shop/')
-  // Tab: the word completes to its first folder (never the way up), else the key moves on as usual
-  expect(FL.onKey('Tab', s)).toEqual({ do: 'pick', row: rows[1] })
-  expect(FL.onKey('Tab', { ...s, value: '~/dev/' })).toEqual({ do: 'none' })
+  // Tab never changes the folder: it moves to the next field, as in any form
+  expect(FL.onKey('Tab', s)).toEqual({ do: 'none' })
+  expect(FL.onKey('Tab', { ...s, at: 1 })).toEqual({ do: 'none' })
   expect(FL.onKey('Tab', { ...s, shift: true })).toEqual({ do: 'none' })
   expect(FL.onKey('x', s)).toEqual({ do: 'none' })
   expect(FL.onKey('ArrowDown', { ...s, rows: [] })).toEqual({ do: 'move', at: -1 })
