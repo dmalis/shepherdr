@@ -131,6 +131,18 @@ function action(a: Record<string, any>): unknown {
     })
     return { ok: true }
   }
+  // Not now, Never and their Undo: the row with that id on that machine (slice 8: one id can be on two) moves
+  if (a.type === 'feedback' && ['later', 'no', 'undo'].includes(a.do) && typeof a.key === 'string') {
+    const section = a.do === 'later' ? 'later' as const : a.do === 'no' ? 'declined' as const : 'found' as const
+    const until = a.do === 'later' && a.when !== 'again' ? Date.now() + (a.when === 'week' ? 7 : 1) * 24 * H : undefined
+    each((snap) => {
+      const f = snap.feedback
+      if (!f) return
+      const rows = f.rows.map((r) => (r.id === a.key && (r.machine ?? '') === (a.machine ?? '') ? { ...r, section, until } : r))
+      snap.feedback = { ...f, rows, found: rows.filter((r) => r.section === 'found').length }
+    })
+    return { ok: true, key: a.key, changed: true }
+  }
   if (a.type === 'screen') {
     if (a.op === 'handback' || a.op === 'skip') each((snap) => { const screen = snap.screens?.[a.key]; if (screen?.hands) screen.hands.settled = a.op === 'skip' ? 'skip' : 'done' })
     return { ok: true }

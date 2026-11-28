@@ -8,7 +8,8 @@ import type { Snapshot } from '@shared/types.ts'
 import { feedbackMachines, snapshot } from '../../demo/data.ts'
 
 const T = await import('@client/toasts.ts')
-const { FeedbackPage, decide, follow, rowKey, whose } = await import('./rows.tsx')
+const { FeedbackPage, decide, follow, rowKey, whose, writeUpTo } = await import('./rows.tsx')
+const { postIt } = await import('./confirm.tsx')
 const W = await import('./words.ts')
 
 const real = globalThis.fetch
@@ -59,6 +60,30 @@ test('a call on a row goes to its machine; one on this machine names none', asyn
   await follow({ ...byId('a1f0c2'), machine: 'studio' }, m)
   expect(sent.at(-1)).toEqual({ type: 'feedback', do: 'follow', key: 'a1f0c2', machine: 'studio', url: m.url })
   expect(whose({ id: 'x1' })).toEqual({ key: 'x1' })
+})
+
+test("Write it up for another machine's row stays on that machine: its home space there, never this one's Everything", async () => {
+  const s = snapshot('machines')
+  const row = byId('a1f0c2', 'studio')
+  // its space is open: it goes there
+  expect(writeUpTo(s, row)?.chat).toBe('p:studio:site')
+  // its space is gone: studio's home space, which reads studio's record
+  const gone: Snapshot = { ...s, places: s.places.filter((p) => p.chat !== 'p:studio:site') }
+  expect(writeUpTo(gone, row)?.chat).toBe('p:studio:home')
+  expect(page(gone)).toContain('Its space is gone: Write it up goes to ~ on studio')
+  // nothing open on studio: nowhere to send it, so Write it up is off and says why; this machine's rows still go to Everything
+  const none: Snapshot = { ...gone, places: gone.places.filter((p) => p.machine !== 'studio') }
+  expect(writeUpTo(none, row)).toBeUndefined()
+  expect(writeUpTo(none, { ...row, machine: undefined })?.id).toBe(none.everything)
+  const html = page(none)
+  const i = html.indexOf('From the task “Site footer” · on studio')
+  const mine = html.slice(i, html.indexOf('</li>', i))
+  expect(mine).toContain('Its space is gone: Write it up waits for a space on studio to open')
+  expect(mine).toMatch(/<button[^>]*disabled=""[^>]*>Write it up/)
+  // Post it keeps no yes it can't send
+  answer({ ok: true })
+  expect(await postIt(none, { ...row, draft: { rev: 1, title: 't', body: 'b', target: 'example/shepherdr' } } as any, { rev: 1 } as any)).toBe(false)
+  expect(sent).toEqual([])
 })
 
 test("an unreachable machine's rows show as of their last read, with their buttons off", () => {

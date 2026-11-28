@@ -147,16 +147,21 @@ export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'
   return { place }
 }
 
-/** where Write it up goes: the origin's chat, else Everything's */
-export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'>): Place | undefined {
+/** where Write it up goes: the origin's chat, else Everything's. Another machine's row stays on that machine (slice 8):
+ *  only a chat there reads its record, so its home space there, or nowhere while none can be reached */
+export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat' | 'machine'>): Place | undefined {
   const o = originOf(snap, r)
-  return (!o.why && o.place) || everything(snap)
+  if (!o.why && o.place) return o.place
+  if (!r.machine) return everything(snap)
+  return snap.places.find((p) => p.machine === r.machine && p.home && !p.archived && !p.unreachableSince && !p.herdrDown)
 }
 
 function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackRow; snap: Snapshot; now: number; note?: string; leaving: boolean; leave: (on: boolean) => void }) {
   const [busy, setBusy] = useState('')
   const o = originOf(snap, r)
   const where = o.place ? spaceLabel(snap, o.place.id) : ''
+  const to = writeUpTo(snap, r)
+  const on = r.machine ? machineLabel(snap, r.machine) : ''
   const run = async (which: string, f: () => Promise<boolean>, goes: boolean) => {
     setBusy(which)
     if (goes) leave(true)
@@ -185,11 +190,12 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'declined'), true)}>{W.undo}</Btn>
     const never = <Btn small disabled={!!busy} onClick={() => void run('no', () => decide(r, 'no'), true)}>{W.never}</Btn>
     if (r.off) return never
+    const none = !to
     return (
       <>
         {r.draft
-          ? <Btn small kind="pri" disabled={!!busy} aria-haspopup="dialog" className={cx(busy === 'post' && 'going')} onClick={() => void run('post', () => openFileIt(snap, r, setNote), false)}>{W.fileIt}</Btn>
-          : <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>}
+          ? <Btn small kind="pri" disabled={!!busy || none} aria-haspopup="dialog" className={cx(busy === 'post' && 'going')} onClick={() => void run('post', () => openFileIt(snap, r, setNote), false)}>{W.fileIt}</Btn>
+          : <Btn small kind="pri" disabled={!!busy || none} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>}
         <Btn small disabled={!!busy} aria-haspopup="menu" onClick={(e) => later(e.currentTarget)}>{W.notNow}<I n="down" c="s16" /></Btn>
         {never}
       </>
@@ -220,8 +226,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     : r.section === 'filed' ? filedWords(r)
     : r.section === 'fixed' ? ''
     : r.off ? offWords(where)
-    : r.section === 'found' && o.why && !r.readOnly ? elsewhereWords(where, o.why) : ''
-  const on = r.machine ? machineLabel(snap, r.machine) : ''
+    : r.section === 'found' && (o.why || !to) && !r.readOnly ? elsewhereWords(where, o.why, to ? (isEverything(snap, to.id) ? 'Everything' : spaceLabel(snap, to.id)) : '', on) : ''
   const lock = r.readOnly ? lockWords(r.readOnly, on, snap.feedback?.machines?.find((m) => m.name === r.machine)?.at, now) : ''
   return (
     <li className={cx('fb-row', leaving && 'leave')} inert={leaving || undefined}>

@@ -72,7 +72,9 @@ export function withChats(l: FeedbackList, chats?: Set<string>): FeedbackList {
 
 /** Feedback offers in a space: its own, else Everywhere's, else on (herdr-task's feedback_on) */
 export function offersOn(d: any, space?: string | null): boolean {
-  const own = space ? d?.spaces?.[space.split("/").pop()!]?.agents?.feedback : undefined;
+  // a space's own setting under its full id first: another machine's space is kept as "studio/sp1" (slice 8)
+  const of = (id: string) => d?.spaces?.[id]?.agents?.feedback;
+  const own = space ? (typeof of(space) === "boolean" ? of(space) : of(space.split("/").pop()!)) : undefined;
   if (typeof own === "boolean") return own;
   const all = d?.everywhere?.agents?.feedback;
   return typeof all === "boolean" ? all : true;

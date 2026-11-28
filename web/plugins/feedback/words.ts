@@ -244,9 +244,12 @@ export function doneWords(what: 'later' | 'no' | 'undo', when?: string): string 
 }
 
 /** where Write it up goes, when it isn't the origin: why, for the row */
-export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep'): string {
-  if (why === 'asleep') return `No chat runs in ${where} now: Write it up goes to Everything`
-  return why === 'gone' ? 'Its space is gone: Write it up goes to Everything' : `${where} can't be reached: Write it up goes to Everything`
+export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep' | undefined, to = 'Everything', machine = ''): string {
+  // another machine's row with no space there to take it (slice 8): nothing here can read that machine's record
+  const goes = to ? `Write it up goes to ${to}` : `Write it up waits for a space on ${machine} to open`
+  if (!why) return goes
+  if (why === 'asleep') return `No chat runs in ${where} now: ${goes}`
+  return why === 'gone' ? `Its space is gone: ${goes}` : `${where} can't be reached: ${goes}`
 }
 
 /** a row another machine kept that can't be acted on now (slice 8): out of reach since its last read, or older */

@@ -2,11 +2,11 @@
 // through herdr-core's machine.exec with herdr-task's own explicit path, rows told apart by machine and id, a call going
 // to its row's machine; out of reach, older and without Shepherdr each shown as they are, and nothing installed.
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Feedback, type Runner } from "./feedback.ts";
-import { FeedbackMachines, READ_OLD, RUN, thereArgv, type Exec } from "./feedback-machines.ts";
+import { Feedback, offersOn, withMachines, type Runner } from "./feedback.ts";
+import { FeedbackMachines, READ_OLD, RUN, THERE, thereArgv, type Exec } from "./feedback-machines.ts";
 import { spawn } from "./spawn.ts";
 
 const NOW = Date.UTC(2026, 10, 28, 12);
@@ -70,7 +70,7 @@ test("an action goes to its row's machine, and that machine's list is read again
   here.calls.length = 0;
   expect(await fb.act({ do: "later", key: "a1", when: "week", machine: "studio" })).toEqual({ ok: true, key: "a1", changed: true });
   expect(c.calls.map((x) => [x.machine, x.argv.slice(5).join(" ")])).toEqual([["studio", "--key a1 --later week --json"], ["studio", "--list --all --json"]]);
-  expect(c.calls[0].argv.slice(0, 4)).toEqual(["sh", "-c", RUN, "herdr-task"]);
+  expect(c.calls[0].argv.slice(0, 4)).toEqual(["sh", "-c", THERE, "herdr-task"]);
   expect(here.calls).toEqual([]);
   c.calls.length = 0;
   expect((await fb.act({ do: "no", key: "a1" })).ok).toBe(true);
@@ -138,6 +138,60 @@ test("a machine whose herdr-task can't do one call yet says to update it", async
   expect(JSON.parse(r.stdout)).toEqual({ error: "Update Shepherdr on studio to do this here." });
 });
 
+test("a machine that lists but refused a call stays read only until its own --help knows that call", async () => {
+  let help = "usage: herdr-task feedback [--list] [--all] [--key KEY] [--later WHEN] [--json]";
+  const c = core((x) => (listing(x) ? { stdout: JSON.stringify([prob("a1", "x")]) }
+    : x.argv.includes("--help") ? { stdout: help }
+    : { code: 2, stderr: "herdr-task: error: unrecognized arguments: --follow" }));
+  const fb = page(local([]), c.exec, [{ name: "studio", state: "connected" }]);
+  await fb.read();
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows[0].readOnly).toBeUndefined();
+  // a rolled-back build: --list --all works, --follow doesn't
+  expect(await fb.act({ do: "follow", key: "a1", url: "https://github.com/example/shepherdr/issues/3", machine: "studio" }))
+    .toEqual({ ok: false, error: "Update Shepherdr on studio to do this here." });
+  // its list read again after the call worked, yet it stays read only: nothing more goes there
+  expect(fb.list(NOW)!.rows.map((r) => [r.id, r.readOnly])).toEqual([["a1", "old"]]);
+  c.calls.length = 0;
+  expect(await fb.act({ do: "no", key: "a1", machine: "studio" })).toEqual({ ok: false, error: "Update Shepherdr on studio to act on these here." });
+  expect(c.calls).toEqual([]);
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows[0].readOnly).toBe("old");
+  // updated: its --help names --follow, and the row can be acted on again
+  help += " [--follow URL]";
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows[0].readOnly).toBeUndefined();
+  expect(fb.list(NOW)!.machines).toBeUndefined();
+});
+
+test("herdr-core not answering at all: every machine's last rows go stale, and come back on the next read", async () => {
+  let coreDown = false;
+  const c = core((x) => ({ stdout: listing(x) ? JSON.stringify([prob("a1", "x")]) : "{}" }));
+  const fb = page(local([]), c.exec, []);
+  fb.there.machines = async () => { if (coreDown) throw new Error("herdr-core isn't answering"); return [{ name: "studio", state: "connected" }]; };
+  await fb.read();
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows[0].readOnly).toBeUndefined();
+  coreDown = true;
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows.map((r) => [r.machine, r.readOnly])).toEqual([["studio", "stale"]]);
+  c.calls.length = 0;
+  expect((await fb.act({ do: "no", key: "a1", machine: "studio" })).ok).toBe(false);
+  expect(c.calls).toEqual([]);
+  coreDown = false;
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows[0].readOnly).toBeUndefined();
+});
+
+test("another machine's space keeps its own Feedback offers setting, under its full id", () => {
+  const settings = { everywhere: { agents: { feedback: true } }, spaces: { "studio/sp1": { agents: { feedback: false } } } };
+  const there = new Map([["studio", { state: "ok" as const, rows: [prob("a1", "x")], at: NOW }]]);
+  const l = withMachines({ rows: [], found: 0 } as any, there, settings, NOW);
+  expect(l.rows.map((r) => [r.machine, r.space, r.off])).toEqual([["studio", "studio/sp1", true]]);
+  // this machine's own sp1 is not studio's: it keeps Everywhere's
+  expect(offersOn(settings, "sp1")).toBe(true);
+});
+
 // a real shell, as a core started by launchd or systemd runs a remote command: PATH=/usr/bin:/bin, herdr-task only at
 // ~/.local/bin (a throwaway HOME here, for the child alone)
 const bare = (home: string): Exec => async (_m, argv) => {
@@ -166,6 +220,47 @@ esac
   expect(readFileSync(join(home, "calls"), "utf8").trim().split("\n")).toEqual([
     "feedback --list --all --json", "feedback --key a1 --later tomorrow --json", "feedback --list --all --json"]);
 });
+
+// every file and folder under a home, for a before/after check
+const tree = (dir: string): string[] => {
+  const out: string[] = [];
+  const walk = (d: string, rel: string) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const r = `${rel}${e.name}`;
+      out.push(e.isDirectory() ? `${r}/` : `${r} ${e.isFile() ? readFileSync(join(d, e.name), "utf8").length : "link"}`);
+      if (e.isDirectory()) walk(join(d, e.name), `${r}/`);
+    }
+  };
+  walk(dir, "");
+  return out.sort();
+};
+
+test("reading a machine on the old layout leaves its data where it is (the real herdr-task, its start-up included)", async () => {
+  const real = join(import.meta.dir, "..", "mods", "tasks", "bin", "herdr-task");
+  const record = JSON.stringify({ problems: { a1: { id: "a1", line: "The reply bubble doesn't show which message it answers",
+    space: "sp1", reports: [{ at: NOW - H, space: "sp1", machine: "studio", from: { agent: true }, line: "The reply bubble doesn't show which message it answers" }],
+    count: 1, kind: "confusing", state: "found", at: NOW - H } } });
+  const homeWith = () => {
+    const home = mkdtempSync(join(tmpdir(), "fb-layout-"));
+    mkdirSync(join(home, ".local", "bin"), { recursive: true });
+    mkdirSync(join(home, ".herdr", "tasks"), { recursive: true });
+    symlinkSync(real, join(home, ".local", "bin", "herdr-task"));
+    writeFileSync(join(home, ".herdr", "tasks", ".feedback.json"), record);
+    return home;
+  };
+  // the read this page makes: the row comes back, and not one file there moved or changed
+  const home = homeWith();
+  const before = tree(home);
+  const fb = page(local([]), bare(home), [{ name: "studio", state: "connected" }]);
+  await fb.read();
+  await fb.readThere();
+  expect(fb.list(NOW)!.rows.map((r) => [r.machine, r.id, r.line])).toEqual([["studio", "a1", "The reply bubble doesn't show which message it answers"]]);
+  expect(tree(home)).toEqual(before);
+  // the guard is what keeps it so: the same run without it moves that machine's data to the new layout
+  const moved = homeWith();
+  await bare(moved)("studio", ["sh", "-c", RUN, "herdr-task", "feedback", "--list", "--all", "--json"], 30_000);
+  expect(tree(moved)).not.toEqual(before);
+}, 60_000);
 
 test("a machine without herdr-task installs nothing and says so", async () => {
   const home = mkdtempSync(join(tmpdir(), "fb-none-"));

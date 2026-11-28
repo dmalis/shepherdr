@@ -31,6 +31,8 @@ export async function sendPost(snap: Snapshot, r: FeedbackRow, rev: number): Pro
 
 /** Post it: the yes kept first (nothing is sent without it), then the message */
 export async function postIt(snap: Snapshot, r: FeedbackRow, d: FeedbackDraft): Promise<boolean> {
+  // nowhere to send it (another machine's row, no space open there): the yes isn't kept for a message that can't go
+  if (!writeUpTo(snap, r)) return false
   const a = await call({ do: 'approve', ...whose(r), rev: d.rev })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })

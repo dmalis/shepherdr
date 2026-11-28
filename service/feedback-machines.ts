@@ -19,8 +19,11 @@ export type There = { state: "ok" | "stale" | "old" | "none"; rows: unknown[]; a
 
 /** herdr-task there, by its own path: the same call herdr-task's remote_run makes, never through PATH */
 export const RUN = 'exec "$HOME/.local/bin/herdr-task" "$@"';
+/** ...with its start-up data move off (herdr_task/layout.py ensure): a call from here must not move the other machine's
+ *  data; its own runs do that */
+export const THERE = `export SHEPHERDR_NO_MIGRATE=1; ${RUN}`;
 /** the argv that runs `herdr-task feedback <args>` on another machine */
-export const thereArgv = (args: string[]) => ["sh", "-c", RUN, "herdr-task", "feedback", ...args];
+export const thereArgv = (args: string[]) => ["sh", "-c", THERE, "herdr-task", "feedback", ...args];
 /** an older herdr-task's record, read as a file (its own --list rewrites and prunes it: a read must stay a read) */
 export const READ_OLD = SH + 'exec cat -- "$SHEP_TASKS/.feedback.json"';
 
@@ -55,6 +58,9 @@ export class FeedbackMachines {
   /** each linked machine's last read, by its name */
   readonly lists = new Map<string, There>();
   private reading = new Map<string, Promise<void>>();
+  /** the options a machine's herdr-task refused as unknown (one that lists but can't act yet, e.g. rolled back): it
+   *  stays read only until its own --help names them all */
+  private refused = new Map<string, string[]>();
 
   constructor(public exec: Exec | null = null, public machines: Machines = async () => []) {}
 
@@ -62,11 +68,16 @@ export class FeedbackMachines {
   async read(now = Date.now()): Promise<boolean> {
     if (!this.exec) return false;
     let known: Awaited<ReturnType<Machines>>;
-    try { known = (await this.machines()).filter((m) => m && isMachine(m.name) && !m.temporary); } catch { return false; }
     const before = this.stamp();
+    try { known = (await this.machines()).filter((m) => m && isMachine(m.name) && !m.temporary); }
+    catch {
+      // herdr-core itself didn't answer: no machine can be reached through it, so every last read shows as it was
+      for (const m of this.lists.keys()) this.away(m);
+      return this.stamp() !== before;
+    }
     const names = new Set(known.map((m) => m.name));
     // a machine removed from Settings › Machines: its rows go with it
-    for (const m of [...this.lists.keys()]) if (!names.has(m)) this.lists.delete(m);
+    for (const m of [...this.lists.keys()]) if (!names.has(m)) { this.lists.delete(m); this.refused.delete(m); }
     await Promise.all(known.map((m) => (m.state === "connected" ? this.readOne(m.name, now) : this.away(m.name))));
     return this.stamp() !== before;
   }
@@ -95,7 +106,7 @@ export class FeedbackMachines {
     try {
       const r = await this.exec(m, thereArgv(["--list", "--all", "--json"]), 30);
       const out = answer(r.stdout);
-      if (r.code === 0 && Array.isArray(out)) return void this.lists.set(m, { state: "ok", rows: out, at: now });
+      if (r.code === 0 && Array.isArray(out)) return void this.lists.set(m, { state: (await this.refuses(m)) ? "old" : "ok", rows: out, at: now });
       if (missing(r)) return void this.lists.set(m, { state: "none", rows: [], at: now });
       if (older(r)) {
         const f = await this.exec(m, ["sh", "-c", READ_OLD], 30);
@@ -106,6 +117,17 @@ export class FeedbackMachines {
     } catch {
       this.away(m);
     }
+  }
+
+  /** does this machine still lack an option it refused: asked of its own --help (a read), until it names them all */
+  private async refuses(m: string): Promise<boolean> {
+    const want = this.refused.get(m);
+    if (!want || !this.exec) return false;
+    const h = await this.exec(m, thereArgv(["--help"]), 30);
+    const has = new Set(h.code === 0 ? h.stdout.match(/--[\w-]+/g) ?? [] : []);
+    if (!want.every((o) => has.has(o))) return true;
+    this.refused.delete(m);
+    return false;
   }
 
   /** why the person's call can't go to this machine now, else null */
@@ -124,7 +146,10 @@ export class FeedbackMachines {
     let r: Ran;
     try { r = await this.exec(m, thereArgv(args), 30); }
     catch { r = { code: 1, stdout: "", stderr: `${m} can't be reached just now: try again once it's back.` }; }
-    if (older(r)) r = { code: 2, stdout: JSON.stringify({ error: `Update Shepherdr on ${m} to do this here.` }), stderr: "" };
+    if (older(r)) {
+      this.refused.set(m, args.filter((a) => /^--[\w-]+$/.test(a) && a !== "--json"));
+      r = { code: 2, stdout: JSON.stringify({ error: `Update Shepherdr on ${m} to do this here.` }), stderr: "" };
+    }
     await this.readOne(m, Date.now(), true);
     return r;
   }
