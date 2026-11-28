@@ -1,11 +1,13 @@
 // A task row's status marks say what they mean (dmalis/shepherdr#415): a tap or a press held on its status ring or its
 // urgent mark opens a small popover at the mark with its words, as iOS's and Linear's mobile apps explain an icon, never
 // a hover tooltip (the app has none). A tap anywhere else on the row still opens the task, a press held there still
-// opens its menu. The keyboard and a screen reader already get the same words: the ring's aria-label and the row's
-// "Urgent, " are part of the row button's name, so the popover is for a pointer only.
+// opens its menu. In a row the keyboard and a screen reader already get the same words: the ring's aria-label and
+// "Urgent, " are part of the row button's name, so there the popover is for a pointer. An open task's header ring is a
+// button of its own (HeadRing), for the keyboard too.
 import { openMenu } from '@client/overlay.tsx'
 import { I } from '@client/ui.tsx'
 import type { Task } from '@shared/types.ts'
+import { ringOf } from '@shared/view.ts'
 import type { MouseEvent, ReactNode } from 'react'
 import { StatusIcon } from './icon.tsx'
 
@@ -49,6 +51,18 @@ export function explainClick(e: MouseEvent, t: Task): boolean {
   e.preventDefault()
   explain(mark, t)
   return true
+}
+
+/** An open task's header: its ring, a button of its own there (nothing around it opens anything), since the line beside
+ *  it may be its agent's report, not its status. A tap, Enter or Space says its words; a screen reader hears them as
+ *  its name, and focus comes back to it when the popover closes. */
+export function HeadRing({ t }: { t: Task }) {
+  const words = ringOf(t).label
+  return (
+    <button type="button" className="hring" aria-label={words} onClick={(e) => explain(e.currentTarget, t)}>
+      <StatusIcon t={t} time="none" />
+    </button>
+  )
 }
 
 /** where the last press began: a press held on a mark explains it instead of opening the row's menu */

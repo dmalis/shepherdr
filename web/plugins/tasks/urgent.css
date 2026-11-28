@@ -5,12 +5,18 @@
 /* a row's second line (dmalis/shepherdr#415): "[!] Urgent ·" before what it says, the icon and the word in the title's
    ink, the dot as quiet as the line; past ds.css's muted row icons. The line still ends in an ellipsis. */
 .row.tk .urg{color:var(--fg)}
-.urg>.i,.row.tk .urg>.i:not([class*="c-"]){width:14px;height:14px;margin-right:4px;vertical-align:-2px;color:inherit}
+.urg>.i,.row.tk .urg>.i:not([class*="c-"]){width:var(--ic-sm);height:var(--ic-sm);margin-right:4px;vertical-align:-3px;color:inherit}
 .urg>.usep{margin:0 4px;color:var(--muted)}
 
-/* a tap on a row's ring says what it means (marks.tsx): a bigger target than the 20px ring, inside the row */
+/* a tap on a row's ring says what it means (marks.tsx): a target 44px tall, into the row's own padding on the left,
+   only a little towards the title so a tap on the title still opens the task */
 .row.tk>.tring{position:relative}
-.row.tk>.tring::after{content:"";position:absolute;inset:-6px}
+.row.tk>.tring::after{content:"";position:absolute;inset:-12px -4px -12px -12px}
+
+/* an open task's header: its ring is a button (HeadRing), no bigger than the ring was, with a 44px tall target */
+.hline>.hring{position:relative;flex:none;display:inline-flex;padding:0;border:0;border-radius:4px;background:none;color:inherit;font:inherit;cursor:pointer}
+.hline>.hring::after{content:"";position:absolute;inset:-15px -6px}
+.hline>.hring>.tring{width:14px}.hline>.hring>.tring>.i{width:14px;height:14px}
 
 /* its popover: the mark and its words, as a folder's whole path shows at its menu's top (ds.css .fwhere) */
 .pop .mexp{min-width:0;max-width:260px}

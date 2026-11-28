@@ -10,7 +10,7 @@ import type { ReactElement } from 'react'
 import type { Task } from '@shared/types.ts'
 
 const { closeAll, layersNow } = await import('@client/overlay.tsx')
-const { explainClick, explainHold, MARKS, URGENT_WORDS } = await import('./marks.tsx')
+const { explainClick, explainHold, HeadRing, MARKS, URGENT_WORDS } = await import('./marks.tsx')
 
 afterEach(() => closeAll())
 const t = { id: 'SHOP-1', name: 'Fix checkout', place: 'p:mac-mini:shop', status: 'work', state: 'work', on: 'mac-mini', created: '', age: '', started: 1, urgent: true, report: { msg: 'Reading the code', progress: 20 } } as unknown as Task
@@ -82,10 +82,25 @@ test('a press held: on a mark it explains it, anywhere else the row keeps its me
   expect(popover().label).toBe('Needs you, 35% done')
 })
 
+test("an open task's header: its ring is a button named by its words, a tap or Enter says them", () => {
+  const html = renderToStaticMarkup(<HeadRing t={t} />)
+  expect(html).toStartWith('<button type="button" class="hring" aria-label="Working, 20% done">')
+  expect(html).toContain('class="tring')
+  // the button's click (a tap, Enter or Space) opens the popover at it, its words as the row's ring's
+  const btn = el('hring', 'Working, 20% done')
+  const onClick = (HeadRing({ t }) as ReactElement<{ onClick: (e: unknown) => void }>).props.onClick
+  onClick({ currentTarget: btn })
+  const p = popover()
+  expect(p.anchor).toBe(btn)
+  expect(p.label).toBe('Working, 20% done')
+})
+
 test('the row wires them in: a tap or a press held on a mark explains it before opening the task or its menu', () => {
   // pins the one call site in upstream's TaskRow this patch relies on
   const src = readFileSync(join(import.meta.dir, 'client.tsx'), 'utf8')
   expect(src).toContain("explainClick(e, t) || open(t)")
-  expect(src).toContain("hold: (el) => void (explainHold(el, t) || taskMenu(el, t, 'row'))")
+  expect(src).toContain("hold: (el) => { skip.current = false; explainHold(el, t) || taskMenu(el, t, 'row') } })")
+  // the header's ring is the button
+  expect(src).toContain('<HeadRing t={live} />')
   expect(src).toContain('<UrgentTag t={t} more={!!sub} />')
 })
