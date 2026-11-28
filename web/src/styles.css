@@ -40,19 +40,32 @@ div.b[data-menu]{cursor:pointer}
 
 /* formatted words in a bubble: text, lists, tables, pictures, code */
 .md>:first-child{margin-top:0}.md>:last-child{margin-bottom:0}
-.md p,.md ul,.md ol,.md table,.md blockquote,.md .code.block{margin:8px 0}
+.md p,.md ul,.md ol,.md .tbl,.md blockquote,.md .code.block{margin:8px 0}
 .md ul,.md ol{padding-left:22px}.md li+li{margin-top:2px}
-.md h1,.md h2,.md h3,.md h4{margin:12px 0 4px;font-size:16px;line-height:24px;font-weight:600}
+/* headings step down (size.css sets each one's size with the chat's): h1, h2, h3 at the message's size, h4 to h6 smaller */
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:12px 0 4px;font-size:16px;line-height:24px;font-weight:600;text-wrap:balance}
 .md strong{font-weight:600}
-.md code{font:13px/20px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;border-radius:6px;background:var(--control);cursor:pointer}
+.md code{font:var(--code)/var(--codel) var(--mono);padding:1px 4px;border-radius:6px;background:var(--control);cursor:pointer}
 .md code[data-copied]{background:var(--control2)}
 /* code or a file path that is a link: the link's blue, on a faint tint of it */
 .md a code{color:inherit;background:color-mix(in srgb,var(--link) 12%,transparent)}
-.md pre{margin:0;flex:1;min-width:0;overflow-x:auto;font:13px/20px ui-monospace,SFMono-Regular,Menlo,monospace}
+.md pre{margin:0;flex:1;min-width:0;overflow-x:auto;font:var(--code)/var(--codel) var(--mono)}
 .md pre code{padding:0;background:none;cursor:text}
 .md .code.block{align-items:flex-start;padding:8px 4px 8px 12px}
 .md .code.block .ib[data-copied]{color:var(--green)}
-.md table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse;font-size:14px;line-height:20px}
+/* a table, and a code block's long lines, scroll sideways in their own box (markdown.tsx): faded where cut, a ring round the box when Tab reaches
+   it (the fade would hide the box's own), Open table under it once it is wider than its box */
+.md table{border-collapse:collapse;font-size:14px;line-height:20px}
+.md .tbl{border-radius:4px}
+.md .tbls{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.md [data-sx][data-cut="end"]{mask-image:linear-gradient(to left,transparent,currentColor 32px)}
+.md [data-sx][data-cut="start"]{mask-image:linear-gradient(to right,transparent,currentColor 32px)}
+.md [data-sx][data-cut="both"]{mask-image:linear-gradient(to right,transparent,currentColor 32px calc(100% - 32px),transparent)}
+.md [data-sx]:focus-visible{outline:0}.md .tbl:has(>.tbls:focus-visible),.md .code.block:has(>pre:focus-visible){outline:2px solid var(--fg);outline-offset:2px}
+.md .tblx{display:none;margin-top:-4px;color:var(--sub)}.md .tbl[data-wide]+.tblx{display:inline-flex}
+.md .tblx .i{width:var(--ic-sm);height:var(--ic-sm);margin-left:-2px}
+.tblsheet{grid-template-columns:minmax(0,1fr)}.tblsheet .hd{height:auto;min-height:var(--btn)}.tblsheet .hd h2{flex:1;min-width:0;overflow-wrap:anywhere}.tblsheet .md .tbl{margin:0}
+.dlg.wide:has(>.tblsheet){width:min(1200px,calc(100% - 32px))}
 .md th,.md td{padding:4px 12px 4px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:break-word}
 .md td.long,.md th.long{min-width:10em}
 .md th{font-weight:600}

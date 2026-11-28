@@ -62,7 +62,7 @@ BARE_HOVER = {
 }
 # a monospace stack written out instead of var(--mono) (ds.css held 11)
 RAW_MONO = {
-    "web/src/styles.css": 4,
+    "web/src/styles.css": 2,
     "web/src/about.css": 1,
     "web/plugins/whatsnew/whats-new.css": 1,
 }

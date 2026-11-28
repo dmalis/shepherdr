@@ -10,14 +10,14 @@ html{touch-action:manipulation}
 /* The chat's reading text, from Chat text size (data-text on <html>, none for Default). --chat and --chatl are the
    messages: a step over the interface's 14 px on a computer; on touch 16 px, the interface's own size there. --chat2
    is the chat's smaller lines (quotes, a task's row, chips, tables, a card's second line; never under 14 px on touch),
-   --chatm its code. Line heights stay on whole pixels, and the bubble's padding and corners and the gaps between
+   --chatm its code (a step under the message: 13 on a computer and 14 on touch at Default, as --code). Line heights stay on whole pixels, and the bubble's padding and corners and the gaps between
    messages follow --chatl, so Larger isn't cramped and Small isn't loose. Large is the 16/24 every chat had before. */
 .app{--chat:15px;--chatl:22px;--chat2:13px;--chat2l:20px;--chatm:13px;--chatml:20px}
-.app.tap{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
+.app.tap{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:14px;--chatml:20px}
 :root[data-text="small"] .app{--chat:14px;--chatl:20px;--chat2:13px;--chat2l:18px;--chatm:12px;--chatml:18px}
 :root[data-text="small"] .app.tap{--chat:15px;--chatl:22px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
-:root[data-text="large"] .app{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:13px;--chatml:20px}
-:root[data-text="large"] .app.tap{--chat:18px;--chatl:26px;--chat2:15px;--chat2l:22px;--chatm:14px;--chatml:22px}
+:root[data-text="large"] .app{--chat:16px;--chatl:24px;--chat2:14px;--chat2l:20px;--chatm:14px;--chatml:20px}
+:root[data-text="large"] .app.tap{--chat:18px;--chatl:26px;--chat2:15px;--chat2l:22px;--chatm:15px;--chatml:22px}
 :root[data-text="larger"] .app{--chat:18px;--chatl:28px;--chat2:16px;--chat2l:24px;--chatm:15px;--chatml:22px}
 :root[data-text="larger"] .app.tap{--chat:20px;--chatl:30px;--chat2:17px;--chat2l:24px;--chatm:16px;--chatml:24px}
 
@@ -38,9 +38,15 @@ html{touch-action:manipulation}
 /* an agent-to-agent message opened, and the line under an artifact's tile, in a chat */
 .msgs .quietb .qt,.msgs .tile>.l2{font-size:var(--chat2);line-height:var(--chat2l)}
 /* what a message holds (markdown): its headings at the message's size, code, tables, lists and spacing with it */
-.md p,.md ul,.md ol,.md table,.md blockquote,.md .code.block{margin:calc(var(--chatl,24px) / 3) 0}
+.md p,.md ul,.md ol,.md .tbl,.md blockquote,.md .code.block{margin:calc(var(--chatl,24px) / 3) 0}
 .md ul,.md ol{padding-left:1.375em}
-.md h1,.md h2,.md h3,.md h4{margin:calc(var(--chatl,24px) / 2) 0 calc(var(--chatl,24px) / 6);font-size:var(--chat,16px);line-height:var(--chatl,24px)}
+/* headings step down (fork #164): h1 four px over the message, h2 two, h3 at it, h4 to h6 at the smaller lines' size;
+   each with its own whole-pixel line height */
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:calc(var(--chatl,24px) / 2) 0 calc(var(--chatl,24px) / 6)}
+.md h1{font-size:calc(var(--chat,16px) + 4px);line-height:calc(var(--chatl,24px) + 4px)}
+.md h2{font-size:calc(var(--chat,16px) + 2px);line-height:calc(var(--chatl,24px) + 2px)}
+.md h3{font-size:var(--chat,16px);line-height:var(--chatl,24px)}
+.md h4,.md h5,.md h6{font-size:var(--chat2,14px);line-height:var(--chat2l,20px)}
 .md code,.md pre{font-size:var(--chatm,13px);line-height:var(--chatml,20px)}
 .md table{font-size:var(--chat2,14px);line-height:var(--chat2l,20px)}
 /* the message box writes at the chat's size; on touch never under 16 px, at any zoom (else iOS zooms in on a tap) */

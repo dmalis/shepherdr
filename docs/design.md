@@ -151,9 +151,11 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   `.cnt` have them.
 - **Monospace** is `--mono` (the system's monospace), never the stack written out, at `--code`/`--codel`: 13/20, 14/20
   on touch. A terminal keeps its own metrics, and a small output (a job's lines, a key cap) 12. Code is a `--well` block
-  with a `--line` edge and its own sideways scroll; inline code is a `--control` pill. Target: a reply's code
-  (`styles.css`'s `.md`) moves to `--code` too, with a Copy on every block, and a diff's 12/18 only on a desktop.
-- **Headings in a reply** step down (Target: today h1 to h4 look the same in a chat).
+  with a `--line` edge and its own sideways scroll; inline code is a `--control` pill. A reply's code (`.md`) is the
+  chat's code size, `--chatm` (`size.css`): `--code` at the Default Chat text size, a step under the message at each
+  other, and every code block has its Copy. A diff is 12/18 only with a mouse, `--code` on touch.
+- **Headings in a reply** step down from the message's size (`size.css`): h1 4 px over it, h2 2 px over, h3 at it,
+  h4 to h6 at the chat's smaller lines (`--chat2`), all 600, each with a whole-pixel line height.
 - **Measure:** in the main chat a bubble stops at 560 px, about 70 characters, whatever the chat width; in a task's
   pane bubbles and cards take 92% of its width. A page the app writes (a proof, a plan) keeps prose to about 72
   characters a line.
@@ -179,9 +181,11 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   worker or coordinator (docs/develop.md). It speaks to "you" and never says "I". Buttons say what happens ("Merge into
   main", not "OK"). Errors say what went wrong and what to do. Something under way ends with an ellipsis character
   ("Merging…"), and quotes are curly.
-- **Tables and code scroll sideways in their own box,** never the page. Target: a wide table in a narrow chat shows
-  there is more (a fade at its cut edge), its scroll box can be reached and named for the keyboard, and it can be
-  opened wider.
+- **Tables and code scroll sideways in their own box,** never the page. A box whose content is wider than it fades at
+  the edge where it is cut (moving as it scrolls), is a region named for screen readers (a table by the line before
+  it, else "Table"; a code block "Code") that Tab reaches, with a ring round the box. A wide table has Open table
+  under it, which shows it whole: a wide dialog on a desktop, a sheet on a phone. A box that fits is just what it
+  holds (`web/plugins/chat/markdown.tsx`, checked by `web/demo/reply-check.ts`).
 
 ## Spacing
 

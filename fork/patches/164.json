@@ -1,0 +1,21 @@
+{
+  "issue": 164,
+  "name": "Chat: replies you can read (code, headings, tables)",
+  "files": [
+    "web/plugins/chat/markdown.tsx",
+    "web/src/styles.css",
+    "web/src/size.css",
+    "web/plugins/diff/diff.css",
+    "web/demo/data.ts",
+    "web/demo/reply-check.ts",
+    ".github/workflows/check.yml",
+    "docs/design.md",
+    "test/test_design.py",
+    "web/plugins/zoom/zoom.test.ts"
+  ],
+  "tests": [
+    "web/plugins/chat/reply-boxes.test.ts",
+    "web/plugins/chat/markdown.test.ts",
+    "test/test_design.py::Checks"
+  ]
+}

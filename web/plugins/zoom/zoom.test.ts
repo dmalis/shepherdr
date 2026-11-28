@@ -106,7 +106,7 @@ test('pinned: the build runs the zoom pass, the layout follows it, Settings show
   // the rules size.css takes over are still upstream's, under the same selectors
   const ds = read('../../src/ds.css'), styles = read('../../src/styles.css')
   for (const sel of ['.msgs{', '.b{', '.rpl{', '.wsign .wbub{', '.wdots{', '.wstep{', '.wrow>.wstop{', '.ref{', '.quote.qtask{', '.chip{', '.card{', '.files{', '.code{', '.donerow{', '.cin{']) expect(ds).toContain(sel)
-  for (const sel of ['.quote{', 'button.quote{', '.md h1,.md h2,.md h3,.md h4{', '.md code{', '.md pre{', '.md table{']) expect(styles).toContain(sel)
+  for (const sel of ['.quote{', 'button.quote{', '.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{', '.md code{', '.md pre{', '.md table{']) expect(styles).toContain(sel)
   expect(read('./client.tsx')).toContain("import '@client/size.css'")
   expect(read('../../src/prefs.ts')).toContain('zoom: ZOOMS.includes(v.zoom as Zoom)')
   expect(read('../../plugins.json')).toContain('"zoom"')
