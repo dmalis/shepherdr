@@ -25,6 +25,7 @@
   "tests": [
     "test/test_task_tmp.py",
     "test/test_task_tmp.py::RunInATasksTemp",
+    "test/test_task_tmp.py::ShortTaskTmp",
     "service/shells-tmp.test.ts",
     "test/test_herdr_task.py::CleanEnv",
     "test/test_herdr_task.py::DetachedActions",

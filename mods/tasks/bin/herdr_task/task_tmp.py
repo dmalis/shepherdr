@@ -5,11 +5,18 @@ tools leave behind (pytest, Node, Python's tempfile, mktemp, Go, Rust all follow
 filling the machine's /tmp. Like GitHub Actions' RUNNER_TEMP or Bazel's TEST_TMPDIR, the one who starts the work
 owns the folder and removes it:
 
-  where   Shepherdr's cache folder: ~/.cache/shepherdr/tmp/<task> (macOS: ~/Library/Caches/shepherdr/tmp/<task>),
-          or <HERDR_TASK_STORE>/.tmp/<task> for a throwaway task store, so a test's or a try's scheduler only ever
+  where   ~/.shepherdr-tmp/<task> (macOS too), <SHEPHERDR_HOME>/tmp/<task> for an install of its own, or
+          <HERDR_TASK_STORE>/.tmp/<task> for a throwaway task store, so a test's or a try's scheduler only ever
           sweeps its own. Outside the worktree on purpose: nothing there shows in git status or a commit, and a task
-          working in the folder itself (no worktree) has one too. The name is short (sd-254-9f3a: its key and a bit
-          of its list's name), as Unix sockets made inside it must stay under the OS's path limit.
+          working in the folder itself (no worktree) has one too.
+          Short on purpose: a Unix socket's path is at most 103 bytes on macOS and 107 on Linux, and tools make
+          theirs in TMPDIR (tmux, ssh's ControlPath, language servers, test harnesses), so the folder leaves
+          SOCKET_ROOM bytes for them with a home up to MAX_HOME long. Like Lima's ~/.lima, it is a short folder of
+          its own in the home, owner-only and tagged for backups to skip, not Shepherdr's cache folder
+          (~/Library/Caches/shepherdr/tmp alone is 30 bytes past the home); and the task's part is 8 hex of its
+          list and key, like ssh's %C (~/.shepherdr-tmp/3f9a1c07: the home and 24 bytes, whatever the key).
+          Older copies made them in the cache folder (~/.cache/shepherdr/tmp/sd-254-9f3a): remove() and the sweep
+          still find those, and a task's next start moves it to the short one once nothing uses its old one.
   made    right before its agent starts (launch.launch()), or when the web app opens the task's terminal first
           (`herdr-task _task-tmp`), and recorded on the task as "tmp". The web app's terminal for the task starts
           its shell there too, and marks the folder in use while that shell lives (SHELL_MARK).
@@ -39,23 +46,52 @@ STALE_S = 3600
 SHELL_MARK = ".shell-"
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 _swept = 0.0
+ROOT_NAME = ".shepherdr-tmp"  # in the home: root()
+# The longest home the folder stays short enough for (/Users/ and a 12-letter name, /home/ and 13), the room it
+# leaves for a tool's socket, and each OS's longest socket path (sun_path is 104 bytes on macOS and 108 on Linux,
+# each with its closing zero). test/test_task_tmp.py checks the sum.
+MAX_HOME, SOCKET_ROOM, SOCKET_MAX = 19, 60, {"darwin": 103, "linux": 107}
 
 
 def root():
-    """Where this machine's task temp folders are: beside a throwaway task store, else in Shepherdr's cache."""
+    """Where this machine's task temp folders are made (the module's docstring)."""
     if os.environ.get("HERDR_TASK_STORE"):
         return os.path.join(STORE, ".tmp")
-    return os.path.join(WHERE.roots["cache"], "tmp")
+    one = WHERE.env.get("SHEPHERDR_HOME")
+    if one and os.path.isabs(one) and WHERE.roots["cache"] == os.path.join(one, "cache"):
+        return os.path.join(one, "tmp")
+    return os.path.join(WHERE.home, ROOT_NAME)
+
+
+def roots():
+    """root(), then where older copies made them (the cache folder's tmp/): every place remove() and the sweep look."""
+    out = [root()]
+    if not os.environ.get("HERDR_TASK_STORE"):
+        old = os.path.join(WHERE.roots["cache"], "tmp")
+        if os.path.abspath(old) != os.path.abspath(out[0]):
+            out.append(old)
+    return out
 
 
 def name_for(slug, ref):
-    """sd-254-9f3a: the task's key, lower case, and 4 hex of its list's slug (two lists may share a prefix)."""
-    base = re.sub(r"[^a-z0-9-]+", "-", str(ref).lower()).strip("-")[:32] or "task"
-    return f"{base}-{hashlib.sha1(str(slug).encode()).hexdigest()[:4]}"
+    """3f9a1c07: 8 hex of the task's list (its slug: two lists may share a prefix) and key, 8 bytes whatever the key.
+    Older copies' names (sd-254-9f3a) always have a dash, so the two never meet."""
+    return hashlib.sha1(f"{slug}\0{ref}".encode()).hexdigest()[:8]
 
 
 def path_for(s, task):
     return os.path.join(root(), name_for(s.slug, s.ref(task)))
+
+
+def _make_root(r):
+    """root(), owner-only; the home's own is tagged so backup tools skip it, as layout.py tags the cache."""
+    if os.path.isdir(r):
+        return
+    os.makedirs(r, mode=0o700, exist_ok=True)
+    if os.path.basename(r) == ROOT_NAME:
+        with open(os.path.join(r, "CACHEDIR.TAG"), "w") as f:
+            f.write("Signature: 8a477f597d28d172789f06886806bc55\n"
+                    "# Shepherdr's task temp folders: safe to delete, skipped by backups.\n")
 
 
 def ensure(s, task):
@@ -63,7 +99,14 @@ def ensure(s, task):
     the agent then starts with the machine's own temp folder, as before (a temp folder never stops a start)."""
     try:
         p = path_for(s, task)
-        os.makedirs(root(), mode=0o700, exist_ok=True)
+        was = task.get("tmp")
+        if was and was != p and os.path.lexists(was) and _ours(was):
+            # an older copy's (a long name in the cache folder): kept while what started there still uses it
+            if in_use(s.key(task), was):
+                os.utime(was)
+                return was
+            shutil.rmtree(was, ignore_errors=True)
+        _make_root(root())
         os.makedirs(p, mode=0o700, exist_ok=True)
         os.chmod(p, 0o700)
         os.utime(p)  # just made or started again: never stale (sweep()) while its agent starts
@@ -81,11 +124,13 @@ def env_for(path):
 
 
 def _ours(p):
-    """Only a real folder right inside root(), with a name we give, is ever removed: never a link, never anything
-    a task record points elsewhere."""
-    r = os.path.realpath(root())
-    return (os.path.dirname(os.path.abspath(p)) == os.path.abspath(root()) and NAME.match(os.path.basename(p))
-            and not os.path.islink(p) and os.path.isdir(p) and os.path.dirname(os.path.realpath(p)) == r)
+    """Only a real folder right inside root() or an older copy's root (roots()), with a name we give, is ever
+    removed: never a link, never anything a task record points elsewhere."""
+    if not NAME.match(os.path.basename(p)) or os.path.islink(p) or not os.path.isdir(p):
+        return False
+    d = os.path.dirname(os.path.abspath(p))
+    return any(d == os.path.abspath(r) and os.path.dirname(os.path.realpath(p)) == os.path.realpath(r)
+               for r in roots())
 
 
 def _boot_time():
@@ -175,11 +220,12 @@ def sweep(report=None, force=False):
     if not force and time.time() - _swept < SWEEP_EVERY_S:
         return []
     _swept = time.time()
-    base = root()
-    try:
-        names = [n for n in os.listdir(base) if NAME.match(n)]
-    except OSError:
-        return []
+    names = []  # (its root, its name): root()'s and older copies' (roots())
+    for base in roots():
+        try:
+            names += [(base, n) for n in os.listdir(base) if NAME.match(n)]
+        except OSError:
+            continue
     if not names:
         return []
     from .store import read_list
@@ -199,7 +245,7 @@ def sweep(report=None, force=False):
             if isinstance(t, dict) and t.get("tmp"):
                 rec[os.path.basename(t["tmp"])] = (f"{slug}#{t.get('id')}", _ended(t))
     gone = []
-    for n in names:
+    for base, n in names:
         p = os.path.join(base, n)
         if not _ours(p):
             continue

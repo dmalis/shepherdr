@@ -153,8 +153,13 @@ there: at once when it finishes with its agents ended, else at the scheduler's n
 uncommitted changes, a terminal open in it, or commits after the merge that main doesn't have (offered as a follow-up)
 stays, and is looked at again every hour; one made Done by hand with its work unmerged stays until you remove it.
 
-Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
-made when its agent starts, or when you open the task's terminal first. Its agent and that terminal get it as `TMPDIR`,
+Each task gets a temp folder of its own, `~/.shepherdr-tmp/<task>` (on macOS too; `<task>` is a short code, like
+`3f9a1c07`), made when its agent starts, or when you open the task's terminal first. It is kept short on purpose: tools
+make sockets in their temp folder (tmux, ssh, language servers, test runners), and a socket's path can't be longer
+than about 100 bytes, so a longer folder, like the cache folder copies before this used (`~/.cache/shepherdr/tmp`,
+macOS `~/Library/Caches/shepherdr/tmp`), made them fail. A task that still has one there moves to the short one at
+its next start, and Shepherdr still removes the old ones. Only you can open `~/.shepherdr-tmp`, and backup tools that
+honour `CACHEDIR.TAG` skip it. With `SHEPHERDR_HOME` set, it is `$SHEPHERDR_HOME/tmp` instead. Its agent and that terminal get it as `TMPDIR`,
 `TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust
 all use `TMPDIR`) never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git.
 Shepherdr never deletes it while something uses it: the task's agents, their helpers, or its terminal in the web app.
