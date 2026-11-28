@@ -5,7 +5,7 @@ tools leave behind (pytest, Node, Python's tempfile, mktemp, Go, Rust all follow
 filling the machine's /tmp. Like GitHub Actions' RUNNER_TEMP or Bazel's TEST_TMPDIR, the one who starts the work
 owns the folder and removes it:
 
-  where   ~/.shepherdr-tmp/<task> (macOS too), <SHEPHERDR_HOME>/tmp/<task> for an install of its own, or
+  where   ~/.shep-tmp/<task> (macOS too), <SHEPHERDR_HOME>/.shep-tmp/<task> for an install of its own, or
           <HERDR_TASK_STORE>/.tmp/<task> for a throwaway task store, so a test's or a try's scheduler only ever
           sweeps its own. Outside the worktree on purpose: nothing there shows in git status or a commit, and a task
           working in the folder itself (no worktree) has one too.
@@ -13,10 +13,12 @@ owns the folder and removes it:
           theirs in TMPDIR (tmux, ssh's ControlPath, language servers, test harnesses), so the folder leaves
           SOCKET_ROOM bytes for them with a home up to MAX_HOME long. Like Lima's ~/.lima, it is a short folder of
           its own in the home, owner-only and tagged for backups to skip, not Shepherdr's cache folder
-          (~/Library/Caches/shepherdr/tmp alone is 30 bytes past the home); and the task's part is 8 hex of its
-          list and key, like ssh's %C (~/.shepherdr-tmp/3f9a1c07: the home and 24 bytes, whatever the key).
+          (~/Library/Caches/shepherdr/tmp alone is 30 bytes past the home); and the task's part is 6 letters and
+          digits from a hash of its list and key, like ssh's %C (~/.shep-tmp/k3x9q2: the home and 17 bytes,
+          whatever the key).
           Older copies made them in the cache folder (~/.cache/shepherdr/tmp/sd-254-9f3a): remove() and the sweep
-          still find those, and a task's next start moves it to the short one once nothing uses its old one.
+          still find those, and a task's next start, or its terminal's in the web app, moves it to the short one
+          once nothing uses its old one. Only names of those two shapes are ever removed (NAME).
   made    right before its agent starts (launch.launch()), or when the web app opens the task's terminal first
           (`herdr-task _task-tmp`), and recorded on the task as "tmp". The web app's terminal for the task starts
           its shell there too, and marks the folder in use while that shell lives (SHELL_MARK).
@@ -44,22 +46,27 @@ SWEEP_EVERY_S = 600
 STALE_S = 3600
 # service/shells.ts's TMP_SHELL writes .shell-<its pid> here before it becomes the shell (exec keeps the pid)
 SHELL_MARK = ".shell-"
-NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+# the names we give: today's (name_for()), and older copies' (sd-254-9f3a: a key, then 4 hex of its list)
+NEW_NAME = re.compile(r"^[0-9a-z]{6}$")
+OLD_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}-[0-9a-f]{4}$")
+NAME = re.compile(f"{NEW_NAME.pattern}|{OLD_NAME.pattern}")
 _swept = 0.0
-ROOT_NAME = ".shepherdr-tmp"  # in the home: root()
-# The longest home the folder stays short enough for (/Users/ and a 12-letter name, /home/ and 13), the room it
+ROOT_NAME = ".shep-tmp"  # in the home, or SHEPHERDR_HOME: root()
+# The longest home the folder stays short enough for (/Users/ and a 19-letter name, /home/ and 20), the room it
 # leaves for a tool's socket, and each OS's longest socket path (sun_path is 104 bytes on macOS and 108 on Linux,
 # each with its closing zero). test/test_task_tmp.py checks the sum.
-MAX_HOME, SOCKET_ROOM, SOCKET_MAX = 19, 60, {"darwin": 103, "linux": 107}
+MAX_HOME, SOCKET_ROOM, SOCKET_MAX = 26, 60, {"darwin": 103, "linux": 107}
+_B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
 def root():
-    """Where this machine's task temp folders are made (the module's docstring)."""
+    """Where this machine's task temp folders are made (the module's docstring). Always a folder only Shepherdr
+    names, so the sweep never looks at someone's own ~/tmp."""
     if os.environ.get("HERDR_TASK_STORE"):
         return os.path.join(STORE, ".tmp")
     one = WHERE.env.get("SHEPHERDR_HOME")
     if one and os.path.isabs(one) and WHERE.roots["cache"] == os.path.join(one, "cache"):
-        return os.path.join(one, "tmp")
+        return os.path.join(one, ROOT_NAME)
     return os.path.join(WHERE.home, ROOT_NAME)
 
 
@@ -74,9 +81,14 @@ def roots():
 
 
 def name_for(slug, ref):
-    """3f9a1c07: 8 hex of the task's list (its slug: two lists may share a prefix) and key, 8 bytes whatever the key.
-    Older copies' names (sd-254-9f3a) always have a dash, so the two never meet."""
-    return hashlib.sha1(f"{slug}\0{ref}".encode()).hexdigest()[:8]
+    """k3x9q2: 6 letters and digits (31 bits) of a hash of the task's list (its slug: two lists may share a prefix)
+    and key, 6 bytes whatever the key. Older copies' names (sd-254-9f3a) always have a dash, so the two never meet."""
+    n = int(hashlib.sha1(f"{slug}\0{ref}".encode()).hexdigest(), 16)
+    out = ""
+    for _ in range(6):
+        n, d = divmod(n, 36)
+        out += _B36[d]
+    return out
 
 
 def path_for(s, task):
@@ -220,10 +232,13 @@ def sweep(report=None, force=False):
     if not force and time.time() - _swept < SWEEP_EVERY_S:
         return []
     _swept = time.time()
-    names = []  # (its root, its name): root()'s and older copies' (roots())
+    names = []  # (its root, its name, whether one no task records may go): root()'s and older copies' (roots())
     for base in roots():
+        # one no task records goes only from a folder Shepherdr names (root(), the cache's own tmp/), never from an
+        # install of its own's <SHEPHERDR_HOME>/cache/tmp, which could be someone's ~/cache/tmp
+        strays = base == root() or os.path.basename(os.path.dirname(base)) == "shepherdr"
         try:
-            names += [(base, n) for n in os.listdir(base) if NAME.match(n)]
+            names += [(base, n, strays) for n in os.listdir(base) if NAME.match(n)]
         except OSError:
             continue
     if not names:
@@ -245,9 +260,11 @@ def sweep(report=None, force=False):
             if isinstance(t, dict) and t.get("tmp"):
                 rec[os.path.basename(t["tmp"])] = (f"{slug}#{t.get('id')}", _ended(t))
     gone = []
-    for base, n in names:
+    for base, n, strays in names:
         p = os.path.join(base, n)
         if not _ours(p):
+            continue
+        if n not in rec and not strays:
             continue
         key, ended = rec.get(n, (None, False))
         if not ended:

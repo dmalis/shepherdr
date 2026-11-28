@@ -84,6 +84,16 @@ test("a task with no temp folder yet (its agent hasn't started) has herdr-task m
   expect(() => readFileSync(log)).toThrow();
 });
 
+test("an older copy's long folder goes through herdr-task, which moves it to the short one once nothing uses it", async () => {
+  const { file, log } = fakeTask('{"tmp": "/h/.shep-tmp/k3x9q2"}');
+  const old = "/h/.cache/shepherdr/tmp/shop-3-abcd";
+  expect(await withTask(file, () => taskTmp({ folder: "/f", machine: null, tmp: old, task: { id: "3", folder: "/list" } }))).toBe("/h/.shep-tmp/k3x9q2");
+  expect(readFileSync(log, "utf8").trimEnd().split("\n")).toEqual(["_task-tmp", "3", "--folder", "/list"]);
+  // herdr-task can't say (an older one there): the shell keeps the one it has
+  const { file: bad } = fakeTask("usage: herdr-task ...", 2);
+  expect(await withTask(bad, () => taskTmp({ folder: "/f", machine: null, tmp: old, task: { id: "3", folder: "/list" } }))).toBe(old);
+});
+
 test("an older herdr-task without it leaves the machine's own temp folder", async () => {
   const { file } = fakeTask("usage: herdr-task ...", 2);
   expect(await withTask(file, () => taskTmp({ folder: "/f", machine: null, task: { id: "3", folder: "/list" } }))).toBeNull();
