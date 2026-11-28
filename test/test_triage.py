@@ -1000,11 +1000,39 @@ class BatchYes(Triaged):
         self.assertEqual(tpub.publish()["posted"], 1)
         self.assertEqual(len(self.gh_state()["bulk"][REPO.lower()]), 1)
 
-    def test_a_yes_kept_before_answers_said_where_reads_as_the_backlogs(self):
-        # the backlog review's first day kept its single Yeses with no `from`: they go at the batch's pace
-        keys = self.hold(12)
+    def legacy(self, after_batch_ms):
+        """a batch Yes for one draft at T0, then 12 single Yeses kept before rows said where (no `from`)"""
+        T0 = 10 * tri.BACKLOG_MS
+        first, *keys = self.hold(13)
         self.yes_rows(keys, {})
-        self.assertEqual(tpub.publish()["posted"], 12)
+        with open(tri.YES) as f:
+            rows = [{**y, "at": T0 + after_batch_ms} for y in json.load(f)["yes"]]
+        self.batch_yes([first])
+        with open(tri.YES) as f:
+            batch = [{**y, "at": T0} for y in json.load(f)["yes"]]
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": batch + rows}, f)
+
+    def test_an_older_yes_given_in_the_hour_after_post_all_goes_with_the_batch(self):
+        self.legacy(5 * 60_000)  # answered one by one in the review, minutes after Post all
+        self.assertEqual(tpub.publish()["posted"], 13)
+
+    def test_an_older_yes_before_the_batch_keeps_triages_cap(self):
+        self.legacy(-60_000)  # before the batch's Yes: a card in Needs you, or the Feedback page
+        out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 11, out)  # the batch's one, and Triage's 10 an hour
+        self.assertIn("Triage's pace", out["why"])
+
+    def test_an_older_yes_long_after_the_batch_keeps_triages_cap(self):
+        self.legacy(tri.BACKLOG_MS + 1)
+        tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 11)
+
+    def test_a_yes_with_no_from_and_no_batch_at_all_keeps_triages_cap(self):
+        keys = self.hold(12)
+        self.yes_rows(keys, {})  # an older everyday yes (the Feedback page's Post it)
+        tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 10)
 
     def gh_state(self):
         with open(tgh.STATE) as f:
