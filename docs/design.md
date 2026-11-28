@@ -256,8 +256,9 @@ Use these before making anything new; each has its states in `ds.css`.
 - **Pages the app writes** (a proof, a plan) set their own background and text colours for light and dark.
 - **An artifact's frame** is the app's own page colour under the page (`.page`, `background: var(--canvas)`), never a fixed
   white: a page that says it can be dark and paints no background of its own reads in every theme, and a light-only
-  page keeps its white. `web/demo/artifact-check.ts` measures every demo artifact's words in its frame, as painted,
-  at 4.5:1 in light, dark and night, at 390 px and on a desktop.
+  page keeps its white. A document with no link catcher (an SVG or a picture opened from a link) gets white (`.bare`).
+  `web/demo/artifact-check.ts` measures every demo artifact's words in its frame, as painted, at 4.5:1 in light,
+  dark and night, against the device's own scheme too, at 390 px and on a desktop.
 
 ## Writing
 

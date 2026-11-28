@@ -187,6 +187,9 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   const frame = useRef<HTMLIFrameElement>(null)
   const [load, setLoad] = useState(0)
   const [lost, setLost] = useState(false)
+  // a document of the artifact with no link catcher (an SVG, a picture, a text file opened from a link): it never
+  // paints a canvas of its own in Safari, so it gets the white it was made for instead of the app's dark
+  const [bare, setBare] = useState(false)
   // when the frame last said it shows a page of the artifact (its catcher says so as the page starts and on its load),
   // whether a tap sent it to the artifact's own file, and the timer that looks after a load
   const said = useRef(0)
@@ -195,6 +198,7 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
   useEffect(() => {
     inside.current = false
     setLost(false)
+    setBare(false)
     return () => { if (look.current) clearTimeout(look.current) }
   }, [a.id, v, load])
   // marking up or not, told to the page (again whenever a page of it starts: it says so)
@@ -208,7 +212,7 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
       if (e.source !== frame.current?.contentWindow) return
       const d = e.data as { shepherdr?: string; text?: unknown } | null
       const what = onFrameSaid(d, location.href, (href) => openLink(href, true), (href) => void window.open(href, '_blank', 'noopener,noreferrer'))
-      if (what === 'page') { said.current = Date.now(); setLost(false); tell() }
+      if (what === 'page') { said.current = Date.now(); setLost(false); setBare(false); tell() }
       else if (what === 'inside') inside.current = true
       const spot = marking.current ? spotOf(d) : null
       if (spot) setPin(spot)
@@ -225,13 +229,14 @@ function Page({ a, v, markup, setPin }: { a: Artifact; v: number; markup: boolea
     const at = Date.now()
     if (look.current) clearTimeout(look.current)
     look.current = setTimeout(() => {
+      setBare(Math.abs(said.current - at) > 1000)
       setLost(Math.abs(said.current - at) > 1000 && !inside.current)
       inside.current = false
     }, 1200)
   }
   return (
     <div className="pagebox">
-      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className="page" title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" onLoad={loaded} />
+      <iframe key={`${a.id}|${v}|${load}`} ref={frame} className={cx('page', bare && 'bare')} title={a.title} src={pageUrl(a, v)} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" onLoad={loaded} />
       {lost && (
         <div className="page-lost empty" role="status">
           <b>Couldn't show this page</b>

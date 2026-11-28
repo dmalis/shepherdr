@@ -36,12 +36,16 @@ test('the demo’s pages can be light or dark and paint no background: the case 
 test('the check opens each artifact as the app does and sets the theme as Settings keeps it', () => {
   const check = read('web/demo/artifact-check.ts')
   expect(check).toContain("page.locator('iframe.page')")
-  expect(read('web/plugins/artifacts/client.tsx')).toContain('className="page"')
+  expect(read('web/plugins/artifacts/client.tsx')).toContain("className={cx('page', bare && 'bare')}")
   expect(read('web/plugins/artifacts/client.tsx')).toContain('`api/artifacts/${encodeURIComponent(a.id)}/page/')
   expect(read('web/src/prefs.ts')).toContain("const KEY = 'shepherdr.prefs'")
   expect(check).toContain("localStorage.setItem('shepherdr.prefs', JSON.stringify({ theme }))")
   const themes = /THEMES = \[([^\]]*)\]/.exec(read('web/src/prefs.ts'))?.[1] ?? ''
   for (const l of LOOKS) expect(themes).toContain(`'${l.theme}'`)
+  // the device's dark is Chrome's own, never emulated media: emulation sets every frame's scheme, a real frame takes the app's
+  expect(check).toContain("args: ['--force-dark-mode']")
+  expect(check).toContain('colorScheme: null')
+  expect(check).not.toContain("colorScheme: 'dark'")
   // dark and night, on a dark device and on a light one
   expect(LOOKS.map((l) => `${l.theme}/${l.device}`)).toEqual(expect.arrayContaining(['Dark/dark', 'Night/dark', 'Dark/light', 'Night/light', 'System/dark']))
 })
@@ -51,4 +55,14 @@ test('contrast is WCAG’s, and see-through words are measured as painted', () =
   expect(contrast([255, 255, 255], [255, 255, 255])).toBe(1)
   expect(contrast([0x73, 0x73, 0x73], [0x12, 0x12, 0x12])).toBeLessThan(MIN)
   expect(over([0, 0, 0, 0.5], [255, 255, 255])).toEqual([127.5, 127.5, 127.5])
+})
+
+test('a document of the artifact with no link catcher gets white under it', () => {
+  const client = read('web/plugins/artifacts/client.tsx')
+  // no word from the catcher near a load (an SVG, a picture), and the page's word takes it back
+  expect(client).toContain('setBare(Math.abs(said.current - at) > 1000)')
+  expect(client).toContain("if (what === 'page') { said.current = Date.now(); setLost(false); setBare(false); tell() }")
+  expect(read('web/src/styles.css')).toContain('.page.bare{color-scheme:light;background:Canvas}')
+  // the catcher says "page" as each HTML page of the artifact starts
+  expect(read('service/artifact-links.ts')).toContain('S({shepherdr:"page"});')
 })
