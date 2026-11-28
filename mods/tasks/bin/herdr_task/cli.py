@@ -494,6 +494,12 @@ def main():
             c.add_argument("--match", help="only tasks whose title has these words, or branch:<glob>")
             c.add_argument("--from", dest="from_", help="hear another folder's task events instead of this one's: "
                            "vm-b:~/dev/app (another machine linked to this one) or a folder here (\"\" clears)")
+            c.add_argument("--check", metavar="COMMAND",
+                           help="run first, in its folder (120 s at most): exit 0 starts the run with its output, 1-125 is "
+                                "nothing to do (no task); a failed check is said (\"\" takes it away)")
+            c.add_argument("--fold", action="store_const", const=True, default=None,
+                           help="one run at a time: what sets it off while its run is open is one run after it")
+            c.add_argument("--no-fold", dest="fold", action="store_const", const=False, help="each reason its own run again")
             c.add_argument("--agent")
             c.add_argument("--space", help="the space its tasks start in (default: yours)")
             c.add_argument("--parent", help="its tasks' agents' parent (default: you)")

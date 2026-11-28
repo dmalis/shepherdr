@@ -15349,3 +15349,211 @@ class NeedsOnlyYours(unittest.TestCase):
             text = f.read()
         self.assertIn("Change files with your CLI's own edit tools, or a script file you write and then run by its path. "
                       "Never put code inside a shell command", text)
+
+
+class ScheduleCheck(unittest.TestCase):
+    """dmalis/shepherdr#229: a schedule's check runs before its run: exit 0 starts it with the check's output, 1 to 125
+    starts nothing (recorded as checked), and a failed check is said, never silent. A real list in a throwaway store
+    and real `sh -c` checks; only starting an agent and the clock are faked (Schedules32's setUp)."""
+    run_cmd, tick_at, task, auto = Scheduled.run_cmd, Scheduled.tick_at, Scheduled.task, Schedules32.auto
+
+    def setUp(self):
+        Schedules32.setUp(self)
+        import herdr_task.schedule_gate as gate
+        self.gate = gate
+        self.addCleanup(gate._running.clear)
+
+    def add(self, title, **kw):
+        return Scheduled.add(self, title, **{"here": True, **kw})
+
+    def round(self, ms=None, wait=True):
+        """One scheduler round at that moment, then its checks (waited for unless wait=False): the round's report."""
+        self.clock = ms
+        report = {"started": [], "done": [], "attention": [], "fired": []}
+        seen = self.__dict__.setdefault("seen", {})
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            self.au.automations_pass(s, seen, report)
+        self.threads = self.gate.start_checks(report, wait=wait)
+        return report
+
+    def due(self, check, **kw):
+        a = self.auto("add", title="Watch", prompt="Look upstream.", when="every 30 minutes", check=check, **kw)
+        return a, a["next_run"] + 1000
+
+    def schedule(self):
+        with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
+            return dict(s.data["automations"][0])
+
+    def test_nothing_to_do_starts_no_task(self):
+        a, at = self.due("echo all quiet; exit 1")
+        self.assertIn("checks first", self.au.auto_line(a))
+        r = self.round(at)
+        self.assertEqual((r["fired"], self.started, [c["ref"] for c in r["checks"]]), ([], [], ["APP-A1"]))
+        shown = self.auto("show", id="1")
+        self.assertEqual((shown["last"]["ended"], shown["last"]["said"], shown["last_task"]), ("checked", "all quiet", None))
+        self.assertIn("nothing to do", self.au.auto_line(shown))
+        with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
+            self.assertEqual(s.data["tasks"], [])
+
+    def test_work_starts_the_run_with_the_checks_output(self):
+        _, at = self.due('echo "upstream 1636 updated by $HERDR_TASK_SCHEDULE for $HERDR_TASK_WHY"; '
+                         'echo "last run [$HERDR_TASK_LAST_RUN]"')
+        self.round(at)
+        self.assertEqual(len(self.started), 1)
+        t = self.task(1)
+        self.assertIn("The schedule's check found:\nupstream 1636 updated by APP-A1 for time\nlast run []", t["prompt"])
+        self.assertEqual(self.schedule()["runs"][-1]["task"], "APP-1")
+        last = self.schedule()["last_run"]
+        self.round(self.schedule()["next_run"] + 1000)
+        self.assertIn(f"last run [{last}]", self.task(2)["prompt"])
+
+    def test_a_failed_check_is_said_once_then_shown_until_one_works(self):
+        _, at = self.due("no-such-check-command-229")
+        self.round(at)
+        self.assertEqual(len(self.started), 1)  # the first failure starts the run anyway, so its agent says it
+        self.assertIn("The schedule's check failed: its command wasn't found (127)", self.task(1)["prompt"])
+        self.assertEqual(self.schedule()["last_error"]["kind"], "check")
+        self.task_done(1)
+        self.round(self.schedule()["next_run"] + 1000)
+        self.assertEqual(len(self.started), 1)  # the same outage: nothing more starts
+        a = self.schedule()
+        self.assertIn("Its check failed since", a["last_error"]["message"])
+        self.assertIn("wasn't found", a["runs"][-1]["check_failed"])
+        self.assertEqual(self.auto("show", id="1")["last"]["ended"], "check-failed")
+        self.auto("edit", id="1", check="exit 1")
+        self.round(self.schedule()["next_run"] + 1000)
+        a = self.schedule()
+        self.assertEqual((a.get("last_error"), a.get("check_failing"), a["runs"][-1].get("nothing")), (None, None, "check"))
+
+    def test_the_time_limit_and_a_signal_are_failures(self):
+        self.mock.patch.object(self.gate, "CHECK_TIMEOUT_S", 1).start()
+        self.addCleanup(self.mock.patch.stopall)
+        self.assertEqual(self.gate.run_check({"id": 1, "folder": self.folder, "command": "sleep 5", "why": ["time"]}),
+                         ("failed", "it took longer than 1 s"))
+        kind, why = self.gate.run_check({"id": 1, "folder": self.folder, "command": "kill -TERM $$", "why": ["time"]})
+        self.assertEqual((kind, why), ("failed", "it was stopped by signal 15"))
+        self.assertEqual(self.gate.run_check({"id": 1, "folder": self.folder, "command": "exit 2", "why": []})[0], "nothing")
+
+    def test_what_comes_while_it_checks_makes_one_task(self):
+        self.auto("add", title="Install", prompt="Install it.", on="merged", check="sleep 2; echo go")
+        r = self.merge("First", wait=False)
+        self.assertEqual(len(r["checks"]), 1)
+        running = self.threads
+        r = self.merge("Second", wait=False)
+        self.assertEqual((self.started, self.threads), ([], []))  # joins the check that runs: no second one
+        for t in running:
+            t.join()
+        self.assertEqual(len(self.started), 1)
+        t = self.task(self.started[0][0])
+        self.assertIn('the task "First" was merged', t["prompt"])
+        self.assertIn('the task "Second" was merged', t["prompt"])
+        self.assertEqual(self.schedule()["runs"][-1]["why"].count("merged:"), 2)
+
+    def test_a_slow_check_holds_up_no_other_schedule(self):
+        _, at = self.due("sleep 3; exit 1")
+        self.auto("add", title="Other", prompt="x", when="every 30 minutes")
+        import time as clock
+        t0 = clock.monotonic()
+        r = self.round(at, wait=False)
+        self.assertLess(clock.monotonic() - t0, 1.5)
+        self.assertEqual([f["automation"] for f in r["fired"]], ["APP-A2"])
+        self.assertIn("checking now", self.au.auto_line(self.auto("show", id="1")))
+        for t in self.threads:
+            t.join()
+
+    def test_a_restart_mid_check_checks_again_and_starts_once(self):
+        _, at = self.due("echo go")
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            s.data["automations"][0]["checking"] = {"since": 1, "whys": [["time", None]]}
+            s.dirty = True
+        r = self.round(at)  # this scheduler runs no thread for it: checked again, its time's reason folded in
+        self.assertEqual((len(r["checks"]), len(self.started)), (1, 1))
+        self.assertEqual(self.schedule().get("checking"), None)
+        self.round(at + 1000)
+        self.assertEqual(len(self.started), 1)
+
+    def test_run_now_goes_around_the_check(self):
+        self.due("exit 1")
+        self.auto("run-now", id="1")
+        self.assertEqual(len(self.started), 1)
+
+    def test_check_and_fold_are_set_and_taken_away(self):
+        a = self.auto("add", title="Watch", prompt="x", when="hourly", check="fork/bin/watch-check", fold=True)
+        self.assertEqual((a["check"], a["fold"]), ("fork/bin/watch-check", True))
+        a = self.auto("edit", id="1", check="", fold=False)
+        self.assertEqual((a["check"], a["fold"]), (None, None))
+        with self.assertRaisesRegex(self.Fail, "A one-off runs once"):
+            self.auto("add", title="Once", prompt="x", when="once fri 9:00", check="exit 1")
+
+    def test_the_call_it_hangs_on(self):
+        """The patch's one call site in upstream's automations_pass(), and fire()'s arguments it uses."""
+        import inspect
+        self.assertIn("schedule_gate.gate(s, a, whys, report)", inspect.getsource(self.au.automations_pass))
+        self.assertEqual(list(inspect.signature(self.au.fire).parameters), ["s", "a", "why", "brief"])
+        self.assertIn("schedule_gate.start_checks(report, wait=args.once)", inspect.getsource(self.au.cmd_scheduler))
+
+    # -- helpers for events --
+    def merge(self, title, wait=True):
+        """A task of this folder merges: added and seen once, then merged and seen again (one round each)."""
+        v = self.add(title)
+        self.round(wait=wait)
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            t = s.find(v["ref"])
+            t.update(state="done", merged=True)
+            s.dirty = True
+        return self.round(wait=wait)
+
+    def task_done(self, ref):
+        with self.store_mod.Store(self.store_mod.locate(self.folder)) as s:
+            s.find(ref).update(state="done", quiet="nothing")
+            s.dirty = True
+
+
+class ScheduleFold(unittest.TestCase):
+    """dmalis/shepherdr#229: one run at a time (--fold): the first event starts at once; what comes while its run is open
+    is one run after it, naming every reason."""
+    run_cmd, tick_at, task, auto = Scheduled.run_cmd, Scheduled.tick_at, Scheduled.task, Schedules32.auto
+    setUp, add, round, merge, task_done, schedule = (ScheduleCheck.setUp, ScheduleCheck.add, ScheduleCheck.round,
+                                                     ScheduleCheck.merge, ScheduleCheck.task_done, ScheduleCheck.schedule)
+
+    def test_a_burst_during_a_run_is_one_run_after_it(self):
+        self.auto("add", title="Install", prompt="Install it.", on="merged", fold=True)
+        self.merge("First")
+        self.assertEqual(len(self.started), 1)  # at once
+        first = self.started[0][0]
+        for title in ("Second", "Third", "Fourth"):
+            self.merge(title)
+        self.assertEqual(len(self.started), 1)
+        shown = self.auto("show", id="1")
+        self.assertIn("one run at a time; 3 waiting for its run to end", self.au.auto_line(shown))
+        self.task_done(first)
+        self.round()
+        self.assertEqual(len(self.started), 2)
+        t = self.task(self.started[1][0])
+        for title in ("Second", "Third", "Fourth"):
+            self.assertIn(f'the task "{title}" was merged', t["prompt"])
+        self.assertNotIn('"First"', t["prompt"])
+        self.assertEqual(self.schedule().get("folded"), None)
+        self.task_done(self.started[1][0])
+        self.merge("Fifth")  # a lone merge, nothing open: at once
+        self.assertEqual(len(self.started), 3)
+
+    def test_without_fold_each_merge_is_its_own_run(self):
+        self.auto("add", title="Install", prompt="Install it.", on="merged")
+        self.merge("First")
+        self.merge("Second")
+        self.assertEqual(len(self.started), 2)
+
+    def test_fold_and_check_together(self):
+        self.auto("add", title="Install", prompt="Install it.", on="merged", fold=True, check="exit 1")
+        self.merge("First")
+        self.assertEqual((self.started, self.schedule()["runs"][-1].get("nothing")), ([], "check"))
+        self.auto("edit", id="1", check="echo go")
+        self.merge("Second")
+        self.assertEqual(len(self.started), 1)
+        self.merge("Third")
+        self.assertEqual(len(self.started), 1)  # its run is open: folded
+        self.task_done(self.started[0][0])
+        self.round()
+        self.assertEqual(len(self.started), 2)
+        self.assertIn('the task "Third" was merged', self.task(self.started[1][0])["prompt"])

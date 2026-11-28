@@ -31,6 +31,7 @@ from .news import news_pass
 from .tick import end_done_pass, lost_logs_pass, memory_guard, stopped_pass, tick_store
 from .machines import machines_pass
 from .takeover import cli_check_pass
+from . import schedule_gate
 
 
 # ---- schedules (stored as automations) ---------------------------------------------------------
@@ -285,6 +286,8 @@ def run_ended(s, r):
     "ready", "nothing" / "told" (ready --nothing / --told), "merged", "done", or "removed" (its task is gone)."""
     if r.get("error"):
         return "error"
+    if r.get("nothing") == "check" or r.get("check_failed"):  # dmalis/shepherdr#229: its check said, no task
+        return "check-failed" if r.get("check_failed") else "checked"
     try:
         n = int(str(r.get("task") or "").rsplit("-", 1)[-1])
     except ValueError:
@@ -299,7 +302,7 @@ def run_ended(s, r):
 
 def auto_view(s, a):
     v = {k: a.get(k) for k in ("id", "title", "prompt", "mode", "agent", "set", "on", "match", "space", "paused",
-                                "next_run", "last_run", "last_task", "last_error", "from_error", "created")}
+                                "next_run", "last_run", "last_task", "last_error", "from_error", "created", "check", "fold")}
     enabled = not plugin_off("schedules") and settings_for(s, a.get("space"))["automations"].get("enabled", True)
     runs = [{**r, "ended": run_ended(s, r)} for r in a.get("runs") or []]
     # 3.2, for the Scheduled tab: name, when (words `--when` takes back), what, once, active (it fires now: not paused,
@@ -312,6 +315,8 @@ def auto_view(s, a):
              trigger=trigger_words(a), enabled=enabled, may_update=bool(a.get("may_update")), last_update=a.get("last_update"))
     if a.get("from"):
         v.update(heard_words(a))
+    if a.get("check") or a.get("fold"):
+        v["gate_words"] = schedule_gate.words(a)
     return v
 
 
@@ -353,6 +358,7 @@ def auto_line(v):
            f"  ~ {v['from_error']['message']} ({v['from_error']['misses']} round(s) so far)" if v.get("from_error") else "")
     heard = f"; {v['heard_words']}" if v.get("heard_words") else ""
     here = f"; runs in {v['folder']}" if v.get("mode") == "here" and v.get("folder") else ""
+    here += "".join(f"; {w}" for w in v.get("gate_words") or [])  # dmalis/shepherdr#229
     return f"{v['title']}  ({v['trigger']}; {state}{here}{heard}{'; may update Shepherdr' if v.get('may_update') else ''}){err}  [key {v['ref']}]"
 
 
@@ -443,6 +449,7 @@ def set_auto_fields(s, a, args, adding=False):
         raise Fail("--from says whose task events set it off: give --on too (merged, ready, ...).")
     if a.get("every") and a["every"]["kind"] == "once" and not a.get("next_run") and adding:
         raise Fail("That time has passed.")
+    schedule_gate.set_fields(a, args)  # dmalis/shepherdr#229: --check and --fold
 
 
 def space_pause(args, stop):
@@ -883,9 +890,8 @@ def automations_pass(s, seen, report, feeds=None):
                     whys.append((f"{ev}: {s.ref(t)}", event_brief(ev, {"ref": s.ref(t), "title": t["title"]})))
         if not on:
             continue
-        for why, brief in whys:
-            t = fire(s, a, why, brief)
-            report["fired"].append({"folder": s.loc["folder"], "automation": auto_ref(s, a), "task": s.ref(t), "why": why})
+        # dmalis/shepherdr#229: through its check and its one-run-at-a-time first (without either, each fires as before)
+        schedule_gate.gate(s, a, whys, report)
         # A one-off leaves the list after its run (3.2): its task carries on by itself.
         if any(w == "time" for w, _ in whys) and a["every"]["kind"] == "once" and not a.get("next_run") and not a.get("on"):
             gone.append(a)
@@ -1032,6 +1038,11 @@ def cmd_scheduler(args):
             one_pass(report)
         except Exception as e:  # one bad list never stops the rest
             print(f"{time.strftime('%H:%M:%S')} error: {e}", flush=True)
+        try:
+            # dmalis/shepherdr#229: schedules' checks run after the round, each in a thread, outside every lock
+            schedule_gate.start_checks(report, wait=args.once)
+        except Exception as e:  # never stops the scheduler
+            print(f"{time.strftime('%H:%M:%S')} checks: {e}", flush=True)
         for f in report["fired"]:
             print(f"{time.strftime('%H:%M:%S')} {f['automation']} -> {f['task']} ({f['why']})", flush=True)
         for f in report["started"]:
