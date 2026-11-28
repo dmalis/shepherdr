@@ -454,6 +454,9 @@ class Checks(unittest.TestCase):
         self.assertFalse(covers(".a .b", ".c .b"))
         self.assertFalse(covers(".b.c", ".a .b"))
         self.assertFalse(covers(".grp", ".grp .i"))
+        self.assertTrue(covers(".app.phone .bar", ".reading .app.phone .bar"))
+        self.assertFalse(covers(".app.phone .bar", ".app.phone .bar.x"))
+        self.assertFalse(covers(".phone .bar", ".app.phone .bar"))
         self.assertEqual(REDUCED.sub("", ':root[data-motion=""] .x'), ".x")  # as bare() leaves it
         self.assertEqual(REDUCED.sub("", 'html[data-motion=""]'), "")
 
@@ -553,7 +556,7 @@ def reduced_rules():
             in_media = any(re.search(r"prefers-reduced-motion\s*:\s*reduce", a) for a in ats)
             for sel in selectors(head):
                 if in_media:
-                    device.setdefault(re.sub(r"^:root$", "html", sel), set()).update(stops(decls, keyframes))
+                    device.setdefault(re.sub(r"^(?::root|html)\s+", "", re.sub(r"^:root$", "html", sel)), set()).update(stops(decls, keyframes))
                     rules_.append((rel, sel, decls))
                 elif REDUCED.match(sel):
                     setting.setdefault(REDUCED.sub("", sel) or "html", set()).update(stops(decls, keyframes))
@@ -571,8 +574,8 @@ def compound(sel):
 
 def covers(over, sel):
     """a reduced rule written for `over` reaches what `sel` styles: the same selector, or one compound naming less
-    (`.settle` reaches `.tslide .settle`)"""
-    if over == sel:
+    (`.settle` reaches `.tslide .settle`), or the same selector inside another (`.a .b` reaches `.c .a .b`)"""
+    if over == sel or sel.endswith(" " + over):
         return True
     mine, alone = compound(over)
     theirs, _ = compound(sel)
