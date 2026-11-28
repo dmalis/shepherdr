@@ -28,14 +28,14 @@ problem the person finds that upstream might share is filed on dmalis/shepherdr 
   space's Assistant what changed. **Each sync's report** lists the ones closed or answered since the last sync
   (upstream-sync skill, step 3).
 - **The author asks something or proposes another way:** rethink it with the shaping-a-request skill (step 4):
-  1. Open an issue here labelled `rethink`: the person's need, the author's reasoning, both ways tried on the
+  1. Open an issue here labelled `decision`: the person's need, the author's reasoning, both ways tried on the
      current release, the cost of carrying ours, and your recommendation.
   2. Ask the person one question: "Upstream's way", "Ours", or the third way you found. Their reply, if the author
      asked them something, goes as above.
   3. If the answer is upstream's way, the sync drops our patch.
 - **Closed with a fix:** see "Upstream already has it". The issue leaves the list; nothing is posted.
 - **Closed without a fix:** our patch stays. If we haven't built it yet and the person still needs it, build it
-  here (fork-patch skill), shaped by the author's reasons. Our issue's status line notes "declined upstream", with
+  here (fork-patch skill), shaped by the author's reasons. Our issue gets a comment "declined upstream", with
   the reason.
 
 ## Upstream already has it

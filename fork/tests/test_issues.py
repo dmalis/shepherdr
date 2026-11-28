@@ -1,5 +1,6 @@
 """The issue pass after a healthy install, and the `Part of #n` a patch's pull request owes (fork/sync/issues.py).
-Feedback reports 8a45b209fe, 9094455750, e4a7cf6cf4 and ed70c77eca. A real throwaway git repo; gh is a fake that holds
+Feedback reports 8a45b209fe, 9094455750, e4a7cf6cf4 and ed70c77eca; fork/specs/issue-loop.md, "Close and tell".
+A real throwaway git repo; gh is a fake that holds
 issues and pull requests in memory: nothing here reaches GitHub."""
 import os
 import sys
@@ -29,33 +30,38 @@ def git(cwd, *args):
 
 
 class FakeGh:
-    """`gh issue list|edit|close` and `gh pr list|edit` against dmalis/shepherdr, in memory, every call logged."""
+    """`gh issue list|edit|close|comment`, `gh pr list|edit`, `gh api` (an issue's comments, the GraphQL read again)
+    and `gh label list|create|edit|delete`, against dmalis/shepherdr, in memory, every call logged."""
 
-    def __init__(self, issues_, prs):
+    def __init__(self, issues_, prs, labels=None):
         self.issues = {i["number"]: dict(i) for i in issues_}
         self.prs = {p["number"]: dict(p) for p in prs}
+        self.labels = {x["name"]: dict(x) for x in labels or []}
         self.calls = []
+        self.refuse = set()
 
     def writes(self):
-        return [c for c in self.calls if c[1] in ("edit", "close")]
+        return [c for c in self.calls if c[0] in ("issue", "pr", "label") and c[1] in
+                ("edit", "close", "comment", "create", "delete", "pin")]
 
     def __call__(self, *a):
         a = list(a)
         self.calls.append(a)
+        if tuple(a[:2]) in self.refuse:
+            return False, "", "refused"
+        if a[0] == "api":
+            return self.api(a)
         assert a[a.index("-R") + 1] == "dmalis/shepherdr", a
         if a[:2] == ["issue", "list"]:
             want = a[a.index("--state") + 1]
-            label = a[a.index("--label") + 1] if "--label" in a else None
-            out = [i for i in self.issues.values() if i["state"] == want
-                   and (label is None or label in [x["name"] for x in i["labels"]])]
+            out = [i for i in self.issues.values() if i["state"] == want]
             return True, json.dumps(out), ""
         if a[:2] == ["pr", "list"]:
-            return True, json.dumps(list(self.prs.values())), ""
+            want = a[a.index("--state") + 1]
+            return True, json.dumps([p for p in self.prs.values() if p.get("state", "merged") == want]), ""
         if a[:2] == ["issue", "edit"]:
             i = self.issues[int(a[2])]
-            if "--body-file" in a:
-                with open(a[a.index("--body-file") + 1], encoding="utf-8") as f:
-                    i["body"] = f.read()
+            assert "--body-file" not in a and "--body" not in a, "the pass never rewrites a body"
             names = [x["name"] for x in i["labels"]]
             if "--add-label" in a:
                 names += [n for n in a[a.index("--add-label") + 1].split(",") if n not in names]
@@ -66,15 +72,44 @@ class FakeGh:
             return True, "", ""
         if a[:2] == ["issue", "close"]:
             i = self.issues[int(a[2])]
-            i["state"] = "closed"
-            if "--comment" in a:
-                i.setdefault("comments", []).append(a[a.index("--comment") + 1])
+            i["state"], i["reason"] = "closed", a[a.index("--reason") + 1] if "--reason" in a else None
+            return True, "", ""
+        if a[:2] == ["issue", "comment"]:
+            with open(a[a.index("--body-file") + 1], encoding="utf-8") as f:
+                self.issues[int(a[2])].setdefault("comments", []).append(f.read())
+            return True, "", ""
+        if a[:2] == ["issue", "pin"]:
+            self.issues[int(a[2])]["isPinned"] = True
             return True, "", ""
         if a[:2] == ["pr", "edit"]:
             with open(a[a.index("--body-file") + 1], encoding="utf-8") as f:
                 self.prs[int(a[2])]["body"] = f.read()
             return True, "", ""
+        if a[:2] == ["label", "list"]:
+            return True, json.dumps(list(self.labels.values())), ""
+        if a[:2] in (["label", "create"], ["label", "edit"]):
+            self.labels[a[2]] = {"name": a[2], "color": a[a.index("--color") + 1],
+                                 "description": a[a.index("--description") + 1]}
+            return True, "", ""
+        if a[:2] == ["label", "delete"]:
+            self.labels.pop(a[2])
+            for i in self.issues.values():
+                i["labels"] = [x for x in i["labels"] if x["name"] != a[2]]
+            return True, "", ""
         raise AssertionError(f"fake gh: no {a}")
+
+    def api(self, a):
+        if a[1] == "graphql":
+            n = int(next(x for x in a if x.startswith("n="))[2:])
+            i = self.issues[n]
+            return True, json.dumps({"data": {"repository": {"issue": {
+                "state": i["state"].upper(), "lastEditedAt": i.get("edited"),
+                "labels": {"nodes": i["labels"]},
+                "timelineItems": {"nodes": [{"createdAt": i["reopened"]}] if i.get("reopened") else []}}}}}), ""
+        path = a[-1]
+        assert path.startswith("repos/dmalis/shepherdr/issues/") and path.endswith("/comments"), a
+        n = int(path.split("/")[4])
+        return True, json.dumps([[{"body": b} for b in self.issues[n].get("comments", [])]]), ""
 
 
 def issue(n, body, labels, state="open"):
@@ -115,214 +150,128 @@ class World(unittest.TestCase):
         return git(self.repo, "rev-parse", "HEAD")
 
     def prs(self):
-        return [{"number": 50, "headRefName": "task/a", "mergeCommit": {"oid": self.c1}, "body": "Part of #12"},
-                {"number": 51, "headRefName": "task/b", "mergeCommit": {"oid": self.c2}, "body": "A slice."},
-                {"number": 52, "headRefName": "task/c", "mergeCommit": {"oid": self.c3}, "body": ""},
-                {"number": 53, "headRefName": "sync/v9.9.9", "mergeCommit": {"oid": self.c3}, "body": ""},
-                {"number": 54, "headRefName": "task/d", "mergeCommit": {"oid": self.c4}, "body": "Undo it. Part of #15"}]
+        at = {"mergedAt": "2026-11-01T00:00:00Z"}
+        return [{"number": 50, "headRefName": "task/a", "mergeCommit": {"oid": self.c1}, "body": "Part of #12", **at},
+                {"number": 51, "headRefName": "task/b", "mergeCommit": {"oid": self.c2}, "body": "A slice.", **at},
+                {"number": 52, "headRefName": "task/c", "mergeCommit": {"oid": self.c3}, "body": "", **at},
+                {"number": 53, "headRefName": "sync/v9.9.9", "mergeCommit": {"oid": self.c3}, "body": "", **at},
+                {"number": 54, "headRefName": "task/d", "mergeCommit": {"oid": self.c4}, "body": "Undo it. Part of #15",
+                 **at}]
 
 
 class IssuePass(World):
+    """fork/specs/issue-loop.md, "Close and tell": a comment, never a body edit; a close only for a linked Triage fix,
+    read again first."""
+
     def issues(self):
         return [
-            issue(10, "Status: live since `ours-1-1` (built in #40). What it does: A.\n\n## Why\n",
-                  ["patch", "live", "device-check"]),
+            issue(10, "Status: live since `ours-1-1`. What it does: A.", ["patch", "device-check"]),
             issue(11, "**Status:** building. What it does: ours.\n\n## Why\n\nWords.", ["patch"]),
-            issue(12, "## Why\n\nWords stay.\n\nDevice check: open the phone's chat\n\n"
-                      "Status: #50: building; #60: building. What it does: B.", ["patch"]),
-            issue(13, "Part of #12. A slice, no status line of its own.", ["patch"]),
-            issue(14, "Status: carried since `ours-1-1`, not filed yet. What it does: C.",
-                  ["patch", "live", "fixed-upstream"]),
-            issue(15, "Status: reverting in #54. What it does: D.", ["patch", "live"]),
-            issue(18, "Status: reverting in #52. What it does: E.", ["patch", "live"]),
-            issue(16, "Status: live since `ours-1-1`.", ["patch", "live"], state="closed"),
-            issue(17, "Status: building. Not merged yet.", ["patch"]),
+            issue(12, "## Why\n\nWords stay.\n\nDevice check: open the phone's chat\n\nStatus: building.", ["patch"]),
+            issue(13, "Part of #12. A slice, no status line of its own.", ["patch", "fixing"]),
+            issue(14, "Status: live since `ours-1-1`. What it does: C.", ["patch", "fixed-upstream"]),
+            issue(15, "Status: building. What it does: D.", ["patch", "fixing"]),
+            issue(16, "Status: building. Not merged yet.", ["patch"]),
         ]
 
-    def pass_(self, gh, dry_run=False):
-        return issues.run(self.repo, self.c4, self.c0, "ours-1-2", "v3.2.21", gh, dry_run=dry_run)
+    def links(self, fixes):
+        f = os.path.join(self.repo, ".triage.json")
+        with open(f, "w") as fh:
+            json.dump({"fixes": {f"dmalis/shepherdr#{n}": {"pr": pr} for n, pr in fixes.items()}}, fh)
+        return f
 
-    def test_one_pass_writes_only_what_changes(self):
+    def pass_(self, gh, links=None, dry_run=False, tag="ours-1-2"):
+        return issues.run(self.repo, self.c4, self.c0, tag, "v3.2.21", gh, dry_run=dry_run,
+                          links_path=links or os.path.join(self.repo, "none.json"))
+
+    def test_a_live_fix_gets_one_comment_and_no_body_edit(self):
         gh = FakeGh(self.issues(), self.prs())
+        before = {n: i["body"] for n, i in gh.issues.items()}
         out = self.pass_(gh)
-        reads = [c for c in gh.calls if c[1] == "list"]
-        self.assertEqual(len(reads), 3, "open issues, closed ones still live, merged pull requests: once each")
-        body = {n: i["body"] for n, i in gh.issues.items()}
-        labels = {n: sorted(x["name"] for x in i["labels"]) for n, i in gh.issues.items()}
-        # already right, and waiting on a device: untouched and open, its tag kept (the install that first carried it)
-        self.assertNotIn(10, [c and int(c[2]) for c in gh.writes()])
-        self.assertEqual((body[10].split("\n")[0], gh.issues[10]["state"]),
-                         ("Status: live since `ours-1-1` (built in #40). What it does: A.", "open"))
-        # building -> live; the words after it stay; live and healthy, so it closes with one comment
-        self.assertEqual(body[11], "**Status:** live since `ours-1-2`. What it does: ours.\n\n## Why\n\nWords.")
-        self.assertEqual((labels[11], gh.issues[11]["state"]), (["live", "patch"], "closed"))
-        self.assertNotIn("comments", gh.issues[11], "a retried close never posts a second comment: it posts none")
-        # a part lands, the other stays building; the device check is said, not called fixed; it stays open
-        self.assertEqual(body[12].split("\n")[-1],
-                         "Status: live since `ours-1-2`; not seen on a device yet: please check its Device check "
-                         "line. #50: live; #60: building. What it does: B.")
-        self.assertTrue(body[12].startswith("## Why\n\nWords stay.\n\nDevice check: open the phone's chat\n"))
-        self.assertEqual((labels[12], gh.issues[12]["state"]), (["device-check", "live", "patch"], "open"))
+        self.assertEqual({n: i["body"] for n, i in gh.issues.items()}, before, "no body is ever rewritten")
+        # its own pull request landed: one comment, it stays open (nothing links a Triage fix to it)
+        self.assertEqual(gh.issues[12]["comments"][0].split("\n\n")[0],
+                         "Live since `ours-1-2` (#50, #51). Not seen on a device yet: please check its Device check"
+                         " line.")
+        self.assertEqual((sorted(x["name"] for x in gh.issues[12]["labels"]), gh.issues[12]["state"]),
+                         (["device-check", "patch"], "open"))
         self.assertEqual(out["device_checks"], [{"issue": 12, "check": "open the phone's chat"}])
-        # no status line: live goes on, and it closes
-        self.assertEqual((body[13], labels[13], gh.issues[13]["state"]),
-                         ("Part of #12. A slice, no status line of its own.", ["live", "patch"], "closed"))
-        # no label says where it stands with upstream any more
-        self.assertFalse(any({"not-filed", "upstream-proposed"} & set(x) for x in labels.values()))
-        # fixed upstream, dropped: said, labels off, closed
-        self.assertEqual(body[14], "Status: fixed upstream in `v3.2.21`, then dropped. What it does: C.")
-        self.assertEqual((labels[14], gh.issues[14]["state"]), (["fixed-upstream", "patch"], "closed"))
-        # reverted: said, labelled, closed
-        self.assertEqual(body[15], "Status: reverted in #54. What it does: D.")
-        self.assertEqual((labels[15], gh.issues[15]["state"]), (["patch", "reverted"], "closed"))
-        # a pull request that names no issue never moves one, whatever number its line says
-        self.assertEqual((body[18], gh.issues[18]["state"]), ("Status: reverting in #52. What it does: E.", "open"))
-        # a closed issue the install doesn't carry loses live
-        self.assertEqual(labels[16], ["patch"])
-        # not carried and building: untouched
-        self.assertEqual(body[17], "Status: building. Not merged yet.")
+        self.assertEqual(gh.issues[13]["comments"][0].split("\n\n")[0], "Live since `ours-1-2` (#51).")
+        self.assertEqual(gh.issues[15]["comments"][0].split("\n\n")[0], "Live since `ours-1-2` (#54).")
+        # nothing closes because the patch list names it, and the old labels aren't written
+        self.assertEqual([i["number"] for i in gh.issues.values() if i["state"] == "closed"], [])
+        self.assertFalse(any({"live", "not-filed", "reverted"} & {x["name"] for x in i["labels"]}
+                             for i in gh.issues.values()))
+        # fixed upstream and no longer carried: said once, left open for the person
+        self.assertEqual(gh.issues[14]["comments"][0].split("\n\n")[0],
+                         "Fixed upstream in `v3.2.21`; ours was dropped.")
+        self.assertNotIn("comments", gh.issues[16])
+        self.assertNotIn("comments", gh.issues[10])
         # the pull request without its line gets it from its patch file (and the umbrella's); one that changes
         # Shepherdr with no issue at all is listed; a sync pull request is neither
         self.assertEqual(gh.prs[51]["body"], "A slice.\n\nPart of #12\nPart of #13\n")
-        self.assertEqual([(x["pr"], x["issues"]) for x in out["linked"]], [(51, [12, 13])])
         self.assertEqual(out["unlinked"], [52])
-        self.assertEqual(sorted(out["written"]), [11, 12, 13, 14, 15, 16, 18])
 
     def test_a_second_pass_writes_nothing(self):
         gh = FakeGh(self.issues(), self.prs())
         self.pass_(gh)
         gh.calls = []
-        out = self.pass_(gh)
-        self.assertEqual((out["edits"], gh.writes()), ([], []))
+        self.pass_(gh)
+        self.assertEqual(gh.writes(), [], "each comment's mark says it was written: once per issue and tag")
 
-    def test_a_later_install_doesnt_move_carried_since(self):
-        """The by-hand round of 50 writes: every carried issue's tag moved. Now a new tag moves none of them: the
-        older words become "live since" with the first tag, and a later pass writes nothing."""
-        carried = [issue(n, f"Status: carried since `ours-1-1`, not filed yet (built in #{n}). What: x.",
-                         ["patch", "live", "device-check"]) for n in (10, 11, 12, 13)]
-        gh = FakeGh(carried, self.prs())
-        issues.run(self.repo, self.c4, self.c2, "ours-1-5", "v3.2.21", gh)
-        self.assertEqual([gh.issues[n]["body"] for n in (10, 11, 12, 13)],
-                         [f"Status: live since `ours-1-1` (built in #{n}). What: x." for n in (10, 11, 12, 13)])
-        gh.calls = []
-        out = issues.run(self.repo, self.c4, self.c2, "ours-1-9", "v3.2.21", gh)
-        self.assertEqual(gh.writes(), [], out)
+    def test_only_a_linked_triage_fix_closes_its_issue(self):
+        gh = FakeGh(self.issues(), self.prs())
+        out = self.pass_(gh, links=self.links({13: 51, 15: 54, 16: 99}))
+        self.assertEqual((gh.issues[13]["state"], gh.issues[13]["reason"]), ("closed", "completed"))
+        self.assertNotIn("fixing", [x["name"] for x in gh.issues[13]["labels"]])
+        self.assertEqual(gh.issues[15]["state"], "closed")
+        self.assertEqual(gh.issues[16]["state"], "open", "its linked pull request doesn't run at the install")
+        self.assertEqual(out["left"], [])
 
-    def test_a_dry_run_writes_nothing_and_shows_the_lines(self):
+    def test_a_reopened_or_edited_issue_is_left_as_it_is(self):
+        """Codex round 2: a body read earlier overwrote a newer edit, and a reopened issue was closed again."""
+        cases = self.issues()
+        cases[3]["reopened"] = "2099-01-01T00:00:00Z"
+        cases[5]["edited"] = "2099-01-01T00:00:00Z"
+        gh = FakeGh(cases, self.prs())
+        out = self.pass_(gh, links=self.links({13: 51, 15: 54}))
+        self.assertEqual((gh.issues[13]["state"], gh.issues[15]["state"]), ("open", "open"))
+        self.assertEqual(out["left"], [{"issue": 13, "why": "it was reopened after its fix merged"},
+                                       {"issue": 15, "why": "it was edited after its fix merged"}])
+
+    def test_a_linked_fix_waiting_on_a_device_stays_open(self):
+        gh = FakeGh(self.issues(), self.prs())
+        self.pass_(gh, links=self.links({12: 50}))
+        self.assertEqual(gh.issues[12]["state"], "open")
+
+    def test_an_unreadable_triage_record_closes_nothing(self):
+        f = os.path.join(self.repo, ".triage.json")
+        with open(f, "w") as fh:
+            fh.write("{not json")
+        gh = FakeGh(self.issues(), self.prs())
+        out = self.pass_(gh, links=f)
+        self.assertEqual((out["triage_links"], [i for i in gh.issues.values() if i["state"] == "closed"]),
+                         ("unreadable", []))
+        self.assertEqual(issues.triage_links(os.path.join(self.repo, "absent.json")), {})
+
+    def test_a_dry_run_writes_nothing_and_shows_the_comments(self):
         gh = FakeGh(self.issues(), self.prs())
         out = self.pass_(gh, dry_run=True)
         self.assertEqual(gh.writes(), [])
-        self.assertEqual(out["bodies"]["11"], "live since `ours-1-2`. What it does: ours.")
+        self.assertEqual(out["comments"]["15"], "Live since `ours-1-2` (#54).")
 
-    def test_a_status_line_in_a_code_block_isnt_one(self):
-        self.assertIsNone(issues.status_at("```\nStatus: building\n```\n"))
-        self.assertEqual(issues.status_at("```\nStatus: x\n```\n**Status:** y")[1:], ("**Status:** ", "y"))
+    def test_a_comment_whose_read_fails_isnt_written(self):
+        gh = FakeGh(self.issues(), self.prs())
+        gh.api = lambda a: (False, "", "no")
+        with self.assertRaises(issues.state.Refused) as e:
+            self.pass_(gh)
+        self.assertEqual(e.exception.fields["outcome"], "wait")
+        self.assertFalse(any("comments" in i for i in gh.issues.values()))
 
-    def test_a_lead_building_before_parts_keeps_every_part(self):
-        """Review: the upstream link and the other part were wiped with the leading "building"."""
-        text, _ = issues.carried_text("building; #29: proposed upstream as upstream issue 1648; #30: building. "
-                                      "What it does: Adds pause.", "ours-1-2", {30: True}, False)
-        self.assertEqual(text, "live since `ours-1-2`; #29: proposed upstream as upstream issue 1648; "
-                               "#30: live. What it does: Adds pause.")
-
-    def test_a_status_example_in_an_indented_block_isnt_the_line(self):
-        body = "How to write it:\n\n    Status: building\n\nStatus: carried since `ours-1-1`."
-        self.assertEqual(issues.status_at(body)[1:], ("Status: ", "carried since `ours-1-1`."))
-        self.assertIsNone(issues.status_at("~~~\nStatus: x\n~~~\n"))
-
-    def test_the_older_upstream_words_become_live(self):
-        """Our own path (#233): nothing waits for an upstream round, so "not filed yet" goes, part by part."""
-        edits = issues.plan([issue(20, "Status: carried since `ours-1-1`, not filed yet; #20: not filed yet; "
-                                       "#30: building.", ["patch", "live", "not-filed"])],
-                            [], {20}, {20: {30: True}}, "ours-1-2", None)
-        self.assertEqual(issues.status_at(edits[0]["body"])[2], "live since `ours-1-1`; #20: live; #30: live.")
-        self.assertEqual((edits[0]["add"], edits[0]["remove"], edits[0]["close"]), ([], [], True))
-        # the pass before #233 put its own lead in front of a "live since" line (#105, #144): the first tag stays
-        text, _ = issues.carried_text("carried since `ours-3.2.22-82`. live since `ours-3.2.22-65` (built in #111); "
-                                      "not seen on a device yet.", "ours-3.2.22-90", {}, True)
-        self.assertEqual(text, "live since `ours-3.2.22-65` (built in #111); not seen on a device yet.")
-        # an unquoted older tag keeps its sentence's full stop out
-        text, _ = issues.carried_text("carried since ours-1-1. What it does: A.", "ours-1-2", {}, False)
-        self.assertEqual(text, "live since ours-1-1. What it does: A.")
-        # slices and fixes written in a sentence, as real issues say them (#119, #105)
-        text, _ = issues.carried_text("carried since `ours-1-1`. Slice 1 (the mark, #38): not filed yet. Slice 3 "
-                                      "(first of waits, #210): building. Broke, fixed in #23 (Chat box), not filed "
-                                      "yet; what it does.", "ours-1-2", {210: False}, False)
-        self.assertEqual(text, "live since `ours-1-1`. Slice 1 (the mark, #38): live. Slice 3 (first of waits, "
-                               "#210): live. Broke, fixed in #23 (Chat box); what it does.")
-        self.assertFalse(issues.still_moving(text))
-        self.assertTrue(issues.still_moving("live since `ours-1-1`. Slice 4 (later, #300): building."))
-
-    def test_a_live_fix_stays_open_while_it_waits(self):
-        """A fix still building, a device check, `later` or pipeline work: the issue stays open."""
-        cases = [issue(21, "Status: live since `ours-1-1`; #30: live; #31: building.", ["patch", "live"]),
-                 issue(22, "Status: live since `ours-1-1`. What: x.", ["patch", "live", "later"]),
-                 issue(23, "Status: live since `ours-1-1`. What: x.", ["pipeline", "live"]),
-                 issue(24, "Status: #40: live; reverting in #41.", ["patch", "live"])]
-        edits = issues.plan(cases, [], {21, 22, 23, 24}, {21: {30: False}}, "ours-1-2", None)
-        self.assertEqual([e for e in edits if e["close"]], [])
-
-    def test_a_lead_building_whose_pull_request_doesnt_run_stays_open(self):
-        """Review: an older fix is carried, the new one (#187) isn't merged: it was called built and closed."""
-        body = 'Status: building, ready for merge in "Speed" (#187). The page asks.'
-        edits = issues.plan([issue(26, body, ["patch", "live"])], [], {26}, {26: {150: False}}, "ours-1-2", None)
-        self.assertEqual(edits, [])
-        edits = issues.plan([issue(26, body, ["patch", "live"])], [], {26}, {26: {187: True}}, "ours-1-2", None)
-        self.assertEqual((issues.status_at(edits[0]["body"])[2], edits[0]["close"]),
-                         ("live since `ours-1-2` (built in #187). The page asks.", True))
-
-    def test_a_device_check_without_a_status_line_stays_open(self):
-        """Review: the device check was read only beside a status line."""
-        edits = issues.plan([issue(27, "## Why\n\nDevice check: open the app: the header is sharp", ["patch"])],
-                            [], {27}, {27: {70: True}}, "ours-1-2", None)
-        self.assertEqual((edits[0]["add"], edits[0]["close"], edits[0]["device"]),
-                         (["device-check", "live"], False, "open the app: the header is sharp"))
-
-    def test_a_dropped_or_reverted_fix_with_a_slice_still_building_stays_open(self):
-        """Review: a slice written in a sentence still building, or a device check not made, closed with the
-        rest. Retries too."""
-        cases = [issue(28, "Status: #40: reverting in #54. Slice 2 (chat, #41): building.", ["patch"]),
-                 issue(29, "Status: live since `ours-1-1`; #31: building.", ["patch", "fixed-upstream"]),
-                 issue(30, "Status: live since `ours-1-1`. What: x.", ["patch", "fixed-upstream", "device-check"]),
-                 issue(31, "Status: fixed upstream in `v3.2.30`, then dropped. #31: building.",
-                       ["patch", "fixed-upstream"]),
-                 issue(32, "Status: #40: reverted in #54. Slice 2 (chat, #41): building.", ["patch", "reverted"])]
-        edits = issues.plan(cases, [], set(), {28: {54: True}}, "ours-1-2", "v3.2.30")
-        self.assertEqual([(e["number"], e["close"]) for e in edits], [(28, False), (29, False), (30, False)])
-        self.assertEqual(edits[0]["add"], [])
-        self.assertEqual(issues.status_at(edits[2]["body"])[2], "fixed upstream in `v3.2.30`, then dropped. What: x.")
-
-    def test_a_closed_issue_whose_fix_upstream_shipped_says_so(self):
-        """Closed once live; the sync then drops ours for upstream's: its line says so, it loses live, stays shut."""
-        closed = [issue(25, "Status: live since `ours-1-1`. What: x.", ["patch", "live", "fixed-upstream"],
-                        state="closed")]
-        edits = issues.plan([], closed, set(), {}, "ours-1-2", "v3.2.30")
-        self.assertEqual(len(edits), 1)
-        self.assertEqual((issues.status_at(edits[0]["body"])[2], edits[0]["remove"], edits[0]["close"]),
-                         ("fixed upstream in `v3.2.30`, then dropped. What: x.", ["live"], False))
-
-    def test_a_close_that_didnt_go_in_is_made_by_the_next_pass(self):
-        """Review: the edit went in and the close didn't; the retry must still close."""
-        said = [issue(14, "Status: fixed upstream in `v3.2.21`, then dropped. What it does: C.",
-                      ["patch", "fixed-upstream"]),
-                issue(15, "Status: reverted in #54. What it does: D.", ["patch", "reverted"])]
-        edits = issues.plan(said, [], {10}, {}, "ours-1-2", "v3.2.21")
-        self.assertEqual([(e["number"], e["body"], e["close"]) for e in edits], [(14, None, True), (15, None, True)])
-
-    def test_a_revert_with_a_fix_still_building_doesnt_close(self):
-        edits = issues.plan([issue(15, "Status: #40: reverting in #54; #41: building.", ["patch", "not-filed"])],
-                            [], set(), {15: {54: True}}, "ours-1-2", None)
-        self.assertEqual((issues.status_at(edits[0]["body"])[2], edits[0]["close"]),
-                         ("#40: reverted in #54; #41: building.", False))
-
-    def test_the_fork_checks_workflow_ships_nothing(self):
-        self.assertFalse(issues.ships([".github/workflows/fork-check.yml", "fork/sync/issues.py", "FORK.md"]))
+    def test_our_own_files_ship_nothing(self):
+        self.assertFalse(issues.ships([".github/workflows/fork-check.yml", "fork/sync/issues.py", "FORK.md",
+                                       ".github/ISSUE_TEMPLATE/bug.yml"]))
         self.assertTrue(issues.ships([".github/workflows/check.yml"]))
-
-    def test_building_with_words_keeps_its_pull_requests(self):
-        text, newly = issues.carried_text('building, ready for merge in "Speed" (#187). The page asks.', "ours-1-2",
-                                          {187: True}, False)
-        self.assertEqual((text, newly), ("live since `ours-1-2` (built in #187). The page asks.", True))
 
 
 class PartOf(World):

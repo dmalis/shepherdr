@@ -40,7 +40,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # fork/
 
-from sync import gate, install, issues, merged, patches, public, release, state  # noqa: E402
+from sync import gate, install, issues, labels, merged, patches, public, release, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
 
@@ -197,7 +197,7 @@ def read_patches(repo, at=None):
 
 
 def patch_list(a, p):
-    """The patches a tree or a commit carries (the finish step's `live` labels read it at the installed commit).
+    """The patches a tree or a commit carries.
     Refused when the list is laid out wrong (the old list kept beside the new folder could hide a lost patch)."""
     lines, layout = read_patches(os.path.abspath(a.repo), a.at)
     if layout:
@@ -355,8 +355,9 @@ def ci(a, p):
 
 
 def issues_step(a, p):
-    """After a healthy install: our issues' status lines and labels from the patch list at the installed commit, in
-    one pass that writes only what changes (fork/sync/issues.py). --dry-run writes nothing and shows the new lines."""
+    """After a healthy install: a live comment on each issue whose fix this install brought, device checks, and the
+    close of an issue whose linked Triage fix is live, in one pass that writes only what changes (fork/sync/issues.py).
+    It never rewrites an issue's body. --dry-run writes nothing and shows the comments."""
     repo = os.path.abspath(a.repo)
     if not state.SHA.match(a.sha or ""):
         raise Refused("issues takes the installed commit's full SHA", outcome="stop")
@@ -385,11 +386,26 @@ def issues_step(a, p):
         raise Refused(f"the patch list at {a.sha[:12]} can't be read ({type(e).__name__})", outcome="stop")
 
 
+def labels_step(a, p):
+    """Our repo's label set (fork/sync/labels.py): a dry run lists each open issue's labels before and after;
+    --apply writes the set, relabels, and deletes the old labels only once every open issue is moved. It never
+    closes an issue."""
+    folder = os.path.join(os.path.abspath(a.repo), "fork", "patches")
+    have = {int(f[:-5]) for f in (os.listdir(folder) if os.path.isdir(folder) else [])
+            if f.endswith(".json") and f[:-5].isdigit()}
+    return labels.run(gate.gh, have, apply=a.apply)
+
+
+def labels_args(c):
+    c.add_argument("--repo", default=".", help="the repo whose fork/patches/ says which issues are patches")
+    c.add_argument("--apply", action="store_true", help="write it (default: a dry run that writes nothing)")
+
+
 def issues_args(c):
     c.add_argument("sha", help="the installed commit's full SHA")
     run_args(c)
     c.add_argument("--since", help="the install before it (default: the state's install history)")
-    c.add_argument("--dry-run", action="store_true", help="read and plan only: write nothing, show the new lines")
+    c.add_argument("--dry-run", action="store_true", help="read and plan only: write nothing, show the comments")
     c.add_argument("--tag", help="a dry run's install tag, when the commit isn't the baseline")
 
 
@@ -439,7 +455,9 @@ COMMANDS = [
     ("public-check", "refuses text with paths, hosts, emails or raw output", public_check_args, public_check),
     ("finish", "the exact completion command for the run's outcome", finish_args, finish),
     ("ci", "CI's verdict on this run's installs of our merges, then the completion command", run_args, ci),
-    ("issues", "after a healthy install: our issues' status lines and labels, in one pass", issues_args, issues_step),
+    ("issues", "after a healthy install: live comments, device checks, and closes for linked Triage fixes", issues_args,
+     issues_step),
+    ("labels", "our repo's label set and its one migration (dry run unless --apply)", labels_args, labels_step),
     ("part-of", "a pull request that changes a patch file names its issue (Part of #n)", part_of_args, part_of),
     ("hold", "writes the held record, or the 24-hour question's asking or answer", hold_args, hold),
     ("held", "reads the held records", None, held),

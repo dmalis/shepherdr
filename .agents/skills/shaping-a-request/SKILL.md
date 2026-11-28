@@ -116,9 +116,11 @@ The fix is done when the screen makes the behaviour clear, not when the person h
   go on the issue (fork-patch skill).
 - **A pick or a yes in chat that posted nothing** (the person asked for a fix without filing): an issue here, a task
   with a brief (this skill first), an install right after the merge.
-  - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`; its issue closes once the fix is live.
+  - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`.
   - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has no patch file: its issue is labelled
-    `pipeline` when it is the sync, trial or install's, and closes once that work is done.
+    `pipeline`.
+  - Either way it also gets its kind (`bug` or `enhancement`) and `needs-triage`, and it closes once its fix is
+    live, by the install for a Triage fix, else by the person (fork-patch skill, "The record on GitHub").
 - **When the fix belongs to a running task's area,** add it to that task (`herdr-task reply`) instead of opening a new
   one, and say so.
 - **Other spaces' task agents** get the friction rule from the Everywhere "When a task starts" notes

@@ -1,23 +1,19 @@
 """Issues after a healthy install, and the `Part of #n` a patch's pull request owes (upstream-sync skill, step 7;
-FORK.md, "Every piece of work is recorded on GitHub").
+FORK.md, "Every piece of work is recorded on GitHub"; fork/specs/issue-loop.md, "Close and tell").
 
-- `issues`: one pass over our issues after a healthy install. It reads the open issues and the merged pull requests
-  once, works out each issue's status line and labels from the patch list at the installed commit, and writes only
-  the issues whose line or labels change (one `gh issue edit` each). The words after the status line stay as they
-  are. What the pass does to a status line, and nothing else:
-  - an issue the install carries: "live since `<tag>`" goes at the start of a line that has none, in place of a
-    leading "building". A line that already says "live since" (or the older "carried since") keeps its tag: it
-    names the install that first carried the fix, so a later install writes nothing there. A fix's part "#m:
-    building" becomes "#m: live" once pull request #m runs; "reverting in #m" becomes "reverted in #m". `live` goes
-    on. The older words "not filed yet" go: this fork offers nothing upstream (FORK.md: "The aim", #233).
-  - then it closes (no comment: its line says since when) once no fix of it is still building or reverting: this
-    pass runs only after a healthy install. It stays open with a label in KEEP_OPEN, `device-check` above all, until
-    the person confirms. A lead "building" that names a pull request not running yet stays as it is.
-  - an issue the install no longer carries loses `live`. One labelled `fixed-upstream` says "fixed upstream in
-    `vX.Y.Z`, then dropped" and closes; one whose last fix was reverted says "reverted in #m" and closes. A closed
-    one still labelled `live` gets the same line, and stays closed.
-  - a fix that landed in this install, on an issue with a "Device check:" line: `device-check` goes on, the line says
-    "not seen on a device yet", and `device_checks` hands its words to finish's --says.
+- `issues`: one pass over our open issues after a healthy install. It reads the open issues and the merged pull
+  requests once and never rewrites an issue's body:
+  - **live:** an issue whose own pull request this install brought gets one comment, "Live since `<tag>` (#m)",
+    with a hidden mark, so it is written once per issue and install tag. An issue with a "Device check:" line also
+    gets `device-check`, the comment says "not seen on a device yet", and `device_checks` hands its words to
+    finish's --says.
+  - **closed only by its own fix:** an issue closes as completed only when the Triage fix linked to it (Triage's
+    record, `.triage.json` in herdr-task's store) merged and runs at the installed commit. Just before the close, the
+    issue is read again: one reopened or edited after that merge, or now labelled `device-check`, is left as it is
+    (`left`). `fixing` comes off. Nothing closes because the patch list names it, and the pass doesn't write `live`,
+    `not-filed` or `reverted` any more.
+  - **fixed upstream:** an open `fixed-upstream` issue the install no longer carries gets one comment, "Fixed
+    upstream in `vX.Y.Z`; ours was dropped" (once per release). It stays open for the person.
 - Which issue a merged pull request is part of: its body's `Part of #n`, and else the patch files its merge commit
   changed (`fork/patches/<n>.json`, plus the umbrella a patch file names). One that names none in its body gets the
   line added to its body (`linked`); one that changes Shepherdr and names no issue at all is listed (`unlinked`).
@@ -25,7 +21,7 @@ FORK.md, "Every piece of work is recorded on GitHub").
   is named by a `Part of #n` in its body (and the umbrella's). A sync pull request (`sync/*`) adapts every patch and
   names them in its own words: it is exempt.
 
-Nothing here edits an issue's words outside its status line, and a test never reaches GitHub: `gh` is a fake there."""
+A test never reaches GitHub: `gh` is a fake there."""
 import json
 import os
 import re
@@ -35,54 +31,28 @@ from . import patches, release, state
 from .release import git, is_ancestor
 
 PART_OF = re.compile(r"\bPart of #(\d+)\b", re.I)
-# a status line: at most three spaces in (four or more is a Markdown code block)
-STATUS = re.compile(r"^( {0,3}(?:[-*] )?(?:\*\*Status:\*\*|\*\*Status\*\*:|Status:)\s*)(.*)$")
 FENCE = re.compile(r"^ {0,3}(```|~~~)")
 INLINE_CODE = re.compile(r"(`+)[^`]*?\1")
-PART = re.compile(r"#\d+(?: \([^()]*\))?: ")           # a fix's own part, on a line with several: "#29: ..."
-CLAUSE_END = re.compile(r"; |\. |\.$")
-# "live since `ours-…`", or the older "carried since `ours-…`, not filed yet": the tag is the first install's
-CARRIED = re.compile(r"(?:carried|live) since (`ours-[0-9][\w.-]*`|ours-[0-9](?:[\w.-]*\w)?)(?:, not filed yet\b)?")
-DOUBLED = re.compile(r"^(?:carried|live) since `?ours-[0-9][\w.-]*?`?(?:, not filed yet)?\.\s+(?=(?:carried|live) since )")
-LEAD_BUILDING = re.compile(r"^building\b[.,;:]?\s*", re.I)
-# a fix's part: "#30: building", "#30 (the spec): building", or a slice's "Slice 3 (what it is, #210): building"
-PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?\)?): building\b")
-ANY_BUILDING = re.compile(r": building\b")
-OLD_NOT_FILED = re.compile(r"([:,]) not filed yet\b")
-# a live fix's issue that stays open: the person hasn't confirmed it on a device, it waits, or it is pipeline work
-KEEP_OPEN = {"device-check", "later", "on-hold", "sync-blocked", "rethink", "fixed-upstream", "pipeline", "handover"}
-REVERTING = re.compile(r"\breverting in #(\d+)")
 DEVICE_LINE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?Device check:(?:\*\*)?\s*(.+)$", re.M)
 NOT_SEEN = "not seen on a device yet"
 PATCH_FILE = re.compile(r"^fork/patches/([1-9][0-9]*)\.json$")
-# our own files: a pull request that changes only these ships nothing (the fork check's workflow among them)
+LIVE_MARK = "<!-- shepherdr-live {} -->"
+UPSTREAM_MARK = "<!-- shepherdr-upstream {} -->"
+# our own files: a pull request that changes only these ships nothing (the fork check's workflow and the issue forms
+# among them)
 OWN_FILES = ("FORK.md", ".github/workflows/fork-check.yml")
-OWN_DIRS = ("fork/", ".agents/")
+OWN_DIRS = ("fork/", ".agents/", ".github/ISSUE_TEMPLATE/")
 SYNC_BRANCH = "sync/"
 LIST_LIMIT = "500"
 PR_LIMIT = "100"
+TRIAGE_FILE = ".triage.json"
+FRESH = """query($owner: String!, $name: String!, $n: Int!) {
+  repository(owner: $owner, name: $name) { issue(number: $n) {
+  state lastEditedAt labels(first: 50) { nodes { name } }
+  timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } } } } }"""
 
 
 # --- reading ---
-
-def status_at(body):
-    """(index of the status line among the body's lines, its prefix, its text), or None when it has none."""
-    fenced = False
-    for i, line in enumerate(str(body or "").split("\n")):
-        if FENCE.match(line):
-            fenced = not fenced
-            continue
-        m = None if fenced else STATUS.match(line)
-        if m:
-            return i, m.group(1), m.group(2)
-    return None
-
-
-def with_status(body, i, prefix, text):
-    lines = str(body or "").split("\n")
-    lines[i] = prefix + text
-    return "\n".join(lines)
-
 
 def labels_of(issue):
     return {(x.get("name") if isinstance(x, dict) else str(x)) for x in issue.get("labels") or []}
@@ -172,136 +142,79 @@ def pr_issues(repo, pr):
 
 
 def ships(paths):
-    """Whether any of the paths is outside our own files (FORK.md, the fork check's workflow, fork/, .agents/)."""
+    """Whether any of the paths is outside our own files (FORK.md, the fork check's workflow, fork/, .agents/, the
+    issue forms)."""
     return any(not (p in OWN_FILES or p.startswith(OWN_DIRS)) for p in paths)
+
+
+def triage_links(path):
+    """{issue number: pull request number} for our repo's Triage fixes, from Triage's record; {} without one, None
+    when it can't be read (then nothing closes)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return None
+    out = {}
+    fixes = data.get("fixes") if isinstance(data, dict) else None
+    for key, fix in (fixes or {}).items() if isinstance(fixes, dict) else ():
+        repo, _, n = str(key).rpartition("#")
+        pr = fix.get("pr") if isinstance(fix, dict) else None
+        if repo == state.REPO and n.isdigit() and isinstance(pr, int) and not isinstance(pr, bool):
+            out[int(n)] = pr
+    return out
+
+
+def default_links_path():
+    store = os.environ.get("HERDR_TASK_STORE") or os.path.expanduser("~/.local/share/shepherdr/tasks")
+    return os.path.join(store, TRIAGE_FILE)
 
 
 # --- the plan ---
 
-def carried_text(text, tag, landed, device):
-    """A carried issue's status text, moved by this install. `landed`: the pull requests of this issue that run now
-    ({number: newly}, newly true when this install brought it)."""
-    out = text
-    newly_landed = False
-    # the pass before #233 didn't know "live since" and put its own lead in front of one: the older one is the first
-    # install's
-    while DOUBLED.match(out):
-        out = DOUBLED.sub("", out, count=1)
-    had = CARRIED.search(out)
-    if had:
-        out = out[:had.start()] + f"live since {had.group(1)}" + out[had.end():]
-    else:
-        lead = LEAD_BUILDING.match(out)
-        carried = f"live since `{tag}`"
-        end = CLAUSE_END.search(out)
-        clause, rest = (out[:end.start()], out[end.start():]) if end else (out, "")
-        prs = list(dict.fromkeys(re.findall(r"#(\d+)", clause)))
-        if lead and all(int(p) in landed for p in prs):
-            # only the leading "building" clause goes ("building, ready for merge in "X" (#187)", up to its first
-            # "; " or ". "), and the pull requests it named stay as "(built in #187)"; every word after it stays
-            built = f" (built in {', '.join('#' + n for n in prs)})" if prs else ""
-            out = carried + built + (rest or ".")
-            newly_landed = True
-        elif lead:
-            pass                # a pull request it names doesn't run yet: an older fix is what's carried; it waits
-        else:
-            out = f"{carried}. " + out if out else f"{carried}."
-
-    def part(m):
-        nonlocal newly_landed
-        n = int(m.group(2))
-        if n not in landed:
-            return m.group(0)
-        newly_landed = newly_landed or landed[n]
-        return f"{m.group(1)}: live"
-    out = PART_BUILDING.sub(part, out)
-    out = OLD_NOT_FILED.sub(lambda m: ": live" if m.group(1) == ":" else "", out)
-    out = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in landed else m.group(0), out)
-    if device and newly_landed and NOT_SEEN not in out:
-        head, dot, rest = out.partition(". ")
-        out = f"{head}; {NOT_SEEN}: please check its Device check line" + (dot + rest if dot else "")
-    return out, newly_landed
+def live_words(tag, prs, device):
+    said = f"Live since `{tag}`" + (f" ({', '.join('#' + str(p) for p in sorted(prs))})" if prs else "") + "."
+    if device:
+        said += f" {NOT_SEEN[0].upper() + NOT_SEEN[1:]}: please check its Device check line."
+    return said + "\n\n" + LIVE_MARK.format(tag)
 
 
-def still_moving(text):
-    """A fix of the issue is still building or reverting: it stays open."""
-    return bool(LEAD_BUILDING.match(text) or ANY_BUILDING.search(text) or REVERTING.search(text))
+def upstream_words(release_tag):
+    return (f"Fixed upstream in `{release_tag}`; ours was dropped.\n\n" + UPSTREAM_MARK.format(release_tag))
 
 
-def all_undone(text):
-    """An issue the install no longer carries, whose line says each revert landed and no fix of it is still
-    building: every fix on it was undone."""
-    return "reverted in #" in text and not still_moving(text)
-
-
-def dropped(body, labels, mine, release_tag):
-    """(new body or None, labels to add, whether it is done) for an issue the install no longer carries. Upstream's
-    fix in place of ours still waits for a device check the person hasn't made, and for a fix still building."""
-    st = status_at(body)
-    if st and "fixed-upstream" in labels:
-        i, prefix, text = st
-        if text.startswith("fixed upstream in"):    # said already: an earlier pass's close didn't go in
-            return None, set(), "device-check" not in labels and not still_moving(text)
-        if release_tag:
-            rest = CARRIED.sub("", text, count=1).lstrip(" ,;.")
-            text2 = f"fixed upstream in `{release_tag}`, then dropped" + (". " + rest if rest else ".")
-            return (with_status(body, i, prefix, text2), set(),
-                    "device-check" not in labels and not still_moving(text2))
-    elif st and REVERTING.search(st[2]):
-        i, prefix, text = st
-        text2 = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in mine else m.group(0), text)
-        if text2 != text:
-            done = all_undone(text2)
-            return with_status(body, i, prefix, text2), {"reverted"} if done else set(), done
-    elif st and "reverted" in labels and all_undone(st[2]):
-        return None, set(), True                    # said already: an earlier pass's close didn't go in
-    return None, set(), False
-
-
-def plan(issues, closed_live, carried, landed, tag, release_tag):
-    """[{number, body (or None), add, remove, close, device}] for each issue that changes, from: the open
-    issues ([{number, body, labels}]), the closed issues still labelled live (the same fields), the issue numbers the
-    install carries, `landed` ({issue: {pr number: newly}}: each issue's own pull requests that run now, by their
-    `Part of #n` or their patch files), the install's tag and the upstream release it holds. A pass that stopped half
-    way (an edit went in, its close didn't) is finished by the next: a close follows the issue's line and labels as
-    they are."""
+def plan(issues, carried, landed, links, tag, release_tag):
+    """[{number, comment, mark, add, remove, close, device, pr}] for each open issue that changes, from: the open
+    issues ([{number, body, labels}]), the issue numbers the install carries, `landed` ({issue: {pr number: newly}}:
+    each issue's own pull requests that run now, by their `Part of #n` or their patch files), Triage's links ({issue:
+    pr}), the install's tag and the upstream release it holds. `close` is only proposed: the run reads the issue again
+    before it."""
     out = []
     for issue in sorted(issues, key=lambda i: i.get("number") or 0):
         n, body, labels = issue.get("number"), issue.get("body") or "", labels_of(issue)
-        add, remove, close, new_body, device = set(), set(), False, None, None
-        st = status_at(body)
         mine = landed.get(n) or {}
-        if n in carried:
-            if "live" not in labels:
-                add.add("live")
-            text2, newly = "", any(mine.values())
-            dev = DEVICE_LINE.search(body)
-            if st:
-                i, prefix, text = st
-                text2, newly = carried_text(text, tag, mine, bool(dev))
-                if text2 != text:
-                    new_body = with_status(body, i, prefix, text2)
-            if dev and newly:
+        newly = sorted(p for p, new in mine.items() if new)
+        add, remove, comment, mark, device, close, pr = set(), set(), None, None, None, False, None
+        dev = DEVICE_LINE.search(body)
+        if newly:
+            if dev:
                 device = dev.group(1).strip()
                 if "device-check" not in labels:
                     add.add("device-check")
-            # closed without a comment: the status line already says since when it is live, and a retried
-            # `gh issue close --comment` whose close failed would post its comment twice
-            close = not (labels | add) & KEEP_OPEN and not still_moving(text2)
-        else:
-            if "live" in labels:
-                remove.add("live")
-            new_body, more, close = dropped(body, labels, mine, release_tag)
-            add |= more
-        if new_body is not None or add or remove or close:
-            out.append({"number": n, "body": new_body, "add": sorted(add), "remove": sorted(remove), "close": close,
-                        **({"device": device} if device else {})})
-    for issue in sorted(closed_live, key=lambda i: i.get("number") or 0):
-        n, labels = issue.get("number"), labels_of(issue)
-        if n in carried or "live" not in labels:
-            continue
-        new_body, more, _ = dropped(issue.get("body") or "", labels, landed.get(n) or {}, release_tag)
-        out.append({"number": n, "body": new_body, "add": sorted(more), "remove": ["live"], "close": False})
+            comment, mark = live_words(tag, newly, bool(dev)), LIVE_MARK.format(tag)
+        fix = (links or {}).get(n)
+        if fix is not None and fix in mine:
+            pr = fix
+            if "fixing" in labels:
+                remove.add("fixing")
+            close = "device-check" not in (labels | add)
+        elif n not in carried and "fixed-upstream" in labels and release_tag and not comment:
+            comment, mark = upstream_words(release_tag), UPSTREAM_MARK.format(release_tag)
+        if comment or add or remove or close:
+            out.append({"number": n, "comment": comment, "mark": mark, "add": sorted(add), "remove": sorted(remove),
+                        "close": close, **({"device": device} if device else {}), **({"pr": pr} if pr else {})})
     return out
 
 
@@ -318,26 +231,61 @@ def gh_json(gh, *args):
 
 
 def read_github(gh):
-    """The three reads the pass makes: open issues, closed issues still labelled live, merged pull requests."""
+    """The two reads the pass makes: open issues, merged pull requests."""
     issues = gh_json(gh, "issue", "list", "-R", state.REPO, "--state", "open", "--limit", LIST_LIMIT,
                      "--json", "number,body,labels")
-    closed = gh_json(gh, "issue", "list", "-R", state.REPO, "--state", "closed", "--label", "live",
-                     "--limit", LIST_LIMIT, "--json", "number,body,labels")
     prs = gh_json(gh, "pr", "list", "-R", state.REPO, "--state", "merged", "--limit", PR_LIMIT,
-                  "--json", "number,headRefName,mergeCommit,body")
-    if not all(isinstance(x, list) for x in (issues, closed, prs)):
+                  "--json", "number,headRefName,mergeCommit,mergedAt,body")
+    if not all(isinstance(x, list) for x in (issues, prs)):
         raise state.Refused("our issues or pull requests can't be read from GitHub: call issues again",
                             outcome="wait")
-    return issues, closed, prs
+    return issues, prs
+
+
+def has_mark(gh, n, mark):
+    """Whether one of the issue's comments holds the mark; None when they can't be read."""
+    owner, name = state.REPO.split("/")
+    pages = gh_json(gh, "api", "--paginate", "--slurp", f"repos/{owner}/{name}/issues/{n}/comments")
+    if not isinstance(pages, list):
+        return None
+    return any(mark in str((c or {}).get("body") or "") for page in pages for c in (page or []))
+
+
+def still_closable(gh, n, merged_at):
+    """None when the issue may close now, else why it is left as it is: closed, labelled device-check, or reopened or
+    edited after its fix merged (or it can't be read)."""
+    owner, name = state.REPO.split("/")
+    data = gh_json(gh, "api", "graphql", "-f", f"query={FRESH}", "-F", f"owner={owner}", "-F", f"name={name}",
+                   "-F", f"n={n}")
+    issue = (((data or {}).get("data") or {}).get("repository") or {}).get("issue")
+    if not isinstance(issue, dict) or not merged_at:
+        return "it couldn't be read again"
+    if issue.get("state") != "OPEN":
+        return "it isn't open"
+    if "device-check" in {x.get("name") for x in (issue.get("labels") or {}).get("nodes") or []}:
+        return "it waits on a device check"
+    reopened = [x.get("createdAt") for x in (issue.get("timelineItems") or {}).get("nodes") or [] if x]
+    if any(r and r > merged_at for r in reopened):
+        return "it was reopened after its fix merged"
+    if (issue.get("lastEditedAt") or "") > merged_at:
+        return "it was edited after its fix merged"
+    return None
 
 
 def write(gh, edit, scratch):
-    args = ["issue", "edit", str(edit["number"]), "-R", state.REPO]
-    if edit.get("body") is not None:
-        f = os.path.join(scratch, f"issue-{edit['number']}.md")
-        with open(f, "w", encoding="utf-8") as fh:
-            fh.write(edit["body"])
-        args += ["--body-file", f]
+    n = str(edit["number"])
+    if edit.get("comment"):
+        seen = has_mark(gh, n, edit["mark"])
+        if seen is None:
+            return False
+        if not seen:
+            f = os.path.join(scratch, f"comment-{n}.md")
+            with open(f, "w", encoding="utf-8") as fh:
+                fh.write(edit["comment"])
+            ok, _, _ = gh("issue", "comment", n, "-R", state.REPO, "--body-file", f)
+            if not ok:
+                return False
+    args = ["issue", "edit", n, "-R", state.REPO]
     if edit.get("add"):
         args += ["--add-label", ",".join(edit["add"])]
     if edit.get("remove"):
@@ -346,7 +294,7 @@ def write(gh, edit, scratch):
     if len(args) > 5:
         ok, _, _ = gh(*args)
     if ok and edit.get("close"):
-        ok, _, _ = gh("issue", "close", str(edit["number"]), "-R", state.REPO)
+        ok, _, _ = gh("issue", "close", n, "-R", state.REPO, "--reason", "completed")
     return ok
 
 
@@ -361,21 +309,23 @@ def link_pr(gh, pr, numbers, scratch):
     return ok
 
 
-def run(repo, candidate, since, tag, release_tag, gh, dry_run=False, cfg_hostname=None):
+def run(repo, candidate, since, tag, release_tag, gh, dry_run=False, cfg_hostname=None, links_path=None):
     """The whole pass: reads, the plan, the writes. Returns the step's fields."""
     lines, layout = patches.read(repo, candidate)
     if layout:
         raise state.Refused("the patch list is laid out wrong: " + "; ".join(layout), outcome="stop")
     carried = {x.get("issue") for x in lines if isinstance(x.get("issue"), int)}
-    issues, closed, prs = read_github(gh)
-    landed, linked, unlinked = {}, [], []
+    issues, prs = read_github(gh)
+    links = triage_links(links_path or default_links_path())
+    landed, linked, unlinked, merged_at = {}, [], [], {}
     for pr in prs:
         if str(pr.get("headRefName") or "").startswith(SYNC_BRANCH) or not runs_at(repo, pr, candidate):
             continue
+        merged_at[pr["number"]] = pr.get("mergedAt")
         newly = bool(merged_in(repo, pr, candidate, since))
         said, from_files = pr_issues(repo, pr)
         for n in said | from_files:
-            landed.setdefault(n, {})[pr["number"]] = newly     # a part moves only on its own issue
+            landed.setdefault(n, {})[pr["number"]] = newly     # a fix lands only on its own issue
         if not newly:
             continue
         if from_files - said:
@@ -384,15 +334,20 @@ def run(repo, candidate, since, tag, release_tag, gh, dry_run=False, cfg_hostnam
             c = pr["mergeCommit"]["oid"]
             if ships(changed_paths(repo, f"{c}^", c) or []):
                 unlinked.append(pr["number"])
-    edits = plan(issues, closed, carried, landed, tag, release_tag)
+    edits = plan(issues, carried, landed, links, tag, release_tag)
     from . import public
     for e in edits:
-        if e.get("body") is not None:
-            st = status_at(e["body"])
-            found = public.problems(st[2] if st else "", cfg_hostname)
-            if found:
-                raise state.Refused(f"the status line of #{e['number']} would carry {public.words(found)}",
-                                    outcome="stop")
+        found = public.problems(e.get("comment") or "", cfg_hostname)
+        if found:
+            raise state.Refused(f"the comment for #{e['number']} would carry {public.words(found)}", outcome="stop")
+    left = []
+    for e in edits:
+        if e["close"]:
+            why = still_closable(gh, e["number"], merged_at.get(e.get("pr")))
+            if why:
+                e["close"] = False
+                left.append({"issue": e["number"], "why": why})
+    edits = [e for e in edits if e.get("comment") or e["add"] or e["remove"] or e["close"]]
     written, failed = [], []
     if not dry_run:
         scratch = tempfile.mkdtemp(prefix="fork-issues-")
@@ -406,14 +361,15 @@ def run(repo, candidate, since, tag, release_tag, gh, dry_run=False, cfg_hostnam
             for f in os.listdir(scratch):
                 os.remove(os.path.join(scratch, f))
             os.rmdir(scratch)
-    out = {"carried": len(carried), "read": len(issues), "edits": [
-        {k: v for k, v in e.items() if k != "body"} | {"status": bool(e.get("body"))} for e in edits],
-        "written": written, "linked": [{k: v for k, v in x.items() if k != "pr_obj"} for x in linked],
-        "unlinked": unlinked, "device_checks": [{"issue": e["number"], "check": e["device"]}
-                                                for e in edits if e.get("device")],
-        "dry_run": bool(dry_run)}
+    out = {"carried": len(carried), "read": len(issues),
+           "edits": [{k: v for k, v in e.items() if k not in ("comment", "mark")} | {"comment": bool(e.get("comment"))}
+                     for e in edits],
+           "written": written, "left": left, "linked": [{k: v for k, v in x.items() if k != "pr_obj"} for x in linked],
+           "unlinked": unlinked, "device_checks": [{"issue": e["number"], "check": e["device"]}
+                                                   for e in edits if e.get("device")],
+           "triage_links": "unreadable" if links is None else len(links), "dry_run": bool(dry_run)}
     if dry_run:
-        out["bodies"] = {str(e["number"]): status_at(e["body"])[2] for e in edits if e.get("body")}
+        out["comments"] = {str(e["number"]): e["comment"].split("\n\n")[0] for e in edits if e.get("comment")}
     if failed:
         raise state.Refused(f"GitHub refused {len(failed)} of the writes: call issues again (it writes only what "
                             "is still different)", outcome="wait", failed=failed, **out)
