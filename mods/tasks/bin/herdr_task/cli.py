@@ -364,7 +364,7 @@ def main():
     # dmalis/shepherdr "Needs you 6b: hand-up" (herdr_task/hand_up.py)
     c.add_argument("--wait", action="append", help="with --task: the wait it is about, as its news line gave it (wait=\"…\"; "
                                   "one per task); a wait over by now sends nothing")
-    c.add_argument("--choice", action="append", help="with --task: an answer its card offers as a button (up to 4)")
+    c.add_argument("--choice", action="append", help="with --task: an answer its card offers as a button (up to 4, 40 characters each)")
     c.add_argument("--settled", action="store_true", help="with --task: take the hand-up back (you have the answer)")
     c = cmd("feedback", cmd_feedback, "a problem in Shepherdr itself (not the project's): feedback \"<one line>\" --details \"goal, what "
             "was tried, what went wrong, expected, suggested fix\" returns at once and your Assistant offers the person to file it "

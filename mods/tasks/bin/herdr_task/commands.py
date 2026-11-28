@@ -1274,11 +1274,15 @@ def cmd_alert(args):
     labels = caller_labels()
     ref = None
     alert_id = secrets.token_hex(4)
-    handed, named = [], []
+    handed, fresh, named = [], [], []
     if refs:
-        handed, named = hand_up_mark(args, refs, alert_id, title, body, choices)
+        handed, fresh, named = hand_up_mark(args, refs, alert_id, title, body, choices)
         ref = named[0]
-        if getattr(args, "wait", None) and not handed:
+        if handed and not fresh:
+            # asked again (a retry): its card has the new words, and nothing new reaches the person or the bell
+            say(args, {"sent": False, "again": True, "handed_up": handed}, f"Already handed up: {', '.join(named)}. Its card says it in these words now.")
+            return
+        if not handed:
             # late: the wait it answers is over (the task moved on, or asks something new): nothing to hand up
             say(args, {"sent": False, "late": True, "task": ref},
                 f"Not sent: that wait on {ref} is over (it moved on or asks something new). Look at it again: "
@@ -1310,27 +1314,47 @@ def cmd_alert(args):
 
 
 def hand_up_mark(args, refs, alert_id, title, body, choices):
-    """--task: each named task's open wait handed up as one question (hand_up.py), inside its list's lock. Returns
-    (the waits handed up, the tasks' refs)."""
+    """--task: each named task's open wait handed up as one question (hand_up.py). Every task is found and its wait
+    read first, so a name that fits nothing fails before anything is written, and the question's lead is the same
+    whatever order its tasks were named in. Then each is written inside its list's lock (read again there: a wait over
+    by then is left out). Returns (the waits handed up, the waits not handed up before, the tasks' refs)."""
     from . import hand_up
-    handed, named, lead = [], [], None
+    wait = getattr(args, "wait", None)
+    seen, named = [], []
     for one in refs:
         try:
-            with open_store(argparse.Namespace(folder=args.folder, id=one), wait=STATUS_WAIT) as s:
+            with open_store(argparse.Namespace(folder=args.folder, id=one), write=False, wait=STATUS_WAIT) as s:
                 t = s.find(one)
                 named.append(s.ref(t))
-                got = hand_up.mark([t], alert_id, title, body, choices, wait=getattr(args, "wait", None), lead=lead)
-                if got:
-                    lead = lead or got[0]
-                    handed += got
-                    s.dirty = True
+                w = hand_up.handable(t, wait)
+                if w:
+                    seen.append(w)
         except Busy:
             raise Fail("The task list is busy right now. Try again in a moment.")
-    return handed, named
+    if not seen:
+        return [], [], named
+    lead = hand_up.lead_of(seen)
+    handed, fresh, missed = [], [], []
+    for one, ref in zip(refs, named):
+        try:
+            with open_store(argparse.Namespace(folder=args.folder, id=one), wait=STATUS_WAIT) as s:
+                got, new = hand_up.mark([s.find(one)], alert_id, title, body, choices, wait=wait, lead=lead)
+                if got:
+                    handed += got
+                    fresh += new
+                    s.dirty = True
+        except Busy:
+            missed.append(ref)
+    if missed and handed:
+        print(f"{', '.join(missed)}: its task list was busy, so this question doesn't hold it. Hand it up again for it.", file=sys.stderr)
+    elif missed:
+        raise Fail("The task list is busy right now. Try again in a moment.")
+    return handed, fresh, named
 
 
 def hand_up_settle(args, refs):
-    """--task … --settled: the hand-up taken back; the wait is Shepherdr's again (hand_up.py)."""
+    """--task … --settled [--wait <id>]: the hand-up taken back; the wait is Shepherdr's again (hand_up.py). With
+    --wait only that wait: a newer question on the task stays handed up."""
     from . import hand_up
     done, named = [], []
     for one in refs:
@@ -1338,7 +1362,7 @@ def hand_up_settle(args, refs):
             with open_store(argparse.Namespace(folder=args.folder, id=one), wait=STATUS_WAIT) as s:
                 t = s.find(one)
                 named.append(s.ref(t))
-                if hand_up.settle([t]):
+                if hand_up.settle([t], wait=getattr(args, "wait", None)):
                     done.append(s.ref(t))
                     s.dirty = True
         except Busy:

@@ -2,10 +2,15 @@
 // or at once (an explicit hand-up, no Shepherdr running), one question over several tasks is one card and one alert, and
 // a late or duplicate answer sends nothing more. The acceptance cases of fork/specs/needs-you.md's part 6b. Made-up data.
 import { expect, test } from "bun:test";
-import { attend, nextHandUp } from "./attention.ts";
+import { attend, nextHandUp, wakeForHandUp } from "./attention.ts";
 import { agentAlerts, alertsOf, pushChanges } from "./push.ts";
 import { handUpOf } from "./wait-record.ts";
-import { attentionOf, leadOf } from "../web/shared/attention.ts";
+import { PENDING_MAX_MS, attentionOf, leadOf, yours } from "../web/shared/attention.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AlertLedger } from "./alert-ledger.ts";
+import { glanceOf } from "./glance.ts";
 import { waitsOnPerson } from "../web/shared/needs-you.ts";
 import { needsTask } from "../web/shared/needs-open.ts";
 import { askAfterOf, isAskAfter } from "../web/shared/ask-after.ts";
@@ -35,7 +40,7 @@ test("before its deadline a wait is Shepherdr's, quiet; at its deadline it is th
   expect([early.count, early.pushes.length]).toEqual([0, 0]);
   expect(leadOf(attentionOf(early.snap), "SHOP-1")).toMatchObject({ owner: "shepherdr", deadline: NOW + 3 * min });
   // the service wakes itself for it, so it isn't late by the next unrelated change
-  expect(nextHandUp(attentionOf(early.snap).actions, NOW)).toBe(NOW + 3 * min);
+  expect(nextHandUp(attentionOf(early.snap).actions, early.snap.tasks)).toEqual({ at: NOW + 3 * min, machines: [] });
   const late = at(s, NOW + 3 * min);
   expect([late.count, late.pushes.length]).toEqual([1, 1]);
   expect(leadOf(attentionOf(late.snap), "SHOP-1")).toMatchObject({ owner: "you", up: "deadline", id: "wait:w-SHOP-1" });
@@ -103,7 +108,7 @@ test("a machine that can't be read hands nothing up, its deadline passing or not
     { machines: [{ id: "m:box", machine: "box", name: "box", status: "idle", here: true }, { id: "m:vm", machine: "vm", name: "Build box", status: "off" }] });
   const x = at(s);
   expect(x.pushes).toHaveLength(0);
-  expect(nextHandUp([{ id: "w", kind: "wait", owner: "shepherdr", stale: "Build box", deadline: NOW + min, since: 0, what: "", place: "", card: null } as any], NOW)).toBeUndefined();
+  expect(nextHandUp([{ id: "w", kind: "wait", owner: "shepherdr", stale: "Build box", deadline: NOW + min, since: 0, what: "", place: "", card: null } as any])).toBeUndefined();
 });
 
 test("Right away: the wait is the person's as soon as its record lands, not before", () => {
@@ -111,8 +116,12 @@ test("Right away: the wait is the person's as soon as its record lands, not befo
   const x = at(snapOf([task("SHOP-10", { wait: rec("w10", { first: NOW, deadline: NOW }) })]));
   expect(leadOf(attentionOf(x.snap), "SHOP-10")).toMatchObject({ owner: "you", up: "deadline" });
   // its record not written yet (at most a tick): quiet, so it is told once under the id that lasts
-  const pending = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true })]));
+  const pending = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - 10_000 })]));
   expect(pending.pushes).toHaveLength(0);
+  // a record that never lands (its scheduler stopped) holds it quiet only a moment, and the service wakes for then
+  expect(leadOf(attentionOf(pending.snap), "SHOP-10")).toMatchObject({ owner: "shepherdr", deadline: NOW - 10_000 + PENDING_MAX_MS });
+  const never = at(snapOf([task("SHOP-10", { wait: undefined, waitPending: true, needsAt: NOW - PENDING_MAX_MS })]));
+  expect(leadOf(attentionOf(never.snap), "SHOP-10")).toMatchObject({ owner: "you", up: "deadline" });
   expect([askAfterOf(0), askAfterOf("now"), askAfterOf(undefined), askAfterOf("soon")]).toEqual([0, 0, 5, 5]);
   expect([isAskAfter(0), isAskAfter(30), isAskAfter(7)]).toEqual([true, true, false]);
 });
@@ -139,4 +148,72 @@ test("an Assistant's alert about no task stays in the bell; a hand-up's label is
   // the label of a hand-up is not an alert of its own: its wait's action is the one (no second card or push)
   const s = { ...snapOf([task("SHOP-12")]), alerts: [{ ...handed, id: "b", task: "SHOP-12", place: "p:box:shop" }] };
   expect(attentionOf(at(s).snap).actions.filter((a) => a.kind === "alert")).toEqual([]);
+});
+
+/** one tick of the service (main.ts alertNew) on the kept ledger: the keys that go out */
+const tick = (l: AlertLedger, snap: any) => {
+  const now = alertsOf(snap);
+  const before = l.prior(now);
+  const out = before ? pushChanges(before as any, now, 1) : [];
+  l.track(snap.attention);
+  l.keep(now);
+  l.save();
+  return out.map((a) => a.key);
+};
+const ledgerAt = (clock: { now: number }) => {
+  const l = new AlertLedger(join(mkdtempSync(join(tmpdir(), "handup-")), "alerted.json"), () => clock.now);
+  tick(l, at(snapOf([])).snap);
+  return l;
+};
+
+test("one question over two tasks pushes once, whatever order its tasks come in, or once its lead task is done", () => {
+  const clock = { now: NOW };
+  const l = ledgerAt(clock);
+  const up = { at: NOW - min, what: "Pick one database for both", lead: "w-SHOP-11" };
+  const a = task("SHOP-11", { wait: rec("w-SHOP-11", { up }) }), b = task("SHOP-12", { wait: rec("w-SHOP-12", { up }) });
+  expect(tick(l, at(snapOf([a, b])).snap)).toHaveLength(1);
+  clock.now += min;
+  expect(tick(l, at(snapOf([b, a]), clock.now).snap)).toEqual([]);
+  clock.now += 20 * min;
+  expect(tick(l, at(snapOf([b]), clock.now).snap)).toEqual([]);
+  // after a restart too
+  const again = new AlertLedger((l as any).file, () => clock.now);
+  expect(tick(again, at(snapOf([b]), clock.now).snap)).toEqual([]);
+});
+
+test("escalated once, a wait never alerts again: no Shepherdr, then it is back, then its deadline", () => {
+  const clock = { now: NOW };
+  const l = ledgerAt(clock);
+  const t = task("SHOP-13", { wait: rec("w-SHOP-13", { deadline: NOW + 30 * min }) });
+  const places = (shepherdr: string) => [place("p:box:root", "box", { home: true }), place("p:box:shop", "box", { shepherdr }), place("p:vm:shop", "vm")];
+  expect(tick(l, at(snapOf([t], { places: places("stopped") })).snap)).toHaveLength(1);
+  clock.now += min;
+  expect(tick(l, at(snapOf([t], { places: places("running") }), clock.now).snap)).toEqual([]);
+  clock.now = NOW + 31 * min;
+  const due = at(snapOf([t], { places: places("running") }), clock.now);
+  expect(leadOf(attentionOf(due.snap), "SHOP-13")).toMatchObject({ owner: "you", up: "deadline" });
+  expect(tick(l, due.snap)).toEqual([]);
+});
+
+test("each held task lists under its own key; only the lead's carries the alert (the app and Glance)", () => {
+  const up = { at: NOW - min, what: "Pick one", lead: "w-SHOP-14" };
+  const x = at(snapOf([task("SHOP-14", { wait: rec("w-SHOP-14", { up }) }), task("SHOP-15", { wait: rec("w-SHOP-15", { up }) })]));
+  const mine = yours(x.snap, undefined, NOW);
+  expect(mine.map((a) => [a.task, !!a.need])).toEqual([["SHOP-14", true], ["SHOP-15", false]]);
+  const g = glanceOf(x.snap, x.alerts, NOW);
+  const needs = g.items.filter((i: any) => i.kind === "needs");
+  expect(needs.map((i: any) => i.task)).toEqual(["SHOP-14", "SHOP-15"]);
+  expect(new Set(needs.map((i: any) => i.key)).size).toBe(2);
+  expect(needs.filter((i: any) => i.alert).map((i: any) => i.task)).toEqual(["SHOP-14"]);
+});
+
+test("the deadline timer wakes for a deadline the snapshot just missed, and not for one it already saw", async () => {
+  const quiet = (attentionAt: number) => ({ tasks: [], attention: { at: attentionAt, actions: [{ id: "wait:w", kind: "wait", owner: "shepherdr", deadline: NOW, since: 0, what: "", place: "", card: null, task: "T" } as any] } });
+  let woke = 0;
+  wakeForHandUp(quiet(NOW - 5), () => woke++, NOW + 5);
+  await Bun.sleep(400);
+  expect(woke).toBe(1);
+  wakeForHandUp(quiet(NOW + 5), () => woke++, NOW + 5);
+  await Bun.sleep(400);
+  expect(woke).toBe(1);
 });

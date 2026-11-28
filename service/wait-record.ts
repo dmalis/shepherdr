@@ -26,7 +26,7 @@ export function handUpOf(raw: unknown): HandUp | undefined {
   const at = Number(u.at), what = typeof u.what === "string" ? u.what.trim().slice(0, 120) : "";
   if (!Number.isFinite(at) || at <= 0 || !what || typeof u.lead !== "string" || !u.lead) return undefined;
   const why = typeof u.why === "string" ? u.why.trim().slice(0, 300) : "";
-  const choices = Array.isArray(u.choices) ? [...new Set(u.choices.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 60)).filter(Boolean))].slice(0, 4) : [];
+  const choices = Array.isArray(u.choices) ? [...new Set(u.choices.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 40)).filter(Boolean))].slice(0, 4) : [];
   const settled = Number(u.settled);
   return { at, what, lead: u.lead.slice(0, 64), ...(why ? { why } : {}), ...(choices.length ? { choices } : {}), ...(Number.isFinite(settled) && settled > 0 ? { settled } : {}) };
 }

@@ -199,7 +199,7 @@ const ledger = new AlertLedger();
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
 // fork Needs you 5/6: every open action, worked out once (service/attention.ts), with the alerts it reads: what the pages,
 // the badge, the glance feed and push all count
-const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); try { attend(snap); wakeForHandUp(snap, () => model.rebuild()); } catch (err) { console.error(`attention: ${(err as Error).message}`); } alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
+const alertNewAnd = (snap: any) => { try { snap.alerts = agentAlerts(hub.terminals.values(), snap, chatOfAddress, HOME); try { attend(snap); wakeForHandUp(snap, () => model.rebuild(), Date.now(), (ms) => Promise.all(ms.map((m) => model.reread(m)))); } catch (err) { console.error(`attention: ${(err as Error).message}`); } alertNew(snap); snap.inbox = inbox.list(); } catch {} return snap; };
 // what waits on you now, as the last alerts said it: the app icon's count and the tags of the alerts that may stay (the
 // service worker asks after a notification's button did something: GET /api/waiting)
 let waitingNow = { count: 0, tags: [] as string[] };

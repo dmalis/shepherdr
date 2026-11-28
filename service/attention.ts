@@ -5,27 +5,42 @@
 import { byAge, projectAttention, withActions, type Action } from "../web/shared/attention.ts";
 import type { Snapshot } from "../web/shared/types.ts";
 
-/** fork Needs you 6b: when the next wait Shepherdr handles reaches its hand-up deadline (ms), past `now`; none: no wait
- *  has one ahead. A wait on a machine that can't be read hands up nothing until it is read again. */
-export function nextHandUp(actions: Action[], now = Date.now()): number | undefined {
-  let next: number | undefined;
+/** fork Needs you 6b: when the next wait Shepherdr handles reaches its hand-up deadline (ms), and the machines of the
+ *  waits due then; none: no wait has one. A deadline already passed while the wait still reads Shepherdr's (the snapshot
+ *  was worked out a moment before it) counts too: it is due now. A wait on a machine that can't be read hands up nothing
+ *  until it is read again. */
+export function nextHandUp(actions: Action[], tasks: Pick<Snapshot["tasks"][number], "id" | "on">[] = []): { at: number; machines: string[] } | undefined {
+  let at: number | undefined;
+  const on = new Map(tasks.map((t) => [t.id, t.on]));
   for (const a of actions)
-    if (a.kind === "wait" && a.owner === "shepherdr" && !a.stale && typeof a.deadline === "number" && a.deadline > now && (next === undefined || a.deadline < next)) next = a.deadline;
-  return next;
+    if (a.kind === "wait" && a.owner === "shepherdr" && !a.stale && typeof a.deadline === "number" && (at === undefined || a.deadline < at)) at = a.deadline;
+  if (at === undefined) return undefined;
+  const machines = new Set<string>();
+  for (const a of actions) if (a.kind === "wait" && a.owner === "shepherdr" && !a.stale && a.deadline === at && a.task && on.get(a.task)) machines.add(on.get(a.task)!);
+  return { at, machines: [...machines] };
 }
 
 let handUpTimer: ReturnType<typeof setTimeout> | null = null;
 let handUpAt: number | undefined;
 /** fork Needs you 6b: the snapshot is worked out again when the next deadline comes, so a wait still open then is the
- *  person's at that moment (its one alert goes then), not at the next unrelated change. rebuild: the model's. */
-export function wakeForHandUp(snap: Pick<Snapshot, "attention">, rebuild: () => void, now = Date.now()) {
-  const at = nextHandUp(snap.attention?.actions ?? [], now);
-  if (at === handUpAt) return;
+ *  person's at that moment (its one alert goes then), not at the next unrelated change. Its machines' task lists are read
+ *  first (reread), so a wait closed there meanwhile (the task archived, moved on) is not handed up on an old read.
+ *  rebuild: the model's. */
+export function wakeForHandUp(snap: Pick<Snapshot, "attention" | "tasks">, rebuild: () => void, now = Date.now(), reread: (machines: string[]) => Promise<unknown> = async () => {}) {
+  const next = nextHandUp(snap.attention?.actions ?? [], snap.tasks ?? []);
+  // one passed already, and the snapshot was worked out after it: nothing to wait for (it would loop)
+  const at = next && snap.attention && next.at <= snap.attention.at ? undefined : next?.at;
+  if (at === handUpAt && (at === undefined || handUpTimer)) return;
   if (handUpTimer) clearTimeout(handUpTimer);
   handUpTimer = null;
   handUpAt = at;
   if (at === undefined) return;
-  handUpTimer = setTimeout(() => { handUpTimer = null; handUpAt = undefined; rebuild(); }, Math.min(at - now + 250, 2 ** 31 - 1));
+  const machines = next!.machines;
+  handUpTimer = setTimeout(() => {
+    handUpTimer = null;
+    handUpAt = undefined;
+    void reread(machines).catch(() => {}).finally(rebuild);
+  }, Math.min(Math.max(0, at - now) + 250, 2 ** 31 - 1));
   (handUpTimer as any).unref?.();
 }
 

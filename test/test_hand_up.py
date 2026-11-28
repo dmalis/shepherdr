@@ -27,7 +27,7 @@ class Mark(unittest.TestCase):
     def test_hands_up_the_open_wait_with_its_ask_and_choices(self):
         t = task(1, "w1")
         got = hand_up.mark([t], "a1", "Choose a migration plan", "Two plans, both tested", ["In place", "Copy then swap", "In place"], at=5000)
-        self.assertEqual(got, ["w1"])
+        self.assertEqual(got, (["w1"], ["w1"]))
         self.assertEqual(t["wait"]["up"], {"at": 5000, "what": "Choose a migration plan", "why": "Two plans, both tested",
                                            "choices": ["In place", "Copy then swap"], "lead": "w1", "alert": "a1"})
 
@@ -37,24 +37,25 @@ class Mark(unittest.TestCase):
 
     def test_a_late_hand_up_writes_nothing(self):
         over = task(1, "w1", outcome={"how": "moved-on", "at": 2})
-        self.assertEqual(hand_up.mark([over], "a1", "Choose"), [])
+        self.assertEqual(hand_up.mark([over], "a1", "Choose"), ([], []))
         self.assertNotIn("up", over["wait"])
         # a new question replaced the one it answers
         t = task(2, "w2")
-        self.assertEqual(hand_up.mark([t], "a1", "Choose", wait="w-old"), [])
+        self.assertEqual(hand_up.mark([t], "a1", "Choose", wait="w-old"), ([], []))
         self.assertNotIn("up", t["wait"])
-        self.assertEqual(hand_up.mark([task(3)], "a1", "Choose"), [], "no wait at all")
+        self.assertEqual(hand_up.mark([task(3)], "a1", "Choose"), ([], []), "no wait at all")
 
     def test_one_question_over_several_tasks_shares_one_lead(self):
         a, b = task(1, "wa"), task(2, "wb")
-        self.assertEqual(hand_up.mark([a, b], "a1", "Pick one database for both", wait=["wa", "wb"]), ["wa", "wb"])
-        self.assertEqual({a["wait"]["up"]["lead"], b["wait"]["up"]["lead"]}, {"wa"})
+        self.assertEqual(hand_up.mark([b, a], "a1", "Pick one database for both", wait=["wa", "wb"]), (["wb", "wa"], ["wb", "wa"]))
+        self.assertEqual({a["wait"]["up"]["lead"], b["wait"]["up"]["lead"]}, {"wa"}, "the same lead whatever the order")
 
     def test_a_second_hand_up_of_the_same_wait_keeps_its_lead_and_time(self):
         t = task(1, "w1")
         hand_up.mark([t], "a1", "Choose", at=5000)
-        hand_up.mark([t], "a2", "Choose now", at=9000, lead="other")
-        self.assertEqual((t["wait"]["up"]["lead"], t["wait"]["up"]["at"], t["wait"]["up"]["what"]), ("w1", 5000, "Choose now"))
+        self.assertEqual(hand_up.mark([t], "a2", "Choose now", at=9000, lead="other"), (["w1"], []), "nothing new")
+        up = t["wait"]["up"]
+        self.assertEqual((up["lead"], up["at"], up["what"], up["alert"]), ("w1", 5000, "Choose now", "a1"))
 
     def test_settle_takes_it_back_once(self):
         t = task(1, "w1")
@@ -62,9 +63,20 @@ class Mark(unittest.TestCase):
         self.assertEqual(hand_up.settle([t], at=7000), ["w1"])
         self.assertEqual(t["wait"]["up"]["settled"], 7000)
         self.assertEqual(hand_up.settle([t], at=8000), [], "already taken back")
-        # handed up again after: a fresh hand-up (its own time), not the old one's
-        hand_up.mark([t], "a3", "Choose again", at=9000)
-        self.assertEqual((t["wait"]["up"]["at"], t["wait"]["up"].get("settled")), (9000, None))
+        # a retry after the answer is late: the answered wait never opens again
+        self.assertEqual(hand_up.mark([t], "a3", "Choose again", wait="w1", at=9000), ([], []))
+        self.assertEqual((t["wait"]["up"]["at"], t["wait"]["up"]["settled"]), (5000, 7000))
+
+    def test_settle_names_its_question(self):
+        # an old card's answer, after a new question replaced the one it answered, leaves the new one handed up
+        t = task(1, "w2")
+        hand_up.mark([t], "a1", "The new question", at=5000)
+        self.assertEqual(hand_up.settle([t], wait="w1"), [])
+        self.assertNotIn("settled", t["wait"]["up"])
+        # a held task is named by its question's lead
+        b = task(2, "wb")
+        hand_up.mark([t, b], "a2", "One for both", at=6000)
+        self.assertEqual(hand_up.settle([b], wait=t["wait"]["up"]["lead"]), ["wb"])
 
 
 class FakeStore:
@@ -72,6 +84,8 @@ class FakeStore:
         self.tasks, self.dirty = {str(t["id"]): t for t in tasks}, False
 
     def find(self, ref):
+        if ref.split("-")[-1] not in self.tasks:
+            raise Fail(f"No task {ref}.")
         return self.tasks[ref.split("-")[-1]]
 
     def ref(self, t):
@@ -85,7 +99,7 @@ class AlertCommand(unittest.TestCase):
 
         @contextlib.contextmanager
         def open_store(args, write=True, wait=None):
-            s = FakeStore([self.tasks[args.id.split("-")[-1]]])
+            s = FakeStore([t for k, t in self.tasks.items() if k == args.id.split("-")[-1]])
             self.stores.append(s)
             yield s
 
@@ -110,7 +124,7 @@ class AlertCommand(unittest.TestCase):
         self.alert("Choose a migration plan", task=["SD-1"], wait=["w1"], choice=["In place", "Copy then swap"])
         up = self.tasks["1"]["wait"]["up"]
         self.assertEqual((up["what"], up["choices"]), ("Choose a migration plan", ["In place", "Copy then swap"]))
-        self.assertTrue(self.stores[0].dirty)
+        self.assertEqual([s.dirty for s in self.stores], [False, True], "read first, then written in its lock")
         lab = self.label()
         self.assertEqual((lab["task"], lab["about"], lab["waits"]), ("SD-1", True, ["w1"]))
         self.assertEqual(up["alert"], lab["id"])
@@ -126,6 +140,24 @@ class AlertCommand(unittest.TestCase):
         self.assertEqual(self.labels, [], "no label: nothing buzzes")
         self.assertNotIn("up", self.tasks["1"]["wait"])
         self.assertEqual(self.said[-1][0], {"sent": False, "late": True, "task": "SD-1"})
+
+    def test_a_name_that_fits_nothing_writes_nothing(self):
+        with self.assertRaises(Fail):
+            self.alert("Pick one for both", task=["SD-1", "SD-9"])
+        self.assertNotIn("up", self.tasks["1"]["wait"], "nothing half written")
+        self.assertEqual(self.labels, [])
+
+    def test_a_retry_sends_nothing_new(self):
+        self.alert("Choose", task=["SD-1"], wait=["w1"])
+        self.alert("Choose, please", task=["SD-1"], wait=["w1"])
+        self.assertEqual(len(self.labels), 1, "one label: no second event")
+        self.assertEqual(self.tasks["1"]["wait"]["up"]["what"], "Choose, please")
+        self.assertTrue(self.said[-1][0]["again"])
+        # after the answer: late, and the wait stays answered
+        self.alert(task=["SD-1"], settled=True)
+        self.alert("Choose", task=["SD-1"], wait=["w1"])
+        self.assertTrue(self.said[-1][0]["late"])
+        self.assertIn("settled", self.tasks["1"]["wait"]["up"])
 
     def test_settled_takes_it_back(self):
         self.alert("Choose", task=["SD-1"])

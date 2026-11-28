@@ -157,6 +157,9 @@ function noShepherdr(snap: AttentionSnap, place: string): boolean {
   return p.shepherdr === 'stopped' || p.shepherdr === 'none'
 }
 
+/** fork Needs you 6b: how long a wait whose record hasn't landed yet stays quiet (a tick writes it within seconds) */
+export const PENDING_MAX_MS = 2 * 60_000
+
 export const byAge = (a: Action, b: Action) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 /**
@@ -247,15 +250,19 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
     // under the id that lasts. A machine that can't be read hands up nothing (its last read stands: service/attention.ts)
     const ask = rec?.up && !rec.up.settled ? rec.up : undefined
     const due = !!rec && !rec.up?.settled && now >= rec.deadline
-    const up: Action['up'] = !shepherds || stale || (!rec && t.waitPending) ? undefined
-      : ask ? 'asked' : noShepherdr(snap, t.place) ? 'no-shepherdr' : due ? 'deadline' : undefined
+    // a record that never lands (its scheduler stopped) holds it quiet a moment only: then it is the person's, as one
+    // whose deadline passed (the service wakes for that moment too)
+    const late = !rec && t.waitPending ? since + PENDING_MAX_MS : undefined
+    const pending = late !== undefined && now < late
+    const up: Action['up'] = !shepherds || stale || pending ? undefined
+      : ask ? 'asked' : noShepherdr(snap, t.place) ? 'no-shepherdr' : due || late !== undefined ? 'deadline' : undefined
     // one question over several tasks is one action (its lead wait's id), holding each of them
     const id = ask ? `wait:${ask.lead}` : rec ? `wait:${rec.id}` : `wait:${t.id}:${since}`
     const had = out.get(id)
     if (had) { had.tasks = [...(had.tasks ?? [had.task!]), t.id]; continue }
     add({ id, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: ask?.what || waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
       card: ask ? `handup:${ask.lead}` : t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}),
-      ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
+      ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : late !== undefined ? { deadline: late } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
   }
   return { at: now, actions: [...out.values()].sort(byAge) }
 }
@@ -286,7 +293,8 @@ export function yours(snap: AttentionSnap, placeId?: string, now?: number): Acti
   const out: Action[] = []
   for (const a of attentionOf(snap, now).actions) {
     if (a.owner !== 'you') continue
-    for (const one of a.tasks?.length ? a.tasks.map((t) => (t === a.task ? a : { ...a, task: t })) : [a])
+    // each held task's own entry: its own row, key and link; the need (its push and Glance key) stays the lead's alone
+    for (const one of a.tasks?.length ? a.tasks.map((t): Action => (t === a.task ? a : { ...a, task: t, need: undefined })) : [a])
       if (inScope(snap, { ...one, tasks: undefined }, placeId)) out.push(one)
   }
   return out

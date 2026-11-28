@@ -27,7 +27,9 @@
     "web/demo/serve.ts",
     "templates/assistant.md",
     "docs/settings.md",
-    "fork/specs/needs-you.md"
+    "fork/specs/needs-you.md",
+    "service/alert-ledger.ts",
+    "docs/agents-and-terms.md"
   ],
   "tests": [
     "test/test_hand_up.py",

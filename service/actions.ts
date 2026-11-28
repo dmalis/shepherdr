@@ -897,7 +897,8 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     // the hand-up is taken back on the task's own machine, so the wait is Shepherdr's again, quiet
     case "task-handup-settled": {
       const { ref, folder, machine } = taskOf(b);
-      const r = await task(["alert", "--task", ref, "--settled"], folder, machine);
+      // --wait: only while it is that question (its lead); a newer one on the task stays handed up
+      const r = await task(["alert", "--task", ref, "--settled", ...(typeof b.wait === "string" && b.wait ? ["--wait", b.wait.slice(0, 80)] : [])], folder, machine);
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "It wasn't taken back." };
