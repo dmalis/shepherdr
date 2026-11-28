@@ -148,6 +148,11 @@ them into the service's unit. The unit also sets `HC_SESSION=shepherdr`, so the 
 own herdr-core session; `shepherdr doctor` says when a unit lacks it, and `shepherdr update` writes it. Task worktrees go to `~/.local/share/shepherdr/worktrees` unless `tasks.worktree_root`
 in the settings file names another folder.
 
+A Done task's worktree, and its branch, go once its change merged (or it had nothing to merge) and nothing still runs
+there: at once when it finishes with its agents ended, else at the scheduler's next round, on its start too. One with
+uncommitted changes, a terminal open in it, or commits after the merge that main doesn't have (offered as a follow-up)
+stays, and is looked at again every hour; one made Done by hand with its work unmerged stays until you remove it.
+
 Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
 made when its agent starts, or when you open the task's terminal first. Its agent and that terminal get it as `TMPDIR`,
 `TMP` and `TEMP`, so what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust

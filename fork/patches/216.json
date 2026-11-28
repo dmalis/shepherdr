@@ -3,6 +3,7 @@
   "name": "Per-task temp folders, and tests that clean up",
   "files": [
     "mods/tasks/bin/herdr_task/task_tmp.py",
+    "mods/tasks/bin/herdr_task/github.py",
     "mods/tasks/bin/herdr_task/launch.py",
     "mods/tasks/bin/herdr_task/tick.py",
     "mods/tasks/bin/herdr_task/commands.py",
@@ -28,6 +29,8 @@
     "test/test_herdr_task.py::DetachedActions",
     "test/test_herdr_task.py::CodexAsksOnTheCard",
     "test/test_herdr_task.py::ReviewerLine",
-    "test/test_herdr_task.py::CodexBatch278"
+    "test/test_herdr_task.py::CodexBatch278",
+    "test/test_herdr_task.py::SquashMergedWorktreesGo",
+    "test/test_herdr_task.py::DoneWorktreesGo"
   ]
 }
