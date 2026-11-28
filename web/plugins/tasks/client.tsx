@@ -685,24 +685,26 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
     <>
       {top}
       {groups.map((g) => {
-        // Done and Archived start folded; the others open. A view's groups open, and fold on their own.
+        // Done and Archived start folded; the others open
+        const o = ui.open[g.name] ?? !['Done', 'Archived'].includes(g.name)
+        // fork UI 13: a view's groups start open, and fold apart from the list's own (Done today is a Done)
         const key = f.view ? `${f.view}:${g.name}` : g.name
-        const o = ui.open[key] ?? (!!f.view || !['Done', 'Archived'].includes(g.name))
+        const isOpen = f.view ? (ui.open[key] ?? true) : o
         const shown = g.name === 'Done' ? g.tasks.slice(0, ui.doneShown) : g.tasks
         const questions = g.name === 'Needs you' ? queued : []
         const chats = g.name === 'Needs you' ? asks : []
         return (
           <div key={g.name} style={{ display: 'contents' }}>
-            <button type="button" className="grp" aria-expanded={o} onClick={() => setUI({ open: { ...ui.open, [key]: !o } })}>
+            <button type="button" className="grp" aria-expanded={isOpen} onClick={() => setUI({ open: { ...ui.open, [key]: !isOpen } })}>
               {g.name} · {g.tasks.length + questions.length + chats.length}
               <I n="down" c="s16" />
             </button>
             {/* its hand-up's words when that is what its row leads with (another of its actions has a row of its own below) */}
-            {o && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
-            {o && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
+            {isOpen && (g.name === 'Working' || g.name === 'Up next' ? urgentFirst(shown) : shown).map((t) => <TaskRow key={t.id} snap={snap} t={t} tag={!repo} alert={!t.action || t.action.kind === 'alert' ? alerts.get(t.id) : undefined} />)}
+            {isOpen && questions.map(({ task, a }) => <Row key={a.id} icon="chat"
               label={a.what} sub={task.name} onClick={() => { openTask(task.id); if (a.card) setUI({ jump: a.card }) }} />)}
-            {o && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
-            {o && shown.length < g.tasks.length && (
+            {isOpen && chats.map((i) => <AskRow key={`ask:${i.place}:${i.card}`} snap={snap} i={i} />)}
+            {isOpen && shown.length < g.tasks.length && (
               <button type="button" className="grp" onClick={() => setUI({ doneShown: ui.doneShown + 20 })}>Show more</button>
             )}
           </div>
