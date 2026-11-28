@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { ACT_W, EDGE_PX, Finger, FULL_PAST, FULL_SHARE, HOLD_MS, leftOf, OPEN_AT, REPLY_AT, slidLeft, wayOf } from './press.ts'
+import { ACT_W, EDGE_PX, Finger, FULL_MAX, FULL_PAST, FULL_SHARE, HOLD_MS, leftOf, OPEN_AT, REPLY_AT, slidLeft, wayOf } from './press.ts'
 
 // fork #185 (Tasks: swipe actions on a phone, a pilot): a row with actions behind it slides to the left too, as Mail's
 // and Things' rows do. These are the finger's rules (press.ts); the gesture in a browser is in the proof's CDP touch run.
@@ -38,6 +38,27 @@ test('let go past half the actions, slowly: they stay open; short of half: the r
   const g = new Finger(300, 300, 0, { left: two, rowW: ROW })
   drag(g, [295, 290, 285, 280, 275, 270], 60)
   expect(g.up()).toBe('back')
+})
+
+test('a pause before the lift is no flick: a finger held still sends no moves, so the lift’s time counts', () => {
+  const f = new Finger(300, 300, 0, { left: two, rowW: ROW })
+  drag(f, [290, 270, 250], 16)
+  // the last move at 48 ms, let go 600 ms later
+  expect(f.speed(648)).toBe(0)
+  expect(f.up(648)).toBe('back')
+  const g = new Finger(300, 300, 0, { left: two, rowW: ROW })
+  drag(g, [290, 270, 250], 16)
+  expect(g.up(60)).toBe('open')
+})
+
+test('at a high Zoom the full slide stays in reach, or the row has none (its actions still tap)', () => {
+  for (const zoom of [1, 1.25, 1.5, 1.75, 2]) {
+    const l = leftOf(2, true, ROW, zoom)!
+    if (!l.full) continue
+    expect(l.full).toBeLessThanOrEqual(Math.round(ROW * FULL_MAX))
+    expect(l.full).toBeGreaterThan(l.w)
+  }
+  expect(leftOf(2, true, 300, 2)).toEqual({ w: 304, full: 0 })
 })
 
 test('a quick flick to the left opens it however short; one back to the right closes it', () => {
@@ -164,4 +185,20 @@ test('the hook: one row open, a second one’s touch puts it away, a scroll and 
   expect(src).toMatch(/export const tick = \(ms = 8\) => \{\s*if \(calm\(\)\) return/)
   // a mouse never slides; a second finger is ignored
   expect(src).toContain("e.pointerType === 'mouse' || !e.isPrimary")
+  // only the pointer that started it moves, ends or cancels it (a mouse's lift can't finish a finger's Archive), and a
+  // lost capture is a cancel
+  expect(src.match(/e\.pointerId !== pid\.current/g)?.length).toBe(3)
+  expect(src).toContain('onLostPointerCapture: (e: RPE<HTMLElement>) => e.target === e.currentTarget && cancel(e)')
+  // a cancel makes no click: nothing is skipped, and a cancelled hold's click eater goes
+  expect(src).toMatch(/if \(o === 'back'\) close\(\)/)
+  expect(src).toContain("addEventListener('pointercancel', lifted, true)")
+  // React's Strict Mode runs the cleanup and the setup again: the row is alive again after it
+  expect(src).toMatch(/useLayoutEffect\(\(\) => \{\s*alive\.current = true/)
+  // focus on an action goes back to the row as they close; Archiving… is said; the row behind is inert meanwhile
+  expect(src).toContain("el.querySelector('.sla')?.contains(at)")
+  expect(src).toContain('role="status"')
+  expect(src).toContain('inert: busy || undefined')
+  // a wheel or keys scrolling the list put it away; actions gone while it is out put it back
+  expect(src).toContain("addEventListener('scroll', scrolled, true)")
+  expect(src).toMatch(/if \(!now && !busy && \(open \|\| slide < 0\)\) close\(\)/)
 })

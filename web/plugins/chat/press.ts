@@ -33,6 +33,9 @@ export const OPEN_AT = 0.5
 /** a full slide, the last action on its own: this far past the actions (px), and past this share of the row */
 export const FULL_PAST = 64
 export const FULL_SHARE = 0.55
+/** a full slide's mark is never further than this share of the row (at a high Zoom the actions fill most of it); with
+ *  no room past the actions for it, the row has no full slide, only its actions to tap */
+export const FULL_MAX = 0.9
 /** a row with no full slide stretches this far past its actions at most, like a rubber band */
 const LEFT_STRETCH = 32
 
@@ -47,7 +50,9 @@ export interface Left {
 export function leftOf(n: number, full: boolean, rowW: number, zoom = 1): Left | null {
   if (n < 1) return null
   const w = Math.round(n * ACT_W * zoom)
-  return { w, full: full ? Math.round(Math.max(w + FULL_PAST, rowW * FULL_SHARE)) : 0 }
+  if (!full) return { w, full: 0 }
+  const mark = Math.round(Math.min(Math.max(w + FULL_PAST, rowW * FULL_SHARE), rowW * FULL_MAX))
+  return { w, full: mark > w ? mark : 0 }
 }
 
 /** how far a row shows slid for a finger `at` px from its rest (to the left is minus): it follows the finger; with no
@@ -140,10 +145,12 @@ export class Finger {
     return { slide: slid(this.dx), crossed: this.armed && !was }
   }
 
-  /** how fast the finger went as it let go, px per ms (to the right is plus), over its last moments */
-  speed(): number {
+  /** how fast the finger went as it let go, px per ms (to the right is plus), over its last moments; `t`: when it let
+   *  go (a finger held still sends no moves, so a pause before the lift is no flick) */
+  speed(t?: number): number {
     const a = this.pts[0]!
     const b = this.pts[this.pts.length - 1]!
+    if (t !== undefined && t - b.t > SPEED_MS) return 0
     return b.t > a.t ? (b.x - a.x) / (b.t - a.t) : 0
   }
 
@@ -154,13 +161,13 @@ export class Finger {
     return true
   }
 
-  /** the finger let go. On the actions' side a flick goes its way, else they stay open past half their width. */
-  up(): Outcome {
+  /** the finger let go (at `t`). On the actions' side a flick goes its way, else they stay open past half their width. */
+  up(t?: number): Outcome {
     if (this.held) return 'hold'
     if (this.way === 'slide') {
       if (this.left && (this.from < 0 || this.at < 0)) {
         if (this.full) return 'full'
-        return lands(-this.at, -this.speed(), this.left.w * OPEN_AT) ? 'open' : 'back'
+        return lands(-this.at, -this.speed(t), this.left.w * OPEN_AT) ? 'open' : 'back'
       }
       return this.armed ? 'reply' : 'back'
     }

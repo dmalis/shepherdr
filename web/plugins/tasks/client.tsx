@@ -622,7 +622,7 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
   return (
     <div className={cx('rowx tsl', sliding && 'sl')} data-task-row={t.id} {...on}>
       <SlideHint slide={slide} armed={armed} />
-      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
+      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
           <span className="l1"><UrgentMark t={t} />{t.name}</span>
@@ -642,7 +642,7 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
         ) : when && <span className="v">{when}</span>}
       </button>
       {sc && <ShortcutBtn sc={sc} className={moving.className} style={moving.style} />}
-      <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />
+      <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} inert={moving.inert} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />
       <SlideActs tray={tray} />
     </div>
   )

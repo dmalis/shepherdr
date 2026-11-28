@@ -15,7 +15,8 @@
     "web/plugins/tasks/swipe.test.tsx",
     "web/plugins/chat/reply-task.test.tsx",
     ".github/workflows/check.yml",
-    "docs/develop.md"
+    "docs/develop.md",
+    "web/src/toasts.ts"
   ],
   "tests": [
     "web/plugins/chat/swipe-left.test.ts",

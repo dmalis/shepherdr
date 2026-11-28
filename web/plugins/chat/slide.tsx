@@ -40,9 +40,12 @@ export function swallowClick() {
   const off = () => {
     removeEventListener('click', eat, true)
     removeEventListener('pointerup', lifted, true)
+    removeEventListener('pointercancel', lifted, true)
   }
   addEventListener('click', eat, true)
   addEventListener('pointerup', lifted, true)
+  // fork #185: a hold the browser took (a cancel) makes no click either: the next real tap is not eaten
+  addEventListener('pointercancel', lifted, true)
 }
 
 /** an action behind a row, shown by a slide to the left (fork #185): one of its menu's own rows */
@@ -77,12 +80,16 @@ let shut: (() => void) | null = null
 /** a row a full slide took out comes back after this if it is still in the list (its thing stayed) */
 const LEAVE_MS = 2000
 
-/** where focus goes when a row leaves after its full action: the next row with actions, else the one before */
+/** where focus goes when a row leaves after its full action: the next row of the list (every row given `acts`, even
+ *  none now), else the one before, else the last control before it (its group's heading) */
 export function nextRow(el: HTMLElement): HTMLElement | null {
   const all = [...document.querySelectorAll<HTMLElement>('[data-slide]')]
   const i = all.indexOf(el)
   if (i < 0) return null
-  return (all[i + 1] ?? all[i - 1])?.querySelector<HTMLElement>('button') ?? null
+  const row = (all[i + 1] ?? all[i - 1])?.querySelector<HTMLElement>('button')
+  if (row) return row
+  const before = [...document.querySelectorAll<HTMLElement>('button')].filter((b) => !el.contains(b) && !!(b.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING))
+  return before[before.length - 1] ?? null
 }
 
 /** The slide on one thing: bind `on` to the element the finger presses, move `moving` by `style`, show <SlideHint>
@@ -101,17 +108,26 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
   /** the row went out by a full slide: focus goes here when it leaves */
   const gone = useRef<HTMLElement | null>(null)
   const alive = useRef(true)
+  /** the pointer that started the slide: only it moves, ends or cancels it */
+  const pid = useRef<number | null>(null)
+  /** the actions as the full slide found them: the row says what it does even as its task changes under it */
+  const busyActs = useRef<SlideAct[] | null>(null)
   const [slide, setSlide] = useState(0)
   const [armed, setArmed] = useState(false)
   const [full, setFull] = useState(false)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [settling, setSettling] = useState(false)
-  const acts = opts.acts?.length ? opts.acts : null
+  const now = opts.acts?.length ? opts.acts : null
+  const acts = busy && busyActs.current ? busyActs.current : now
   const hasFull = !!acts?.[acts.length - 1]?.full
   // with less motion nothing springs: it lands at once
   const settle = () => setSettling(!calm())
   const close = () => {
+    // focus on an action goes back to the row as they close, never to the page
+    const el = box.current
+    const at = document.activeElement
+    if (el && at && el.querySelector('.sla')?.contains(at)) el.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
     settle()
     setSlide(0)
     setArmed(false)
@@ -123,8 +139,9 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
   const put = useRef(() => closer.current()).current
   useEffect(() => () => clearTimeout(timer.current), [])
   // leaving the list after a full slide: focus goes on to the next row, if it was here or nowhere
-  useLayoutEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    alive.current = true
+    return () => {
       alive.current = false
       clearTimeout(leave.current)
       if (shut === put) shut = null
@@ -132,9 +149,8 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
       if (!to?.isConnected) return
       const at = document.activeElement
       if (!at || at === document.body || box.current?.contains(at)) to.focus({ preventScroll: true })
-    },
-    [],
-  )
+    }
+  }, [])
   // one row open: another's touch, anything outside it, or Escape puts it away
   useEffect(() => {
     if (!open) return
@@ -144,14 +160,25 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
       if (!box.current?.contains(e.target as Node)) put()
     }
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && put()
+    // the list scrolling any way (a wheel, keys) puts it away too
+    const scrolled = (e: Event) => {
+      const t = e.target
+      if (box.current && t instanceof Node && t !== box.current && t.contains(box.current)) put()
+    }
     addEventListener('pointerdown', away, true)
     addEventListener('keydown', esc)
+    addEventListener('scroll', scrolled, true)
     return () => {
       removeEventListener('pointerdown', away, true)
       removeEventListener('keydown', esc)
+      removeEventListener('scroll', scrolled, true)
       if (shut === put) shut = null
     }
   }, [open])
+  // its actions went (the task changed, its machine went away) while it was out: it goes back
+  useEffect(() => {
+    if (!now && !busy && (open || slide < 0)) close()
+  }, [!!now])
   const letGo = (replying: boolean) => {
     skip.current = true
     close()
@@ -163,6 +190,10 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     if (!a?.full) return close()
     const el = box.current
     gone.current = el ? nextRow(el) : null
+    busyActs.current = acts
+    // focus on the row goes to the action as it works ("Archiving…"), then on to the next row as it leaves
+    const had = !!el && el.contains(document.activeElement)
+    if (had) requestAnimationFrame(() => el?.querySelector<HTMLElement>('.slt.on')?.focus({ preventScroll: true }))
     wentLeft.current = true
     settle()
     setBusy(true)
@@ -173,14 +204,17 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     const back = () => {
       if (!alive.current) return
       gone.current = null
+      busyActs.current = null
       setBusy(false)
       close()
     }
     void Promise.resolve(a.run()).then((ok) => {
       if (ok === false) return back()
+      if (!alive.current) return
       leave.current = setTimeout(() => {
         if (!alive.current) return
         gone.current = null
+        busyActs.current = null
         setBusy(false)
         setSettling(false)
         setSlide(0)
@@ -194,12 +228,29 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     close()
     a.run()
   }
+  const cancel = (e: RPE<HTMLElement>) => {
+    const f = finger.current
+    if (e.pointerId !== pid.current) return
+    finger.current = null
+    pid.current = null
+    clearTimeout(timer.current)
+    const o = f?.cancel()
+    // no click follows a cancel: nothing to skip
+    if (o === 'back') close()
+    else if (o === 'open' && f?.left) {
+      settle()
+      setSlide(-f.left.w)
+      setFull(false)
+    }
+  }
   const on = {
-    'data-slide': acts ? '' : undefined,
+    // every row given actions, even none now, so focus can go on to it (nextRow)
+    'data-slide': opts.acts ? '' : undefined,
     onPointerDown: (e: RPE<HTMLElement>) => {
       if (e.button !== 0 || opts.off || e.pointerType === 'mouse' || !e.isPrimary || busy) return
       const el = e.currentTarget
       box.current = el
+      pid.current = e.pointerId
       const w = el.getBoundingClientRect().width
       rowW.current = w
       const f = new Finger(e.clientX, e.clientY, performance.now(), { left: acts ? leftOf(acts.length, hasFull, w, zoomNow() / 100) : null, rowW: w, open })
@@ -217,7 +268,7 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     },
     onPointerMove: (e: RPE<HTMLElement>) => {
       const f = finger.current
-      if (!f || f.held || !e.isPrimary) return
+      if (!f || f.held || e.pointerId !== pid.current) return
       const r = f.move(e.clientX, e.clientY, performance.now())
       if (f.way === 'scroll') {
         finger.current = null
@@ -238,10 +289,11 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     },
     onPointerUp: (e: RPE<HTMLElement>) => {
       const f = finger.current
-      if (!e.isPrimary) return
+      if (e.pointerId !== pid.current) return
       finger.current = null
+      pid.current = null
       clearTimeout(timer.current)
-      const o = f?.up()
+      const o = f?.up(performance.now())
       if (o === 'reply' || o === 'back') letGo(o === 'reply')
       else if (o === 'open' && f?.left) {
         skip.current = true
@@ -258,19 +310,10 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
         close()
       }
     },
-    onPointerCancel: (e: RPE<HTMLElement>) => {
-      const f = finger.current
-      if (!e.isPrimary) return
-      finger.current = null
-      clearTimeout(timer.current)
-      const o = f?.cancel()
-      if (o === 'back') letGo(false)
-      else if (o === 'open' && f?.left) {
-        settle()
-        setSlide(-f.left.w)
-        setFull(false)
-      }
-    },
+    onPointerCancel: cancel,
+    // the row lost the finger it had captured: the same as a cancel (after a lift there is none left to lose). Only
+    // its own: a touch starts captured by the button it touched, which loses it to the row as the slide begins.
+    onLostPointerCapture: (e: RPE<HTMLElement>) => e.target === e.currentTarget && cancel(e),
   }
   const shown = !!acts && (slide < 0 || busy || (settling && wentLeft.current))
   return {
@@ -281,7 +324,7 @@ export function useSlide(reply: () => void, opts: { hold?: (el: HTMLElement) => 
     /** a finger is on it now (a right click waits for it) */
     pressing: () => !!finger.current,
     /** for the thing that moves: its class (the spring back) and transform */
-    moving: { className: settling ? 'settle' : '', style: slide ? { transform: `translateX(${slide}px)` } : undefined, onTransitionEnd: () => setSettling(false) },
+    moving: { className: settling ? 'settle' : '', style: slide ? { transform: `translateX(${slide}px)` } : undefined, onTransitionEnd: () => setSettling(false), inert: busy || undefined },
     /** slid to the left now, or settling back from it: the row clips what goes past its edge */
     sliding: shown,
     /** the actions behind the row, for <SlideActs> (fork #185) */
@@ -308,8 +351,12 @@ export function SlideActs({ tray }: { tray: Tray | null }) {
   if (!tray) return null
   const { acts, slide, open, busy, settling, tap } = tray
   const n = acts.length
+  const doing = busy ? acts.find((a) => a.full)?.doing : undefined
   return (
-    <div className={cx('sla', open && 'on')} aria-hidden={open ? undefined : true} inert={!open && !busy}>
+    <>
+    {/* what a full slide is doing, said to a screen reader as it starts */}
+    <span className="vh" role="status">{doing ?? ''}</span>
+    <div className={cx('sla', open && 'on')} aria-hidden={open || busy ? undefined : true} inert={!open && !busy}>
       {acts.map((a, j) => {
         const lit = !!a.full && (full || busy)
         const x = lit ? slide : (slide * (n - j)) / n
@@ -336,6 +383,7 @@ export function SlideActs({ tray }: { tray: Tray | null }) {
         )
       })}
     </div>
+    </>
   )
 }
 

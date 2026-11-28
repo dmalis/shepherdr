@@ -12,7 +12,7 @@ mock.module('@plugins/chat/markdown.tsx', () => ({ Markdown: ({ text }: { text: 
 const { TaskRow, taskRows } = await import('./client.tsx')
 const { archiveTask, swipeActs, UNDO_MS } = await import('./swipe.tsx')
 const { getState, registry } = await import('@client/kernel.ts')
-const { toasts, dismiss, lasts } = await import('@client/toasts.ts')
+const { toasts, dismiss, lasts, toast } = await import('@client/toasts.ts')
 const { tstate } = await import('@shared/view.ts')
 
 const snap: Snapshot = withAttention(snapshot())
@@ -105,4 +105,17 @@ test('a failed Archive says why and offers no Undo; the row springs back on fals
   expect(await archiveTask(t, { quiet: true })).toBe(false)
   expect(toasts().some((x) => x.text.startsWith('Archived'))).toBe(false)
   expect(toasts().find((x) => x.tone === 'error')?.text).toBe('Can’t reach the machine.')
+})
+
+test('an Undo stays its time: two tasks with one title keep both, and newer notices take a plain toast’s place', async () => {
+  const [a, b] = snap.tasks.filter((t) => t.name === 'Look for stuck work')
+  expect(b).toBeDefined()
+  service(() => ({ ok: true }))
+  await archiveTask(a!, { quiet: true })
+  await archiveTask(b!, { quiet: true })
+  expect(toasts().filter((x) => x.act?.label === 'Undo')).toHaveLength(2)
+  toast('Copied', { tone: 'ok' })
+  toast('Saved', { tone: 'ok' })
+  expect(toasts().filter((x) => x.act?.label === 'Undo')).toHaveLength(2)
+  expect(toasts().map((x) => x.text)).toContain('Saved')
 })

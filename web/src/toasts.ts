@@ -57,14 +57,16 @@ function stop(t: Live) {
   t.left -= Date.now() - t.since
 }
 
-/** shows a toast and returns its id. The same words again take the old one's place and start its time over. */
+/** shows a toast and returns its id. The same words again take the old one's place and start its time over. fork
+ *  #185: one with a button (Undo) is never replaced by the same words (two tasks can share a title), and a new toast
+ *  takes the oldest place without a button first, so an Undo stays its whole time. */
 export function toast(text: string, o: ToastOpts = {}): number {
   const tone = o.tone ?? 'info'
-  const same = live.find((t) => t.text === text)
+  const same = live.find((t) => t.text === text && !t.act)
   if (same) dismiss(same.id, true)
   const t: Live = { id: next++, text, tone, busy: !!o.busy, sticky: !!o.sticky, sub: o.sub, act: o.act, left: o.busy ? (o.ms ?? 60_000) : lasts(o.sub ? `${text} ${o.sub}` : text, tone, o.ms), since: 0, timer: null }
   live = [...live, t]
-  while (live.length > MAX) dismiss(live[0].id, true)
+  while (live.length > MAX) dismiss((live.find((x) => !x.act && x !== t) ?? live[0]).id, true)
   run(t)
   changed()
   // said once to screen readers through the one live region (live.ts): the list itself is not a live region
