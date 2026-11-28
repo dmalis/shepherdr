@@ -33,7 +33,8 @@ import { fromSpace, rowWhere, TaskWhere } from './where.tsx'
 import { shortcutOf, shortcutRow, ShortcutBtn } from './shortcut.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
 import { ChecksCard } from './checks-card.tsx'
-import { UrgentMark, UrgentWord, urgentRows } from './urgent.tsx'
+import { UrgentMark, UrgentTag, UrgentWord, urgentRows } from './urgent.tsx'
+import { explainClick, explainHold } from './marks.tsx'
 import { urgentFirst } from '@shared/urgent.ts'
 import { readyWords } from '@shared/ready-words.ts'
 import { needsCount } from '@shared/view.ts'
@@ -634,20 +635,21 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
   const when = down ? '' : taskWhen(t)
   // a slide to the right replies to it in the space's chat, as to a message (Reply in chat); fork #185: a slide to the
   // left shows its safe actions (swipe.tsx), and a press held still opens its menu, as a message's does
-  const { on, slide, armed, skip, moving, sliding, tray } = useSlide(() => replyToTask(t), { acts: down ? [] : swipeActs(snap, t), hold: (el) => taskMenu(el, t, 'row') })
+  const { on, slide, armed, skip, moving, sliding, tray } = useSlide(() => replyToTask(t), { acts: down ? [] : swipeActs(snap, t), hold: (el) => void (explainHold(el, t) || taskMenu(el, t, 'row')) })
   // fork UI 14: the one shortcut its state calls for, with a mouse (rows.css)
   const sc = down ? null : shortcutOf(snap, t)
   return (
     <div className={cx('rowx tsl', sliding && 'sl')} data-task-row={t.id} {...on}>
       <SlideHint slide={slide} armed={armed} />
-      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={() => (skip.current ? void (skip.current = false) : open(t))}>
+      <button type="button" className={cx('row row2 tk', down && 'dim', moving.className)} style={moving.style} onTransitionEnd={moving.onTransitionEnd} inert={moving.inert} aria-current={cur} onClick={(e) => (skip.current ? void (skip.current = false) : explainClick(e, t) || open(t))}>
         <StatusIcon t={t} dim={!!down} />
         <span className="n">
           <span className="l1"><UrgentMark t={t} />{t.name}</span>
           {/* fork UI 14: one line of what it needs or just did (an alert's kind, then its words) */}
+          {/* dmalis/shepherdr#415: an urgent one's line starts with "Urgent ·" */}
           {alert && !down ? (
-            <span className="l2 one"><span className="alw">{alertWhat(alert)}</span>{alert.body && <> · {alert.body}</>}</span>
-          ) : sub && <span className="l2 one">{sub}</span>}
+            <span className="l2 one"><UrgentTag t={t} more /><span className="alw">{alertWhat(alert)}</span>{alert.body && <> · {alert.body}</>}</span>
+          ) : (sub || t.urgent) && <span className="l2 one"><UrgentTag t={t} more={!!sub} />{sub}</span>}
           {/* one repo picked leaves the line out, unless it says the space it came from (dmalis/shepherdr#131) */}
           {(tag || !!fromSpace(snap, t)) && t.work && <RepoLine snap={snap} t={t} />}
         </span>

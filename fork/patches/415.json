@@ -1,0 +1,14 @@
+{
+  "issue": 415,
+  "name": "status marks say what they mean: the urgent mark's word, a tap explains a row's marks",
+  "files": [
+    "web/plugins/tasks/marks.tsx",
+    "web/plugins/tasks/urgent.tsx",
+    "web/plugins/tasks/urgent.css",
+    "web/plugins/tasks/client.tsx"
+  ],
+  "tests": [
+    "web/plugins/tasks/marks.test.tsx",
+    "web/plugins/tasks/urgent.test.tsx"
+  ]
+}
