@@ -585,6 +585,145 @@ while True:
     if m.get("id") == 1:
         print((m.get("result") or {}).get("targetId") or "")
         break'
+# ---- screenshots that finish, at the size set (dmalis/shepherdr: herdr-browser screenshots) ----
+# Headless Chrome draws only a window that was brought to the front: one opened later for another agent of the space
+# hides it (document.visibilityState "hidden"), and Page.captureScreenshot then waits for a frame that never comes
+# (agent-browser's 30 s "CDP command timed out"), or hands back the last one it had: a stale picture, at the old size.
+# So before a screenshot its page is brought to the front (CDP Page.bringToFront) and given two frames
+# (requestAnimationFrame) to draw; a capture that times out is tried once more; and the picture saved is checked
+# against the viewport the agent set, tried once more when it differs, and deleted, with why, when it still does.
+# <name>.viewport and <name>.media keep the agent's last `set viewport|device` and `set media` (one argument a line),
+# so a new tab (the space's browser restarted, or the tab was gone) gets them again before the command runs.
+# $HERDR_BROWSER_FRAME: a command that does the front-and-frame step instead (args: the tab's id), for tests.
+frame_py='import base64, json, os, socket, struct, sys, time, urllib.parse
+u = urllib.parse.urlsplit(sys.argv[1]); tab = sys.argv[2]; wait = float(sys.argv[3])
+end = time.time() + wait
+s = socket.create_connection((u.hostname, u.port), timeout=wait)
+s.sendall(("GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n"
+           % (u.path, u.hostname, u.port, base64.b64encode(os.urandom(16)).decode())).encode())
+buf = b""
+while b"\r\n\r\n" not in buf:
+    buf += s.recv(4096)
+buf = buf.split(b"\r\n\r\n", 1)[1]
+def send(o):
+    d = json.dumps(o).encode(); m = os.urandom(4)
+    h = bytes([0x81]) + (bytes([0x80 | len(d)]) if len(d) < 126 else bytes([0x80 | 126]) + struct.pack(">H", len(d)))
+    s.sendall(h + m + bytes(b ^ m[i % 4] for i, b in enumerate(d)))
+def need(n):
+    global buf
+    while len(buf) < n:
+        s.settimeout(max(0.1, end - time.time()))
+        c = s.recv(65536)
+        if not c: raise SystemExit(1)
+        buf += c
+    r, buf = buf[:n], buf[n:]
+    return r
+def recv():
+    h = need(2); n = h[1] & 0x7F
+    if n == 126: n = struct.unpack(">H", need(2))[0]
+    elif n == 127: n = struct.unpack(">Q", need(8))[0]
+    return need(n)
+def call(i, method, params, sid=None):
+    o = {"id": i, "method": method, "params": params}
+    if sid: o["sessionId"] = sid
+    send(o)
+    while True:
+        m = json.loads(recv())
+        if m.get("id") == i:
+            if "error" in m: raise SystemExit(1)
+            return m.get("result") or {}
+sid = call(1, "Target.attachToTarget", {"targetId": tab, "flatten": True})["sessionId"]
+call(2, "Page.bringToFront", {}, sid)
+r = call(3, "Runtime.evaluate", {"awaitPromise": True, "returnByValue": True, "expression":
+    "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r([innerWidth, innerHeight, devicePixelRatio]))))"}, sid)
+v = (r.get("result") or {}).get("value") or []
+if len(v) == 3: print("%d %d %s" % (v[0], v[1], v[2]))
+try: call(4, "Target.detachFromTarget", {"sessionId": sid})
+except BaseException: pass'
+# Brings this agent's page to the front and waits for it to draw (HERDR_BROWSER_FRAME_WAIT seconds, default 10).
+# Sets fw fh fd: the page's width, height and pixel ratio, all empty when it drew nothing in time.
+shot_front() {
+  fw=; fh=; fd=
+  _t=$(cat "$root/$name.tab" 2>/dev/null)
+  if [ -n "${HERDR_BROWSER_FRAME:-}" ]; then _f=$($HERDR_BROWSER_FRAME "$_t" 2>/dev/null)
+  else _f=$(python3 -c "$frame_py" "$cur" "$_t" "${HERDR_BROWSER_FRAME_WAIT:-10}" 2>/dev/null); fi
+  set -- $_f
+  fw=${1-}; fh=${2-}; fd=${3-}
+}
+# Keeps the agent's own `set viewport|device|media` (the whole command given), for a new tab to get again.
+shot_remember() {
+  while [ $# -gt 0 ] && [ "$1" != set ]; do shift; done
+  [ $# -ge 2 ] || return 0
+  case "$2" in
+    viewport|device) printf '%s\n' "$@" | tail -n +2 > "$root/$name.viewport" ;;
+    media) printf '%s\n' "$@" | tail -n +2 > "$root/$name.media" ;;
+  esac
+}
+# A new tab gets the agent's viewport and media again. Says what it set, for the note.
+shot_again() {
+  again=
+  for _k in viewport media; do
+    [ -s "$root/$name.$_k" ] || continue
+    set --
+    while IFS= read -r _a; do set -- "$@" "$_a"; done < "$root/$name.$_k"
+    if ab set "$@" >/dev/null 2>&1; then again="$again${again:+, }$*"; fi
+  done
+}
+# The size the picture must have: the viewport the agent set (times its scale), else the page's own when no device is
+# emulated. Sets ew eh, empty when it can't be said (a device, or the page drew nothing).
+shot_want() {
+  ew=; eh=
+  if [ -s "$root/$name.viewport" ]; then
+    set --
+    while IFS= read -r _a; do set -- "$@" "$_a"; done < "$root/$name.viewport"
+    [ "${1-}" = viewport ] || return 0
+    _s=${4:-1}
+    ew=$(awk -v a="${2-}" -v s="$_s" 'BEGIN { printf "%d", a * s + 0.5 }'); eh=$(awk -v a="${3-}" -v s="$_s" 'BEGIN { printf "%d", a * s + 0.5 }')
+  elif [ -n "$fw" ]; then
+    ew=$(awk -v a="$fw" -v s="${fd:-1}" 'BEGIN { printf "%d", a * s + 0.5 }'); eh=$(awk -v a="$fh" -v s="${fd:-1}" 'BEGIN { printf "%d", a * s + 0.5 }')
+  fi
+}
+# The picture agent-browser saved (its "saved to <path>" line, or --json's path) and its size, from the file's own
+# header (PNG or JPEG). Prints "<width>x<height> <path>", or nothing when it can't be said.
+shot_size='import json, re, struct, sys
+out = open(sys.argv[1], errors="replace").read()
+p = None
+try: p = json.loads(out.strip().splitlines()[-1])["data"]["path"]
+except Exception:
+    m = re.findall(r"saved to (.+)$", out, re.M)
+    p = m[-1].strip() if m else None
+if not p: sys.exit(0)
+try: d = open(p, "rb").read(1 << 20)
+except OSError: sys.exit(0)
+w = h = None
+if d[:8] == b"\x89PNG\r\n\x1a\n": w, h = struct.unpack(">II", d[16:24])
+elif d[:2] == b"\xff\xd8":
+    i = 2
+    while i + 9 < len(d) and d[i] == 0xFF:
+        t, n = d[i + 1], struct.unpack(">H", d[i + 2:i + 4])[0]
+        if t in (0xC0, 0xC1, 0xC2): h, w = struct.unpack(">HH", d[i + 5:i + 9]); break
+        i += 2 + n
+if w: print("%dx%d %s" % (w, h, p))'
+# A viewport screenshot: no --full and no element (a selector or @ref) given. -> 0 when its size can be checked.
+shot_whole() {
+  _seen=; _skip=
+  for _a in "$@"; do
+    if [ -n "$_skip" ]; then _skip=; continue; fi
+    case "$_a" in
+      --full|-f) return 1 ;;
+      --screenshot-dir|--screenshot-format|--screenshot-quality|--threshold|--session|--cdp|--profile) _skip=1; continue ;;
+      -*) continue ;;
+    esac
+    if [ -z "$_seen" ]; then [ "$_a" = screenshot ] && _seen=1; continue; fi
+    case "$_a" in
+      //*) return 1 ;;   # an XPath
+      /*|\~*|*.png|*.PNG|*.jpg|*.JPG|*.jpeg|*.JPEG|*.webp) ;;   # where it goes
+      *) return 1 ;;     # an element: a selector or @ref
+    esac
+  done
+  return 0
+}
+
 fresh=
 tab_up() {
   [ "$(cat "$root/$name.cdp" 2>/dev/null)" = "$cur" ] && [ -s "$root/$name.tab" ] && return 0
@@ -597,6 +736,7 @@ tab_up() {
   if ! _err=$(ab tab "$_tab" 2>&1 >/dev/null); then why="couldn't join the space's browser ($_err)"; return 1; fi
   printf '%s\n' "$cur" > "$root/$name.cdp"
   printf '%s\n' "$_tab" > "$root/$name.tab"
+  shot_again
   return 0
 }
 mark() {
@@ -646,7 +786,7 @@ case "$admin" in
   close-space) space_down "${1-}"; exit 0 ;;
   forget)
     sessions; tab_down
-    for _e in .used .you .view .new .session .task .closed .space .hands; do rm -f "${root:?}/${name:?}${_e:?}"; done
+    for _e in .used .you .view .new .session .task .closed .space .hands .viewport .media; do rm -f "${root:?}/${name:?}${_e:?}"; done
     # 3.1's own profile of this task, where no space took it over (a link: the space's profile stays)
     if [ -L "${root:?}/${name:?}" ]; then rm -f "${root:?}/${name:?}"; elif [ -d "${root:?}/${name:?}" ]; then rm -rf "${root:?}/${name:?}"; fi
     exit 0 ;;
@@ -702,6 +842,7 @@ fi
 # The agent's own close: its tab only. The space's browser belongs to every agent of the space.
 if [ "$verb" = close ]; then
   sessions; tab_down
+  rm -f "${root:?}/${name:?}.viewport" "${root:?}/${name:?}.media"   # the agent's own fresh start
   echo "herdr-browser: your tab is closed; your space's browser and its sign-ins stay. Your next command opens a new tab."
   exit 0
 fi
@@ -713,11 +854,14 @@ if [ -z "$own" ]; then
   touch "$root/$name.used" "$root/spaces/$sp.used" 2>/dev/null
   # Shepherdr closed it (idle, or the person signed in on the desktop): said once, so a blank page and a default
   # viewport aren't a mystery (GitHub #1147, #1138).
+  # What a new tab got again (shot_again), else that it starts at its default size.
+  if [ -n "${again-}" ]; then size_note="set again: $again"; else size_note="at its default size"; fi
   if [ -f "$root/$name.closed" ]; then
-    echo "herdr-browser: note: your space's browser had been closed ($(cat "$root/$name.closed" 2>/dev/null)); your tab starts again on a blank page at its default size: open your page and set the viewport again. Sign-ins are kept." >&2
+    _set_again=; [ -n "${again-}" ] || _set_again=" and set the viewport again"
+    echo "herdr-browser: note: your space's browser had been closed ($(cat "$root/$name.closed" 2>/dev/null)); your tab starts again on a blank page ($size_note): open your page$_set_again. Sign-ins are kept." >&2
     rm -f "${root:?}/${name:?}.closed"
   elif [ "$fresh" = again ]; then
-    echo "herdr-browser: note: your space's browser was restarted, so your tab starts again on a blank page at its default size. Sign-ins are kept." >&2
+    echo "herdr-browser: note: your space's browser was restarted, so your tab starts again on a blank page ($size_note): open your page again. Sign-ins are kept." >&2
   fi
 else
   rm -f "${root:?}/${name:?}.closed"
@@ -794,7 +938,8 @@ esac
 # once more, and said plainly if it fails again. A tab that is gone (a page closed it) is opened again, once.
 # Everything else runs as agent-browser itself.
 errf=$(mktemp "${TMPDIR:-/tmp}/herdr-browser.XXXXXX") || exec "$bin" --session "$session" --cdp "$cur" --pin-tab --idle-timeout 0 "$@"
-trap 'rm -f "${errf:?}" "${errf:?}.late"' EXIT
+trap 'rm -f "${errf:?}" "${errf:?}.late" "${errf:?}.out"' EXIT
+shots=0
 wait_s=${HERDR_BROWSER_OPEN_WAIT:-90}
 tries=0; regone=
 while :; do
@@ -813,13 +958,18 @@ while :; do
         echo "herdr-browser: $verb didn't finish within $wait_s s, so herdr-browser stopped waiting. The page may still be loading: get url and snapshot say where it is. If the next command hangs too, run: herdr-browser close, then open it again." >&2
         exit 124
       fi ;;
+    screenshot)
+      # its page in front and drawn first (shot_front); what it says is kept to find the picture it saved
+      shots=$((shots + 1)); shot_front
+      ab "$@" >"$errf.out" 2>"$errf"; rc=$? ;;
     *) ab "$@" 2>"$errf"; rc=$? ;;
   esac
   if [ "$rc" != 0 ] && [ -z "$regone" ] && grep -q 'tab_gone' "$errf" 2>/dev/null; then
     regone=1; tries=0
     rm -f "${root:?}/${name:?}.cdp" "${root:?}/${name:?}.tab"
     if tab_up; then
-      echo "herdr-browser: note: your tab was gone, so a new one was opened: it starts on a blank page." >&2
+      _gone_size=; [ -n "${again-}" ] && _gone_size=" (set again: $again)"
+      echo "herdr-browser: note: your tab was gone, so a new one was opened: it starts on a blank page$_gone_size." >&2
       continue
     fi
   fi
@@ -835,7 +985,39 @@ while :; do
         exit "$rc"
       fi ;;
   esac
+  if [ "$verb" = screenshot ]; then
+    # A capture that timed out: the page drew no frame. Brought to the front again and tried once more.
+    if [ "$rc" != 0 ] && grep -qi 'timed out' "$errf" 2>/dev/null; then
+      if [ "$shots" = 1 ]; then
+        echo "herdr-browser: the screenshot timed out (your page drew no picture); bringing it to the front and trying once more…" >&2
+        continue
+      fi
+      cat "$errf" >&2
+      echo "herdr-browser: the screenshot timed out twice: your page drew no picture in time, so nothing was saved. Try: herdr-browser reload, then screenshot again. A very long page with --full can be too big to draw: take the viewport (no --full), or scroll and take several. If it keeps happening: herdr-browser close, then open your page again." >&2
+      exit "$rc"
+    fi
+    # The picture saved must have the viewport's size: one that doesn't is stale or wrong, and is never kept.
+    if [ "$rc" = 0 ] && shot_whole "$@"; then
+      shot_want
+      got=$(python3 -c "$shot_size" "$errf.out" 2>/dev/null)
+      if [ -n "$ew" ] && [ -n "$got" ] && [ "${got%% *}" != "${ew}x$eh" ]; then
+        rm -f "${got#* }"
+        if [ "$shots" = 1 ]; then
+          echo "herdr-browser: the screenshot came out ${got%% *}, not your viewport's ${ew}x$eh (a stale picture); setting your viewport again and trying once more…" >&2
+          shot_again
+          continue
+        fi
+        cat "$errf" >&2
+        _set=; [ -s "$root/$name.viewport" ] && _set="herdr-browser set $(tr '\n' ' ' < "$root/$name.viewport" | sed 's/ $//')"
+        echo "herdr-browser: the screenshot came out ${got%% *} twice, not your viewport's ${ew}x$eh, so it was deleted: it would be a stale or wrong picture. Try: ${_set:+$_set, then }herdr-browser reload, then screenshot again. If it keeps happening: herdr-browser close, then open your page again." >&2
+        exit 1
+      fi
+    fi
+    cat "$errf.out"
+  fi
   break
 done
+# The agent's own viewport and media, for a new tab to get again
+[ "$verb" = set ] && [ "$rc" = 0 ] && shot_remember "$@"
 cat "$errf" >&2
 exit "$rc"
