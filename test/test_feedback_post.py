@@ -59,6 +59,8 @@ class GitHub:
                 c = self.comments.setdefault((repo, n), [])
                 c.append({"body": body, "html_url": f"https://github.com/{repo}/issues/{n}#issuecomment-{900 + len(c)}"})
                 url = c[-1]["html_url"]
+            if self.mode == "write-4xx":  # written, then an HTTP error from a later step: nothing says it wasn't
+                return fail("HTTP 422: Validation Failed (https://api.github.com/graphql)")
             return fail("stream error: connection reset") if self.mode == "lose" else done(url + "\n")
         if args[1:3] == ["issue", "list"]:
             return done("[]")
@@ -128,7 +130,7 @@ class Posted(World):
         self.assertEqual(self.github.posts(), [])
         d = out["draft"]
         self.assertEqual((d["rev"], d["target"]), (1, {"repo": UP, "action": "create"}))
-        self.assertTrue(d["body"].endswith(f"<!-- shepherdr-feedback {key} rev 1 -->"))
+        self.assertRegex(d["body"], rf"\n\n<!-- shepherdr-feedback {key} rev 1 [0-9a-f]{{16}} -->$")
         self.assertIn("## What happened\n\nIt shows no quote.", d["body"])
         self.assertEqual(self.one(key)["draft"], d)
         self.assertNotIn("approval", self.one(key))
@@ -226,7 +228,7 @@ class Posted(World):
         self.assertTrue(out["filed"], out)
         (made,) = self.github.made
         self.assertEqual((made["title"], made["body"]), (d["title"], d["body"]))
-        self.assertTrue(made["body"].endswith(f"<!-- shepherdr-feedback {key} rev 1 -->"))
+        self.assertRegex(made["body"], rf"\n\n<!-- shepherdr-feedback {key} rev 1 [0-9a-f]{{16}} -->$")
         p = self.one(key)
         self.assertEqual((p["state"], p["post"]["state"], p["url"]), ("filed", "posted", made["html_url"]))
         self.assertNotIn("approval", p)  # used up
@@ -300,6 +302,93 @@ class Posted(World):
         self.assertEqual(self.github.made, [])
         self.github.mode = "ok"
         self.assertTrue(self.as_assistant("--key", key, "--file", "--rev", "1")[1]["filed"])
+        self.assertEqual(len(self.github.made), 1)
+
+    # ---- the review's cases (#94, slice 4) ----------------------------------------------------
+
+    def test_a_bare_http_error_after_a_write_is_unsure_and_found_never_refused(self):
+        """An HTTP 4xx alone doesn't say it came before the write: unsure, then found by its marker, posted once."""
+        key, d = self.approved()
+        self.github.mode = "write-4xx"
+        code, out = self.as_assistant("--key", key, "--file", "--rev", "1")
+        self.assertTrue(out["filed"], out)  # the repo's own issues hold its marker
+        self.github.mode = "ok"
+        self.as_assistant("--key", key, "--file", "--rev", "1")
+        self.assertEqual(len(self.github.made), 1)
+        # and when no read finds it, it stays unsure: no command posts it again
+        key2 = self.report("Dictation stops after the first sentence on a phone")
+        self.person("--key", key2, "--approve", str(self.draft(key2)["rev"]))
+        self.github.mode, self.github.lost_from_reads = "write-4xx", True
+        self.assertEqual(self.as_assistant("--key", key2, "--file", "--rev", "1")[1]["why"], "unsure")
+        self.github.mode = "ok"
+        self.as_assistant("--key", key2, "--file", "--rev", "1")
+        self.assertEqual(len(self.github.made), 2)
+
+    def test_dry_run_never_goes_with_rev(self):
+        key, d = self.approved()
+        code, out = self.as_assistant("--key", key, "--file", "--rev", "1", "--dry-run")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--dry-run", str(out))
+        self.assertEqual(self.github.posts(), [])
+        self.assertEqual(self.one(key)["post"]["state"], "waiting")
+
+    def test_settings_changed_since_the_command_began_stop_the_post(self):
+        """The settings the post is checked against are read again under the lock, right before it's reserved."""
+        key, d = self.approved()
+        began = fb.read_settings()
+        self.settings({"here": "vm-test", "everywhere": {"agents": {"feedback_repo": FORK}}})
+        self.caller = ASSISTANT
+        out, words = post.file_rev(key, 1, began)
+        self.assertEqual(out["why"], "target")
+        self.settings({"here": "vm-test", "spaces": {"sp1": {"agents": {"feedback": False}}}})
+        self.assertEqual(post.file_rev(key, 1, began)[0]["why"], "off")
+        self.assertEqual(self.github.posts(), [])
+
+    def test_another_stores_post_with_the_same_id_and_revision_is_never_taken_for_this_one(self):
+        key, d = self.approved()
+        self.github.made.append({"repo": UP, "number": 7, "title": LINE, "html_url": f"https://github.com/{UP}/issues/7",
+                                 "body": f"Elsewhere.\n\n<!-- shepherdr-feedback {key} rev 1 0123456789abcdef -->"})
+        self.github.mode = "down"
+        self.assertEqual(self.as_assistant("--key", key, "--file", "--rev", "1")[1]["why"], "unsure")
+        self.assertNotIn("url", self.one(key))
+        self.assertEqual(self.one(key)["post"]["state"], "unsure")
+
+    def test_a_late_lookup_that_found_nothing_never_undoes_posted(self):
+        key, d = self.approved()
+        self.as_assistant("--key", key, "--file", "--rev", "1")
+        p = self.one(key)
+        post.still_unsure(key, {**p["post"], "state": "posting"}, "a slow read")
+        self.assertEqual(self.one(key)["post"]["state"], "posted")
+        self.assertEqual(self.one(key)["state"], "filed")
+
+    def test_the_chats_preview_is_the_stored_body_exactly(self):
+        key = self.report()
+        d = self.draft(key, "--repro", "1. Reply\n\n\n\n2. Look")
+        self.caller = ASSISTANT
+        code, words = self.say("--key", key, "--file", "--happened", "It shows no quote.", "--repro", "1. Reply\n\n\n\n2. Look")
+        self.assertIn(post.shown(d["body"]), words)
+        self.assertIn("1. Reply\n\n\n\n2. Look", words)
+
+    def test_a_comments_destination_always_says_its_number_and_repo(self):
+        t = {"repo": UP, "action": "comment", "issue": 12}
+        self.assertEqual(post.where_words(t, "Replies lose their quote"), f"A comment on “Replies lose their quote” (#12) in {UP}")
+        self.assertEqual(post.where_words(t), f"A comment on issue #12 in {UP}")
+
+    def test_a_new_draft_after_a_refusal_goes_back_to_file_it(self):
+        """Nothing went out, so a refused post goes with the old text: the new draft is Found again, for a new yes."""
+        key, d = self.approved()
+        self.github.mode = "refuse"
+        self.as_assistant("--key", key, "--file", "--rev", "1")
+        self.assertEqual(self.one(key)["post"]["state"], "refused")
+        d2 = self.draft(key, "--expected", "Its first line above the reply.")
+        self.assertEqual(d2["rev"], 2)
+        p = self.one(key)
+        self.assertNotIn("post", p)
+        self.assertNotIn("approval", p)
+        self.assertNotEqual(p.get("decision"), "approved")
+        self.assertTrue(self.person("--key", key, "--approve", "2")[1]["changed"])
+        self.github.mode = "ok"
+        self.assertTrue(self.as_assistant("--key", key, "--file", "--rev", "2")[1]["filed"])
         self.assertEqual(len(self.github.made), 1)
 
     def test_no_answer_at_all_is_unsure_never_refused(self):

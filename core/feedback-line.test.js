@@ -26,7 +26,7 @@ test("a Post it carries its hidden line after the reply and task tags, and only 
   expect(messageBody({ text: words, feedback: { id: "k3x9a2", rev: 2 } })).toBe(`<hc feedback id="k3x9a2" rev="2"/>\n${words}`);
   expect(messageBody({ text: words, quote: "earlier", feedback: { id: "k3x9a2", rev: 1 } }))
     .toBe(`<hc reply-to="earlier"/>\n<hc feedback id="k3x9a2" rev="1"/>\n${words}`);
-  for (const bad of [null, { id: "k3", rev: 0 }, { id: 'k3" x="y', rev: 1 }, { id: "k3", rev: "1.5" }, { id: "", rev: 1 }])
+  for (const bad of [null, { id: "k3", rev: 0 }, { id: "k3", rev: 1e21 }, { id: 'k3" x="y', rev: 1 }, { id: "k3", rev: "1.5" }, { id: "", rev: 1 }])
     expect(feedbackLine(bad)).toBe("");
   expect(messageBody({ text: "hello" })).toBe("hello");
 });

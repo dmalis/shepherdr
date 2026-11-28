@@ -235,3 +235,10 @@ test("past a start screen the first message still goes in: Codex's turn for comi
   expect(sent).toEqual([]);
   clearInterval(timer);
 });
+
+test("dmalis/shepherdr#94: Post it that starts the Assistant carries its hidden feedback line; the chat keeps the words alone", async () => {
+  const { compat } = world();
+  await act(hub, { type: "send", chat: "p:sp1", text: "Post the feedback about a sample", cid: "c9", human: true, feedback: { id: "a1b2", rev: 3 } }, compat);
+  expect(JSON.parse(readFileSync(ran, "utf8")).args.at(-1)).toBe('<hc feedback id="a1b2" rev="3"/>\nPost the feedback about a sample');
+  expect(compat.sends.get("t9")).toMatchObject([{ cid: "c9", text: "Post the feedback about a sample" }]);
+});

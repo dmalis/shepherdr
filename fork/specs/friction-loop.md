@@ -120,7 +120,7 @@ record reads as before):
 | `related` | Problems or issues an agent or the person linked (`--same-as`, Follow). Never set by word matching. |
 | `decision` | The person's: `found` (none yet), `later` (with `until`, or `null` for "when it happens again"), `declined`, `approved`, `following` (an existing issue, nothing posted). |
 | `draft` | `{rev, target: {repo: "owner/name", action: "create" or "comment", issue?: n}, title, body}`, redacted, the exact post. The target always names its whole repo, never a bare number. |
-| `approval` | `{rev, target, at, by: "page" or "chat"}`; cleared when used, when the draft changes, or on Not now and Never. |
+| `approval` | `{rev, target, at, by: "page" or "chat"}`; cleared when used, when the draft changes, or on Not now and Never. A post that never went out (waiting, refused) goes with it. |
 | `post` | The filing attempt: `{state, rev, target, started, url?, why?}`, `state` one of `waiting`, `posting`, `posted`, `refused`, `unsure`. |
 | `outcome` | GitHub's side once filed or followed: `{url, state: open or closed, reason: completed, not_planned or duplicate, canonical?, checked_at}`. |
 | `shipped` | The evidence it reached this machine: `{release?, build, machine, at, how: "release" or "install"}`; cleared when that build is no longer installed. `build` is a commit, from the installer's record ([Follow it to live](#follow-it-to-live)). |
@@ -257,10 +257,12 @@ the person didn't see.
   output, as upstream's `offer_words` do today, so the template doesn't change.
 - **Filing** (`--file --rev N`, only an Assistant, as upstream) refuses unless an approval matches that revision and
   target, the decision isn't Not now or Never, and the origin's Feedback offers is on. It posts the stored draft as it
-  is, never a new body; the body ends with a hidden marker `<!-- shepherdr-feedback <id> rev <N> -->`.
+  is, never a new body; the body ends with a hidden marker `<!-- shepherdr-feedback <id> rev <N> <tag> -->`, its tag random
+  per revision, so two machines' posts with one id and revision are never taken for each other.
   1. Before the request: `post.state = posting`, saved.
   2. Answer with a link: `posted`, approval used up, `outcome` set.
-  3. A clear refusal before anything was written (gh not signed in, no permission, a 4xx answer): `refused`, with its
+  3. A refusal gh reports before anything is written (not signed in or bad credentials, no such repo or issue, no
+     permission, issues off; a bare HTTP error is not one, since nothing says when it came): `refused`, with its
      words; **Post it again** on the row sends the person's message again, with the same approval.
   4. Anything else (no answer, a timeout, a crash, a `posting` older than 10 minutes: every read, the page's too,
      shows it as `unsure`, and the next `--file` or `--reconcile` writes it so): `unsure`. An unsure post is never posted again, by anyone: another write is allowed only after a

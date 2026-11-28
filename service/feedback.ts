@@ -105,7 +105,7 @@ export function checkOf(p: any): FeedbackRow["check"] | undefined {
 // Slice 4: a draft, the person's yes to one revision, and its post (herdr-task's feedback_post.py).
 const POSTS = new Set(["waiting", "posting", "posted", "refused", "unsure"]);
 const REPO = /^[\w.-]+\/[\w.-]+$/;
-const MARK = /\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+ -->\s*$/;
+const MARK = /\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+(?: [0-9a-f]{8,32})? -->\s*$/;
 /** herdr-task's FILING_MS: a post marked posting this long ago never came back, so it may have gone out */
 export const POSTING_MS = 10 * 60_000;
 
@@ -267,7 +267,7 @@ const NO_POST: Record<string, string> = {
   later: "It's put off: Restore it first.",
   off: "Feedback offers are off in its space: nothing is posted from there.",
 };
-const STILL_UNSURE = "Still not found on GitHub: it isn't posted again. Check on GitHub, and post it there yourself if it isn't there.";
+const STILL_UNSURE = "Still not found on GitHub, and it isn't posted again. Check on GitHub: if it isn't there, Never on this row and a new report start over.";
 const REV_MAX = 9999;
 
 /** the person's call as herdr-task's arguments; anything else is refused */

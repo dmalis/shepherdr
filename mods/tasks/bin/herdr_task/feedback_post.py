@@ -1,17 +1,18 @@
 """The yes for the exact text, posted once (friction loop, slice 4, #94: fork/specs/friction-loop.md).
 
 - A draft is the exact post: `{rev, target: {repo, action: "create" or "comment", issue?}, title, body}`, redacted, its
-  body ending with a hidden marker `<!-- shepherdr-feedback <id> rev <N> -->`. An Assistant writes it with `--file`
+  body ending with a hidden marker `<!-- shepherdr-feedback <id> rev <N> <tag> -->` (tag: random, one per revision). An Assistant writes it with `--file`
   (no `--rev`: nothing is posted; the answer shows the draft and the next step) or with `--shape` and the draft's
   fields. Any change to its title, body or target makes a new revision. The target always names its whole repo.
 - The person's yes is for one revision: `--approve <rev>` from the Feedback page's Post it (the service's call, refused
   in an agent's terminal), or `--approve <rev> --by chat` by an Assistant right after the person's yes to a card that
   showed that revision. Not now and Never clear it (feedback_page.change, and the chat's `--no`).
 - `--file --rev N` (an Assistant) posts the stored draft as it is, only with an approval for that revision and target,
-  the decision not Not now or Never, the origin's Feedback offers on and the feedback repo still the target's. Before
-  the request `post.state` is `posting`, saved; then `posted`; `refused` for a clear no before anything was written
-  (gh not signed in, no permission, a 4xx: the same approval may post it again); anything else is `unsure`, and an
-  unsure post is never posted again, by anyone.
+  the decision not Not now or Never, the origin's Feedback offers on and the feedback repo still the target's (settings
+  read again under the lock). Before the request `post.state` is `posting`, saved; then `posted`; `refused` only for a
+  refusal gh reports before any write (not signed in, no such repo or issue, no permission, issues off: the same
+  approval may post it again); anything else, a bare HTTP error too, is `unsure`, and an unsure post is never posted
+  again, by anyone.
 - `--reconcile` (the page's Check again; `--file` on an unsure one): reads GitHub directly, never its search: the
   person's own issues in the target repo since the attempt began, or the target issue's comments since then, every
   page, for the marker. Found: posted. Not found: still unsure. Reads only.
@@ -21,6 +22,7 @@ The record's fields are the spec's: `draft`, `approval`, `post`, and `decision: 
 import json
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import time
@@ -31,16 +33,25 @@ from .feedback import FIELDS, FILING_MS, feedback_on, feedback_repo, one_line, p
 
 TITLE_MAX = 120
 SINCE_SLACK_MS = 5 * 60000   # a reconcile reads from a little before the attempt began: GitHub's clock and ours differ
-MARK = re.compile(r"\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+ -->\s*$")
-# A clear no from GitHub or gh before anything was written: not signed in, no permission, a 4xx answer, no such repo.
-REFUSED = re.compile(r"(?i)\bHTTP 4\d\d\b|gh auth login|not logged in|authentication (?:required|failed)|bad credentials|"
+MARK = re.compile(r"\n*<!-- shepherdr-feedback [0-9A-Za-z_-]+ rev \d+(?: [0-9a-f]{8,32})? -->\s*$")
+# A refusal gh reports before anything is written: not signed in (gh checks before asking), bad credentials, no such
+# repo or issue (looked up before the write), no permission or issues off (the write itself turned down). A bare HTTP
+# error is not one: nothing says when it came, so it is unsure.
+REFUSED = re.compile(r"(?i)\bHTTP 401\b|gh auth login|not logged in|authentication (?:required|failed)|bad credentials|"
                      r"could not resolve to a (?:repository|issue)|resource not accessible|must have (?:push|admin|write)|"
                      r"does not have the correct permissions|issues are disabled|has disabled issues|gh can't start")
 
 
-def marker(key, rev):
-    """The hidden line every post ends with: how a post whose answer was lost is found again, never posted twice."""
-    return f"<!-- shepherdr-feedback {key} rev {rev} -->"
+def marker(key, rev, tag=None):
+    """The hidden line every post ends with: how a post whose answer was lost is found again, never posted twice. Its
+    tag, random per revision, keeps two stores' posts with one id and revision apart."""
+    return f"<!-- shepherdr-feedback {key} rev {rev}{' ' + tag if tag else ''} -->"
+
+
+def mark_of(body):
+    """The marker a stored draft's body ends with (None when it has none)."""
+    m = MARK.search(str(body or ""))
+    return m.group(0).strip() if m else None
 
 
 def shown(body):
@@ -78,7 +89,7 @@ def target_of(comment, d=None):
 def where_words(t, title=None):
     """Where a draft goes, in the person's words: "A new issue in owner/name", "A comment on “…” in owner/name"."""
     if t.get("action") == "comment":
-        on = f"“{title}”" if title else "issue #" + str(t.get("issue"))
+        on = f"“{title}” (#{t.get('issue')})" if title else "issue #" + str(t.get("issue"))
         return f"A comment on {on} in {t['repo']}"
     return f"A new issue in {t['repo']}"
 
@@ -121,10 +132,10 @@ def same(a, b):
 
 
 def cleared(p):
-    """A problem without the person's yes: Not now, Never or a new draft took it back. A post that never started goes
-    with it; one that started (posting, unsure, refused) stays, as what happened."""
+    """A problem without the person's yes: Not now, Never or a new draft took it back. A post that never went out
+    (waiting, or refused before any write) goes with it; one that may have (posting, unsure) stays, as what happened."""
     out = {k: v for k, v in p.items() if k != "approval"}
-    if (out.get("post") or {}).get("state") == "waiting":
+    if (out.get("post") or {}).get("state") in ("waiting", "refused"):
         out.pop("post")
     if out.get("decision") == "approved":
         out.pop("decision")
@@ -141,7 +152,8 @@ def keep_draft(ps, key, new):
     if same(old, new):
         return old
     rev = int((old or {}).get("rev") or 0) + 1
-    dr = {"rev": rev, "target": new["target"], "title": new["title"], "body": shown(new["body"]) + "\n\n" + marker(key, rev)}
+    dr = {"rev": rev, "target": new["target"], "title": new["title"],
+          "body": shown(new["body"]) + "\n\n" + marker(key, rev, secrets.token_hex(8))}
     ps[key] = {**cleared(p), "draft": dr}
     return dr
 
@@ -150,8 +162,10 @@ def draft_words(key, dr, p, d, dups=(), kept=True):
     """The draft as the Assistant shows it to the person, then the next step; last, the Settings line when one is set
     (agents.feedback_note), so the chat says what the page's sheet says before the yes."""
     rev = dr["rev"]
-    lines = [f"Draft {rev} — {where_words(dr['target'], issue_title(p, dr['target']))} (nothing posted):", "",
-             f"Title: {dr['title']}" if dr["target"]["action"] == "create" else "", "", shown(dr["body"])]
+    head = [f"Draft {rev} — {where_words(dr['target'], issue_title(p, dr['target']))} (nothing posted):"]
+    if dr["target"]["action"] == "create":
+        head += ["", f"Title: {dr['title']}"]
+    lines = []
     if dups:
         lines += ["", "Possible duplicates: " + "; ".join(f"{x['repo'] if x.get('repo') else ''}#{x['number']} {x['title']}" for x in dups) +
                   " (a comment on one instead: --file --comment <number>)"]
@@ -165,7 +179,8 @@ def draft_words(key, dr, p, d, dups=(), kept=True):
     n = note(d)
     if n:
         lines += ["", n]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    tail = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return "\n".join(head) + "\n\n" + shown(dr["body"]) + ("\n\n" + tail if tail else "")
 
 
 def write_draft(args, key, line, d, agent, dups=()):
@@ -317,6 +332,8 @@ def posting_call(args, assistant):
         return True
     if getattr(args, "by", None) and not getattr(args, "approve", None):
         raise Fail("--by goes with --approve <rev>.")
+    if getattr(args, "rev", None) is not None and getattr(args, "dry_run", False):
+        raise Fail("--dry-run shows a draft without keeping it; it never goes with --rev, which posts. Nothing posted.")
     if getattr(args, "rev", None) is not None and not args.file:
         raise Fail("--rev goes with --file: herdr-task feedback --key <key> --file --rev <n>.")
     return None
@@ -326,6 +343,8 @@ def file_or_draft(args, key, line, d, agent, space=None):
     """--file: with --rev, the approved draft posted once; without, the draft written (nothing posted), with any open
     issue like it named (advisory: the person decides). -> (data, words)"""
     if getattr(args, "rev", None) is not None:
+        if getattr(args, "dry_run", False):
+            raise Fail("--dry-run shows a draft without keeping it; it never goes with --rev, which posts. Nothing posted.")
         return file_rev(key, int(args.rev), d)
     p = problems_read().get(key)
     if not p and not feedback_on(space, d):
@@ -359,11 +378,13 @@ def file_rev(key, rev, d):
         quietly(key, d)  # checked again right before posting (#94, slice 3): it never blocks
     with problems() as ps:
         p = ps.get(key) or {}
+        d = fbm.read_settings()  # as they are now: a repo changed or offers turned off meanwhile stop it
         why = refusal(p, rev, d)  # again, under the lock: two --file calls at once post once
         if why:
             return {"key": key, "filed": False, "why": why[0]}, why[1]
         dr = p["draft"]
-        post = {"state": "posting", "rev": rev, "target": dr["target"], "started": now()}
+        post = {"state": "posting", "rev": rev, "target": dr["target"], "started": now(),
+                "mark": mark_of(dr["body"]) or marker(key, rev)}
         ps[key] = {**p, "post": post}
     t = dr["target"]
     try:
@@ -378,7 +399,7 @@ def file_rev(key, rev, d):
     if r.returncode == 0 and urls:
         return posted(key, post, urls[-1])
     said = one_line((r.stderr or r.stdout or "").strip() or "gh gave no answer", 300)
-    if r.returncode != 0 and REFUSED.search(said):
+    if r.returncode != 0 and not urls and REFUSED.search(said):
         with problems() as ps:
             p = ps.get(key) or {}
             if (p.get("post") or {}).get("started") == post["started"]:
@@ -400,6 +421,8 @@ def posted(key, post, url):
     issue = re.sub(r"[#?].*$", "", issue)
     with problems() as ps:
         p = ps.get(key) or {}
+        if (p.get("post") or {}).get("started") != post.get("started"):  # another attempt's record: left as it is
+            return {"key": key, "filed": True, "url": url}, f"Already filed: {url}."
         ps[key] = {**{k: v for k, v in p.items() if k != "approval"}, "state": "filed", "at": now(), "url": url,
                    "post": {**post, "state": "posted", "url": url},
                    "outcome": {"url": issue, "state": "open", "checked_at": now()}}
@@ -436,9 +459,10 @@ def reconcile(key, d=None):
         return {"key": key, "filed": True, "url": post.get("url")}, f"Already filed: {post.get('url')}."
     if post.get("state") not in ("posting", "unsure") or post.get("state") == "posting" and not stale(post):
         return {"key": key, "checked": False, "why": post.get("state") or "none"}, "Nothing to look for: it isn't a post in doubt."
-    t, mark = post["target"], marker(key, post["rev"])
+    t, mark = post["target"], post.get("mark") or marker(key, post["rev"])
     since = iso((post.get("started") or 0) - SINCE_SLACK_MS)
-    words = "Couldn't tell whether it was posted. It is never posted again: the person can check on GitHub from the Feedback page."
+    words = ("Couldn't tell whether it was posted. It is never posted again: the person can check on GitHub from the "
+             "Feedback page; if it isn't there, Never on its row and a new report start over.")
     if t["action"] == "comment":
         r = gh(["api", f"repos/{t['repo']}/issues/{t['issue']}/comments?since={since}&per_page=100", "--paginate"])
     else:
@@ -453,7 +477,7 @@ def reconcile(key, d=None):
         items = pages(r.stdout)
     except ValueError:
         return still_unsure(key, post, "GitHub's answer couldn't be read"), words
-    hit = next((x for x in items if isinstance(x, dict) and mark in str(x.get("body") or "") and x.get("html_url")), None)
+    hit = next((x for x in items if isinstance(x, dict) and mark_of(x.get("body")) == mark and x.get("html_url")), None)
     if hit:
         return posted(key, post, str(hit["html_url"]))
     return still_unsure(key, post, "not found on GitHub"), words
@@ -462,8 +486,9 @@ def reconcile(key, d=None):
 def still_unsure(key, post, why):
     with problems() as ps:
         p = ps.get(key) or {}
-        if (p.get("post") or {}).get("started") == post.get("started"):
-            ps[key] = {**p, "post": {**p["post"], "state": "unsure", "why": why, "looked": now()}}
+        cur = p.get("post") or {}
+        if cur.get("started") == post.get("started") and cur.get("state") in ("posting", "unsure"):  # never undoes posted
+            ps[key] = {**p, "post": {**cur, "state": "unsure", "why": why, "looked": now()}}
     return {"key": key, "filed": False, "why": "unsure", "unsure": True}
 
 

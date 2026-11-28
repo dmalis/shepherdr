@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DATA, HOME, appHome, writable } from "./paths.ts";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { sendBody, messageBody, refusal, reactionLine, mentionedIn, taskTag, inFront, NOT_TYPED } from "../core/send.js";
+import { sendBody, messageBody, feedbackLine, refusal, reactionLine, mentionedIn, taskTag, inFront, NOT_TYPED } from "../core/send.js";
 import { askingWords, WAITS_ANSWER } from "../core/asking.js";
 import { kindOf } from "../core/chat-reader.js";
 import { WORDS } from "../core/chat-view.js";
@@ -336,7 +336,7 @@ async function startFresh(hub: Hub, b: any, compat: Compat): Promise<any> {
   const text = str(b.text ?? "").trim();
   if (!text) throw new Error("nothing to send");
   const files = Array.isArray(b.attachments) && !sp.machine ? b.attachments.filter((p: unknown) => typeof p === "string" && p.startsWith(attachDir() + "/") && !p.includes("/../")) : [];
-  const task = [text, ...files].join("\n\n");
+  const task = [feedbackLine(b.feedback) + text, ...files].join("\n\n");
   // its machine offline: it waits (the web shows it waiting to be reached) and starts once the machine is back
   if (sp.machine && !(await addedMachines()).some((m: any) => m.name === sp.machine && m.state === "connected")) {
     const was = starts.get(space)?.b.text;

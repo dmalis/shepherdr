@@ -123,7 +123,7 @@ export function messageBody({ text, quote = null, tags = "", task = null, feedba
 /** The hidden line of a Post it, or "" unless feedback names a problem's id and a revision. */
 export function feedbackLine(feedback) {
   const id = String(feedback?.id ?? ""), rev = Number(feedback?.rev);
-  return /^[0-9A-Za-z_-]{1,64}$/.test(id) && Number.isInteger(rev) && rev > 0 ? `<hc feedback id="${id}" rev="${rev}"/>\n` : "";
+  return /^[0-9A-Za-z_-]{1,64}$/.test(id) && Number.isSafeInteger(rev) && rev > 0 ? `<hc feedback id="${id}" rev="${rev}"/>\n` : "";
 }
 
 // The agent waits on its own dialog (a question, a permission): nothing is typed and no key closes it (AGENTS.md

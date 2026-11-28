@@ -9,7 +9,7 @@ import { argsOf, draftOf, Feedback, POSTING_MS, postOf, rowsOf, sectionOf, type 
 const NOW = Date.UTC(2026, 10, 27, 12);
 const BODY = "## Goal\n\nSee what a reply answers.\n\n## What happened\n\nNo quote.";
 const draft = (x: Record<string, unknown> = {}) => ({ rev: 2, target: { repo: "eliasstravik/shepherdr", action: "create" }, title: "Reply bubble hides its message",
-  body: `${BODY}\n\n<!-- shepherdr-feedback a1 rev 2 -->`, ...x });
+  body: `${BODY}\n\n<!-- shepherdr-feedback a1 rev 2 0123456789abcdef -->`, ...x });
 const row = (x: Record<string, unknown>) => ({ id: "a1", line: "The reply bubble doesn't show which message it answers", state: "told", count: 1,
   at: NOW - 60_000, space: "sp1", reports: [], ...x });
 const fake = (answers: { code?: number; stdout?: string }[]) => {
