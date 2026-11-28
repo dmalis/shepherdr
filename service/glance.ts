@@ -390,8 +390,11 @@ export class GlanceFeed {
       for (const k of fresh) s.add(k);
       this.seen.set(d, s);
     }
+    // fork Needs you 5/6: one still listed but quiet for now (its machine can't be read) stays seen: once it alerts again
+    // it isn't new to that device
+    const listed = new Set([...doc.items, ...(doc.events ?? [])].map((i) => i.key));
     for (const [d, s] of this.seen) {
-      for (const k of s) if (!now.has(k)) s.delete(k);
+      for (const k of s) if (!listed.has(k)) s.delete(k);
       if (!s.size) this.seen.delete(d);
     }
   }

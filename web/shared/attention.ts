@@ -166,9 +166,11 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
   // a step only the person's hands can do, on a task's screen (its browser or desktop): its card is that step's
   const hands = new Map<string, string>()
   for (const t of snap.tasks) { const h = snap.screens?.[`task:${t.id}`]?.hands; if (h && !h.settled && open(t)) hands.set(t.id, h.what) }
-  // the need the service makes of that step (service/next.ts enrich): the same one action, its alert kept
+  // the need the service makes of that step (service/next.ts enrich), else its agent's plain wait: the same one action,
+  // its alert kept
   const handsNeed = new Map<string, Need>()
   for (const n of needs) if (n.hands && n.task && hands.has(n.task) && !handsNeed.has(n.task)) handsNeed.set(n.task, n)
+  for (const n of needs) if (n.id === 'attention' && !n.assistantFirst && n.task && hands.has(n.task) && !handsNeed.has(n.task)) handsNeed.set(n.task, n)
   for (const [id, what] of hands) {
     const t = tasks.get(id)!
     const stale = staleOf(snap, t.on)

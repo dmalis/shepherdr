@@ -457,6 +457,21 @@ test("an alert that comes while the phone's page is on screen notifies nothing i
   for (const s of [phone, mac, plain, again]) await s.cancel();
 });
 
+test("fork Needs you 5/6: one seen on a device stays seen while it is listed but quiet (its machine out of reach)", () => {
+  const looking = new Set<string>();
+  const f = new GlanceFeed(() => NOW, 0);
+  f.looking = (d) => looking.has(d);
+  f.stream(PHONE, true);
+  f.set(doc(snapOf()));
+  looking.add(PHONE);
+  f.set(doc(withNeed("HERD-3")));
+  looking.delete(PHONE);
+  const quiet = doc(withNeed("HERD-3"));
+  f.set({ ...quiet, items: quiet.items.map((i: any) => (i.key === K3 ? { ...i, alert: false } : i)) });
+  f.set(doc(withNeed("HERD-3")));
+  expect(alertOf(f.docFor(PHONE), K3)).toBe(false);
+});
+
 test("the first doc after a start marks nothing seen: what it lists was there before", () => {
   const f = new GlanceFeed(() => NOW, 0);
   f.looking = () => true;

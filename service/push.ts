@@ -60,6 +60,7 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   // quiet: it sends nothing new until that machine is read again
   const att = attentionOf(snap);
   const mine = att.actions.filter((a) => a.owner === "you");
+  const tasks = new Map<string, any>((snap.tasks ?? []).map((t: any) => [t.id, t]));
   // quiet while its machine can't be read (one kept from its last read too, so it isn't new again once it is back)
   const held = { muted: true as const, stale: true as const };
   // in the needs' own order (each card as it came), then any kept from a machine's last read
@@ -110,8 +111,12 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   // fork Needs you 5/6: a hand-up from a machine that can't be read now is quiet (and one kept from its last read stays
   // listed, so it isn't new again once the machine is back)
   const staleAlerts = new Map(mine.filter((a) => a.kind === "alert" && a.stale && a.alert).map((a) => [a.alert!.id, a.alert!]));
+  // one about a task on a machine still marked out of reach (its terminal heard before the machine list says it is
+  // back) waits too: it goes once the machine is read
+  const off = new Set((snap.machines ?? []).filter((m: any) => !m.here && m.status === "off").map((m: any) => m.machine));
+  const away = (a: any) => { const t = a.task ? tasks.get(a.task) : undefined; return !!t && off.has(t.on); };
   const agentAlert = (a: any) => now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
-    ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(staleAlerts.has(a.id) ? held : a.notify ? {} : { muted: true as const }) });
+    ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(staleAlerts.has(a.id) || (a.notify && away(a)) ? held : a.notify ? {} : { muted: true as const }) });
   for (const a of snap.alerts ?? []) agentAlert(a);
   for (const a of staleAlerts.values()) if (!now.has(`alert:${a.id}`)) agentAlert(a);
   // fork Needs you 3/6: a schedule whose run failed (its row in Schedules says so, as the glance feed's events): the bell only

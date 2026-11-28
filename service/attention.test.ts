@@ -186,6 +186,35 @@ test("a voice call says only what is the person's: not a wait Shepherdr handles 
   expect([...needsNow(attend(structuredClone(asked), NOW, new Map())).keys()]).toEqual(["need:SHOP-12/worker#q12"]);
 });
 
+test("a hand-up heard while its machine is still marked out of reach waits, then goes once", () => {
+  const memo = new Map();
+  const up = { id: "up13", task: "vm:SHOP-9", chat: "vm:SHOP-9/worker", at: NOW - min, title: "Task vm:SHOP-9 · Look", what: "Look", body: "", notify: true, place: "p:vm:shop" };
+  const live = { ...vmTask(), needs: [] };
+  const p0 = alertsOf(attend(structuredClone(live), NOW - min, memo));
+  const p1 = alertsOf(attend(structuredClone({ ...vmOff(live), alerts: [up] }), NOW, memo));
+  expect(pushChanges(p0, p1, 1)).toEqual([]);
+  const p2 = alertsOf(attend(structuredClone({ ...live, alerts: [up] }), NOW + min, memo));
+  expect(pushChanges(p1, p2, 1).map((a) => a.title)).toEqual(["Task vm:SHOP-9 · Look"]);
+});
+
+test("a voice call doesn't say again what it said before a machine dropped out", () => {
+  const memo = new Map();
+  const live = vmTask();
+  const before = needsNow(attend(structuredClone(live), NOW, memo));
+  const away = needsNow(attend(structuredClone({ ...vmOff(live), needs: [] }), NOW + min, memo));
+  // still listed, so not forgotten, and not said while away
+  expect([...away.keys()]).toEqual([...before.keys()]);
+  expect([...away.values()].every((n) => n.stale)).toBe(true);
+});
+
+test("a step for the person's hands over its agent's plain wait: one action, its alert kept", () => {
+  const x = surfaces(snapOf({ tasks: [task("SHOP-14", "p:box:shop")],
+    screens: { "task:SHOP-14": { hands: { what: "Sign in to the store" } } },
+    needs: [{ id: "attention", chat: "SHOP-14/worker", task: "SHOP-14", place: "p:box:shop", at: NOW - 5 * min, text: "" }] }));
+  agree(x, 1);
+  expect(yours(x.snap)[0]).toMatchObject({ id: "hands:SHOP-14", need: { id: "attention" } });
+});
+
 test("the projection is pure and stable: the same facts give the same ids, oldest first", () => {
   const s = snapOf({ tasks: [task("SHOP-7", "p:box:shop", { status: "ready", state: "ready", needsAt: NOW - 9 * min }), task("SHOP-8", "p:box:shop")],
     needs: [{ id: "q8", chat: "SHOP-8/worker", place: "p:box:shop", task: "SHOP-8", at: NOW - 2 * min, question: q("q8") }] });
