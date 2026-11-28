@@ -209,9 +209,35 @@ def main_runs():
     """{commit: [{"name", "status", "conclusion"}]} for main's newest push runs of our two workflows, from ONE call
     (GitHub's workflow runs of main), or None when they can't be read. A workflow's own run, not its jobs' check
     runs, so a workflow that splits its job in parts still gives one verdict."""
-    v = gate.gh_json("api", f"repos/{state.REPO}/actions/runs?branch=main&event=push&per_page=100")
+    runs, _ = read_main_runs()
+    return runs
+
+
+RATE_LIMIT = re.compile(r"rate limit", re.I)
+
+
+def limit_reset(now):
+    """When GitHub's request limit resets (epoch seconds), from its rate_limit endpoint, which costs nothing against
+    the limit; a minute from now when that can't be read."""
+    v = gate.gh_json("api", "rate_limit")
+    try:
+        return float(v["resources"]["core"]["reset"])
+    except (TypeError, KeyError, ValueError):
+        return now + 60
+
+
+def read_main_runs(now=time.time):
+    """(runs, None) as main_runs gives them; (None, reset time) when GitHub refused for its request limit; (None,
+    None) when they can't be read for another reason."""
+    ok, text, err = gate.gh("api", f"repos/{state.REPO}/actions/runs?branch=main&event=push&per_page=100")
+    if not ok and RATE_LIMIT.search(err or ""):
+        return None, limit_reset(now())
+    try:
+        v = json.loads(text) if ok else None
+    except ValueError:
+        v = None
     if not isinstance(v, dict) or not isinstance(v.get("workflow_runs"), list):
-        return None
+        return None, None
     out = {}
     for r in v["workflow_runs"]:
         if not isinstance(r, dict):
@@ -221,13 +247,15 @@ def main_runs():
         if name and state.SHA.match(sha):
             out.setdefault(sha, []).append({"name": name, "status": r.get("status"),
                                             "conclusion": r.get("conclusion")})
-    return out
+    return out, None
 
 
 def shared_runs(p, now=time.time):
     """main_runs(), shared by every `ci` reading at once (each install run calls its own): the last read, kept beside
     the sync state, serves them all for ci_poll_s(), so GitHub gets one call a minute however many runs wait. Taken
-    under its own lock (never the state's: a GitHub call can take a while), so two can't both call."""
+    under its own lock (never the state's: a GitHub call can take a while), so two can't both call. Returns (runs or
+    None, the time GitHub's request limit resets or None): while GitHub refuses for its limit, nobody calls again
+    before that time."""
     path = os.path.join(p.dir, "main-runs.json")
     os.makedirs(p.dir, exist_ok=True)
     with open(os.path.join(p.dir, "main-runs.lock"), "a") as lk:
@@ -235,17 +263,19 @@ def shared_runs(p, now=time.time):
         try:
             with open(path, encoding="utf-8") as f:
                 kept = json.load(f)
+            if float(kept.get("limit_until") or 0) > now():
+                return None, float(kept["limit_until"])
             if 0 <= now() - float(kept["at"]) < ci_poll_s() and isinstance(kept.get("runs"), dict):
-                return kept["runs"]
+                return kept["runs"], None
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        runs = main_runs()
-        if runs is not None:
+        runs, limit = read_main_runs(now)
+        if runs is not None or limit:
             tmp = path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"at": now(), "runs": runs}, f)
+                json.dump({"at": now(), "runs": runs} if runs is not None else {"at": now(), "limit_until": limit}, f)
             os.replace(tmp, path)
-        return runs
+        return runs, limit
 
 
 def ci_verdict(repo, sha, tip, runs_of=None):
@@ -385,9 +415,9 @@ def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
         tip = release.fetch_main(repo)
     except Refused:
         return {i["sha"]: "pending" for i in todo if i["sha"] in unresolved}
-    read = True
+    read, limit = True, None
     if runs_of is None:
-        snap = shared_runs(p, now)
+        snap, limit = shared_runs(p, now)
         read = snap is not None
         runs_of = (lambda c: None) if snap is None else (lambda c: snap.get(c, []))
         if busy is None:
@@ -424,6 +454,10 @@ def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
         for sha in final[:-CI_KEEP] if len(final) > CI_KEEP else []:
             ci.pop(sha, None)               # only final ones go: a pending one stays until it is read
         st["recovery"] = recovery(st)
+        if limit:
+            st["ci_limit"] = limit          # GitHub refused for its request limit: ci says when it reads again
+        elif read:
+            st.pop("ci_limit", None)
     return left
 
 
@@ -562,12 +596,22 @@ def still_untold(st, said):
     return ci_untold(st, mark=False, only={sha for sha, _ in said})
 
 
-def still_running_words(st, shas):
-    """One plain sentence for this run's installs whose checks haven't finished when `ci` stops waiting."""
+def still_running_words(st, shas, limit=None):
+    """One plain sentence for this run's installs whose checks haven't finished when `ci` stops waiting, or whose
+    checks GitHub's request limit kept it from reading."""
     ci = st.get("ci") or {}
     installs = [(sha, ci.get(sha) or {}) for sha in shas]
+    if limit:
+        return (f"GitHub's request limit kept CI on main from being read for {what_of(installs)} until "
+                f"{time.strftime('%H:%M', time.localtime(limit))}: a later install tells you if it fails.")
     return (f"GitHub's checks on main haven't finished for {what_of(installs)} yet: a later install tells you if "
             "they fail.")
+
+
+def limit_words(until):
+    """What `ci` says while GitHub refuses for its request limit: not that CI hasn't reported."""
+    return (f"GitHub's request limit: checking again at {time.strftime('%H:%M', time.localtime(until))}. Call ci "
+            "again now: it waits for that itself; never read GitHub yourself meanwhile")
 
 
 def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.sleep):
@@ -587,19 +631,26 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
     while True:
         left = {s: how for s, how in ci_read(p, repo, now=now).items() if s in shas}
 
+        with state.locked(p) as st:
+            limit = st.get("ci_limit") if float(st.get("ci_limit") or 0) > now() else None
+
         def waits(s):
+            # GitHub running, or refusing for its request limit (nothing can be known): the longer wait
             age = age_s(ats.get(s), now())
-            return age is not None and age < (CI_BUSY_S if left[s] == "running" else CI_WAIT_S)
+            long = left[s] == "running" or bool(limit)
+            return age is not None and age < (CI_BUSY_S if long else CI_WAIT_S)
         if not any(waits(s) for s in left):
             break
         if now() - began >= gate.call_wait_s():
-            raise Refused("GitHub's checks on main haven't finished on this run's installs yet: call ci again now. "
+            raise Refused(limit_words(limit) if limit else
+                          "GitHub's checks on main haven't finished on this run's installs yet: call ci again now. "
                           "It reads GitHub itself, one call a minute shared by every run: never read or watch "
-                          "GitHub's runs yourself", outcome="wait", pending=len(left))
-        sleep(max(0.0, ci_poll_s()))
+                          "GitHub's runs yourself", outcome="wait", pending=len(left),
+                          **({"limit_until": time.strftime("%H:%M", time.localtime(limit))} if limit else {}))
+        sleep(max(0.0, ci_poll_s()))     # under the limit too: the shared read calls nobody before its reset
     with state.locked(p) as st:
         said = ci_untold(st, mark=False)
-        late = [still_running_words(st, sorted(left, key=lambda s: str(ats.get(s) or "")))] if left else []
+        late = [still_running_words(st, sorted(left, key=lambda s: str(ats.get(s) or "")), limit)] if left else []
     told, outcome = with_ci_words(rep.get("told"), rep.get("outcome"), [w for _, w in said] + late)
     if told:
         from . import public

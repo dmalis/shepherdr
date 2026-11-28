@@ -122,6 +122,24 @@ class CiLines(syncworld.World):
                     merged.ci_read(self.p, self.wt, now=lambda: t[0])
         self.assertEqual(len(self.api_calls(n)), 10, "one call a minute, however many runs read")
 
+    def test_githubs_request_limit_is_said_with_when_it_reads_again(self):
+        """Report 694f15c66c: under GitHub's request limit, `ci` said CI hadn't reported. It says the limit, and
+        when it reads again, and makes no call before then."""
+        (a,) = self.merges(1)
+        self.install(a, 300, "ours-3.2.21-1")
+        reset = int(time.time()) + 1200
+        self.set_gh(checks={a: RUNNING}, rate_limited=reset)
+        code, out = self.sync("finish", "--says", "The button works", paths_ok=True)
+        n = len(self.gh_calls())
+        code, out = self.sync("ci", paths_ok=True, env={"FORK_SYNC_CI_POLL_S": "60"})
+        at = time.strftime("%H:%M", time.localtime(reset))
+        self.assertEqual((code, out["outcome"], out.get("limit_until")), (1, "wait", at), out)
+        self.assertTrue(out["why"].startswith(f"GitHub's request limit: checking again at {at}."), out["why"])
+        self.assertNotIn("haven't finished", out["why"])
+        calls = len(self.api_calls(n))
+        self.sync("ci", paths_ok=True, env={"FORK_SYNC_CI_POLL_S": "0"})
+        self.assertEqual(len(self.api_calls(n)), calls, "no call before the limit resets")
+
     def test_github_busy_on_an_older_commit_keeps_the_wait(self):
         """Review: only an older commit's run is active and the install's own hasn't started: still waiting at 31
         minutes, since its own run waits in line behind the older one."""
