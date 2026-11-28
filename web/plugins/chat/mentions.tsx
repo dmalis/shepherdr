@@ -100,12 +100,13 @@ function remember(chatKey: string, i: Item) {
   keepDraft(chatKey, 'picks', { spaces, tasks })
 }
 
-/** the words to send: each picked "#name" and "@REF" as its link */
+/** the words to send: each picked "#name" and "@REF" as its link. The picks stay with the draft until it is safely
+ *  sent (dropPicks) */
 export function expandPicked(chatKey: string, text: string): string {
-  const out = M.expandTasks(M.expand(text, spacesOf(chatKey)), tasksOf(chatKey))
-  keepDraft(chatKey, 'picks', undefined)
-  return out
+  return M.expandTasks(M.expand(text, spacesOf(chatKey)), tasksOf(chatKey))
 }
+/** the picks are spent: their draft was sent */
+export const dropPicks = (chatKey: string) => keepDraft(chatKey, 'picks', undefined)
 
 /** the box after a pick: the "#word" or "@word" before the cursor swapped for "#name " or "@REF " (its link goes in
  *  at send) */

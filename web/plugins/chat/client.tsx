@@ -11,7 +11,8 @@ import { endComposition, isEcho, type Sent } from './echo.ts'
 import { partsOf, placeOutgoing, placesOf, keyOf, readNow, showsAs, type Outgoing } from '@client/outbox.ts'
 import { confirm, openMenu } from '@client/overlay.tsx'
 import { AgentLine, openPicker, pickFor, pickWords, reportedPick, type Pick } from '@client/picker.tsx'
-import { attach, detach, dropOut, retry, reupload, send } from '@client/send.ts'
+import { attach, detach, dropOut, retry, reupload, send, type Posted } from '@client/send.ts'
+import { whenSafe } from '@client/draft.ts'
 import { calm } from '@client/motion.ts'
 import { ActBtn, ActError, Btn, cx, Empty, I, IB, useCardActs, useGrow } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
@@ -26,7 +27,7 @@ import { quickFit, type QuickFit } from './press.ts'
 import { replyToTask, SlideHint, useSlide } from './slide.tsx'
 import { dayLabel } from './days.ts'
 import { Markdown, withLinks } from './markdown.tsx'
-import { expandPicked, useMentions } from './mentions.tsx'
+import { dropPicks, expandPicked, useMentions } from './mentions.tsx'
 import { KindLine, KindName } from './kind.tsx'
 import { taskKind } from '@shared/kinds.ts'
 import { modelTyped, useSlash } from './slash.tsx'
@@ -1087,6 +1088,15 @@ export function applyPick(chat: string, was: Pick, now: Pick, names: { agent: st
   confirm({ title: `Switch to ${names.agent}?`, body: 'This chat starts again on the new agent. Earlier messages stay, above a "New session" line.', ok: 'Switch', run })
 }
 
+/** fork #149: a sent draft leaves its box once its send is safe: kept by the outbox now, or delivered later */
+function once(r: Posted | undefined, clear: () => void) {
+  if (!r) return
+  if (r.kept) clear()
+  else whenSafe(r.cid, clear)
+}
+/** "a", "a and b", "a, b and c" */
+const listed = (names: string[]) => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`)
+
 function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
   const key = thread.chat
   const snap = useSnap()!
@@ -1156,8 +1166,8 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     if (mode === 'run') {
       // the command alone, first in the box: a quoted reply, files or a folded paste would go with it and it would be
       // a message. Those stay in the box for the next message
-      send(key, key, text.trim(), false, true, dictatedInto.delete(key) ? 'dictated' : 'typed')
-      setText('')
+      const typed = text
+      once(send(key, key, text.trim(), false, true, dictatedInto.delete(key) ? 'dictated' : 'typed'), () => getDraft(key) === typed && setDraft(key, ''))
       return
     }
     // /model never reaches the agent: it opens the agent picker, the model it names picked (3.1's, GitHub #1560)
@@ -1169,9 +1179,15 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
     }
     if (composing.current) endComposition(ref.current)
     sentRef.current = { text, at: Date.now() }
-    send(key, key, expandPicked(key, t), wait && busy, false, dictatedInto.delete(key) ? 'dictated' : 'typed')
-    setText('')
-    setPastes(key, () => [])
+    const typed = text
+    const went = new Set(pastes.map((p) => p.id))
+    once(send(key, key, expandPicked(key, t), wait && busy, false, dictatedInto.delete(key) ? 'dictated' : 'typed'), () => {
+      // what was typed after Send (storage was full, so the box waited) stays
+      if (getDraft(key) !== typed) return
+      setDraft(key, '')
+      dropPicks(key)
+      setPastes(key, (ps) => ps.filter((p) => !went.has(p.id)))
+    })
     if (shared) putAway()
   }
 
@@ -1248,7 +1264,7 @@ function Box({ thread, placeholder }: { thread: Thread; placeholder: string }) {
       {!!lost.length && (
         <p className="alost" role="status">
           <I n="warn" c="s16" />
-          <span>{lost.length === 1 ? `${lost[0].name} wasn't` : `${lost.length} files weren't`} kept when the page reloaded. Add {lost.length === 1 ? 'it' : 'them'} again, or remove {lost.length === 1 ? 'it' : 'them'}.</span>
+          <span>{listed(lost.map((f) => f.name))} {lost.length === 1 ? "wasn't" : "weren't"} kept when the page reloaded. Add {lost.length === 1 ? 'it' : 'them'} again, or remove {lost.length === 1 ? 'it' : 'them'}.</span>
         </p>
       )}
       {!!pastes.length && <PasteChips pastes={pastes} onRemove={(id) => dropPaste(key, id)} onEdit={editPaste} />}

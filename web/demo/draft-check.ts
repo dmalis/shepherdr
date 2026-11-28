@@ -2,9 +2,10 @@
 // real reloads:
 //   whole     a draft with words, an @ pick, a folded paste, a reply and a file comes back whole and sends the same
 //   midway    a file still going up when the page reloads goes up again from its kept bytes and is sent
-//   lost      a file whose kept bytes are gone is named in the box after the reload, and not sent
-//   full      with the browser's storage full, Send leaves the stored draft until the send is delivered: a reload
-//             before that brings the words back
+//   sending   a send of two files, one up and one still going up, cut off by a reload: both go with it after
+//   lost      two files whose kept bytes are gone are each named in the box after the reload, and not sent
+//   full      with the browser's storage full, Send leaves the words in the box until the send is delivered, and a
+//             reload before that brings them back
 // Each case prints PASS or FAIL with what it saw; the exit code is the number of failures. `--demo <checkout>` runs
 // another build's demo (a before-check), `--shots <dir>` keeps a screenshot of each reloaded box.
 //
@@ -79,15 +80,17 @@ const shown = (p: Page) =>
       lost: b.querySelector('.alost')?.textContent ?? null,
     }
   })
-async function reload(p: Page) {
+async function reload(p: Page, until: 'networkidle' | 'load' = 'networkidle') {
   // the page hides first, as it does when a phone drops it or the person reloads
-  await p.reload({ waitUntil: 'networkidle' })
+  await p.reload({ waitUntil: until })
   await p.waitForSelector('.cbox textarea')
   await p.waitForTimeout(600)
 }
-async function attach(p: Page) {
-  await p.locator('.cbox input[type="file"]:not([data-pick])').first().setInputFiles({ name: 'checkout.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(PIC) })
+async function attach(p: Page, names = ['checkout.jpg']) {
+  await p.locator('.cbox input[type="file"]:not([data-pick])').first().setInputFiles(names.map((name) => ({ name, mimeType: 'image/jpeg', buffer: Buffer.from(PIC) })))
 }
+/** an upload of this file name (the demo's /api/upload takes a form) */
+const named = (r: Route, name: string) => (r.request().postDataBuffer()?.toString('latin1') ?? '').includes(`filename="${name}"`)
 async function paste(p: Page) {
   await box(p).focus()
   await p.evaluate((t) => {
@@ -158,14 +161,37 @@ const shot = async (p: Page, name: string) => {
   await ctx.close()
 }
 
-// lost: the file's kept bytes are gone (a browser that let them go): named in the box, not sent
+// sending: Send with two files, the first up and the second still going up; the page reloads before it is
+{
+  const { ctx, page, sends } = await open()
+  let hold = true
+  const held: Route[] = []
+  await page.route('**/api/upload', (r) => (hold && named(r, 'receipt.jpg') ? void held.push(r) : r.continue()))
+  await box(page).click()
+  await page.keyboard.type('both screenshots', { delay: 10 })
+  await attach(page, ['checkout.jpg', 'receipt.jpg'])
+  await page.waitForTimeout(800)
+  await page.locator('.cbox button.send[aria-label="Send"]').click()
+  await page.waitForTimeout(600)
+  // an upload held on is never idle
+  await reload(page, 'load')
+  await page.waitForTimeout(400)
+  hold = false
+  for (const r of held.splice(0)) await r.continue().catch(() => undefined)
+  await page.waitForTimeout(1500)
+  const s = sends.at(-1)
+  say('sending: both files go with the send after the reload', s?.text === 'both screenshots' && s.attachments.length === 2 && s.attachments.every(Boolean), s)
+  await ctx.close()
+}
+
+// lost: the files' kept bytes are gone (a browser that let them go): each named in the box, not sent
 {
   const { ctx, page, sends } = await open()
   // its upload never ends, on this page or the next
   await page.route('**/api/upload', () => undefined)
   await box(page).click()
   await page.keyboard.type('see the file', { delay: 10 })
-  await attach(page)
+  await attach(page, ['checkout.jpg', 'receipt.jpg'])
   await page.waitForTimeout(500)
   await page.evaluate(() => new Promise<void>((ok) => {
     const r = indexedDB.open('shepherdr-drafts')
@@ -181,7 +207,8 @@ const shot = async (p: Page, name: string) => {
   await reload(page)
   const after = await shown(page)
   await shot(page, `lost${phone ? '-phone' : ''}${dark ? '-dark' : ''}`)
-  say('lost: the box names the file it could not bring back', after.text === 'see the file' && !!after.lost?.includes('checkout.jpg') && /Not kept/.test(after.files[0] ?? ''), after)
+  const tiles = await page.locator('.cbox .ath .ast.bad').allInnerTexts()
+  say('lost: the box names each file it could not bring back', after.text === 'see the file' && !!after.lost?.includes('checkout.jpg') && !!after.lost?.includes('receipt.jpg') && tiles.length === 2 && new Set(tiles).size === 2 && tiles.every((t) => /\.jpg/.test(t)), { ...after, tiles })
   await page.locator('.cbox button.send[aria-label="Send"]').click()
   await page.waitForTimeout(800)
   say('lost: the words go without it', sends.at(-1)?.text === 'see the file' && sends.at(-1)?.attachments.length === 0, sends.at(-1))
@@ -213,7 +240,7 @@ const shot = async (p: Page, name: string) => {
   const cleared = await shown(page)
   await reload(page)
   const after = await shown(page)
-  say('full: the box clears on Send, and a reload before delivery brings the words back', cleared.text === '' && after.text === 'do not lose me', { onSend: cleared.text, afterReload: after.text })
+  say('full: the box keeps the words on Send until delivery, and a reload brings them back', cleared.text === 'do not lose me' && after.text === 'do not lose me', { onSend: cleared.text, afterReload: after.text })
   await ctx.close()
 }
 

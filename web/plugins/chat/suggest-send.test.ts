@@ -39,3 +39,12 @@ test('a message from the box still takes its files and quoted reply with it, and
   expect(getState().ui.files['p:shop']).toBeUndefined()
   expect(getState().ui.reply['p:shop']).toBeUndefined()
 })
+
+test('fork #149: a file that failed to go up, or that a reload lost, stays in the box when its words are sent', () => {
+  setUI({ files: { 'p:shop': [{ name: 'plan.png', path: '/tmp/plan.png' }, { name: 'big.mov', id: 'f-2', failed: 'Too slow' }, { name: 'old.png', id: 'f-3', lost: true }] } } as never)
+  send('p:shop', 'p:shop', 'here it is')
+  const [out] = getState().outbox
+  setOutbox(() => [])
+  expect(out!.files.map((f) => f.name)).toEqual(['plan.png'])
+  expect(getState().ui.files['p:shop']?.map((f) => f.name)).toEqual(['big.mov', 'old.png'])
+})

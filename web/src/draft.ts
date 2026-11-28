@@ -2,9 +2,10 @@
 // across reloads: the words, the folded pastes, what each # and @ points at, the message it replies to and its files.
 // Each part keeps its own home on the page (the words in kernel.ts, the pastes in fold.ts, the picks in mentions.tsx,
 // the files and the reply in the UI state); each hands its changes here, and the record goes to storage once typing
-// pauses and when the page hides, only for the chats that changed, never on every key press.
-// A file's bytes wait in IndexedDB until its upload is done, then the record keeps the upload (send.ts). A send that
-// the outbox couldn't keep (a full storage) holds its chat's stored draft as it was until the send is delivered.
+// pauses and when the page hides, only for the chats that changed, never on every key press. A tab writes only the
+// parts it changed over what storage holds now, and never brings back a draft another tab sent.
+// A file's bytes wait in IndexedDB until the draft or the send that names its upload is kept (send.ts). A box clears
+// on Send only once its send is safe: kept by the outbox, or, when storage is full, delivered (`whenSafe`).
 
 /** a file in a message box: `lost` when its bytes didn't come back after a reload */
 export type DraftFile = { name: string; path?: string; id?: string; failed?: string; lost?: boolean }
@@ -23,7 +24,7 @@ export interface Draft {
 type Part = keyof Draft
 
 export const PREFIX = 'shepherdr.draft:'
-/** where 3.2's words and pastes were kept, each for every chat at once: moved into the records once */
+/** where 3.2's words and pastes were kept, each for every chat at once: moved into the records, chat by chat */
 const OLD_TEXT = 'shepherdr.drafts'
 const OLD_PASTES = 'shepherdr.pastes'
 /** written once typing pauses this long, and at least this often while it goes on */
@@ -33,15 +34,25 @@ export const MAX_WAIT = 2000
 const empty = (d: Draft) => !d.text && !d.pastes?.length && !d.picks?.spaces?.length && !d.picks?.tasks?.length && !d.reply && !d.files?.length
 
 let drafts: Record<string, Draft> = {}
-const dirty = new Set<string>()
-/** chats whose stored draft stays as it was until the send it was sent as (its id) is delivered */
-const held = new Map<string, string>()
+/** the parts of each chat's record changed on this page and not written yet */
+const dirty = new Map<string, Set<Part>>()
+/** each chat's record as this page last read or wrote it: another tab wrote when storage differs */
+const base = new Map<string, string | null>()
 let timer: ReturnType<typeof setTimeout> | null = null
 let since = 0
+let soon = false
 
 const ls = (): Storage | null => {
   try {
     return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+const parse = (v: string | null): Draft | null => {
+  try {
+    const d = JSON.parse(v ?? 'null')
+    return d && typeof d === 'object' ? (d as Draft) : null
   } catch {
     return null
   }
@@ -51,21 +62,21 @@ const ls = (): Storage | null => {
 export function loadDrafts() {
   drafts = {}
   dirty.clear()
-  held.clear()
+  base.clear()
+  safe.clear()
   if (timer) clearTimeout(timer)
   timer = null
+  soon = false
   const s = ls()
   if (!s) return
   try {
     for (let i = 0; i < s.length; i++) {
       const k = s.key(i)
       if (!k?.startsWith(PREFIX)) continue
-      try {
-        const d = JSON.parse(s.getItem(k) ?? 'null')
-        if (d && typeof d === 'object') drafts[k.slice(PREFIX.length)] = d as Draft
-      } catch {
-        /* half written: nothing to bring back */
-      }
+      const raw = s.getItem(k)
+      const d = parse(raw)
+      base.set(k.slice(PREFIX.length), raw)
+      if (d) drafts[k.slice(PREFIX.length)] = d
     }
     migrate(s)
   } catch {
@@ -73,25 +84,38 @@ export function loadDrafts() {
   }
 }
 
-/** 3.2's two stores become parts of the records; their keys go once the records are written */
+/** 3.2's two stores become parts of the records. A chat leaves them once its record is written, so a storage too full
+ *  for all of them moves the rest on a later page, and never brings back one that moved and was sent since */
 function migrate(s: Storage) {
-  const text = s.getItem(OLD_TEXT)
-  const pastes = s.getItem(OLD_PASTES)
-  if (text === null && pastes === null) return
-  const parse = <T,>(v: string | null): Record<string, T> => {
+  const read = <T,>(k: string): Record<string, T> => {
     try {
-      const o = JSON.parse(v ?? '{}')
+      const o = JSON.parse(s.getItem(k) ?? '{}')
       return o && typeof o === 'object' ? o : {}
     } catch {
       return {}
     }
   }
-  for (const [k, t] of Object.entries(parse<string>(text))) if (typeof t === 'string' && t && !drafts[k]?.text) set(k, 'text', t)
-  for (const [k, ps] of Object.entries(parse<DraftPaste[]>(pastes))) if (Array.isArray(ps) && ps.length && !drafts[k]?.pastes?.length) set(k, 'pastes', ps)
-  if (writeNow()) {
-    s.removeItem(OLD_TEXT)
-    s.removeItem(OLD_PASTES)
+  const text = read<string>(OLD_TEXT)
+  const pastes = read<DraftPaste[]>(OLD_PASTES)
+  if (!Object.keys(text).length && !Object.keys(pastes).length) return
+  for (const k of new Set([...Object.keys(text), ...Object.keys(pastes)])) {
+    // its record was written by a page of this build: it came over already
+    if (base.has(k)) continue
+    if (typeof text[k] === 'string' && text[k]) set(k, 'text', text[k])
+    if (Array.isArray(pastes[k]) && pastes[k].length) set(k, 'pastes', pastes[k])
   }
+  writeNow()
+  const left = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => dirty.has(k)))
+  const put = (key: string, o: Record<string, unknown>) => {
+    try {
+      if (Object.keys(o).length) s.setItem(key, JSON.stringify(o))
+      else s.removeItem(key)
+    } catch {
+      /* smaller than before, so it fits; if not, a later page tries again */
+    }
+  }
+  put(OLD_TEXT, left(text))
+  put(OLD_PASTES, left(pastes))
 }
 
 const none: Draft = {}
@@ -106,15 +130,21 @@ export function draftParts<P extends Part>(part: P): Record<string, NonNullable<
 
 function set<P extends Part>(key: string, part: P, v: Draft[P] | undefined) {
   const d: Draft = { ...drafts[key], [part]: v }
+  const parts = dirty.get(key) ?? new Set<Part>()
   if (v === undefined || (Array.isArray(v) && !v.length) || v === '') delete d[part]
   // the picks only mean something in the words they were picked in
-  if (part === 'text' && !d.text) delete d.picks
+  if (part === 'text' && !d.text && d.picks) {
+    delete d.picks
+    parts.add('picks')
+  }
+  parts.add(part)
+  dirty.set(key, parts)
   if (empty(d)) {
-    if (!drafts[key]) return
     const { [key]: _, ...rest } = drafts
     drafts = rest
+    // a box emptied (most often: sent) is written at once, so a page that dies now never brings a sent draft back
+    soon = true
   } else drafts = { ...drafts, [key]: d }
-  dirty.add(key)
 }
 
 /** a part of a chat's box changed: kept on the page now, in storage once typing pauses */
@@ -136,21 +166,38 @@ function schedule() {
   const now = Date.now()
   if (!timer) since = now
   else clearTimeout(timer)
-  // typing that never pauses is still kept every MAX_WAIT
-  timer = setTimeout(flushDrafts, Math.max(0, Math.min(IDLE, since + MAX_WAIT - now)))
+  // typing that never pauses is still kept every MAX_WAIT; an emptied box goes once this task's other changes are in
+  timer = setTimeout(flushDrafts, soon ? 0 : Math.max(0, Math.min(IDLE, since + MAX_WAIT - now)))
 }
 
-/** false when storage refused one (a full storage): it stays to write, and the next change or hide tries again */
+/** write each changed chat over what storage holds now: only the parts changed here, so another tab's newer parts
+ *  stay; a record another tab cleared (it sent the draft) is not brought back. False when storage refused one (a
+ *  full storage): it stays to write, and the next change or hide tries again */
 function writeNow(): boolean {
   const s = ls()
   if (!s) return false
   let ok = true
-  for (const k of [...dirty]) {
-    if (held.has(k)) continue
+  for (const [k, parts] of [...dirty]) {
     try {
-      const d = drafts[k]
-      if (d && !empty(d)) s.setItem(PREFIX + k, JSON.stringify(d))
-      else s.removeItem(PREFIX + k)
+      const raw = s.getItem(PREFIX + k)
+      let d = drafts[k] ?? {}
+      if (raw !== (base.get(k) ?? null)) {
+        // another tab wrote it since this page read it
+        const theirs = parse(raw)
+        if (!theirs) {
+          // it sent (or emptied) the draft: this page's copy is spent; only what is typed from now on is kept
+          dirty.delete(k)
+          base.set(k, null)
+          continue
+        }
+        d = { ...theirs }
+        for (const p of parts) (d as Record<string, unknown>)[p] = drafts[k]?.[p]
+        for (const p of parts) if (d[p] === undefined) delete d[p]
+      }
+      const out = empty(d) ? null : JSON.stringify(d)
+      if (out === null) s.removeItem(PREFIX + k)
+      else s.setItem(PREFIX + k, out)
+      base.set(k, out)
       dirty.delete(k)
     } catch {
       ok = false
@@ -163,30 +210,32 @@ function writeNow(): boolean {
 export function flushDrafts(): boolean {
   if (timer) clearTimeout(timer)
   timer = null
-  return writeNow()
+  soon = false
+  const ok = writeNow()
+  // bytes whose upload is done go once the record that names the upload is written
+  if (!dirty.size) for (const id of uploaded.splice(0)) dropFile(id)
+  return ok
 }
 
-/** the outbox couldn't keep the send `cid` (a full storage): its chat's stored draft stays as it was, the box on the
- *  page clears, until `settleDrafts` sees the send delivered or the outbox kept */
-export function holdDraft(key: string, cid: string) {
-  // what was typed just before Send goes with it, if storage takes it
-  flushDrafts()
-  held.set(key, cid)
-}
+/* ---------- a box clears on Send once its send is safe ---------- */
 
-/** the outbox changed: a held draft goes once its send is delivered, dropped, or kept by the outbox after all */
+/** what to do once a send (its id) is safe: kept by the outbox, or delivered; never when it is dropped unsent */
+const safe = new Map<string, { run: () => void; went?: boolean }>()
+export function whenSafe(cid: string, run: () => void) {
+  safe.set(cid, { run })
+}
+/** the outbox changed (`kept`: storage holds it now): a send that is safe runs what waited on it */
 export function settleDrafts(out: readonly { cid: string; state: string }[], kept: boolean) {
-  if (!held.size) return
-  let any = false
-  for (const [k, cid] of held) {
+  if (!safe.size) return
+  for (const [cid, w] of [...safe]) {
     const o = out.find((x) => x.cid === cid)
-    if (kept || !o || o.state === 'sent') {
-      held.delete(k)
-      dirty.add(k)
-      any = true
-    }
+    if (o?.state === 'sent') w.went = true
+    // gone from the outbox after it went: it came back in the chat. Gone before that: dropped, the box keeps it
+    if ((o && (kept || w.went)) || (!o && w.went)) {
+      safe.delete(cid)
+      w.run()
+    } else if (!o) safe.delete(cid)
   }
-  if (any) schedule()
 }
 
 if (typeof window !== 'undefined') {
@@ -196,14 +245,14 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushDrafts())
 }
 
-/* ---------- a box's files, kept until their upload is done ---------- */
+/* ---------- a box's files, kept until their upload is kept ---------- */
 
-/** where the bytes wait: IndexedDB, or a stand-in in tests */
+/** where the bytes wait: IndexedDB, or a stand-in in tests. `at`: when they were kept */
 export interface FileStore {
   put(id: string, f: File): Promise<void>
   get(id: string): Promise<File | null>
   del(id: string): Promise<void>
-  ids(): Promise<string[]>
+  all(): Promise<{ id: string; at: number }[]>
 }
 
 const DB = 'shepherdr-drafts'
@@ -231,22 +280,45 @@ function req<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest
       }),
   )
 }
+type Kept = { file: File; at: number }
 const idb: FileStore = {
-  put: (id, f) => req('readwrite', (s) => s.put(f, id)).then(() => undefined),
-  get: (id) => req('readonly', (s) => s.get(id) as IDBRequest<File | undefined>).then((f) => (f instanceof Blob ? (f as File) : null)),
+  put: (id, file) => req('readwrite', (s) => s.put({ file, at: Date.now() } satisfies Kept, id)).then(() => undefined),
+  get: (id) => req('readonly', (s) => s.get(id) as IDBRequest<Kept | undefined>).then((k) => (k?.file instanceof Blob ? k.file : null)),
   del: (id) => req('readwrite', (s) => s.delete(id)).then(() => undefined),
-  ids: () => req('readonly', (s) => s.getAllKeys()).then((ks) => ks.map(String)),
+  all: () =>
+    req('readonly', (s) => s.getAll() as IDBRequest<Kept[]>).then(async (vs) => {
+      const ids = await req('readonly', (s) => s.getAllKeys())
+      return ids.map((id, i) => ({ id: String(id), at: vs[i]?.at ?? 0 }))
+    }),
 }
-const noStore: FileStore = { put: () => Promise.reject(new Error('no IndexedDB')), get: () => Promise.resolve(null), del: () => Promise.resolve(), ids: () => Promise.resolve([]) }
+const noStore: FileStore = { put: () => Promise.reject(new Error('no IndexedDB')), get: () => Promise.resolve(null), del: () => Promise.resolve(), all: () => Promise.resolve([]) }
 let files: FileStore = typeof indexedDB === 'undefined' ? noStore : idb
 /** tests: a store of their own */
 export const useFileStore = (s: FileStore) => void (files = s)
 
-/** keep a file's bytes until its upload is done; nothing is said if they can't be kept (a reload then names it) */
+/** keep a file's bytes until its upload is kept; nothing is said if they can't be (a reload then names it) */
 export const keepFile = (id: string, f: File) => files.put(id, f).catch(() => undefined)
 export const dropFile = (id: string) => void files.del(id).catch(() => undefined)
 export const fileOf = (id: string) => files.get(id).catch(() => null)
-/** the bytes no box and no send still names go (a send dropped before its upload was done) */
-export async function sweepFiles(live: Set<string>) {
-  for (const id of await files.ids().catch(() => [] as string[])) if (!live.has(id)) dropFile(id)
+const uploaded: string[] = []
+/** its upload is done while it is in a box: the bytes go once the draft naming the upload is written (a page that
+ *  dies first still has them) */
+export function uploadedFile(id: string) {
+  uploaded.push(id)
+  schedule()
+  if (!dirty.size) flushDrafts()
+}
+/** bytes kept longer than this that nothing names any more go: another tab's newest ones are never that old */
+export const SWEEP_AFTER = 24 * 60 * 60_000
+/** the bytes no box and no send names, in any tab's stored drafts or outbox or on this page, and kept a day ago */
+export async function sweepFiles(live: Set<string>, now = Date.now()) {
+  const s = ls()
+  // what every tab has written: their drafts' files and their outbox's
+  if (s)
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i)
+      if (!k || !(k.startsWith(PREFIX) || k.startsWith('shepherdr.outbox'))) continue
+      for (const m of (s.getItem(k) ?? '').matchAll(/"id":"([^"]+)"/g)) live.add(m[1])
+    }
+  for (const { id, at } of await files.all().catch(() => [] as { id: string; at: number }[])) if (!live.has(id) && now - at > SWEEP_AFTER) dropFile(id)
 }

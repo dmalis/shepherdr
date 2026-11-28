@@ -389,6 +389,8 @@ export function saveOutbox(out: Outgoing[]): boolean {
   // a tab still holding an older outbox never writes back one that came back meanwhile
   syncDone()
   out = out.filter((o) => !cameBack(o.cid))
+  // no storage on this page at all: nothing here outlives it, so nothing waits on the outbox being kept (fork #149)
+  if (typeof localStorage === 'undefined') return true
   try {
     if (out.length) localStorage.setItem(STORE, JSON.stringify(out))
     else localStorage.removeItem(STORE)

@@ -476,7 +476,7 @@ function putOutbox(out: Outgoing[]): boolean {
   if (out === state.outbox) return true
   state = { ...state, outbox: out }
   const kept = saveOutbox(out)
-  // a draft held for a send the outbox couldn't keep goes once that send is delivered (draft.ts)
+  // a box waiting on a send the outbox couldn't keep lets go of it once it is safe (draft.ts)
   settleDrafts(out, kept)
   return kept
 }

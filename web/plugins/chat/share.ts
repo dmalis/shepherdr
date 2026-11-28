@@ -120,7 +120,8 @@ export function moveShared(from: string, to: { key: string; place?: string; task
   const s = getState()
   const files = (s.ui.files[from] ?? []).map((f) => localOf(f.id)?.file).filter((f): f is File => !!f)
   const text = getDraft(from)
-  for (let i = (s.ui.files[from] ?? []).length - 1; i >= 0; i--) detach(from, i)
+  // only the files this screen holds move; one a reload brought back as its upload (fork #149) stays where it was
+  for (let i = (s.ui.files[from] ?? []).length - 1; i >= 0; i--) if (localOf(s.ui.files[from][i].id)?.file) detach(from, i)
   setDraft(from, '')
   if (to.task) openTask(to.task)
   else if (to.place) go(to.place)

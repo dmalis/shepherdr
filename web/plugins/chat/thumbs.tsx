@@ -107,6 +107,7 @@ export function BoxThumb({ chat, f, onRetry, onRemove, onAdd }: { chat: string; 
           <span className="ast bad">
             <I n="plus" c="s16" />
             <span>Not kept</span>
+            <span className="an">{shortName(f.name, 10)}</span>
           </span>
         ) : f.failed && (
           <span className="ast bad">

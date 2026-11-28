@@ -18,3 +18,5 @@
 .alost{display:flex;align-items:flex-start;gap:6px;margin:0;padding:0 16px 4px;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .alost .i{flex:none;margin-top:calc((var(--secl) - 16px) / 2);color:var(--red)}
 .alost>span{min-width:0;overflow-wrap:anywhere}
+/* a lost file's tile names it, so two of them can be told apart */
+.ast .an{max-width:100%;padding:0 4px;color:var(--sub);font-weight:400;overflow-wrap:anywhere}

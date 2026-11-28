@@ -9,6 +9,7 @@
     "web/plugins/chat/fold.ts",
     "web/plugins/chat/mentions.tsx",
     "web/plugins/chat/client.tsx",
+    "web/plugins/chat/share.ts",
     "web/plugins/chat/thumbs.tsx",
     "web/plugins/chat/attach.css",
     "web/demo/draft-check.ts",
@@ -18,6 +19,7 @@
   "tests": [
     "web/src/draft.test.ts",
     "web/plugins/chat/fold.test.tsx",
-    "web/plugins/chat/mentions.test.tsx"
+    "web/plugins/chat/mentions.test.tsx",
+    "web/plugins/chat/suggest-send.test.ts"
   ]
 }

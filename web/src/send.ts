@@ -5,7 +5,7 @@ import type { ReplyQuote } from '@shared/types.ts'
 import { act, getState, holdReload, notice, setOutbox, setUI, type Outgoing } from './kernel.ts'
 import { anchorOf, priorOf, reasonOf, SEND_TIMEOUT } from './outbox.ts'
 import { HttpError, postFile, retrying } from './uploads.ts'
-import { dropFile, fileOf, holdDraft, keepFile, sweepFiles } from './draft.ts'
+import { dropFile, fileOf, keepFile, sweepFiles, uploadedFile, whenSafe } from './draft.ts'
 
 /** an id of the screen's own (randomUUID needs https, and a tailnet link may be plain http) */
 const newCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -32,9 +32,11 @@ function upload(key: string, chat: string, id: string, f: File) {
   up.then(
     (path) => {
       fromPath.set(path, id)
-      // its draft keeps the upload from now on: the bytes kept for a reload go (draft.ts)
-      dropFile(id)
+      const boxed = (getState().ui.files[key] ?? []).some((x) => x.id === id)
       setBox(key, (fs) => fs.map((x) => (x.id === id ? { ...x, path, failed: undefined } : x)))
+      // its draft keeps the upload from now on: the bytes kept for a reload go once that is written (draft.ts). One
+      // already sent keeps them until its send has the path (deliver)
+      if (boxed) uploadedFile(id)
     },
     (e) => {
       // it stays in the box and says so on its tile: a tap tries again, its x takes it out
@@ -141,9 +143,21 @@ async function deliver(cid: string, pending: Promise<string>[]) {
   gates.set(cid, mine)
   const patch = (p: (x: Outgoing) => Partial<Outgoing>) => setOutbox((all) => all.map((x) => (x.cid === cid && x.state === 'sending' ? { ...x, ...p(x) } : x)))
   try {
-    const paths = await Promise.all(pending)
+    // fork #149: each upload's path is kept in the outbox as it lands, and only then are its kept bytes let go, so a
+    // reload while another file is still going up loses neither
+    const paths = await Promise.all(
+      pending.map((p, i) =>
+        p.then((path) => {
+          const id = first.files[i]?.id
+          if (path && !first.files[i]?.path) {
+            const kept = patch((x) => ({ files: x.files.map((f, j) => (j === i ? { ...f, path } : f)) }))
+            if (kept && id) dropFile(id)
+          }
+          return path
+        }),
+      ),
+    )
     const files = first.files.map((f, i) => ({ ...f, path: paths[i] ?? f.path }))
-    if (pending.length) patch(() => ({ files }))
     await Promise.all(before)
     const o = getState().outbox.find((x) => x.cid === cid)
     if (!o || o.state !== 'sending') return
@@ -173,7 +187,7 @@ async function deliver(cid: string, pending: Promise<string>[]) {
 /** Send what a box holds: its words, its files and the message it replies to. `hold`: the agent is working, so it
  *  waits its turn and is delivered when the agent is free. `quote`: what a message sent alone replies to (a tapped
  *  suggested reply: the message it came with, dmalis/shepherdr#51). */
-export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble', quote?: ReplyQuote & { id: string }): string | undefined {
+export function send(key: string, chat: string, text: string, hold = false, alone = false, how?: 'typed' | 'dictated' | 'bubble', quote?: ReplyQuote & { id: string }): Posted | undefined {
   const s = getState()
   // one that failed to go up stays out of it (its tile said so). Alone (a suggested reply tapped): only the text, the
   // box's files and quoted reply stay where they are for the draft
@@ -197,17 +211,28 @@ export function send(key: string, chat: string, text: string, hold = false, alon
     // personal analytics: how it was written (typed, dictated or a suggested reply's bubble), never what
     how: how ?? (alone ? 'bubble' : 'typed'),
   }
-  // fork #149: a send the outbox couldn't keep (a full storage) leaves its box's stored draft as it was until it is
-  // delivered, so a reload before then brings the draft back instead of losing both
-  if (!setOutbox((all) => [...all, out]) && out.how !== 'bubble') holdDraft(key, cid)
+  const kept = setOutbox((all) => [...all, out])
+  // fork #149: the box lets go of what was sent only once the send is safe: kept by the outbox, or, when storage is
+  // full, delivered. A file that failed to go up or that a reload lost stays, with its Try again or its words
   if (!alone) {
-    const { [key]: _f, ...files } = s.ui.files
-    const { [key]: _r, ...replies } = s.ui.reply
-    setUI({ files, reply: replies })
+    const sent = new Set(boxed.map((f) => f.id))
+    const clear = () =>
+      setUI((ui) => {
+        const left = (ui.files[key] ?? []).filter((f) => !sent.has(f.id))
+        const { [key]: _f, ...files } = ui.files
+        const { [key]: _r, ...replies } = ui.reply
+        return { files: left.length ? { ...files, [key]: left } : files, reply: ui.reply[key]?.id === reply?.id ? replies : ui.reply }
+      })
+    if (kept) clear()
+    else whenSafe(cid, clear)
   }
+  if (!kept && out.how !== 'bubble') notice("Storage is full: what you sent stays in the box until it's delivered.", { tone: 'error' })
   void deliver(cid, pending)
-  return cid
+  return { cid, kept }
 }
+
+/** a send made: its id, and whether the outbox could keep it (else the box keeps its draft until it's delivered) */
+export type Posted = { cid: string; kept: boolean }
 
 /** send again what didn't go through: it moves down to the end, like a new message */
 export function retry(cid: string) {
@@ -219,8 +244,7 @@ export function retry(cid: string) {
   const again: Outgoing = { ...o, cid: o.lost ? newCid() : o.cid, was: o.lost ? (o.was ?? o.cid) : o.was, state: 'sending', error: undefined, lost: undefined, waiting: undefined, waitsFor: undefined, queued: undefined, serverAt: undefined, wentAt: undefined, busyAt: undefined, pastAt: undefined, offline: undefined, at: Date.now(), prior: priorOf(s.chats[o.chat]), after: anchorOf(s.chats[o.chat]), before: s.outbox.filter((x) => x.chat === o.chat && x.cid !== cid).map((x) => x.cid) }
   setOutbox((all) => all.map((x) => (x.cid === cid ? again : x)))
   // fork #149: one whose files never went up (a reload cut them off) takes them from their kept bytes
-  if (again.files.every((f) => f.path)) void deliver(again.cid, [])
-  else void resumeFiles(again)
+  resume(again)
 }
 
 export const dropOut = (cid: string) => setOutbox((all) => all.filter((x) => x.cid !== cid))
@@ -230,31 +254,20 @@ export const dropOut = (cid: string) => setOutbox((all) => all.filter((x) => x.c
 export function resumeSending() {
   for (const o of getState().outbox) {
     if (o.state !== 'sending' || gates.has(o.cid)) continue
-    if (o.files.every((f) => f.path)) void deliver(o.cid, [])
-    // fork #149: one whose files were still going up goes on from their kept bytes (draft.ts)
-    else void resumeFiles(o)
+    resume(o)
   }
 }
-/** a send whose files never went up: they go up now, then it goes */
-async function resumeFiles(o: Outgoing) {
-  // this screen's own copy first (a Retry), else the bytes kept across the reload
-  const kept = await Promise.all(o.files.map((f) => (f.path || !f.id ? null : (local.get(f.id)?.file ?? fileOf(f.id)))))
-  if (gates.has(o.cid)) return
-  if (o.files.some((f, i) => !f.path && !kept[i])) {
-    const gone = o.files.filter((f, i) => !f.path && !kept[i]).map((f) => f.name).join(', ')
-    setOutbox((all) => all.map((x) => (x.cid === o.cid && x.state === 'sending' ? { ...x, state: 'failed', error: `${gone} wasn't kept when the page reloaded.` } : x)))
-    return
-  }
-  const pending = o.files.map((f, i) => {
-    if (f.path) return Promise.resolve(f.path)
-    const file = kept[i]!
+/** fork #149: one whose files were still going up goes on from their kept bytes (draft.ts), or this screen's own copy
+ *  (a Retry); its place in line is taken at once, before they are read */
+function resume(o: Outgoing) {
+  const pending = o.files.map(async (f) => {
+    if (f.path) return f.path
+    const file = (f.id && local.get(f.id)?.file) || (f.id ? await fileOf(f.id) : null)
+    if (!file) throw new Error(`${f.name} wasn't kept when the page reloaded.`)
     hold(f.id!, file, linkOf(file))
-    const up = retrying(() => postFile(o.chat, file), Date.now())
-    up.then((path) => {
-      fromPath.set(path, f.id!)
-      dropFile(f.id!)
-    }, () => undefined)
-    return up
+    const path = await retrying(() => postFile(o.chat, file), Date.now())
+    fromPath.set(path, f.id!)
+    return path
   })
   void deliver(o.cid, pending)
 }
