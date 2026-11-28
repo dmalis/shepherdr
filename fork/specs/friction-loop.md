@@ -631,6 +631,24 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
   and its comment is a draft; a report after Works is "came back".
 - **Demo:** on a throwaway root and store: install, close the fake issue with a commit the build has, `--track`: On
   this machine, Try it.
+- **As built:** the look lives in its own module, `feedback_ship.py`; `feedback.py` (report, list, the call),
+  `feedback_track.py` (after each `--track`) and `feedback_post.py` (a posted comment ends came back) call it in one
+  line each. The install's build is its checkout's HEAD when the checkout is its own repo, clean, and its built page's
+  stamp names that same commit (web/dist isn't in git); a pack carries its sender's as `.shepherdr-build.json`, and an
+  installed folder packed on carries its record's while none of its files changed. The closing commit is read once
+  per close (a reopen drops it); the release is the first of the 30 newest stable tags of the issue's own repo that
+  contains it (a binary search), none when even the oldest of those does, looked for again on each read until one
+  does; the build is compared where the issue is, then in the feedback repo (a fork's build is unknown upstream).
+  Reads show `shipped` only for the build installed now, so a build change clears On this machine before any read,
+  and the next `--track` looks again for the new build; the service reads the list again when the install record
+  changes. `--installed <build> --issues <url>…` may add `--try-it <url> "<words>"`; the list is kept for that build
+  beside the record (`.feedback-installed.json`), so a problem linked to one of its issues later finds it too.
+  Without Try it words, Try it is the first line of the draft's Expected. Works ends the following and folds into
+  Fixed a day later. Still broken needs the evidence (its comment says the fix is installed): an unknown build gives
+  only Works. Came back starts a new round: the earlier ones (post, draft, the person's word, On this machine) stay as
+  `before`, oldest first; the new draft numbers on from every earlier revision, so an old yes never approves it; the
+  build it came back on isn't shown as fixed again, a newer build with the fix is. The Feedback count adds fixes on
+  this machine not tried yet.
 
 ### Slice 7: report from a failed action
 

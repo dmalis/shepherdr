@@ -1522,8 +1522,9 @@ export interface FeedbackRow {
   /** the fix proposed for every user, one line */
   fix?: string
   kind?: 'bug' | 'confusing' | 'workaround' | 'manual' | 'miss'
-  /** where the page shows it: found (waits for the person), filed, later (Not now), declined (Said no) */
-  section: 'found' | 'filed' | 'later' | 'declined'
+  /** where the page shows it: found (waits for the person), filed, later (Not now), declined (Said no), fixed (the
+      person said it works, a day ago or more: folded history) */
+  section: 'found' | 'filed' | 'later' | 'declined' | 'fixed'
   /** herdr-task's own state (filing: being filed now) */
   state: string
   /** its origin: the bare space id of its first report */
@@ -1557,6 +1558,16 @@ export interface FeedbackRow {
       canonical issue, followed on; at: when it was read (ms); failed: GitHub couldn't be reached since */
   outcome?: { state: 'open' | 'closed'; reason?: 'completed' | 'not_planned' | 'duplicate'; at?: number; failed?: true
     canonical?: { title: string; url: string; state: 'open' | 'closed'; reason?: 'completed' | 'not_planned' | 'duplicate' } }
+  /** its fix (slice 6), once its issue closed as fixed: release, the first release whose tag has its closing commit;
+      here: this machine's build has it (or its install said so), with tryIt, what to do to see it; update: not here,
+      and this machine's version is older than release; unknown: this machine's build isn't known, so only the person
+      can say it works */
+  ship?: { release?: string; here?: true; tryIt?: string; update?: true; unknown?: true }
+  /** the person's Works or Still broken, for the build installed now (at: when, ms) */
+  tried?: { result: 'works' | 'broken'; at: number }
+  /** it came back (slice 6): Still broken with its fix here, or reported again after Works or once its fix was here;
+      issue: the issue it came back to, its comment's draft goes there */
+  back?: { why: 'broken' | 'reported'; issue?: string }
 }
 
 /** a draft for GitHub: where it goes, its title and its body as posted (without the hidden line that finds it again) */
@@ -1581,7 +1592,7 @@ export interface FeedbackMatch {
 
 export interface FeedbackList {
   rows: FeedbackRow[]
-  /** how many wait under Found: the sidebar row's quiet count */
+  /** how many wait for the person: under Found, and fixes on this machine not tried yet (the sidebar row's quiet count) */
   found: number
   /** Feedback offers is off for every space (Everywhere's): the page links the setting */
   off: boolean

@@ -1766,3 +1766,138 @@ class DoctorSyncedMachines(unittest.TestCase):
         got = mod.machines_needing_fix(root)
         self.assertEqual(got, ["vm-demo needs a fix (its last sync): its link leads to 'default'. "
                                "`herdr-task machines sync vm-demo` checks again"])
+
+
+class InstalledBuild(unittest.TestCase):
+    """Friction loop, slice 6 (#94): the install's record names the commit it came from (its build), so the Feedback
+    page can tell whether a fix is on this machine; none when it can't be known. A scratch git checkout of this tree
+    and throwaway roots only; another machine's install is pack() unpacked and installed as INSTALL_THERE does."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.top = tempfile.mkdtemp(prefix="shepherdr-build-")
+        cls.src = copy_source(os.path.join(cls.top, "src"))
+        cls.git("init", "-q")
+        cls.git("add", "-A")
+        cls.git("commit", "-qm", "a release")
+        cls.stamp()
+
+    @classmethod
+    def stamp(cls, commit=None):
+        """The built page's stamp (web/build-stamp.ts) as a build from HEAD (or `commit`) writes it: web/dist isn't in
+        git, so the installer trusts a checkout's commit only when its page says it was built from it."""
+        p = os.path.join(cls.src, "web", "dist", "index.html")
+        with open(p) as f:
+            html = f.read()
+        sid = '<script type="application/json" id="shepherdr-build">'
+        c = commit or cls.git("rev-parse", "HEAD")
+        if sid in html:
+            head, _, rest = html.partition(sid)
+            html = head + sid + json.dumps({"tag": "", "ahead": 0, "commit": c, "repo": ""}) + "</script>" + rest.partition("</script>")[2]
+        else:
+            html = html.replace("</head>", sid + json.dumps({"tag": "", "ahead": 0, "commit": c, "repo": ""}) + "</script></head>", 1)
+        with open(p, "w") as f:
+            f.write(html)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.top, ignore_errors=True)
+
+    @classmethod
+    def git(cls, *args):
+        return subprocess.run(["git", "-C", cls.src, "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def setUp(self):
+        self.roots = []
+        self.addCleanup(lambda: [shutil.rmtree(r, ignore_errors=True) for r in self.roots])
+
+    def root(self):
+        self.roots.append(tempfile.mkdtemp(prefix="shepherdr-build-root-"))
+        return self.roots[-1]
+
+    def install(self, src, root=None):
+        root = root or self.root()
+        run("install", "--root", root, "--source", src, "--yes", "--force")
+        with open(os.path.join(root, RECORD)) as f:
+            return root, json.load(f)
+
+    def there(self, body):
+        """What INSTALL_THERE does with the pack on the other machine: unpacked as a source, installed from it."""
+        sh = installer()
+        self.assertIn('tar xzf - -C "$d.new"', sh.INSTALL_THERE)
+        self.assertIn('install --yes --source "$d"', sh.INSTALL_THERE)
+        d = os.path.join(self.root(), "shepherdr-src")
+        os.makedirs(d)
+        import io
+        import tarfile
+        tarfile.open(fileobj=io.BytesIO(body)).extractall(d)
+        return d
+
+    def test_a_clean_checkout_records_its_build_and_a_changed_one_none(self):
+        head = self.git("rev-parse", "HEAD")
+        root, rec = self.install(self.src)
+        self.assertEqual(rec["build"], head)
+        with open(os.path.join(self.src, "templates", "worker.md"), "a") as f:
+            f.write("a change nobody committed\n")
+        try:
+            _, rec = self.install(self.src, root)
+            self.assertNotIn("build", rec, "a changed checkout's build can't be known: the old one goes")
+            self.assertEqual(rec["version"], installer().VERSION)
+        finally:
+            self.git("checkout", "--", "templates/worker.md")
+
+    def test_a_page_built_from_another_commit_is_no_build(self):
+        """web/dist isn't in git: a checkout moved on since its page was built would pair the new commit with the old
+        page, so its build isn't known until the page is built again."""
+        sh = installer()
+        self.stamp("0" * 40)
+        try:
+            self.assertEqual(sh.build_of(self.src), (self.git("rev-parse", "HEAD"), False))
+            self.assertNotIn("build", self.install(self.there(sh.pack(self.src)))[1], "nor does its pack carry one")
+        finally:
+            self.stamp()
+        self.assertTrue(sh.build_of(self.src)[1])
+
+    def test_a_folder_inside_another_repo_is_no_build_of_its_own(self):
+        sh = installer()
+        inner = os.path.join(self.src, "templates")
+        self.assertEqual(sh.build_of(inner), (None, False))
+
+    def test_another_machine_records_the_build_its_pack_carries(self):
+        sh = installer()
+        head = self.git("rev-parse", "HEAD")
+        first, rec = self.install(self.there(sh.pack(self.src)))
+        self.assertEqual(rec["build"], head)
+        # the same version, sent again from another build: the new one is recorded
+        with open(os.path.join(self.src, "templates", "worker.md"), "a") as f:
+            f.write("a fix\n")
+        self.git("commit", "-qam", "a fix")
+        self.stamp()
+        try:
+            newer = self.git("rev-parse", "HEAD")
+            _, rec = self.install(self.there(sh.pack(self.src)), first)
+            self.assertEqual((rec["build"], rec["version"]), (newer, sh.VERSION))
+            # a pack from a changed checkout says so, and the install there records no build
+            with open(os.path.join(self.src, "templates", "worker.md"), "a") as f:
+                f.write("not committed\n")
+            _, rec = self.install(self.there(sh.pack(self.src)), first)
+            self.assertNotIn("build", rec)
+        finally:
+            self.git("checkout", "--", "templates/worker.md")
+            self.git("reset", "-q", "--hard", "HEAD~1")
+            self.stamp()
+
+    def test_an_installed_folder_sent_on_carries_its_build(self):
+        """Serve from: `shepherdr web install-on` packs the installed folder itself; its record's build goes with it,
+        while none of its files changed."""
+        sh = installer()
+        head = self.git("rev-parse", "HEAD")
+        hub, _ = self.install(self.src)
+        share = os.path.join(hub, SHARE)
+        _, rec = self.install(self.there(sh.pack(share)))
+        self.assertEqual(rec["build"], head)
+        with open(os.path.join(share, "templates", "worker.md"), "a") as f:
+            f.write("changed there\n")
+        _, rec = self.install(self.there(sh.pack(share)))
+        self.assertNotIn("build", rec, "a changed installed folder's build can't be known")

@@ -144,6 +144,13 @@ def cleared(p):
     return out
 
 
+def next_rev(p, old):
+    """The next draft revision: after the current draft's, and after every earlier round's (a problem that came back,
+    feedback_ship.last_rev), so an old yes never matches a new round's text."""
+    from .feedback_ship import last_rev
+    return max(int((old or {}).get("rev") or 0), last_rev(p)) + 1
+
+
 def keep_draft(ps, key, new):
     """Stores a draft (under the lock): the same text and target keep their revision (and any yes for it); anything
     changed is a new revision, and the yes for the old one no longer counts. Returns the stored draft."""
@@ -151,7 +158,7 @@ def keep_draft(ps, key, new):
     old = p.get("draft") if isinstance(p.get("draft"), dict) else None
     if same(old, new):
         return old
-    rev = int((old or {}).get("rev") or 0) + 1
+    rev = next_rev(p, old)
     dr = {"rev": rev, "target": new["target"], "title": new["title"],
           "body": shown(new["body"]) + "\n\n" + marker(key, rev, secrets.token_hex(8))}
     ps[key] = {**cleared(p), "draft": dr}
@@ -195,7 +202,7 @@ def write_draft(args, key, line, d, agent, dups=()):
         new = compose(p, key, line or p.get("line") or "", args, d, agent)
         if getattr(args, "dry_run", False):
             old = p.get("draft") if isinstance(p.get("draft"), dict) else None
-            rev = old["rev"] if same(old, new) else int((old or {}).get("rev") or 0) + 1
+            rev = old["rev"] if same(old, new) else next_rev(p, old)
             dr = {**new, "rev": rev, "body": shown(new["body"]) + "\n\n" + marker(key, rev)}
             return {"key": key, "kept": False, "draft": dr, "duplicates": list(dups)}, draft_words(key, dr, p, d, dups, kept=False)
         dr = keep_draft(ps, key, new)
@@ -423,7 +430,7 @@ def posted(key, post, url):
         p = ps.get(key) or {}
         if (p.get("post") or {}).get("started") != post.get("started"):  # another attempt's record: left as it is
             return {"key": key, "filed": True, "url": url}, f"Already filed: {url}."
-        ps[key] = {**{k: v for k, v in p.items() if k != "approval"}, "state": "filed", "at": now(), "url": url,
+        ps[key] = {**{k: v for k, v in p.items() if k not in ("approval", "back")}, "state": "filed", "at": now(), "url": url,
                    "post": {**post, "state": "posted", "url": url},
                    "outcome": {"url": issue}}  # its issue; GitHub's side is read by --track (feedback_track)
     return ({"key": key, "filed": True, "url": url},

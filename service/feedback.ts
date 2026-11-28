@@ -4,9 +4,10 @@
 // that fails keeps the last list. The person's calls (Not now, Never, Undo, the box's report) run herdr-task's
 // person-only commands, outside any agent's terminal. Nothing here posts anywhere: the decisions stay on this machine.
 // Post it (slice 4) keeps the person's yes to one draft revision; the post itself is the Assistant's (herdr-task
-// feedback --file --rev), and Check again only reads GitHub.
+// feedback --file --rev), and Check again only reads GitHub. Slice 6: a fix's release and whether this machine has it
+// (herdr-task's read, `ship`), the person's Works and Still broken, and a problem that came back.
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
 import { where } from "./paths.ts";
 import { pluginOn } from "./next.ts";
@@ -27,6 +28,8 @@ const VERSION = /^\d+\.\d+\.\d+$/;
 const LINE_MAX = 160;
 const TEXT_MAX = 4000;
 const FIELDS = ["bug", "confusing", "workaround", "manual", "miss"] as const;
+const DAY = 24 * 3600_000;
+const TRY_MAX = 200;
 
 /** herdr-task, as the service runs it, never with an agent's terminal id: the person's calls are refused there */
 export const herdrTask: Runner = async (args) => {
@@ -74,6 +77,8 @@ export function offersOn(d: any, space?: string | null): boolean {
 
 /** where a kept problem goes on the page, by its state and the person's decision, as of `now` */
 export function sectionOf(p: any, now: number): FeedbackRow["section"] {
+  // Works, a day ago or more (slice 6): folded under Fixed, as history; one that came back is under Found again
+  if (!p.back && p.tried?.result === "works" && Number(p.tried.at) > 0 && now - p.tried.at >= DAY) return "fixed";
   if (p.state === "filed" || p.state === "filing" || p.url || p.decision === "following") return "filed";
   if (p.state === "declined" || p.decision === "declined") return "declined";
   // the person's yes to a draft (slice 4): under Filed, each step of its post said there
@@ -148,6 +153,47 @@ export function outcomeOf(p: any): FeedbackRow["outcome"] | undefined {
     ...(p.track_error ? { failed: true as const } : {}) };
 }
 
+const older = (a: string, b: string) => {
+  const x = a.split(".").map(Number), y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
+  return false;
+};
+
+/** its fix as the page shows it (slice 6), from herdr-task's read: the outcome's fix (its closing commit, the first
+ *  release with it), `shipped` (herdr-task lists it only for the build installed now) and `here` (this machine's version
+ *  and build). None until its issue closed as fixed, or while it came back. */
+export function shipOf(p: any): FeedbackRow["ship"] | undefined {
+  if (!p || typeof p !== "object" || p.back) return undefined;
+  const o = p.outcome, c = o?.canonical;
+  const fixed = o?.state === "closed" && (o.reason === "completed" || (o.reason === "duplicate" && c?.state === "closed" && c?.reason === "completed"));
+  const s = p.shipped && typeof p.shipped === "object" && typeof p.shipped.build === "string" ? p.shipped : null;
+  if (!fixed && !s) return undefined;
+  const release = VERSION.test(o?.fix?.release ?? "") ? o.fix.release : VERSION.test(s?.release ?? "") ? s.release : undefined;
+  const version = VERSION.test(p.here?.version ?? "") ? p.here.version : undefined;
+  const known = typeof p.here?.build === "string" && p.here.build.length > 0;
+  const tryIt = typeof s?.try === "string" && s.try.trim() ? s.try.trim().slice(0, TRY_MAX) : undefined;
+  return { ...(release ? { release } : {}), ...(s ? { here: true as const } : {}), ...(tryIt ? { tryIt } : {}),
+    ...(!s && release && version && older(version, release) ? { update: true as const } : {}),
+    ...(!s && !known && fixed ? { unknown: true as const } : {}) };
+}
+
+/** the person's Works or Still broken, when it was for the build installed now (a newer build is tried again) */
+export function triedOf(p: any): FeedbackRow["tried"] | undefined {
+  const t = p?.tried;
+  if (!t || (t.result !== "works" && t.result !== "broken") || !(Number(t.at) > 0)) return undefined;
+  // Works stays said: a newer build doesn't undo it (herdr-task stops following it)
+  if (t.result === "broken" && (t.build ?? null) !== (p.here?.build ?? null)) return undefined;
+  return { result: t.result, at: Number(t.at) };
+}
+
+/** it came back (Still broken, or reported again after Works or with its fix here): why, and its issue */
+export function backOf(p: any): FeedbackRow["back"] | undefined {
+  const b = p?.back;
+  if (!b || typeof b !== "object" || (b.why !== "broken" && b.why !== "reported")) return undefined;
+  const issue = githubUrl(b.issue);
+  return { why: b.why, ...(issue ? { issue } : {}) };
+}
+
 /** whether herdr-task follows this problem's issue (feedback_track.followed): filed or the person's Follow, its origin's
  *  offers on, not yet said to work */
 export function followed(p: any, settings: any): boolean {
@@ -187,12 +233,17 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...((d) => (d ? { draft: d } : {}))(draftOf(p)),
       ...(p.decision === "approved" && Number.isInteger(p.approval?.rev) ? { approved: p.approval.rev } : {}),
       ...((x) => (x ? { post: x } : {}))(postOf(p, now)),
-      ...((o) => (o && section === "filed" ? { outcome: o } : {}))(outcomeOf(p)),
+      ...((o) => (o && (section === "filed" || section === "fixed") ? { outcome: o } : {}))(outcomeOf(p)),
+      ...((x) => (x ? { ship: x } : {}))(shipOf(p)),
+      ...((x) => (x ? { tried: x } : {}))(triedOf(p)),
+      ...((x) => (x ? { back: x } : {}))(backOf(p)),
     });
   }
   rows.sort((a, b) => b.at - a.at);
   const note = settings?.everywhere?.agents?.feedback_note;
-  return { rows, found: rows.filter((r) => r.section === "found").length, off: settings?.everywhere?.agents?.feedback === false,
+  // the count: what waits under Found, and each fix on this machine the person hasn't tried yet (no push: slice 6)
+  const waiting = rows.filter((r) => r.section === "found" || (r.section === "filed" && r.ship?.here && !r.tried)).length;
+  return { rows, found: waiting, off: settings?.everywhere?.agents?.feedback === false,
     ...(typeof note === "string" && note.trim() ? { note: note.trim().slice(0, 300) } : {}) };
 }
 
@@ -208,7 +259,8 @@ export class Feedback {
   changed: () => void = () => {};
 
   constructor(private run: Runner = herdrTask, private file = () => join(process.env.HERDR_TASK_STORE || where().tasks, ".feedback.json"),
-    private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback")) {}
+    private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback"),
+    private installed = () => join(process.env.SHEPHERDR_SHARE || join(import.meta.dir, ".."), "installed.json")) {}
 
   /** read the record when its file changed (and once a minute regardless), until stop() */
   start(every = 3000) {
@@ -226,8 +278,13 @@ export class Feedback {
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
+  /** the record, what the install said it carries beside it, and the install record (slice 6: a new or rolled-back
+   *  build changes what On this machine shows, so its read is fresh within a tick) */
   private stamp() {
-    try { const s = statSync(this.file()); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; }
+    const f = this.file();
+    return [f, join(dirname(f), ".feedback-installed.json"), this.installed()].map((p) => {
+      try { const s = statSync(p); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; }
+    }).join("|");
   }
 
   /** herdr-task's list, read again; one that fails keeps the last, with why */
@@ -288,7 +345,8 @@ export class Feedback {
     // Check again: found on GitHub (filed), or still not known (and never posted again)
     if (b.do === "reconcile") return out.filed ? { ok: true, key: out.key, filed: true } : { ok: false, error: out.why === "unsure" ? STILL_UNSURE : "Nothing to look for: the list shows it as it is now." };
     // a decision already made (another device, a list that was old): said as it is, no Undo that would reverse theirs
-    if (b.do !== "report" && out.changed === false) return { ok: false, error: "That was already decided: the list shows it as it is now." };
+    if (b.do !== "report" && b.do !== "works" && b.do !== "broken" && out.changed === false) return { ok: false, error: "That was already decided: the list shows it as it is now." };
+    if ((b.do === "works" || b.do === "broken") && out.changed === false) return { ok: false, error: NO_TRY[out.why] ?? NO_TRY.said };
     if (b.do === "report" && out.why === "off") return { ok: false, off: true, error: "Feedback offers are off in that space, so nothing was kept. Settings › Agents › Feedback offers turns them on." };
     return { ok: true, key: out.key, changed: out.changed };
   }
@@ -306,6 +364,13 @@ const NO_POST: Record<string, string> = {
   declined: "You said no to this one: Undo first.",
   later: "It's put off: Restore it first.",
   off: "Feedback offers are off in its space: nothing is posted from there.",
+};
+/** why a Works or Still broken wasn't kept (herdr-task feedback_ship.tried's why) */
+const NO_TRY: Record<string, string> = {
+  said: "Already said: the list shows it.",
+  "not-here": "Its fix isn't on this machine yet: nothing to try.",
+  back: "It came back already: it waits under Found.",
+  off: "Feedback offers are off in its space: nothing more happens to it.",
 };
 const STILL_UNSURE = "Still not found on GitHub, and it isn't posted again. Check on GitHub: if it isn't there, Never on this row and a new report start over.";
 const REV_MAX = 9999;
@@ -349,6 +414,9 @@ export function argsOf(b: any): string[] {
     }
     // Check again on a post that may have gone out: herdr-task reads GitHub for its hidden line, and posts nothing
     case "reconcile": return ["--key", key(), "--reconcile", "--json"];
+    // the person's Works and Still broken (slice 6): kept for the build installed now; Still broken drafts a comment
+    case "works": return ["--key", key(), "--works", "--json"];
+    case "broken": return ["--key", key(), "--broken", "--json"];
   }
   throw new Error("Shepherdr can't do that yet.");
 }

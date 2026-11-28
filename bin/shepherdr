@@ -28,7 +28,8 @@ What goes where (each under --root, default your home):
                                         web app (web/dist), herdr-task (mods/tasks/bin), herdr-artifact
                                         (mods/artifacts/bin), the helpers and this installer (bin/), the agents' hooks
                                         (hooks/), the role instructions (templates/), the Herdr button (herdr/)
-  .local/share/shepherdr/installed.json what it installed (a sha256 per file), so running it again changes only what changed
+  .local/share/shepherdr/installed.json what it installed (a sha256 per file), so running it again changes only what changed,
+                                        and the commit it came from (its build) when that can be known
   .local/bin/{herdr-task,herdr-artifact,herdr-secret,herdr-browser,herdr-desktop,shepherdr}   links into that folder
   .config/herdr-core/templates/*.md     the Assistant's, worker's and reviewer's instructions
   .config/systemd/user/shepherdr.service    Linux: keeps the service running (systemctl --user)
@@ -594,6 +595,55 @@ def find_source(given, record):
         if is_source(cand):
             return os.path.realpath(cand)
     raise Stop("no Shepherdr checkout found: run ./install.sh from one, or pass --source <checkout>")
+
+
+# The build an install came from (friction loop, slice 6, #94: fork/specs/friction-loop.md), so the Feedback page can
+# tell whether a fix is on this machine: a checkout's commit, only with nothing changed in it; a pack's (another
+# machine's install), as the sender wrote it; an installed folder sent on, its own record's, while none of its files
+# changed. Else none: a build that can't be known is never guessed.
+BUILD_FILE = ".shepherdr-build.json"
+COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+def web_commit(src):
+    """The commit the source's built page says it came from (web/build-stamp.ts's stamp in web/dist/index.html), or None."""
+    m = re.search(r'<script[^>]*\bid="shepherdr-build"[^>]*>([^<]*)</script>', (read(os.path.join(src, "web", "dist", "index.html")) or b"").decode("utf-8", "replace"))
+    try:
+        c = str(json.loads(m.group(1)).get("commit") or "") if m else ""
+    except (ValueError, AttributeError):
+        c = ""
+    return c if re.fullmatch(r"[0-9a-f]{7,64}", c) else None
+
+
+def build_of(src):
+    """(commit, clean) of the source an install comes from; (None, False) when it can't be known."""
+    src = os.path.realpath(src)
+    try:
+        g = subprocess.run(["git", "-C", src, "rev-parse", "--show-toplevel", "HEAD"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        g = None
+    out = g.stdout.split("\n") if g and g.returncode == 0 else []
+    if len(out) >= 2 and os.path.realpath(out[0]) == src:   # its own checkout, not a folder inside a home kept in git
+        try:
+            st = subprocess.run(["git", "-C", src, "status", "--porcelain"], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            st = None
+        sha = out[1].strip()
+        # web/dist isn't in git: its page counts only when it was built from this very commit (its stamp says)
+        web = web_commit(src)
+        same = bool(web and len(web) >= 7 and sha.startswith(web))
+        return (sha if COMMIT.fullmatch(sha) else None), bool(st and st.returncode == 0 and not st.stdout.strip() and same)
+    f = json_file(os.path.join(src, BUILD_FILE))
+    if isinstance(f, dict):
+        sha = str(f.get("commit") or "")
+        return (sha if COMMIT.fullmatch(sha) else None), f.get("clean") is True
+    rec = json_file(os.path.join(src, os.path.basename(RECORD)))   # an installed Shepherdr folder holds its own record
+    if src.endswith("/" + SHARE) and isinstance(rec, dict) and COMMIT.fullmatch(str(rec.get("build") or "")):
+        root = src[:-len(SHARE)]
+        mine = {rel: h for rel, h in (rec.get("files") or {}).items() if rel.startswith(SHARE + "/")}
+        if mine and all(fsha(rel, read(os.path.join(root, rel))) == h for rel, h in mine.items()):
+            return rec["build"], True
+    return None, False
 
 
 # ---- the web app's build ------------------------------------------------------------------------
@@ -2111,6 +2161,11 @@ def finish_install(a, r, rec, old, src, home, root, actions, old_files, gone, bu
     if switching:
         convert_artifacts(r)
     rec.update({"version": VERSION, "source": src, "at": r.stamp, "root": root})
+    commit, clean = build_of(src)   # its build, for the Feedback page (#94, slice 6): none when it can't be known
+    if commit and clean:
+        rec["build"] = commit
+    else:
+        rec.pop("build", None)
     rec.pop("web", None)
     rec.pop("mods", None)
     whole_bad = []
@@ -2548,6 +2603,12 @@ def pack(src):
                 continue
             seen.add(name)
             t.add(path, arcname=name, recursive=False)
+        # the build it was packed from, recorded as it is by the install there (#94, slice 6): a pack has no git
+        commit, clean = build_of(src)
+        b = json.dumps({"commit": commit, "clean": clean}).encode()
+        info = tarfile.TarInfo(BUILD_FILE)
+        info.size, info.mtime, info.mode = len(b), int(time.time()), 0o644
+        t.addfile(info, io.BytesIO(b))
     return buf.getvalue()
 
 

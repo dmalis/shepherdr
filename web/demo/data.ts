@@ -72,6 +72,32 @@ export const feedbackPost: FeedbackList = {
   ],
 }
 
+/** `?case=ship` (friction loop slice 6, #94): a fix on this machine with what to try, one in a newer release, one this
+ *  machine's build can't tell, one the person said works today, one folded under Fixed, and one that came back */
+const COMMENT_BODY = 'This still happens here with the fix installed.\n\n## Environment\n\n- Shepherdr: 3.2.23 (build 4f1c2a9e7b30)\n- Machine: macOS 15.1 (arm64)'
+export const feedbackShip: FeedbackList = {
+  ...feedback,
+  found: 4,
+  rows: [
+    { id: 'j1b0a2', line: 'The task list jumps to the top when a task finishes', fix: 'Keep the scroll position when a row changes', kind: 'bug', section: 'found', state: 'found', space: 'mac-mini/shop', from: { task: 'Sticker book' }, count: 2, at: NOW - 12 * min,
+      back: { why: 'broken', issue: 'https://github.com/example/shepherdr/issues/34' }, tried: { result: 'broken', at: NOW - 12 * min },
+      draft: { rev: 1, title: 'The task list jumps to the top when a task finishes', body: COMMENT_BODY, target: { repo: 'example/shepherdr', action: 'comment', issue: 34 } } },
+    ...feedback.rows.slice(0, 2),
+    { ...feedback.rows[4], url: 'https://github.com/example/shepherdr/issues/19', following: undefined,
+      ship: { release: '3.2.23', here: true, tryIt: 'Search for a task on the VM from the Mac mini: it shows in the results' } },
+    { id: 'k2c1b3', line: 'Dictation stops after the first sentence on a phone', fix: 'Keep listening until the person taps Stop', kind: 'bug', section: 'filed', state: 'filed', space: 'mac-mini/notes', from: { chat: true }, count: 1, at: NOW - 2 * day, url: 'https://github.com/example/shepherdr/issues/29',
+      outcome: { state: 'closed', reason: 'completed', at: NOW - 20 * min }, ship: { release: '3.2.24', update: true } },
+    { id: 'l3d2c4', line: 'A pasted image loses its name in the chat', kind: 'bug', section: 'filed', state: 'filed', space: 'vm/garden-app', from: { agent: true }, count: 1, at: NOW - 3 * day, url: 'https://github.com/example/shepherdr/issues/31',
+      outcome: { state: 'closed', reason: 'completed', at: NOW - 20 * min }, ship: { unknown: true } },
+    { id: 'm4e3d5', line: 'Settings › Agents forgets the model after a restart', fix: 'Keep the chosen model in the settings file', kind: 'bug', section: 'filed', state: 'filed', space: 'mac-mini/blog', from: { chat: true }, count: 1, at: NOW - 4 * day, url: 'https://github.com/example/shepherdr/issues/21',
+      outcome: { state: 'closed', reason: 'completed', at: NOW - 20 * min }, ship: { release: '3.2.23', here: true }, tried: { result: 'works', at: NOW - 2 * hour } },
+    ...feedback.rows.slice(3, 4),
+    ...feedback.rows.slice(5),
+    { id: 'n5f4e6', line: 'The Tasks panel loses its filter on reload', fix: 'Keep the filter in the page’s saved state', kind: 'bug', section: 'fixed', state: 'filed', space: 'mac-mini/shop', from: { task: 'Faster deploys' }, count: 2, at: NOW - 9 * day, url: 'https://github.com/example/shepherdr/issues/15',
+      outcome: { state: 'closed', reason: 'completed', at: NOW - 20 * min }, ship: { release: '3.2.22', here: true }, tried: { result: 'works', at: NOW - 3 * day } },
+  ],
+}
+
 /** the bell's list (fork #37, service/inbox.ts): a fictional week of alerts */
 const alertIn = (id: string, ago: number, title: string, body: string, topic: string, place: string, x: Partial<InboxItem> = {}): InboxItem => ({ id, at: NOW - ago, title, body, topic, tag: x.task ?? id, place, url: `./?${new URLSearchParams({ place, ...(x.task ? { task: x.task } : {}) })}`, ...x })
 export const inbox: InboxItem[] = [
@@ -273,7 +299,7 @@ const fiveMachines = (s: Snapshot): Snapshot => ({
   places: [...s.places, { ...s.places.find((p) => p.machine === 'pi')!, id: 'p:laptop:home', chat: 'p:laptop:home', machine: 'laptop' }, { ...s.places.find((p) => p.machine === 'studio' && !p.home)!, id: 'p:laptop:notes', chat: 'p:laptop:notes', machine: 'laptop', name: 'notes' }],
 })
 
-export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' = 'normal'): Snapshot {
+export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' = 'normal'): Snapshot {
   if (mode === 'long') return longDay(snapshot('normal'))
   if (mode === 'one') return oneMachine(snapshot('normal'))
   if (mode === 'five') return fiveMachines(snapshot('normal'))
@@ -332,7 +358,7 @@ export function snapshot(mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | '
     config,
     // the bell's list (fork #37): what the push alerts said this week, some read, some still waiting
     inbox: empty ? [] : inbox,
-    feedback: empty ? { rows: [], found: 0, off: false } : mode === 'post' ? feedbackPost : feedback,
+    feedback: empty ? { rows: [], found: 0, off: false } : mode === 'post' ? feedbackPost : mode === 'ship' ? feedbackShip : feedback,
     warnings: empty ? [] : down ? [{ id: 'm:vm', kind: 'machine', text: "Can't reach vm · last seen 14:02" }] : [{ id: 'u:elevenlabs', kind: 'usage', text: "You've used 76% of your ElevenLabs plan" }, { id: 'm:vm', kind: 'machine', text: 'vm: disk nearly full' }, ...(mode === 'more' ? [{ id: 'm:mini', kind: 'machine' as const, text: 'mac-mini: memory nearly full' }] : [])],
     screens: empty ? {} : {
       'task:SHOP-17': { b: { url: 'https://billing.example.com/login' }, d: { of: 'mac-mini', own: false, busy: 'Bigger checkout button on phones' }, active: true, driver: 'agent', hands: { what: 'Enter the sign-in code' } },

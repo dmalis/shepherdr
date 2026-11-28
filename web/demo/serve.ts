@@ -17,9 +17,9 @@ import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -50,7 +50,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -375,7 +375,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)
