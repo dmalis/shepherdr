@@ -87,6 +87,14 @@ test("a read that fails keeps the last list, and says so; the next good read cle
   expect(changed).toBe(4);
 });
 
+test("a failed action's Report (slice 7): the box's report names the action by its label, and only plain words", () => {
+  expect(argsOf({ do: "report", text: "Mark as done didn't work", space: "sp1", action: "Mark as done" }))
+    .toEqual(["--person", "--action", "Mark as done", "--space", "sp1", "--json", "--", "Mark as done didn't work"]);
+  expect(argsOf({ do: "report", text: "x", space: "sp1", action: "Start the follow-up" }).slice(1, 3)).toEqual(["--action", "Start the follow-up"]);
+  for (const action of ["--file", "Merge failed in /home/sam/shop", "mark as done", "", 3, "Mark as done and then also more"])
+    expect(() => argsOf({ do: "report", text: "x", space: "sp1", action })).toThrow("That action isn't one the app knows.");
+});
+
 test("the person's calls, as herdr-task's arguments", () => {
   expect(argsOf({ do: "later", key: "a1", when: "week" })).toEqual(["--key", "a1", "--later", "week", "--json"]);
   expect(argsOf({ do: "no", key: "a1" })).toEqual(["--key", "a1", "--no", "--person", "--json"]);

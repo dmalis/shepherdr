@@ -1,13 +1,15 @@
 """The person's own calls on a kept problem, from the Feedback page (friction loop, slice 2, #94:
 fork/specs/friction-loop.md): Not now (`--later tomorrow|week|again`), Never (`--no --person`), Undo or Restore
-(`--undo`), and what they write in the page's box (`--person "<line>" --space <id>`). Each is refused in an agent's
-terminal: only the service runs them, for the person's tap. Nothing here posts anything; the decision stays local.
+(`--undo`), and what they write in the page's box (`--person "<line>" --space <id>`, plus `--action "<label>"` when the
+box was opened from a failed action's Report, slice 7). Each is refused in an agent's terminal: only the service runs
+them, for the person's tap. Nothing here posts anything; the decision stays local.
 
 A problem keeps upstream's `state`; the person's decision is kept beside it, in `decision` ("later" with `until`, a
 time in ms or None for "when it happens again"; "declined"), with `was` holding what Undo puts back. Not now ends on
 its own: at its time (read as found from then on, nothing rewritten) or when it's reported again (feedback.add_report)."""
 
 import os
+import re
 
 from .base import Fail, now
 from .feedback import problems
@@ -15,6 +17,9 @@ from .feedback import problems
 DAY_MS = 24 * 3600000
 LATER = {"tomorrow": DAY_MS, "week": 7 * DAY_MS, "again": None}
 KEPT = ("state", "decision", "until")
+# a failed action's label, from the app's fixed list ("Mark as done", "Start", "Send"): a few plain words, never the
+# error's own text (slice 7)
+ACTION = re.compile(r"[A-Z][a-z]*(?: [a-z-]+){0,4}")
 
 
 def in_agent_terminal(env=None):
@@ -24,6 +29,12 @@ def in_agent_terminal(env=None):
         from . import base  # base drops another core session's terminal id (FOREIGN_TERMINAL): still an agent's
         env = os.environ if not getattr(base, "FOREIGN_TERMINAL", False) else {"HC_TERMINAL_ID": "another session's"}
     return bool(env.get("HC_TERMINAL_ID") or env.get("HC_TERMINAL_SOCKET"))
+
+
+def person_from(args):
+    """Who a report from the app is from: the person, or the person reporting a failed action by its label."""
+    a = getattr(args, "action", None)
+    return {"action": a} if a else {"person": True}
 
 
 def person_call(args):
@@ -54,6 +65,9 @@ def decide(args):
     """The person's Not now, Never or Undo on one problem, under the record's lock: True once said. None when these
     arguments aren't one of them (a report from the box goes on as any report, marked from the person)."""
     from .output import say
+    a = getattr(args, "action", None)
+    if a is not None and not (getattr(args, "person", False) and len(a) <= 40 and ACTION.fullmatch(a)):
+        raise Fail("--action is the label of the app's action that failed, with --person: --action \"Mark as done\".")
     if not person_call(args):
         return None
     if in_agent_terminal():

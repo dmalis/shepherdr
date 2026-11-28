@@ -175,13 +175,15 @@ export interface Registry {
   /** the line after the page updated itself (`said`, "Updated to …"), from the build it replaced (`from`, its build
    *  id): whatsnew says what the update brought (fork patch #70); none: the plain line */
   afterUpdate: ((said: string, from: string) => void) | null
+  /** a button on a failed action's error notice (feedback: Report, fork #94); none: the notice alone */
+  failAct: ((a: { type: string } & Record<string, unknown>) => ToastOpts['act'] | undefined) | null
 }
 
 export const registry: Registry = {
   views: {},
   header: [], taskHeader: [], panes: [], bar: [], spaceMenu: [], taskMenu: [], messageParts: [], messageEdge: [], messageQuick: [],
   messageMenu: [], chatCards: [], chatTail: [], chatBody: [], aboveBox: [], boxButtons: [], drawer: [], sideHead: [], overlays: [], topBars: [], settings: [],
-  keys: [], commands: [], voiceWake: null, afterUpdate: null, middle: [],
+  keys: [], commands: [], voiceWake: null, afterUpdate: null, middle: [], failAct: null,
 }
 
 export interface ClientPlugin {
@@ -601,7 +603,7 @@ export async function tryAct(a: { type: string } & Record<string, unknown>, done
   const error = await attempt(a)
   if (busy) clearTimeout(busy)
   if (spin) dismiss(spin)
-  if (error !== null) notice(error, { tone: 'error' })
+  if (error !== null) notice(error, { tone: 'error', act: registry.failAct?.(a) })
   else if (done) notice(done, { tone: 'ok' })
   return error === null
 }

@@ -23,7 +23,7 @@ the rest. [`web/plugins.json`](../web/plugins.json) is the list, in order.
 | schedules | yes | Tasks › Scheduled | No Scheduled tab |
 | reactions | yes | Emoji reactions on messages | No emoji row in a message's menu |
 | recaps | yes | Recap in a chat's menu and the palette: a short recap, asked only when you pick it | No Recap row (an agent's own recaps still show) |
-| feedback | yes | The Feedback page: problems in Shepherdr itself that your agents and you noted, under Found, Filed, Not now and Said no, each with its fix and what a check on GitHub found (Follow this one follows a match, nothing posted); the list's Feedback row counts what waits under Found, and the box at the top keeps what you write (fork #94) | The Feedback row opens the old Feedback box |
+| feedback | yes | The Feedback page: problems in Shepherdr itself that your agents and you noted, under Found, Filed, Not now and Said no, each with its fix and what a check on GitHub found (Follow this one follows a match, nothing posted); the list's Feedback row counts what waits under Found, and the box at the top keeps what you write; a failed action's error has Report, which opens the box with that action's name (fork #94) | The Feedback row opens the old Feedback box; an error has no Report |
 | files | yes, off until switched on | Files: the shown space's folder as a tree, on its machine ([below](#files)) | No Files button, pane or bar item |
 | diff | yes, off until switched on | Diff viewer: the Changes pane beside Tasks and Artifacts. What a task changed against its base, or what isn't committed in a space's folder, file by file; read only. A Ready card's files open there | No Changes button, pane or menu row |
 
@@ -85,6 +85,7 @@ Settings › Plugins has the switches. They are kept as `everywhere.plugins_off`
 | `commands` | What the palette lists and the shortcuts run: each with its default keys ([shortcuts.md](shortcuts.md)) |
 | `keys` | Raw key handlers that run before the commands' shortcuts |
 | `afterUpdate` | The line after the page updated itself (none: the plain "Updated to …") |
+| `failAct` | A button on a failed action's error notice, by the action (feedback: Report, which opens the Feedback box with the action's name); none: the notice alone |
 
 ## Add one
 
