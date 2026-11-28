@@ -1006,6 +1006,7 @@ class BackToWork(unittest.TestCase):
         """Merge: right away. The agent saying ready hears at once that the merge failed, and the task stays Working."""
         t = self.pr_task()
         t.update(state="running", worktree=tempfile.mkdtemp())
+        t.setdefault("set", {})["proof"] = "off"  # dmalis/shepherdr#215: no proof would hold its merge for the person
         t["pr"]["url"] = "https://github.example/o/r/pull/593"
         with self.mock.patch.object(self.commands, "github", lambda s: "o/r"), \
                 self.mock.patch.object(self.commands, "pr_open", lambda s, task, repo, summary: task["pr"]), \
@@ -3113,7 +3114,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         from unittest import mock
         self.change(self.task["worktree"], "reactions on the left")
         self.github([])
-        self.task.update(state="ready")
+        self.task.update(state="ready", set={"proof": "off"})  # dmalis/shepherdr#215: no proof would hold its merge
         with mock.patch.object(self.commands, "merge_policy", lambda *a: "ask"), \
                 mock.patch.object(self.commands, "github", lambda s: None), \
                 mock.patch.object(self.commands, "github_unreachable", lambda s: None):
@@ -4063,7 +4064,7 @@ class RequiredChecksOnly(PrLooks):
         # herdr-task merge on a task set to merge on its own (auto_merge not set yet): no wait for an optional check.
         t = self.auto()
         t.pop("auto_merge")
-        t["set"] = {"merge": "auto"}
+        t["set"] = {"merge": "auto", "proof": "off"}  # dmalis/shepherdr#215: no proof held it
         self.requires()
         self.github_says(checks=[self.BUILD, self.LINT_RUNS])
         self.assertEqual(self.merge(t), self.commands.IN_QUEUE)
@@ -4275,7 +4276,7 @@ class ReadyAfterARebase(PrLooks):
     def ready_again(self):
         """Its second ready: rebased onto main and pushed (NEW), merge on its own; its pull request was handed in at OLD."""
         t = {"id": 9, "title": "Login", "state": "running", "space": "sp1", "agents": [], "mode": "worktree",
-             "worktree": self.dir, "branch": "b", "base": "main", "set": {"merge": "auto"}, "head": self.NEW,
+             "worktree": self.dir, "branch": "b", "base": "main", "set": {"merge": "auto", "proof": "off"}, "head": self.NEW,
              "pr": {"number": 41, "url": "https://github.com/o/r/pull/41", "repo": "o/r", "head_sha": self.OLD, "head_at": 1}}
         self.store.data["tasks"] = [t]
 
@@ -10542,7 +10543,7 @@ class MergeableAfterAPush(PrLooks):
     def ready_again(self, tip):
         """Its ready after the rebase: pushed (tip), merge on its own; its pull request was handed in before."""
         t = {"id": 9, "title": "Login", "state": "running", "space": "sp1", "agents": [], "mode": "worktree",
-             "worktree": self.repo, "branch": "b", "base": "main", "set": {"merge": "auto"}, "head": tip,
+             "worktree": self.repo, "branch": "b", "base": "main", "set": {"merge": "auto", "proof": "off"}, "head": tip,
              "pr": {"number": 41, "url": "https://github.com/o/r/pull/41", "repo": "o/r", "head_sha": "0" * 40, "head_at": 1}}
         self.store.data["tasks"] = [t]
 
@@ -10846,6 +10847,7 @@ class GitHubLimit(PrLooks):
     def test_ready_with_its_pull_request_open_waits_out_the_limit_quietly(self):
         # review: a held look at its open pull request set attention, and the tick then never merged it
         t = self.tasks(1, state="running")[0]
+        t.setdefault("set", {})["proof"] = "off"  # dmalis/shepherdr#215: no proof would hold its merge for the person
         self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
         held = self.ghbudget.held_err(self.clock[0] + 600000)
         from unittest import mock
@@ -14572,3 +14574,235 @@ class Urgent(unittest.TestCase):
         self.assertEqual(self.sent, [])
         for addr in ("t5", "t7"):
             self.assertEqual(self.aset.parse(self.terminals[addr]["labels"]["herdr.settings"]).get(urgent.KEY), urgent._hash())
+
+
+class WorkersNeverStallProof(unittest.TestCase):
+    """dmalis/shepherdr#215: Proof on and no proof found, a merge on its own waits for the person: ready opens the pull
+    request and its card says why; its second ready with --proof merges it as Merge says. ReadyAfterARebase's fake
+    GitHub (its required check green on the commit pushed)."""
+
+    OLD, NEW, BUILD = ReadyAfterARebase.OLD, ReadyAfterARebase.NEW, ReadyAfterARebase.BUILD
+    gh_script, github_says, branch_at, tick_after = (ReadyAfterARebase.gh_script, ReadyAfterARebase.github_says,
+                                                      ReadyAfterARebase.branch_at,
+                                                      ReadyAfterARebase.tick_after)
+    check = staticmethod(ReadyAfterARebase.check)
+
+    def merges(self):
+        """The commits each gh pr merge was pinned to; none before gh was asked anything."""
+        return ReadyAfterARebase.merges(self) if os.path.exists(self.gh_log) else []
+
+    def setUp(self):
+        PrLooks.setUp(self)
+        self.told = []
+        for mod, name, value in ((self.commands, "watch_main", lambda *a, **k: None),
+                                 (self.commands, "update_main", lambda *a, **k: None),
+                                 (self.commands, "drop_branch", lambda s, t: None),
+                                 (self.commands, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.commands, "tell", lambda s, t, msg, args=None: (self.told.append(msg), ("t1", False))[1]),
+                                 (self.tick, "finish", lambda s, t, even_if_busy=False, quiet=False: t.update(state="done")),
+                                 (self.tick, "due_pass", lambda s, report: None)):
+            p = unittest.mock.patch.object(mod, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        with open(os.path.join(self.dir, "rules.json"), "w") as f:
+            json.dump([{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": self.BUILD}]}}], f)
+        self.github_says(self.NEW, [self.check(self.BUILD)])
+        self.branch_at(self.NEW)
+
+    def ready(self, merge="auto", proof="on", t=None, **more):
+        """finalize() as ready calls it: its pull request open at NEW, the task's Merge and Proof as given."""
+        t = t or {"id": 9, "title": "Login", "state": "running", "space": "sp1", "agents": [], "mode": "worktree",
+                  "worktree": self.dir, "branch": "b", "base": "main", "set": {"merge": merge, "proof": proof}, "head": self.NEW,
+                  "pr": {"number": 41, "url": "https://github.com/o/r/pull/41", "repo": "o/r"}, **more}
+        self.store.data["tasks"] = [t]
+
+        def pushed(s, t, repo, summary=None):
+            t["pushed"] = {"sha": t["head"], "at": self.clock[0]}
+            return t["pr"]
+        with unittest.mock.patch.object(self.commands, "github", lambda s: "o/r"), \
+                unittest.mock.patch.object(self.commands, "pr_open", pushed):
+            return t, self.commands.finalize(self.store, t)
+
+    def test_no_proof_waits_for_the_person_with_why(self):
+        for merge in ("auto", "checks"):
+            t, msg = self.ready(merge)
+            self.assertEqual((t["state"], t.get("auto_merge"), self.merges()), ("ready", None, []), merge)
+            self.assertEqual(t["waits_why"], "Waits for you to merge it: Proof is on and it has none yet.")
+            self.assertIn("The person marks it as done on its card", msg)
+            self.tick_after(t, 60_000)  # its checks green: still nothing merges on its own
+            self.assertEqual((t["state"], self.merges()), ("ready", []))
+
+    def test_its_second_ready_with_proof_merges_as_merge_says(self):
+        t, _ = self.ready("auto")
+        self.assertEqual(self.merges(), [])
+        t["proof"] = {"id": "a1b2", "title": "Login · Proof"}  # ready --proof a1b2
+        t, msg = self.ready(t=t)
+        self.assertIn("Merged; done.", msg)
+        self.assertEqual((self.merges(), t["state"]), ([self.NEW], "done"))
+        self.assertNotIn("proof_held", t)
+
+    def test_with_proof_or_proof_off_or_ask_nothing_changes(self):
+        from herdr_task import proof_hold
+        t, msg = self.ready("auto", proof="off")
+        self.assertIn("Merged; done.", msg)
+        self.assertEqual(self.merges(), [self.NEW])
+        t, msg = self.ready("ask")  # the person merges it anyway: Merge's own words, not the proof's
+        self.assertNotIn("proof_held", t)
+        self.assertNotEqual(t["waits_why"], proof_hold.WHY)
+        self.assertIn("only when you say so", t["waits_why"])
+
+    def test_a_merge_the_person_asked_for_is_theirs(self):
+        t, msg = self.ready("auto", merge_asked=True)
+        self.assertIn("The person already asked to merge it", msg)
+        self.assertEqual(t["auto_merge"], "checks")
+        self.assertNotIn("proof_held", t)
+
+    def test_ready_tells_its_agent_what_to_do(self):
+        from herdr_task import proof_hold
+        self.assertIn("run ready again with --proof <its id>", proof_hold.TOLD)
+        self.assertIn("proof_hold.TOLD", __import__("pathlib").Path(BIN, "herdr_task", "commands.py").read_text())
+
+
+class WorkersNeverStallRounds(unittest.TestCase):
+    """dmalis/shepherdr#215: a brief that names its review rounds sets the task's Review rounds, so ready counts the
+    rounds its agent was told; --set review.rounds wins; an unclear brief sets nothing. Scheduled's real store."""
+    run_cmd, add, task = Scheduled.run_cmd, Scheduled.add, Scheduled.task
+
+    def setUp(self):
+        Scheduled.setUp(self)
+
+    def test_the_words_it_reads(self):
+        from herdr_task import brief_rounds
+        n = brief_rounds.named
+        for words, want in (("Fix it. At most 2 review rounds.", 2), ("Up to two rounds of review, then ready.", 2),
+                            ("Only one review round.", 1), ("Review rounds: 3", 3), ("Review rounds: at most 4 (this repo's)", 4),
+                            ("no more than 10 review rounds", 10), ("Don't push. At most a single review round.", 1)):
+            self.assertEqual(n(words), want, words)
+        for words in ("Fix it.", "In review round 2, check the docs.", "at most 2 review rounds, then at most 3 review rounds",
+                      "at most 12 review rounds", "At least 2 review rounds.", "Don't run 5 review rounds.",
+                      "Never do at most 3 review rounds here.", "Two review rounds went fine.", "", None):
+            self.assertIsNone(n(words), words)
+
+    def test_add_sets_them_and_ready_counts_them(self):
+        from herdr_task.settings import review_limits
+        self.add("Fix login", prompt="Fix the login. At most 2 review rounds.", here=True)
+        t = self.task(1)
+        self.assertEqual(t["set"]["review_rounds"], 2)
+        with self.store_mod.Store(self.store_mod.locate(self.folder), write=False) as s:
+            self.assertEqual(review_limits(s, s.find(1)), (True, 2))
+        self.add("Other", prompt="At most 2 review rounds.", here=True, set=["review.rounds=4"])
+        self.assertEqual(self.task(2)["set"]["review_rounds"], 4)  # the Assistant's own --set wins
+        self.add("Off", prompt="At most 2 review rounds.", here=True, set=["review=off"])
+        self.assertNotIn("review_rounds", self.task(3).get("set") or {})
+        self.add("Plain", prompt="Fix the logout.", here=True)
+        self.assertNotIn("review_rounds", self.task(4).get("set") or {})
+
+    def test_an_edited_brief_and_a_task_added_before(self):
+        from herdr_task import brief_rounds
+        t = {"prompt": "At most 2 review rounds."}
+        self.assertEqual(brief_rounds.apply(t, t["prompt"]), 2)  # ready, on a task added before: its brief read then
+        self.assertEqual(brief_rounds.apply(t, "At most 3 review rounds."), 3)  # an edit's new cap
+        self.assertEqual(t["set"]["review_rounds"], 3)
+        self.assertIsNone(brief_rounds.apply(t, "Fix it."))  # its cap gone: taken back
+        self.assertNotIn("set", t)
+        t = {"set": {"review_rounds": 5}}  # the Assistant's own --set
+        self.assertIsNone(brief_rounds.apply(t, "At most 2 review rounds."))
+        self.assertEqual(t["set"]["review_rounds"], 5)
+        self.add("Edited", prompt="Fix it.", here=True)
+        self.run_cmd(self.commands.cmd_edit, id="1", prompt="Fix it. At most 2 review rounds.", title=None, prompt_file=None)
+        self.assertEqual(self.task(1)["set"]["review_rounds"], 2)
+        src = __import__("pathlib").Path(BIN, "herdr_task", "commands.py").read_text()
+        self.assertIn('brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before', src)
+
+
+class WorkersNeverStallTold(unittest.TestCase):
+    """dmalis/shepherdr#215: ready --told / --nothing on a task no schedule started names the whole hand-in command."""
+    run_cmd, tick_at, task, add, ready, auto = (Schedules32.run_cmd, Schedules32.tick_at, Schedules32.task, Schedules32.add,
+                                                Schedules32.ready, Schedules32.auto)
+    setUp = Schedules32.setUp
+
+    def test_the_refusal_names_the_command(self):
+        self.add("Release it")
+        for kw in ({"told": "Released."}, {"nothing": True}):
+            with self.assertRaises(self.Fail) as e:
+                self.ready(id="1", **kw)
+            said = str(e.exception)
+            self.assertIn("wasn't started by a schedule", said)
+            self.assertRegex(said, r"`\S*herdr-task\S* ready APP-1 --folder \S+ --summary \"<what the person now sees or can do>\"`")
+            self.assertIn("--details", said)
+
+
+class WorkersNeverStallWait(unittest.TestCase):
+    """dmalis/shepherdr#215: herdr-task wait-for waits again while hc wait ends on a reviewer's startup idle (idle,
+    turn 0, still live), and returns hc's answer once a turn really ended, it exited, or the time ran out. A fake hc."""
+
+    def setUp(self):
+        sys.path.insert(0, BIN)
+        from unittest import mock
+        from herdr_task import helper_wait
+        self.hw = helper_wait
+        self.calls, self.answers, self.t = [], [], [0.0]
+        self.terminal = {"state": "live", "turn": 0}
+
+        def hc(*args):
+            self.calls.append(args)
+            if args[0] == "get":
+                return dict(self.terminal)
+            return self.answers.pop(0)
+        p = mock.patch.object(helper_wait, "hc", hc)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def wait(self, timeout=600):
+        def sleep(s):
+            self.t[0] += s
+        return self.hw.wait_for("sd-1-review", timeout, clock=lambda: self.t[0], sleep=sleep)
+
+    def idle0(self):
+        return {"ended": True, "status": "idle", "turn": 0, "terminal": "t2", "exit_code": None, "signal": None, "reason": "status"}
+
+    def test_waits_through_its_startup_idle(self):
+        # the repro: the first wait ends in a second at idle, turn 0; the next one at its first turn's end
+        self.answers = [self.idle0(), {"ended": True, "status": "done", "turn": 1, "terminal": "t2", "exit_code": None}]
+        out = self.wait()
+        self.assertEqual((out["status"], out["turn"], out["startup"]), ("done", 1, 1))
+        self.assertEqual([c[0] for c in self.calls], ["wait", "get", "wait"])
+        self.assertEqual(self.calls[2][:4], ("wait", "sd-1-review", "--timeout", "598"))  # what is left of its time
+
+    def test_a_turn_that_ended_an_exit_or_a_finished_terminal_returns_at_once(self):
+        for res, terminal in (({"status": "idle", "turn": 3, "terminal": "t2"}, {"state": "live", "turn": 3}),
+                              ({"status": "idle", "turn": 0, "terminal": "t2", "exit_code": 1}, {"state": "finished", "turn": 0}),
+                              ({"status": "idle", "turn": 0, "terminal": "t2"}, {"state": "finished", "turn": 0}),
+                              ({"status": "blocked", "turn": 0, "terminal": "t2"}, {"state": "live", "turn": 0})):
+            self.calls, self.answers, self.terminal = [], [dict(res)], terminal
+            out = self.wait()
+            self.assertEqual(out["startup"], 0, res)
+            self.assertEqual(len([c for c in self.calls if c[0] == "wait"]), 1, res)
+
+    def test_still_at_startup_when_the_time_runs_out(self):
+        self.answers = [self.idle0() for _ in range(20)]
+        out = self.wait(timeout=10)
+        self.assertTrue(out["still_startup"])
+        self.assertEqual(out["startup"], 5)  # every 2 s for its 10 s, never past them
+
+    def test_only_its_own_helpers_and_it_runs_without_asking(self):
+        import argparse
+        from herdr_task import launch, settings
+        from herdr_task.base import Fail
+        with self.assertRaises(Fail):
+            self.hw.cmd_wait_for(argparse.Namespace(name="shepherdr-assistant", timeout=5))
+        self.terminal = {"state": "live", "turn": 0, "parent": "t8"}  # another agent's reviewer
+        with unittest.mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t26"}), self.assertRaises(Fail) as e:
+            self.hw.cmd_wait_for(argparse.Namespace(name="other-9-review", timeout=5))
+        self.assertIn("isn't yours", str(e.exception))
+        self.assertIn("wait-for", launch.OWN)
+        self.assertIn("wait-for <its name> --timeout 600", __import__("pathlib").Path(settings.__file__).read_text())
+
+    def test_hc_says_what_it_relies_on(self):
+        """The seam: hc wait's own help says a terminal started with no launch task ends on idle (what wait-for works
+        around); a hc whose help no longer says so may have fixed it in herdr-core."""
+        import shutil
+        if not shutil.which("hc"):
+            self.skipTest("no hc here")
+        r = subprocess.run(["hc", "wait", "--help"], capture_output=True, text=True, env={**os.environ, "HC_SESSION": "wns-none"})
+        self.assertIn("idle still counts as stopped", " ".join(r.stdout.split()))

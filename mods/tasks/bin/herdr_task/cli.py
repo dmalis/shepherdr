@@ -348,6 +348,12 @@ def main():
     c.add_argument("--report", help="the round's findings in a line (levels, what was fixed)")
     c.add_argument("--commit", help="the commit the round reviewed, when fixes were committed since (default: the newest commit of "
                                          "the task's branch, wherever it is checked out)")
+    # dmalis/shepherdr#215: hc wait, waiting again through an agent's startup idle at turn 0
+    c = cmd("wait-for", lambda a: __import__("herdr_task.helper_wait", fromlist=["cmd_wait_for"]).cmd_wait_for(a),
+            "a task's agent waits on its own reviewer or helper until it really stops (hc wait, again through its startup)",
+            id=False)
+    c.add_argument("name", help="its reviewer or helper's terminal name (<your task's key, lower case>-review)")
+    c.add_argument("--timeout", type=int, default=600, help="seconds to wait at most (default 600)")
     cmd("review-more", cmd_review_more, "the Assistant gives a task one more review round, once all are used (never its own agent)")
     c = cmd("status", cmd_status, "a task's agent says what it's doing now, at the start, each natural step and at least every 5 minutes: status 4 \"Fixing the two failing tests\" --done 40 --left 5m")
     c.add_argument("text", help=f"what it is doing, at most {ROW_MAX} characters to show uncut on a phone, a few plain words "
