@@ -222,21 +222,52 @@ class EveryAgent(Stand):
                 self.assertEqual(args[:at], ["run", "--bg", "--name", "sd-1-review", "--label", "herdr.task=x",
                                              "--label", f"herdr.role={role}"])
                 child = args[at + 1:]
-                self.assertEqual(child[:2], ["sh", "-c"])
-                self.assertEqual(child[3:6], ["herdr-guard", os.path.realpath(self.dir), "shepherdr"])
-                self.assertEqual(child[6:], ["env", "PATH=/usr/bin:/bin", "codex", "--no-daemon", "review"])
-        # the wrapped child, run in a bare environment as the holder would: guarded, as a task (no yes word)
-        child = [*child[:6], "sh", "-c", "HERDR_GUARD_ASKED=1 hc server stop"]
-        e = {"HOME": os.environ["HOME"], "PATH": f"{self.fake}:/usr/bin:/bin", "FAKE_LOG": self.log, "HC_SESSION": "shepherdr"}
+                guarded = os.path.join(os.path.realpath(self.dir), "herdr-guard")
+                self.assertEqual(child, [guarded, "shepherdr", "env", "PATH=/usr/bin:/bin", "codex", "--no-daemon", "review"])
+        # the wrapped child, run in a bare environment as the holder would: guarded, as a task (no yes word), also
+        # when its own `env "PATH=<the CLI's folders>:$PATH"` (settings.py) puts the real hc first again
+        e = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "FAKE_LOG": self.log, "HC_SESSION": "shepherdr"}
+        for cmd in (["sh", "-c", "HERDR_GUARD_ASKED=1 hc server stop"],
+                    ["env", f"PATH={self.fake}:/usr/bin:/bin", "sh", "-c", "hc server stop"],
+                    ["env", "-u", "X", "-i", f"PATH={self.fake}:/usr/bin:/bin", "HOME=/x", "sh", "-c",
+                     "HERDR_GUARD_ASKED=1 hc server stop"]):
+            with self.subTest(cmd):
+                r = subprocess.run([guarded, "shepherdr", *cmd], env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   universal_newlines=True)
+                self.assertEqual(r.returncode, 77, r.stderr)
+                self.assertIn("they do it from their own terminal", r.stderr)
+        r = subprocess.run([guarded, "shepherdr", "env", f"PATH={self.fake}:/usr/bin:/bin", "sh", "-c", "hc ls"], env=e,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([x for x in self.ran() if " run " not in x], ["hc HC_SESSION=shepherdr ls"])
+
+    def test_one_on_another_machine_gets_that_machines_guard(self):
+        args = self.run_args("hc run --bg --on vmb --label herdr.role=helper -- env PATH=/usr/bin:/bin sh -c 'hc server stop'")
+        at = args.index("--")
+        child = args[at + 1:]
+        self.assertEqual(child[:2], ["sh", "-c"])
+        self.assertEqual(child[3:], ["herdr-guard", "env", "PATH=/usr/bin:/bin", "sh", "-c", "hc server stop"])
+        # run there: its herdr-task says where its folder is (here: this one), and the session it runs in
+        there = os.path.join(self.tmp, "there")
+        os.makedirs(there)
+        with open(os.path.join(there, "herdr-task"), "w") as f:
+            f.write(f'#!/bin/sh\n[ "$1" = _guard-dir ] && echo "{self.dir}"\n')
+        os.chmod(os.path.join(there, "herdr-task"), 0o755)
+        e = {"HOME": os.environ["HOME"], "PATH": f"{there}:{self.fake}:/usr/bin:/bin", "FAKE_LOG": self.log, "HC_SESSION": "vmb"}
+        child = [*child[:4], "env", f"PATH={self.fake}:/usr/bin:/bin", "sh", "-c", "hc server stop"]
         r = subprocess.run(child, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         self.assertEqual(r.returncode, 77, r.stderr)
-        self.assertIn("they do it from their own terminal", r.stderr)
+        self.assertIn('the live session "vmb"', r.stderr)
+        # no herdr-task there (or an older one): it runs as asked
+        r = subprocess.run(child, env={**e, "PATH": f"{self.fake}:/usr/bin:/bin"}, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([x for x in self.ran() if " run " not in x], ["hc HC_SESSION=vmb server stop"])
 
     def test_other_runs_are_left_as_they_are(self):
         for line in ("hc run --bg --name w -- sleep 30",                                     # its own test program
                      "hc run --bg --label herdr.role=reviewer reviewer 'review it'",          # a template
-                     "HC_SESSION=try247 hc run --bg --label herdr.role=reviewer -- codex",   # a throwaway core's
-                     "hc run --bg --on vmb --label herdr.role=helper -- codex"):             # another machine's
+                     "HC_SESSION=try247 hc run --bg --label herdr.role=reviewer -- codex"):  # a throwaway core's
             with self.subTest(line):
                 self.assertNotIn("herdr-guard", self.run_args(line))
 
@@ -247,21 +278,26 @@ class EveryAgent(Stand):
         with open(core, "w") as f:
             f.write("#!/bin/sh\nsleep 30\n")   # its process name is herdr-core, as the live core's
         os.chmod(core, 0o755)
-        for argv in ([core], ["sh", "-c", "sleep 30; exit 0", "herdr-task", "scheduler"], ["sleep", "30"]):
+        live = "/home/u/.local/share/shepherdr/service/main.ts"   # the install's own service (bin/shepherdr's unit)
+        for argv in ([core], ["sh", "-c", "sleep 30; exit 0", "herdr-task", "scheduler"],
+                     ["sh", "-c", "sleep 30; exit 0", "bun", live], ["sleep", "30"],
+                     ["sh", "-c", "sleep 30; exit 0", "bun", "service/main.ts"]):   # a throwaway one, from a checkout
             procs.append(subprocess.Popen(argv))
             self.addCleanup(procs[-1].wait)
             self.addCleanup(procs[-1].kill)
         time.sleep(0.3)
-        for p in procs[:2]:
+        for p in procs[:3]:
             for line in (f"env kill {p.pid}", f"echo {p.pid} | xargs kill -9", f"env kill -s TERM -- {p.pid}"):
                 with self.subTest(line):
                     # xargs says 123 for any command that failed
-                    self.assertIn(self.call(line).returncode, (77, 123) if "xargs" in line else (77,))
+                    self.assertIn(self.call(line, COLUMNS="20").returncode, (77, 123) if "xargs" in line else (77,))
                     self.assertIsNone(p.poll())
         self.assertEqual(self.ran(), [])
-        self.assertEqual(self.call(f"env kill {procs[2].pid}").returncode, 0)
-        self.assertEqual(self.call("env kill -l").returncode, 0)
-        self.assertEqual(len(self.ran()), 2)
+        for line in (f"env kill {procs[3].pid}", f"env kill {procs[4].pid}", "env kill -l", f"env kill -0 {procs[0].pid}",
+                     f"env kill -s 0 {procs[0].pid}"):
+            with self.subTest(line):
+                self.assertEqual(self.call(line).returncode, 0)
+        self.assertEqual(len(self.ran()), 5)
 
     def test_launchctl_on_a_mac(self):
         for line in ("launchctl kickstart -k gui/501/dev.shepherdr.service", "launchctl bootout gui/501/dev.shepherdr.service",
@@ -276,7 +312,8 @@ class EveryAgent(Stand):
         for d in (".local/bin", ".local/share/shepherdr/mods/tasks/bin", ".local/share/shepherdr/web",
                   ".local/share/shepherdr/worktrees/x", ".local/share/shepherdr/tasks", ".local/share/shepherdr/service", "build"):
             os.makedirs(os.path.join(h, d), exist_ok=True)
-        for f in (".local/bin/hc", ".local/share/shepherdr/mods/tasks/bin/herdr-task", "build/hc", "build/herdr-task"):
+        os.makedirs(os.path.join(h, "opt"), exist_ok=True)
+        for f in (".local/bin/hc", ".local/share/shepherdr/mods/tasks/bin/herdr-task", "build/hc", "build/herdr-task", "opt/hc"):
             open(os.path.join(h, f), "w").close()
         return h
 
@@ -287,18 +324,22 @@ class EveryAgent(Stand):
                      f"install -m 755 build/herdr-task {h}/.local/bin/herdr-task", f"cp -t {h}/.local/bin build/hc",
                      f"ln -sf /x {h}/.local/bin/shepherdr", f"mv {h}/.local/bin/hc /tmp/old-hc", f"mv build/hc {h}/.local/bin",
                      f"cp build/herdr-task {share}/mods/tasks/bin/herdr-task", f"cp -r build {share}/web/",
-                     f"cd {h}/.local/bin && cp ../../build/hc .", f"install -d {share}/service/x"):
+                     f"cd {h}/.local/bin && cp ../../build/hc .", f"install -d {share}/service/x",
+                     # grouped options, and an hc the install found elsewhere on PATH
+                     f"cp -ft {h}/.local/bin build/hc", f"cp -ft{h}/.local/bin build/hc", f"install -Dm755 build/hc {h}/.local/bin/hc",
+                     f"cp -fT build/hc {h}/.local/bin/hc", f'PATH="$PATH:{h}/opt" cp build/hc {h}/opt/hc'):
             with self.subTest(line):
                 r = self.call(f"cd {h} && {line}", HOME=h)
                 self.assertEqual(r.returncode, 77, r.stderr)
         self.assertEqual(self.ran(), [])
         for line in ("cp build/hc build/hc2", f"cp build/hc {h}/.local/bin/my-tool", f"cp build/hc {share}/worktrees/x/",
                      f"mv build/hc {share}/tasks/x", f"install -d {h}/scratch", "ln -s build/hc", "cp -t build build/hc",
-                     f"cp {h}/.local/bin/hc build/hc-copy", "cp --help"):
+                     f"cp {h}/.local/bin/hc build/hc-copy", "cp --help", f"install -Dm755 build/hc {h}/scratch/hc",
+                     f"cp -ft build {h}/.local/bin/hc", f"cp build/hc {h}/opt/hc"):
             with self.subTest(line):
                 r = self.call(f"cd {h} && {line}", HOME=h)
                 self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(len(self.ran()), 9)
+        self.assertEqual(len(self.ran()), 12)
 
     def test_the_installer_run_by_its_path(self):
         sh = os.path.join(ROOT, "bin", "shepherdr")
@@ -323,6 +364,13 @@ class EveryAgent(Stand):
         self.assertIsNone(cli.guard_refuses(A(dry_run=True), {"HERDR_GUARD_SESSION": "s"}))
         self.assertIsNone(cli.guard_refuses(A(), {"HERDR_GUARD_LIVE": "s", "HERDR_GUARD_ASKED": "1"}))
         self.assertIn("update-shepherdr", cli.guard_refuses(A(), {"HERDR_GUARD_SESSION": "s"}))
+        # a --root that is the real home is the live install (only asked, never run)
+        self.assertIsNotNone(cli.guard_refuses(A(root=cli.real_home() + "/"), {"HERDR_GUARD_SESSION": "s"}))
+        # and the stand-in's
+        for line in ('shepherdr update --root "$HOME"', 'shepherdr install --root="$HOME/"', 'cd "$HOME" && shepherdr update --root .'):
+            with self.subTest(line):
+                self.assertEqual(self.call(line).returncode, 77)
+        self.assertEqual(self.call("shepherdr update --root /tmp/not-there-247").returncode, 0)
 
     def test_the_update_runner_drops_every_guard_word(self):
         from herdr_task import self_update
@@ -368,7 +416,12 @@ class Starts(unittest.TestCase):
             self.assertEqual(r.stdout.splitlines(), [f"{d}:{bin_}:/usr/bin:/bin|shepherdr", f"{d}/hc"], r.stderr)
 
 
-HC = shutil.which("hc")
+def unguarded(path):
+    """PATH without any guard folder (the terminal this runs in may be a guarded one)."""
+    return ":".join(d for d in path.split(":") if not d.rstrip("/").endswith(os.path.join(".guard", "bin")))
+
+
+HC = shutil.which("hc", path=unguarded(os.environ.get("PATH", "")))
 
 
 @unittest.skipUnless(HC and os.environ.get("SHEPHERDR_REAL_CORE") == "1", "a real herdr-core: SHEPHERDR_REAL_CORE=1")
@@ -381,8 +434,7 @@ class RealCore(unittest.TestCase):
         self.live, self.try_ = f"shep323live{n}", f"shep323try{n}"
         # a clean environment: the throwaway HOME, no terminal of the real core
         # (and no guard folder of the terminal this runs in on PATH)
-        path = ":".join(d for d in os.environ["PATH"].split(":") if not d.rstrip("/").endswith(os.path.join(".guard", "bin")))
-        self.env = {"HOME": os.environ["HOME"], "PATH": path, "TERM": "xterm"}
+        self.env = {"HOME": os.environ["HOME"], "PATH": unguarded(os.environ["PATH"]), "TERM": "xterm"}
         for s in (self.live, self.try_):
             self.addCleanup(self.hc, s, "server", "stop")
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -410,7 +462,10 @@ class RealCore(unittest.TestCase):
         rev = os.path.join(self.tmp, "reviewer.sh")
         with open(rev, "w") as f:
             f.write(f'hc server stop >/dev/null 2>{out}.rev; echo "reviewer stop: $?" >> {out}\n')
-        first = (f"hc run --bg --name rv --label herdr.task=x --label herdr.role=reviewer -- sh {rev} >/dev/null 2>&1\n"
+        # its command as settings.py writes a reviewer's: `env "PATH=<the CLI's folders>:$PATH" …`, the real hc's
+        # folder first
+        first = (f'hc run --bg --name rv --label herdr.task=x --label herdr.role=reviewer -- env "PATH={os.path.dirname(HC)}:$PATH" '
+                 f"sh {rev} >/dev/null 2>&1\n"
                  f'for i in $(seq 50); do grep -q reviewer {out} 2>/dev/null && break; sleep 0.2; done\n') if reviewer else ""
         with open(script, "w") as f:
             # each line a shell of its own, as an agent's tool calls are

@@ -21,8 +21,9 @@ Who gets it, all through this module:
   run on the Assistant's own machine through `herdr-task _guard-dir`). Unlike a task, an Assistant may still do one
   of these when the person asked for exactly that: it puts HERDR_GUARD_ASKED=1 on that one command;
 - the reviewers and helpers an agent starts itself (`hc run … --label herdr.role=reviewer|helper … -- <command>` on a
-  protected session): hc runs a child in herdr-core's environment, not its caller's, so the stand-in hc wraps the
-  command after `--` the way guard_argv does (HERDR_GUARD_SESSION: no yes word, it never speaks for the person).
+  protected session, or --on another machine): hc runs a child in herdr-core's environment, not its caller's, so the
+  stand-in hc starts the command after `--` through herdr-guard, which also puts the guard first inside a leading
+  `env "PATH=…"` (a reviewer's command, settings.py) (HERDR_GUARD_SESSION: no yes word, it never speaks for the person).
 The person's own terminals (the web app's Terminal, their shell) are never guarded.
 
 dmalis/shepherdr#212: nor can it press keys in a reviewer's or helper's screen (`hc keys` on a terminal labelled
@@ -35,7 +36,8 @@ must never stop agents from starting or hc from working.
 
 It's a guard against mistakes, not against an agent set on getting round it: a full path to the real command, the
 shell's own `kill` builtin, an rc file or command that puts the real folder first on PATH again, `hc run` of a
-template, and writing a file with `>` or tee all get round it (docs/guard.md).
+template (an Assistant revived or restarted from the stock one), and writing a file with `>` or tee all get round it
+(docs/guard.md).
 """
 import os
 
@@ -77,6 +79,37 @@ protected() {
   return 1
 }
 
+if [ "$me" = herdr-guard ]; then
+  # `herdr-guard <session> <command>`: how the stand-in hc starts a reviewer's or helper's command (below). Its
+  # command often begins `env "PATH=<the CLI's folders>:$PATH" ...` (settings.py), which would put the real hc first
+  # again: this folder goes first inside that PATH too.
+  # (and its mark, which an `env -i` would drop, goes in again just before the command)
+  s=${1:-shepherdr}
+  export PATH="$here:$PATH" HERDR_GUARD_SESSION="$s"
+  shift
+  case "${1:-}" in
+    env|*/env)
+      n=$# i=0 pre=1 skip=
+      for a in "$@"; do
+        i=$((i + 1))
+        if [ "$i" -gt 1 ] && [ -n "$pre" ]; then
+          if [ -n "$skip" ]; then skip=
+          else
+            case "$a" in
+              PATH=*) a="PATH=$here:${a#PATH=}" ;;
+              -u|-C|-S|--unset|--chdir|--split-string) skip=1 ;;
+              -*|*=*) ;;
+              *) pre=; set -- "$@" "HERDR_GUARD_SESSION=$s" ;;
+            esac
+          fi
+        fi
+        set -- "$@" "$a"
+      done
+      shift "$n" ;;
+  esac
+  exec "$@"
+fi
+
 hc_check() {
   cmd= sub= on= kid= dash=
   for a in "$@"; do
@@ -109,8 +142,11 @@ hc_check() {
       fi ;;
     run)
       # dmalis/shepherdr#247: a reviewer or helper it starts runs in herdr-core's environment, not this one: it gets
-      # the guard the same way (wrapped below)
-      [ "$cmd" = run ] && [ -n "$dash" ] && [ -n "$kid" ] && [ -z "$on" ] && protected "$target" && wrap=1 ;;
+      # the guard the same way (wrapped below). On another machine (--on), that machine's own guard folder, from its
+      # own herdr-task, and the session it runs in.
+      if [ -n "$dash" ] && [ -n "$kid" ]; then
+        if [ -n "$on" ]; then wrap=on; elif protected "$target"; then wrap=1; fi
+      fi ;;
     serve|hold)
       protected "$target" && refuse "\`$me $cmd\` here would start a second core on the live session \"$target\"" ;;
   esac
@@ -157,29 +193,44 @@ kill_check() {
 
 pid_check() {
   # kill by number (not the shell's own builtin: `env kill`, `xargs kill`): what that process is, by ps
+  # signal 0 only asks whether the process is there
+  prev=
+  for a in "$@"; do
+    case "$a" in -0|-s0|-SIG0|--signal=0) return 0 ;; 0) case "$prev" in -s|-n|--signal) return 0 ;; esac ;; esac
+    prev=$a
+  done
   for a in "$@"; do
     p=${a#-}
     case "$p" in ''|*[!0-9]*) continue ;; esac
     [ "$p" -gt 1 ] 2>/dev/null || continue
     c=$(ps -o comm= -p "$p" 2>/dev/null) || continue
-    l=$(ps -o args= -p "$p" 2>/dev/null)
+    l=$(ps -ww -o args= -p "$p" 2>/dev/null)
     case "${c##*/}" in herdr-core|hc) refuse "\`kill $a\` would end the live herdr-core (process $p)" ;; esac
-    case "$l" in *"herdr-task scheduler"*|*"service/main.ts"*) refuse "\`kill $a\` would end Shepherdr's own service (process $p)" ;; esac
+    # the live service is the install's own (bin/shepherdr's unit runs <home>/.local/share/shepherdr/service/main.ts);
+    # a throwaway one runs from a checkout
+    case "$l" in *"herdr-task scheduler"*|*/.local/share/shepherdr/service/main.ts*) refuse "\`kill $a\` would end Shepherdr's own service (process $p)" ;; esac
   done
   return 0
 }
 
 shepherdr_check() {
-  cmd= root= dry=
+  cmd= root= dry= next=
   for a in "$@"; do
+    if [ -n "$next" ]; then root=$a next=; continue; fi
     case "$a" in
       -h|--help) return 0 ;;
-      --root|--root=*) root=1 ;;
+      --root) next=1 ;;
+      --root=*) root=${a#--root=} ;;
       --dry-run) dry=1 ;;
       -*) ;;
       *) [ -z "$cmd" ] && cmd=$a ;;
     esac
   done
+  # a --root that is the real home is the live install all the same
+  if [ -n "$root" ]; then
+    rr=$(cd "$root" 2>/dev/null && pwd -P)
+    [ -n "$rr" ] && [ "$rr" = "$(cd "$HOME" 2>/dev/null && pwd -P)" ] && root=
+  fi
   case "$cmd" in
     install|update|uninstall|migrate)
       if [ -z "$root$dry" ]; then
@@ -205,7 +256,17 @@ live() {
     live_bin=$(cd "$HOME/.local/bin" 2>/dev/null && pwd -P) || live_bin=-
     live_share=$(cd "$HOME/.local/share/shepherdr" 2>/dev/null && pwd -P) || live_share=-
   fi
-  case "$NAMES" in *" $b "*) [ "$rd" = "$live_bin" ] && return 0 ;; esac
+  case "$NAMES" in *" $b "*)
+    [ "$rd" = "$live_bin" ] && return 0
+    # or another folder on PATH that has it (an install whose hc is elsewhere on PATH)
+    lp=$PATH
+    while [ -n "$lp" ]; do
+      e=${lp%%:*}
+      case "$lp" in *:*) lp=${lp#*:} ;; *) lp= ;; esac
+      [ -n "$e" ] && [ -f "$e/$b" ] || continue
+      [ "$rd" != "$here" ] && [ "$(cd "$e" 2>/dev/null && pwd -P)" = "$rd" ] && return 0
+    done ;;
+  esac
   [ "$live_share" = - ] && return 1
   case "$rd/$b/" in
     "$live_share"/bin/*|"$live_share"/core/*|"$live_share"/herdr/*|"$live_share"/hooks/*|"$live_share"/mods/*|\
@@ -215,13 +276,31 @@ live() {
   return 1
 }
 
-valued() {
-  # whether option $1 of $me takes the next word as its value
+opt() {
+  # one option word of cp, mv, install or ln: sets t (a -t folder), no_t, dirs (install -d), and skip when the next
+  # word is its value (skip=t: the -t folder). Short ones may be grouped: -ft <dir>, -ft<dir>, -Dm755
   case "$1" in
-    -t|--target-directory|-S|--suffix) return 0 ;;
-    -m|-o|-g|--mode|--owner|--group) [ "$me" = install ] && return 0 ;;
+    --target-directory) skip=t ;;
+    --target-directory=*) t=${1#*=} ;;
+    --no-target-directory) no_t=1 ;;
+    --directory) [ "$me" = install ] && dirs=1 ;;
+    --suffix) skip=1 ;;
+    --mode|--owner|--group) [ "$me" = install ] && skip=1 ;;
+    --*) ;;
+    -?*)
+      o=${1#-}
+      while [ -n "$o" ]; do
+        c=${o%"${o#?}"}; o=${o#?}
+        case "$c" in
+          t) if [ -n "$o" ]; then t=$o; else skip=t; fi; return 0 ;;
+          S) [ -n "$o" ] || skip=1; return 0 ;;
+          T) no_t=1 ;;
+          d) [ "$me" = install ] && dirs=1 ;;
+          m|o|g) if [ "$me" = install ]; then [ -n "$o" ] || skip=1; return 0; fi ;;
+        esac
+      done ;;
   esac
-  return 1
+  return 0
 }
 
 copy_check() {
@@ -235,12 +314,7 @@ copy_check() {
     if [ -z "$end" ]; then
       case "$a" in
         --) end=1; continue ;;
-        -t|--target-directory) skip=t; continue ;;
-        --target-directory=*) t=${a#*=}; continue ;;
-        -T|--no-target-directory) no_t=1; continue ;;
-        -d|--directory) [ "$me" = install ] && dirs=1; continue ;;
-        -t?*) t=${a#-t}; continue ;;
-        -*) valued "$a" && skip=1; continue ;;
+        -?*) opt "$a"; continue ;;
       esac
     fi
     n=$((n + 1))
@@ -261,13 +335,13 @@ copy_check() {
       return 0
     fi
   fi
-  end= i=0 skip=
+  end= i=0 skip= tt=$t
   for a in "$@"; do
     if [ -n "$skip" ]; then skip=; continue; fi
     if [ -z "$end" ]; then
       case "$a" in
         --) end=1; continue ;;
-        -*) valued "$a" && skip=1; continue ;;
+        -?*) opt "$a"; t=$tt; continue ;;
       esac
     fi
     i=$((i + 1))
@@ -304,14 +378,19 @@ esac
 
 [ -n "$real" ] || { echo "$me: command not found" >&2; exit 127; }
 if [ -n "$wrap" ]; then
-  # `hc run … -- <command>`: <command> starts with this folder first on its PATH and the session it protects, as a
-  # task's agent does (no yes word: a reviewer or helper never speaks for the person)
+  # `hc run … -- <command>`: <command> starts through herdr-guard (above), with this folder first on its PATH and the
+  # session it protects, as a task's agent does (no yes word: a reviewer or helper never speaks for the person). On
+  # another machine: that machine's herdr-task says where its own folder is; an older one, or none, runs it as asked.
   n=$# seen=
   for a in "$@"; do
     set -- "$@" "$a"
     if [ -z "$seen" ] && [ "$a" = -- ]; then
       seen=1
-      set -- "$@" sh -c 'export PATH="$1:$PATH" HERDR_GUARD_SESSION="$2"; shift 2; exec "$@"' herdr-guard "$here" "$own"
+      if [ "$wrap" = on ]; then
+        set -- "$@" sh -c 'g=$(herdr-task _guard-dir 2>/dev/null || "$HOME/.local/bin/herdr-task" _guard-dir 2>/dev/null) && [ -x "$g/herdr-guard" ] && exec "$g/herdr-guard" "${HC_SESSION:-default}" "$@"; exec "$@"' herdr-guard
+      else
+        set -- "$@" "$here/herdr-guard" "$own"
+      fi
     fi
   done
   shift "$n"
@@ -339,7 +418,7 @@ def guard_dir(store=None):
             f.write(SCRIPT)
         os.chmod(tmp, 0o755)
         os.replace(tmp, main)
-    for name in GUARDED:
+    for name in (*GUARDED, "herdr-guard"):
         p = os.path.join(d, name)
         if os.path.islink(p) and os.readlink(p) == "guard.sh":
             continue

@@ -2827,7 +2827,10 @@ def guard_refuses(a, env=None):
     task, live = env.get("HERDR_GUARD_SESSION"), env.get("HERDR_GUARD_LIVE")
     if not (task or live) or a.cmd not in ("install", "update", "uninstall", "migrate"):
         return None
-    if getattr(a, "root", None) or getattr(a, "dry_run", False) or (not task and env.get("HERDR_GUARD_ASKED") == "1"):
+    root = getattr(a, "root", None)
+    if root and os.path.realpath(os.path.expanduser(root)) == os.path.realpath(real_home()):
+        root = None   # a --root that is the real home is the live install all the same
+    if root or getattr(a, "dry_run", False) or (not task and env.get("HERDR_GUARD_ASKED") == "1"):
         return None
     words = [f"Shepherdr refused: `shepherdr {a.cmd}` would change the live install (use --root <scratch> for a try).",
              "An agent's terminal can't update or reconfigure the live Shepherdr it runs in."]
