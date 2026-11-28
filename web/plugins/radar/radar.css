@@ -40,11 +40,11 @@
 .app.tap .rd-bar .btn,.app.tap .rd-acts .btn,.app.tap .rd-proto .btn{height:var(--btn)}
 
 .rd-body{display:grid;gap:24px;min-width:0}
-@container (min-width:880px){
-  .rdp.open .rd-body{grid-template-columns:minmax(0,1fr) minmax(320px,400px);align-items:start}
+@container (min-width:720px){
+  .rdp.open .rd-body{grid-template-columns:minmax(0,1fr) minmax(300px,400px);align-items:start}
   .rdp.open .rd-detail{position:sticky;top:0}
 }
-@container (max-width:879px){.rdp.open:not(.full) .rd-main{display:none}}
+@container (max-width:719px){.rdp.open:not(.full) .rd-main{display:none}}
 .rd-main{display:grid;gap:16px;min-width:0}
 
 .rd-intro{padding-inline:8px;color:var(--fg);font-weight:600}
@@ -80,6 +80,30 @@
 @container (max-width:520px){.rd-v{display:none}.rd-sv{display:inline}}
 /* an action that only shows a toast here says so on its button */
 .rd-pv{margin-inline-start:6px;color:var(--muted);font-size:12px;font-weight:400}
+
+/* the calm timeline: what needs you pinned, then each week's recap over its days, one short line an event (Linear's
+   Pulse, GitHub's feed, Slack's Activity). A line is a list row's height; its words give way to … before its status */
+.rd-tl{display:grid;gap:24px;min-width:0}
+/* grid items keep their one-line width unless told they may shrink: then the words, not the screen, give way */
+.rd-tl .rd-list,.rd-tl .rd-list>li{min-width:0}
+.rd-pin{display:flex;align-items:center;gap:12px;width:100%;min-height:var(--row);padding:6px 8px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line2);text-align:start}
+@media(hover:hover){.rd-pin:hover{background:var(--control)}}
+.rd-pw{flex:1;min-width:0;color:var(--sub);text-wrap:pretty;overflow-wrap:anywhere}
+.rd-pw b{color:var(--fg);font-weight:600}
+.rd-pin .rd-go{flex:none;width:var(--ic);height:var(--uil);color:var(--muted)}
+.rd-week{display:grid;gap:16px;min-width:0}
+.rd-recap{padding-inline:8px;color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums;text-wrap:pretty}
+.rd-ev{display:flex;align-items:center;gap:12px;width:100%;min-height:var(--row);padding:4px 8px;border-radius:8px;text-align:start}
+.rd-ev.on{background:var(--control2)}
+@media(hover:hover){.rd-ev:hover{background:var(--control)}.rd-ev.on:hover{background:var(--control2)}}
+.rd-ew{display:flex;flex:1;min-width:0;gap:4px;white-space:nowrap}
+.rd-et{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.rd-es{flex:none;color:var(--muted)}
+.rd-ee{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:var(--sec)}
+/* a narrow page: the words keep the room, the project leaves the line (the opened item names it) */
+@container (max-width:480px){.rd-ee{display:none}}
+/* an item open beside a narrow list (a desktop with a pane open): the same */
+@container (max-width:1040px){.rdp.open .rd-ee{display:none}}
 
 /* Since you last looked: a short account, one sentence a line */
 .rd-story{min-height:var(--row)}

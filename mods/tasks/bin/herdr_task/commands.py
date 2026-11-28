@@ -780,7 +780,11 @@ def cmd_ready(args):
             if git(wt, "status", "--porcelain", "--untracked-files=no")[1]:
                 raise Fail(f"{wt} has uncommitted changes. Commit them, then run ready again.")
             on_branch(t, wt)
-            t["head"] = git(wt, "rev-parse", "HEAD")[1]
+            ok, t["head"], err = git(wt, "rev-parse", "HEAD")
+            if not ok or not t["head"]:
+                # dmalis/shepherdr#388: an unreadable HEAD was kept as "" and refused as "this task's work isn't reviewed"
+                raise Fail(f"Ready couldn't read the newest commit in {wt} (git rev-parse HEAD: {err or 'no answer'}). "
+                           "Fix that, then run ready again.")
             # #1403: its base, another task's branch, merged (squash too, its branch maybe deleted): it moves onto that
             # branch's base first, only its own commits rebased there, rather than a pull request into a branch that's gone
             gone = stack.merged_base(s, t) if stack.stacked(t) and not (t.get("pr") or {}).get("number") else None
@@ -820,7 +824,10 @@ def cmd_ready(args):
             raise Fail(after_merge.ready_words(s, t, after))
         brief_rounds.apply(t, t.get("prompt"))  # dmalis/shepherdr#215: a task added before, its brief's rounds too
         refused = unmoved or collides or review_refusal(s, t, wt)
-        if refused:
+        # dmalis/shepherdr#388: its worktree gone with work of its own: kept as it is, as when refused (below: merged
+        # already, else said that the worktree is gone), never its attention, fix asked for and progress cleared
+        gone_tree = bool(wt) and not os.path.isdir(wt) and not (t.get("start") and in_base(s, t))
+        if refused or gone_tree:
             # Kept (the task's line says why it waits); refused after the store is saved.
             s.dirty = True
         else:
@@ -952,11 +959,16 @@ def review_refusal(s, t, wt):
         return None  # in the folder itself, and it changed nothing (#744: a run that only reads)
     if rounds_used(t) >= rounds:
         return None  # #1557: all rounds used: ready takes it, the last fix unreviewed (its agent says so on the card)
+    if wt and not os.path.isdir(wt):
+        return None  # dmalis/shepherdr#388: its worktree is gone: ready says that (cmd_ready), never "isn't reviewed"
     revs = rounds_this_run(t)
     head = t.get("head") if wt else None
     if (any(r.get("head") == head for r in revs) if wt else bool(revs)):
         return None
-    if wt and head and carried_over(s, t, wt, {r.get("head") for r in revs if r.get("head")}, head):
+    heads = {r.get("head") for r in revs if r.get("head")}
+    if wt and head and head in moved_reviewed(t, heads):
+        return None  # dmalis/shepherdr#388: Herdr's own rebase of a reviewed commit onto a new base (stack.move)
+    if wt and head and carried_over(s, t, wt, heads, head):
         return None
     ref, ht, folder = s.ref(t), own_path(), shlex.quote(s.loc["folder"])
     what = f"your final commit {head[:7]}" if head else "this task's work"
@@ -969,9 +981,41 @@ def review_refusal(s, t, wt):
                  and git(wt, "merge-base", "--is-ancestor", r["head"], head or "HEAD")[0]), None)
     delta = (f" Since round on {last[:7]}, have only what changed reviewed (git diff {last[:7]}..HEAD, and any merge's "
              "conflict resolutions), with that round's findings.") if last else ""
-    return (f"Review is on and {what} isn't reviewed. Have it reviewed as your brief says, fix what must be fixed, record the "
-            f"round with `{ht} reviewed {ref} --folder {folder} --report \"<findings, a line>\"` (on the commit you'd say "
-            f"ready at), then run ready again.{delta} {rounds - rounds_used(t)} of {rounds} rounds left.")
+    # dmalis/shepherdr#388: the round is recorded right after the review, on the commit the reviewer read, never after
+    # a fix (a plain `reviewed` then would stamp the unseen fix as reviewed)
+    return (f"Review is on and {what} isn't reviewed.{checked_words(wt, head, revs)} Have your HEAD reviewed as your brief "
+            f"says and record the round right after the review, before you commit any fix: `{ht} reviewed {ref} --folder "
+            f"{folder} --report \"<findings, a line>\"` (it records your HEAD, the commit the reviewer read; committed since? "
+            f"add `--commit <the commit the reviewer read>`). Then fix what must be fixed and run ready again.{delta} "
+            f"{rounds - rounds_used(t)} of {rounds} rounds left.")
+
+
+def moved_reviewed(t, heads):
+    """dmalis/shepherdr#388: the commits Herdr's own rebases (stack.move: its base task merged) made from a reviewed
+    commit, along a chain of moves: the same reviewed work on a new base, its review kept."""
+    got, moves = set(heads), [m for m in t.get("moved_heads") or [] if isinstance(m, dict)]
+    for m in moves:
+        if m.get("from") in got and m.get("to"):
+            got.add(m["to"])
+    return got - set(heads)
+
+
+def checked_words(wt, head, revs):
+    """dmalis/shepherdr#388: what ready checked and what it found, for its refusal: the commit it expected a round on
+    (HEAD, and where), and the commit the newest round is on (how far behind HEAD, or off its branch)."""
+    if not wt:
+        return ""
+    if not head:
+        return f" Ready couldn't tell which commit is your HEAD in {wt}, so no round counts."
+    on = f" Ready checked your HEAD, {head[:7]} in {wt}"
+    last = next((r for r in reversed(revs) if r.get("head")), None)
+    if not last:
+        return on + ": no round is recorded yet."
+    ok, n, _ = git(wt, "rev-list", "--count", f"{last['head']}..{head}")
+    behind = git(wt, "merge-base", "--is-ancestor", last["head"], head)[0]
+    how = (f", {n} commit{'' if n == '1' else 's'} before it" if behind and ok and n.isdigit()
+           else ", not on this branch any more (rebased or reset since)" if not behind else "")
+    return on + f": the newest round (round {last.get('round', len(revs))}) is on {last['head'][:7]}{how}."
 
 
 def work_tree(s, t, folder=None):
@@ -1160,7 +1204,19 @@ def cmd_reviewed(args):
         s.dirty = True
         v = view(s, t)
     on_what = f" for commit {head[:7]} ({work_words(s, where, ref)})" if head else ""
-    say(args, {**v, "round": used + 1, "rounds": rounds}, f"{s.name(t)}: review round {used + 1} of {rounds} recorded{on_what}.")
+    say(args, {**v, "round": used + 1, "rounds": rounds},
+        f"{s.name(t)}: review round {used + 1} of {rounds} recorded{on_what}." + newer_words(where, ref, head, rounds - used - 1))
+
+
+def newer_words(where, ref, head, left):
+    """dmalis/shepherdr#388: a round recorded (--commit) on a commit older than the branch's newest: what ready will then
+    do with the newest, said at once rather than at ready."""
+    ok, tip, _ = git(where, "rev-parse", ref) if where and head else (False, "", "")
+    if not ok or not tip or tip == head:
+        return ""
+    then = (f"ready takes it only once a round is recorded on it ({left} left)" if left > 0 else
+            "all rounds are now used, so ready takes it as it is: say in --details that the last fix wasn't reviewed again")
+    return f" Your branch has a commit newer than it: {tip[:7]} (HEAD). {then}."
 
 
 def cmd_review_more(args):

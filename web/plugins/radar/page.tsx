@@ -1,8 +1,9 @@
 // Radar's page (the clickable prototype, dmalis/shepherdr "Radar: one place for work coming in"). It comes when first
-// opened (client.tsx). A prototype-only bar on top picks one of three opening screens on the same day (Since you last
-// looked, Pain map, Project pulse) and the clock (now, or a week later, when parked ideas come back). Under it the
-// same four views for each: the opening screen, Next up (Held back under it), All items and Shipped, as Linear's
-// Triage, Sentry's For review and Renovate's dependency dashboard lay theirs out. An item opens beside the list on a
+// opened (client.tsx). A prototype-only bar on top, folded, picks one of four opening screens on the same day and the
+// clock (now, or a week later, when parked ideas come back). The default is the calm timeline (timeline.tsx): one
+// feed, no tabs, only a project filter and Jot something. The other three (Since you last looked, Pain map, Project
+// pulse) stay for comparison, each over the same four views: the opening screen, Next up (Held back under it), All
+// items and Shipped, as Linear's Triage, Sentry's For review and Renovate's dependency dashboard lay theirs out. An item opens beside the list on a
 // wide page and over it on a narrow one or a phone, as Linear's and GitHub's inboxes do. Every click changes this
 // page's copy only (model.ts); the one real card is the error's Triage card in #shop, the same one Needs you opens.
 import { useState, type ReactNode } from 'react'
@@ -16,12 +17,13 @@ import { attentionOf } from '@shared/attention.ts'
 import type { IconName } from '@client/icons.ts'
 import type { Snapshot } from '@shared/types.ts'
 import { liveOf, radarNeeds, radarOf } from './row.tsx'
-import { addItem, askCards, clock, dayOf, shownDay, edit, editProject, itemsAt, needsYou, open, reset, resume, setView, useRadar, waiting, waitingWords, type Filter, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
+import { addItem, askCards, clock, dayOf, shownDay, edit, editProject, getView, itemsAt, needsYou, open, reset, resume, setView, useRadar, waiting, waitingWords, type Filter, type Live, type Opening, type RadarDemo, type RadarItem, type RadarProject, type Tab, type View } from './model.ts'
 import { APPROVED, levelWords, PREVIEW, queue, SOURCE, stateWords, when, WORKFLOWS } from './say.ts'
+import { Timeline } from './timeline.tsx'
 import './radar.css'
 
 const DAY = 86400_000
-const OPENINGS: [Opening, string][] = [['since', 'Since you last looked'], ['pain', 'Pain map'], ['pulse', 'Project pulse']]
+const OPENINGS: [Opening, string][] = [['timeline', 'Calm timeline'], ['since', 'Since you last looked'], ['pain', 'Pain map'], ['pulse', 'Project pulse']]
 const TABS: [Tab, string][] = [['overview', 'Overview'], ['next', 'Next up'], ['all', 'All items'], ['shipped', 'Shipped']]
 const PROTO = '(prototype: nothing was really started or posted)'
 /** a toast-only action's notice: what it would do, and that nothing did */
@@ -44,6 +46,8 @@ function Pick<T extends string>({ values, value, onChange, label }: { values: [T
 
 const projectOf = (c: Ctx, id: string) => c.day.projects.find((p) => p.id === id)!
 const openItemHere = (id: string) => setView({ item: id })
+/** where an opened project or item lands: the calm timeline has no tabs, so it stays on it; the others open All items */
+const listTab = (): Partial<View> => (getView().opening === 'timeline' ? { tab: 'overview' } : { tab: 'all' })
 
 /* ---------- the prototype's own bar ---------- */
 
@@ -55,10 +59,10 @@ function startOver() {
   void act({ type: 'radar', do: 'reset' }).catch(() => undefined).finally(() => cards.forEach(clearPress))
 }
 
-/** the prototype's controls, folded behind one button (folded at first on a phone, so the page keeps its first screen);
- *  the button says what is picked */
-function Proto({ view, phone }: { view: View; phone: boolean }) {
-  const shown = view.proto ?? !phone
+/** the prototype's controls, folded behind one button until opened (so the page keeps its first screen); the button
+ *  says what is picked */
+function Proto({ view }: { view: View }) {
+  const shown = view.proto
   const picked = [OPENINGS.find(([o]) => o === view.opening)![1], view.later ? 'A week later' : 'Today', view.fresh ? 'A new install' : ''].filter(Boolean).join(' · ')
   return (
     <section className={cx('rd-proto', shown && 'on')} aria-label="Prototype controls">
@@ -284,7 +288,7 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
             return
           }
           // its finished draft posts now, as the paused line promised
-          const posted = resume(p.id)
+          const posted = resume(p.id, c.now)
           notice(posted.length ? `${p.name} resumed · its draft posted as ${posted.join(', ')}` : `${p.name} resumed`, { tone: 'ok' })
         }}>
           <I n={p.paused ? 'play' : 'pause'} />
@@ -292,6 +296,37 @@ function Strip({ p, c }: { p: RadarProject; c: Ctx }) {
         </Btn>
       )}
     </div>
+  )
+}
+
+/** a paused project: what stops, what keeps running, and what waits for Resume */
+function PausedNote({ p, c }: { p: RadarProject; c: Ctx }) {
+  const running = c.items.filter((i) => i.project === p.id && i.state === 'running')
+  const next = queue(c.items, p.id).filter((i) => i.state === 'next')
+  const draft = next.find((i) => i.draft)
+  return (
+    <div className="rd-paused">
+      <p><b>What stops:</b> reading issues and findings, scoring, posting, and new fixes. Nothing merges or installs on its own.</p>
+      {running.length > 0 && <p><b>Still running:</b> {running.map((i) => `“${i.task}”`).join(', ')} finishes its work, then waits for your review.</p>}
+      {draft ? <p><b>Waits for Resume:</b> “{draft.title}”, its issue draft finished before the pause. It posts once you Resume; nothing is posted until then.</p>
+        : next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Nothing new starts until you Resume.</p>}
+    </div>
+  )
+}
+
+/** a project opened from the calm timeline (its "paused" line): how it runs, Pause or Resume, and what a pause holds */
+function ProjectDetail({ p, c, narrow }: { p: RadarProject; c: Ctx; narrow: boolean }) {
+  return (
+    <article className="rd-detail" aria-labelledby="rd-dt">
+      <div className="rd-dh">
+        <span className="rd-st">{levelWords(p)}</span>
+        {!narrow && <IB icon="x" label="Close" onClick={() => setView({ item: null })} />}
+      </div>
+      <h2 id="rd-dt" className="rd-title">{p.name}</h2>
+      <p className="rd-meta">{[p.repo, `${p.folder} on ${p.machine}`].filter(Boolean).join(' · ')}</p>
+      <Strip p={p} c={c} />
+      {p.paused && <PausedNote p={p} c={c} />}
+    </article>
   )
 }
 
@@ -308,21 +343,13 @@ function NextUp({ c }: { c: Ctx }) {
         const q = queue(c.items, p.id)
         const running = c.items.filter((i) => i.project === p.id && i.state === 'running')
         const next = q.filter((i) => i.state === 'next'), held = q.filter((i) => i.state === 'held')
-        const draft = next.find((i) => i.draft)
         // today's fixes all used: the first in line says when it can start, not only why it is first
         const full = !p.paused && p.level === 'fix' && !!p.fixes && p.fixes.used >= p.fixes.cap
         const first = (i: RadarItem) => (full ? `First eligible after the cap resets${running.length ? ' and the running fix finishes' : ''}.` : i.reason)
         return (
           <section key={p.id} className="rd-proj">
             <Strip p={p} c={c} />
-            {p.paused && (
-              <div className="rd-paused">
-                <p><b>What stops:</b> reading issues and findings, scoring, posting, and new fixes. Nothing merges or installs on its own.</p>
-                {running.length > 0 && <p><b>Still running:</b> {running.map((i) => `“${i.task}”`).join(', ')} finishes its work, then waits for your review.</p>}
-                {draft ? <p><b>Waits for Resume:</b> “{draft.title}”, its issue draft finished before the pause. It posts once you Resume; nothing is posted until then.</p>
-                  : next[0] && <p><b>Waits for Resume:</b> “{next[0].title}” would start next. Nothing new starts until you Resume.</p>}
-              </div>
-            )}
+            {p.paused && <PausedNote p={p} c={c} />}
             {running.length > 0 && <List label="Being fixed">{running.map((i) => <ItemRow key={i.id} i={i} c={c} sub={`Task: ${i.task}`} />)}</List>}
             {next.length > 0 && <List label={p.paused ? 'Next, once resumed' : 'Next'}>{next.map((i, n) => <ItemRow key={i.id} i={i} c={c} n={n + 1} sub={n === 0 ? first(i) : undefined} />)}</List>}
             {held.length > 0 && <List label="Held back">{held.map((i) => <ItemRow key={i.id} i={i} c={c} sub={i.held!.words} />)}</List>}
@@ -376,9 +403,9 @@ function Shipped({ c }: { c: Ctx }) {
 
 function laterMenu(anchor: Element, i: RadarItem, now: number) {
   const park = (days: number, trigger: string, returned: string, soon?: number) => () => {
-    edit(i.id, { state: 'later', later: { until: now + days * DAY, trigger, returned, ...(soon ? { soon: now + soon * DAY } : {}) } })
+    edit(i.id, { state: 'later', changed: now, later: { until: now + days * DAY, trigger, returned, ...(soon ? { soon: now + soon * DAY } : {}) } })
     setView({ item: null })
-    notice('Parked. It comes back by itself.', { tone: 'ok', act: { label: 'Undo', run: () => edit(i.id, { state: i.state, later: i.later }) } })
+    notice('Parked. It comes back by itself.', { tone: 'ok', act: { label: 'Undo', run: () => edit(i.id, { state: i.state, later: i.later, changed: i.changed }) } })
   }
   openMenu(anchor, [
     { icon: 'clock', label: 'For a week', run: park(7, 'Back in a week', 'Came back: the week you set is up.') },
@@ -403,8 +430,8 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
   const [all, setAll] = useState(false)
   const shown = (all ? i.sightings : i.sightings?.slice(0, 5)) ?? []
   const change = (patch: Partial<RadarItem>, words: string, undo = true) => {
-    const was = { state: i.state, task: i.task, later: i.later }
-    edit(i.id, patch)
+    const was = { state: i.state, task: i.task, later: i.later, changed: i.changed }
+    edit(i.id, { changed: c.now, ...patch })
     notice(words, { tone: 'ok', ...(undo ? { act: { label: 'Undo', run: () => edit(i.id, was) } } : {}) })
   }
   // only a project that starts fixes, not paused, offers one; never a release (the sync takes those) or a held item
@@ -416,7 +443,8 @@ function Detail({ i, c, narrow }: { i: RadarItem; c: Ctx; narrow: boolean }) {
         {!narrow && <IB icon="x" label="Close" onClick={() => setView({ item: null })} />}
       </div>
       <h2 id="rd-dt" className="rd-title">{i.title}</h2>
-      <p className="rd-meta">{[p.name, i.sources.map((s) => SOURCE[s]).join(', '), i.events].filter(Boolean).join(' · ')}</p>
+      {/* the list's longer line: the project, how many hit it, rising, where from */}
+      <p className="rd-meta">{subOf(i, c, true)}</p>
 
       {red && (
         <section className="card rd-card">
@@ -529,7 +557,7 @@ function openSetup(p: RadarProject) {
           <Btn onClick={close}>Cancel</Btn>
           <Btn kind="pri" onClick={() => {
             editProject(p.id, { level: lv, next: '15:00', sources: [{ name: 'Agents', ok: true, words: 'Agents’ findings, read just now' }, { name: 'GitHub', ok: true, words: 'Issues, read just now' }] })
-            setView({ project: p.id, tab: 'all', item: null })
+            setView({ project: p.id, ...listTab(), item: null })
             close()
             notice(`Watching ${p.name}`, { tone: 'ok' })
           }}>Start watching</Btn>
@@ -562,9 +590,9 @@ function openJot(c: Ctx) {
           <Btn onClick={close}>Cancel</Btn>
           <Btn kind="pri" disabled={!text.trim()} onClick={() => {
             const id = `r-jot${Date.now()}`
-            addItem({ id, project: pid, kind: 'idea', title: text.trim(), sources: ['you'], state: 'new', reason: 'You jotted this. It waits here, private, until you pick it, park it or say no.' })
+            addItem({ id, project: pid, kind: 'idea', title: text.trim(), changed: c.now, sources: ['you'], state: 'new', reason: 'You jotted this. It waits here, private, until you pick it, park it or say no.' })
             close()
-            notice(`Saved to Radar · ${p.name}`, { tone: 'ok', act: { label: 'Open', run: () => setView({ project: pid, tab: 'all', item: id }) } })
+            notice(`Saved to Radar · ${p.name}`, { tone: 'ok', act: { label: 'Open', run: () => setView({ project: pid, ...listTab(), item: id }) } })
           }}>Save</Btn>
         </div>
       </div>
@@ -593,27 +621,36 @@ export function RadarPage() {
   const live = liveOf(snap)
   const c: Ctx = { snap, day, view, live, now, items: itemsAt(day, now, live), projects: day.projects }
   const item = view.item ? c.items.find((i) => i.id === view.item) : undefined
+  // the calm timeline's paused line opens its project
+  const opened = view.item?.startsWith('p:') ? c.projects.find((p) => p.id === view.item!.slice(2)) : undefined
   const proj = view.project ? projectOf(c, view.project) : null
   // a phone shows an item over the page, with Back; a wide page beside the list
-  const full = phone && !!item
+  const full = phone && !!(item || opened)
   const back = () => (full ? setView({ item: null }) : setUI({ page: null }))
-  const body = view.tab === 'overview' ? (view.opening === 'since' ? <Since c={c} /> : view.opening === 'pain' ? <Pain c={c} /> : <Pulse c={c} />) : view.tab === 'next' ? <NextUp c={c} /> : view.tab === 'all' ? <AllItems c={c} /> : <Shipped c={c} />
+  // the calm timeline is one feed: no tabs, only the project filter and Jot something
+  const calm = view.opening === 'timeline' && view.tab === 'overview'
+  const overview = view.opening === 'timeline'
+    ? <Timeline c={c} onSetup={openSetup} setupEmpty={(p) => <SetupEmpty p={p} />} />
+    : view.opening === 'since' ? <Since c={c} /> : view.opening === 'pain' ? <Pain c={c} /> : <Pulse c={c} />
+  const body = view.tab === 'overview' ? overview : view.tab === 'next' ? <NextUp c={c} /> : view.tab === 'all' ? <AllItems c={c} /> : <Shipped c={c} />
+  const filter = <Btn small className="rd-pp" onClick={(e) => projectMenu(e.currentTarget, c)}>{proj ? proj.name : 'All projects'}<I n="down" /></Btn>
+  const jot = <Btn small onClick={() => openJot(c)}><I n="plus" />Jot something</Btn>
   return (
-    <PaneFrame scrollKey="radar" head={(sc) => <Hd back={{ label: full ? 'Back to Radar' : 'Back', run: back }} title={full ? projectOf(c, item!.project).name : 'Radar'} sub={full ? undefined : 'What might become work, before it’s a task'} scrolled={sc} />}>
-      <div className={cx('rdp', item && 'open', full && 'full')}>
-        {!full && <Proto view={view} phone={phone} />}
-        {!full && (
-          <div className="rd-bar">
-            <Pick label="Radar views" values={TABS} value={view.tab} onChange={(tab) => setView({ tab, item: null })} />
-            <div className="rd-barr">
-              <Btn small className="rd-pp" onClick={(e) => projectMenu(e.currentTarget, c)}>{proj ? proj.name : 'All projects'}<I n="down" /></Btn>
-              <Btn small onClick={() => openJot(c)}><I n="plus" />Jot something</Btn>
+    <PaneFrame scrollKey="radar" head={(sc) => <Hd back={{ label: full ? 'Back to Radar' : 'Back', run: back }} title={full && item ? projectOf(c, item.project).name : 'Radar'} sub={full ? undefined : 'What might become work, before it’s a task'} scrolled={sc} />}>
+      <div className={cx('rdp', (item || opened) && 'open', full && 'full')}>
+        {!full && <Proto view={view} />}
+        {!full && (calm
+          ? <div className="rd-bar">{filter}{jot}</div>
+          : (
+            <div className="rd-bar">
+              <Pick label="Radar views" values={TABS} value={view.tab} onChange={(tab) => setView({ tab, item: null })} />
+              <div className="rd-barr">{filter}{jot}</div>
             </div>
-          </div>
-        )}
+          ))}
         <div className="rd-body">
           {!full && <div className="rd-main">{body}</div>}
           {item && <Detail key={item.id} i={item} c={c} narrow={full} />}
+          {!item && opened && <ProjectDetail key={opened.id} p={opened} c={c} narrow={full} />}
         </div>
       </div>
     </PaneFrame>

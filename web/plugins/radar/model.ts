@@ -18,6 +18,10 @@ export interface RadarItem {
   id: string
   project: string
   title: string
+  /** a few words for the calm timeline's one line ("Review stall"), the title when there are none */
+  short?: string
+  /** when it last changed (found, queued, parked, said no to, jotted): the timeline's time when it has no ship */
+  changed?: number
   kind: 'problem' | 'idea' | 'error' | 'release'
   sources: Source[]
   /** new: not sorted yet; next: in the queue; held: in the queue but held back; running: a task is on it; later:
@@ -80,7 +84,8 @@ export interface Live { cards: Set<string>; answers: Record<string, 'yes' | 'no'
 
 /* ---------- this page's copy: every click changes it, a reload brings the day back ---------- */
 
-export type Opening = 'since' | 'pain' | 'pulse'
+/** the opening screens to compare: the calm timeline (the default), Since you last looked, Pain map, Project pulse */
+export type Opening = 'timeline' | 'since' | 'pain' | 'pulse'
 export type Tab = 'overview' | 'next' | 'all' | 'shipped'
 export interface View {
   opening: Opening
@@ -93,13 +98,13 @@ export interface View {
   fresh: boolean
   /** All items' filter: open, what the row's grey count counts (new and next), parked, or Not doing */
   filter: Filter
-  /** the prototype's controls shown (null: as the width likes, open on a computer, folded on a phone) */
-  proto: boolean | null
+  /** the prototype's controls shown: folded until opened, on every width */
+  proto: boolean
 }
 export type Filter = 'open' | 'waiting' | 'later' | 'declined'
 
 interface Store { day: RadarDemo | null; seed: RadarDemo | null; view: View; v: number }
-const fresh = (): View => ({ opening: 'since', later: false, tab: 'overview', project: null, item: null, fresh: false, filter: 'open', proto: null })
+const fresh = (): View => ({ opening: 'timeline', later: false, tab: 'overview', project: null, item: null, fresh: false, filter: 'open', proto: false })
 const s: Store = { day: null, seed: null, view: fresh(), v: 0 }
 const subs = new Set<() => void>()
 const emit = () => { s.v++; subs.forEach((f) => f()) }
@@ -124,10 +129,12 @@ export function useRadar(): { day: RadarDemo | null; view: View } {
   return { day: s.day, view: s.view }
 }
 export function setView(p: Partial<View>) { s.view = { ...s.view, ...p }; emit() }
+/** the view as it is now, outside React (a form's button) */
+export const getView = () => s.view
 /** the shared cards this day's items ask on (Start over forgets their presses: the same card comes back) */
 export const askCards = () => (s.seed?.items ?? []).flatMap((i) => (i.needs ? [i.needs.card] : []))
 /** Resume: a paused project's finished drafts post (this page's copy): each leaves the queue as the issue it became */
-export function resume(id: string): string[] {
+export function resume(id: string, now = Date.now()): string[] {
   if (!s.day) return []
   const p = s.day.projects.find((x) => x.id === id)
   if (!p) return []
@@ -140,7 +147,7 @@ export function resume(id: string): string[] {
       if (i.project !== id || !i.draft || i.state !== 'next') return i
       const issue = `${p.repo}#${++n}`
       posted.push(issue)
-      return { ...i, draft: undefined, posted: issue, reason: `Its finished draft posted as ${issue} when you resumed ${p.name}. Watch and score starts no fixes, so it stays an open issue.` }
+      return { ...i, draft: undefined, posted: issue, changed: now, reason: `Its finished draft posted as ${issue} when you resumed ${p.name}. Watch and score starts no fixes, so it stays an open issue.` }
     }),
   }
   emit()
@@ -176,8 +183,9 @@ export const clock = (now: number, v: Pick<View, 'later'>) => now + (v.later ? 7
 export function at(i: RadarItem, now: number, live?: Live): RadarItem {
   if (i.state === 'later' && i.later && (i.later.until <= now || (i.later.soon ?? Infinity) <= now)) return { ...i, state: 'new', reason: i.later.returned ?? 'Its parked time is up.', later: { ...i.later, returned: i.later.returned ?? 'Its parked time is up.' } }
   const a = i.needs && live && !live.cards.has(i.needs.card) ? live.answers[i.needs.card] : undefined
-  if (a === 'yes') return { ...i, approved: true, state: 'running', task: i.task ?? 'Fix: ' + i.title }
-  if (a === 'no') return { ...i, needs: undefined, state: 'declined', reason: 'You said no on its card.' }
+  // answered on its card just now as far as this page knows: the timeline shows it at this clock, not when it was found
+  if (a === 'yes') return { ...i, approved: true, state: 'running', changed: now, task: i.task ?? 'Fix: ' + i.title }
+  if (a === 'no') return { ...i, needs: undefined, state: 'declined', changed: now, reason: 'You said no on its card.' }
   return i
 }
 export const itemsAt = (d: RadarDemo, now: number, live?: Live) => d.items.map((i) => at(i, now, live))
