@@ -584,7 +584,8 @@ const TREES: Record<string, Record<string, string[]>> = {
     '/home/sam/clients/acme': ['shop*', 'customer-portal-and-billing-redesign*'],
   },
 }
-const RECENT: Record<string, string[]> = { 'mac-mini': ['/Users/sam/dev/shop', '/Users/sam/dev/recipes', '/Users/sam/dev/blog', '/Users/sam/dev/portfolio', '/Users/sam/notes'], vm: ['/home/sam/dev/garden-app', '/home/sam/clients/acme/shop'] }
+// shop, blog, notes and the vm's shop and garden-app have their spaces already, so they aren't offered
+const RECENT: Record<string, string[]> = { 'mac-mini': ['/Users/sam/dev/shop', '/Users/sam/dev/recipes', '/Users/sam/dev/blog', '/Users/sam/dev/portfolio', '/Users/sam/notes'], vm: ['/home/sam/dev/garden-app', '/home/sam/clients/acme/customer-portal-and-billing-redesign', '/home/sam/clients/acme/shop'] }
 
 /** what /api/newspace answers for a machine; null: it can't be reached */
 export function newSpaceInfo(machine: string, down = false) {

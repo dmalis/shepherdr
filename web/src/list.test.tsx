@@ -374,6 +374,10 @@ test("a folder that isn't there yet says Create makes it; an error is a quiet li
   expect(FL.shown('~/dev/', info, { exists: true, entries: [] }).note).toBe('No folders inside')
   expect(FL.shown('~/dev/', info, { error: "Couldn't list that folder on vm." }).note).toBe("Couldn't list that folder on vm.")
   expect(FL.shown('~/dev/', info, 'loading').note).toBe('Loading…')
+  // home not listed: the recent folders still show, and the error under them
+  const failed = FL.shown('', info, { error: "Couldn't list that folder on vm." })
+  expect(texts(failed)).toEqual([['Recent', ['~/dev/shop/', '~/notes/']]])
+  expect(failed.note).toBe("Couldn't list that folder on vm.")
 })
 
 test('keys: down and up move through the rows and wrap, Enter picks the row moved to or creates, Tab completes', () => {

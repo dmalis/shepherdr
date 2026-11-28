@@ -65,7 +65,8 @@ export function shown(text: string, info: Info, asked: Asked | undefined): Shown
     const seen = new Set(recent.map((r) => r.text))
     const inHome = listing ? NS.matching(listing.entries.map((e) => e.path), t).map((p) => folderRow(p, home, 'folder', listing.entries.find((e) => e.path === p)?.repo)).filter((r) => !seen.has(r.text)) : []
     const groups = [...(recent.length ? [{ label: 'Recent', rows: recent }] : []), ...(inHome.length ? [{ label: 'In ~', rows: inHome }] : [])]
-    const note = groups.length ? (wait && !listing ? NS.WORDS.loading : null) : fail ?? (wait ? NS.WORDS.loading : t ? NS.WORDS.noMatch : NS.WORDS.empty)
+    // home couldn't be listed: said under the recent folders too, never a list that looks whole
+    const note = fail ?? (groups.length ? (wait && !listing ? NS.WORDS.loading : null) : wait ? NS.WORDS.loading : t ? NS.WORDS.noMatch : NS.WORDS.empty)
     return { groups, note }
   }
   const dir = wanted(t, home)
