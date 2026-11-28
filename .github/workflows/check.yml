@@ -10,9 +10,10 @@
 # is only parsed here.
 #
 # The parts run side by side, so the run takes as long as its slowest part, not their sum (fork #175: one job
-# took 8 to 9 minutes and passed its 10-minute limit under load). `build` builds the web app once and hands web/dist
-# to the jobs that need it; the last job, `check`, passes only when every part passed: it is the one check a pull
-# request needs, so a new part is added to its needs.
+# took 8 to 9 minutes and passed its 10-minute limit under load, then more than 15 as the fork's browser checks grew).
+# Each job's 15 minutes is only a backstop: none takes more than a few. `build` builds the web app once and hands
+# web/dist to the jobs that need it; the last job, `check`, passes only when every part passed: it is the one check a
+# pull request needs, so a new part is added to its needs, and a new browser check is one more entry of `browser`.
 name: Check
 
 on:
@@ -27,14 +28,16 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # a pull request's older run gives way to its newer push; on main a run finishes, so every stretch of merges gets a
+  # verdict, and only the newest waiting push runs after it (GitHub drops the older waiting one)
   group: check-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     name: web app built (and the installer into a brand-new throwaway home)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -48,6 +51,9 @@ jobs:
           bun install --frozen-lockfile
           bun web/build-plugins.ts   # web/generated/ (not in git): the plugin list the app imports
           bun run build
+      - name: the first screen's script stays under its budget, sent compressed (docs/design.md, Performance)
+        # fork #163: web/first-screen.ts counts the page's module script and what it imports, not what comes later
+        run: bun web/first-screen.ts
       - uses: actions/upload-artifact@v4
         # kept a week, so "Re-run failed jobs" days later still finds it; a re-run of this job replaces it
         with:
@@ -67,10 +73,7 @@ jobs:
   web:
     name: service, shared core and web app (parses, types, tests)
     runs-on: ubuntu-latest
-    # upstream's 10 minutes no longer fit the fork's browser checks (tap, scroll, dictation, phone box, typing, still,
-    # artifact, reading): about 5 minutes of them, and main alone past 600 s (fork #144). 25 is a backstop while
-    # "CI: finish inside the limit" splits the job into parallel parts: the whole job now runs past 15 minutes
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -115,7 +118,7 @@ jobs:
     name: tests (${{ matrix.part }})
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -154,7 +157,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -164,6 +167,9 @@ jobs:
             run: bun web/demo/tap-check.ts
           - name: chats and terminals open at the newest line (the built demo, phone and desktop)
             run: bun web/demo/scroll-check.ts
+          - name: replies read well (the built demo, phone and desktop, each Chat text size)
+            # fork #164: web/demo/reply-check.ts: code size and Copy, headings that step down, a wide table's named box
+            run: bun web/demo/reply-check.ts
           - name: dictation and the call stay inside the message box, their wave moves, their buttons stay put
             # web/demo/dict-check.ts with a fake microphone (3.2.3's broken dictation)
             run: bun web/demo/dict-check.ts
@@ -174,6 +180,14 @@ jobs:
             # fork #134: web/demo/phone-box-check.ts types a line, Return for a new line, sends with the button and
             # with Enter on a hardware keyboard, and measures the box's rows
             run: bun web/demo/phone-box-check.ts
+          - name: a draft is never lost (the built demo at phone width, with real reloads)
+            # fork #149: web/demo/draft-check.ts reloads a draft with everything in it, a file still going up, a send
+            # cut off mid-upload, files the browser couldn't keep and a full storage
+            run: bun web/demo/draft-check.ts --phone
+          - name: edits keep what you wrote (the built demo, desktop and phone)
+            # fork #186: web/demo/edit-check.ts holds a suggestion with words in the box, pastes in the middle, types
+            # on a phone with the keyboard up and drags a file over the page
+            run: bun web/demo/edit-check.ts
           - name: a still page does no work while pictures wait (the built demo, phone and desktop)
             # fork/specs/ui-polish.md slice 2: web/demo/still-check.ts, no running animation and almost no style work
             # over 10 s with pictures blocked, hung and served, and no layout shift as they load
@@ -182,6 +196,23 @@ jobs:
             # UI polish slice 19: web/demo/artifact-check.ts measures each line in the artifact's frame as painted, at
             # 4.5:1, in Chrome's own dark too
             run: bun web/demo/artifact-check.ts
+          - name: reading back on a phone (the built demo, 390 px; a desktop window unchanged)
+            # fork #144: web/demo/reading-check.ts scrolls back through a chat and a task's thread: the tabs go, the
+            # box folds, the view stays; a scroll down, a tap or focus brings them back; nothing with a draft
+            run: bun web/demo/reading-check.ts
+          - name: either reduced-motion switch alone stops every move (the built demo, phone and desktop)
+            # fork/specs/ui-polish.md slice 5: web/demo/motion-check.ts opens a menu, a sheet and the spaces list,
+            # folds a machine, drags a row and taps a suggested reply under each switch alone
+            run: bun web/demo/motion-check.ts
+          - name: a task row's swipe to the left, with real touch (the built demo, 390 px)
+            # fork #185: web/demo/swipe-check.ts opens, closes and full-slides rows with CDP touch events: one open at
+            # a time, scrolling and the edge strip untouched, Archive's wait, Undo and failure, Reduced and Zoom
+            run: bun web/demo/swipe-check.ts
+          - name: everything in a chat fits its column on a phone (the built demo, 320 and 390 px)
+            # fork #85: web/demo/fit-check.ts measures every card, row and bubble in the demo's chats, at Chat text
+            # Default and Larger: nothing inside a card or a news row reaches past it, nothing reaches past the column
+            # or the screen
+            run: bun web/demo/fit-check.ts
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

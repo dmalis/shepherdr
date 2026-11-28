@@ -51,9 +51,16 @@ class CheckWorkflow(unittest.TestCase):
     def test_every_check_still_runs(self):
         j = jobs(text())
         browser = j["browser"]
-        for f in ("tap-check", "scroll-check", "dict-check", "box-check", "phone-box-check", "still-check",
-                  "artifact-check"):
-            self.assertIn(f"            run: bun web/demo/{f}.ts\n", browser, f)
+        for f in ("tap-check", "scroll-check", "reply-check", "dict-check", "box-check", "phone-box-check",
+                  "draft-check.ts --phone", "edit-check", "still-check", "artifact-check", "reading-check",
+                  "motion-check", "swipe-check", "fit-check"):
+            f = f if " " in f else f + ".ts"
+            self.assertIn(f"            run: bun web/demo/{f}\n", browser, f)
+        # each browser check is the browser matrix's: none left as a step of another job
+        for name, block in j.items():
+            if name != "browser":
+                self.assertNotIn("bun web/demo/", block, name)
+        self.assertIn("        run: bun web/first-screen.ts\n", j["build"])
         # the matrix's command is what the job's last step runs
         self.assertRegex(browser, r"(?m)^      - name: \$\{\{ matrix\.name \}\}\n        run: \$\{\{ matrix\.run \}\}\n\s*\Z")
         for job, lines in (("web", ("python3 bin/sync-shared --check", 'node --input-type=module --check < "$f"',
@@ -65,6 +72,10 @@ class CheckWorkflow(unittest.TestCase):
                            ("python", ('          python3 -m unittest -v "$@"\n',))):
             for line in lines:
                 self.assertIn(line, j[job], f"{job}: {line}")
+
+    def test_only_a_pull_requests_older_run_is_cancelled(self):
+        # main's runs finish, so merges every few minutes still get a verdict (the sync gate reads it)
+        self.assertIn("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", text())
 
     def test_each_job_keeps_a_time_limit(self):
         for name, block in jobs(text()).items():
