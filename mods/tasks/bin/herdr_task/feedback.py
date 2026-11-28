@@ -517,6 +517,9 @@ def cmd_feedback(args):
         raise Fail("--all goes with --list: herdr-task feedback --list --all --json")
     if args.list and getattr(args, "all", False):
         return list_all(args)
+    from .feedback_track import track_call
+    if track_call(args) is not None:  # --track: each filed or followed issue's state on GitHub, read only (#94, slice 5)
+        return True
     addr, k = me()
     labels = k.get("labels") or {}
     assistant = bool(k) and is_coordinator(k)

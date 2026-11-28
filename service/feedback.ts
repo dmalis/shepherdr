@@ -34,7 +34,8 @@ export const herdrTask: Runner = async (args) => {
   delete env.HC_TERMINAL_ID;
   delete env.HC_TERMINAL_SOCKET;
   const p = spawn([process.env.SHEPHERDR_HERDR_TASK || "herdr-task", "feedback", ...args], { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const kill = setTimeout(() => p.kill(), 20_000);
+  // --track reads one issue after another on GitHub: it may take longer (each one read is kept as it goes)
+  const kill = setTimeout(() => p.kill(), args.includes("--track") ? 300_000 : 20_000);
   try {
     const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     return { code, stdout, stderr };
@@ -132,6 +133,30 @@ export function postOf(p: any, now: number): FeedbackRow["post"] | undefined {
   return { state, rev: x.rev, ...(why && state === "refused" ? { why } : {}) };
 }
 
+// Slice 5: GitHub's side of a filed or followed problem's issue (herdr-task feedback --track, feedback_track.py).
+const ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/;
+
+/** what GitHub said of its issue last, for the page: open, closed and why, and a duplicate's canonical issue */
+export function outcomeOf(p: any): FeedbackRow["outcome"] | undefined {
+  const o = p?.outcome;
+  // a read of GitHub names its issue ("repo#n"); an older post's placeholder ({url, state: open}) is no read
+  if (!o || typeof o !== "object" || typeof o.issue !== "string" || (o.state !== "open" && o.state !== "closed")) return undefined;
+  const c = o.state === "closed" && o.reason === "duplicate" ? matchOf(o.canonical, false) : null;
+  return { state: o.state, ...(o.state === "closed" && REASONS.has(o.reason) ? { reason: o.reason } : {}),
+    ...(c ? { canonical: { title: c.title, url: c.url, state: c.state, ...(c.reason ? { reason: c.reason } : {}) } } : {}),
+    ...(Number.isFinite(o.checked_at) && o.checked_at > 0 ? { at: o.checked_at } : {}),
+    ...(p.track_error ? { failed: true as const } : {}) };
+}
+
+/** whether herdr-task follows this problem's issue (feedback_track.followed): filed or the person's Follow, its origin's
+ *  offers on, not yet said to work */
+export function followed(p: any, settings: any): boolean {
+  if (!p || typeof p !== "object") return false;
+  if (!ISSUE_URL.test(String(p.outcome?.url ?? "")) && !ISSUE_URL.test(String(p.url ?? ""))) return false;
+  const filed = p.state === "filed" || p.decision === "following" || p.post?.state === "posted";
+  return filed && p.decision !== "declined" && p.tried?.result !== "works" && offersOn(settings, p.space);
+}
+
 /** herdr-task's rows as the page shows them: only what it draws (no report text), newest first */
 export function rowsOf(list: unknown, settings: any, now = Date.now()): FeedbackList {
   const rows: FeedbackRow[] = [];
@@ -162,6 +187,7 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
       ...((d) => (d ? { draft: d } : {}))(draftOf(p)),
       ...(p.decision === "approved" && Number.isInteger(p.approval?.rev) ? { approved: p.approval.rev } : {}),
       ...((x) => (x ? { post: x } : {}))(postOf(p, now)),
+      ...((o) => (o && section === "filed" ? { outcome: o } : {}))(outcomeOf(p)),
     });
   }
   rows.sort((a, b) => b.at - a.at);
@@ -232,6 +258,18 @@ export class Feedback {
     if (this.last === null && !this.error) return null;
     const out = withChats(rowsOf(this.last ?? [], this.settings(), now), chats);
     return this.error ? { ...out, error: "Couldn't read the newest list just now: showing the last one." } : out;
+  }
+
+  /** Each followed issue's state on GitHub, read again (herdr-task feedback --track, read only; it reads each at most
+   *  once an hour): only while the plugin is on and something is followed. -> whether it ran */
+  async track(): Promise<boolean> {
+    if (!this.on()) return false;
+    if (this.last === null) await this.read();
+    if (!(this.last ?? []).some((p) => followed(p, this.settings()))) return false;
+    await this.run(["--track", "--json"]);
+    if (this.reading) await this.reading;
+    await this.read();
+    return true;
   }
 
   /** One of the person's calls from the page: report (the box), later, no, undo, follow. -> {ok, ...} or {ok: false, error} */

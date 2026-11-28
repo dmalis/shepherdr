@@ -11,7 +11,7 @@ import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
 import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
+import { backWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, spaceOfChat, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
@@ -83,6 +83,21 @@ function CheckView({ r, busy, onFollow }: { r: FeedbackRow; busy: boolean; onFol
       {newer && <li className="fb-m"><p className="fb-mw">{newer}</p></li>}
       {c.failed && <li className="fb-m"><p className="fb-mw quiet">{W.unreachable}</p></li>}
     </ul>
+  )
+}
+
+/** a filed row's status on GitHub (slice 5), as GitHub's notifications and Linear's synced issues show theirs: a mark
+ *  and the state in words, a duplicate's canonical issue linked; under it, when GitHub couldn't be reached since */
+function OutcomeView({ o }: { o: NonNullable<FeedbackRow['outcome']> }) {
+  const w = outcomeWords(o)
+  return (
+    <>
+      <p className={cx('fb-st', w.fixed && 'fixed')}>
+        <I n={w.icon} c="s16" />
+        <span>{w.lead}{w.link && <a className="fb-ml" href={w.link.url} target="_blank" rel="noreferrer">“{w.link.title}”</a>}{w.tail}</span>
+      </p>
+      {o.failed && <p className="fb-note">{W.trackFailed}</p>}
+    </>
   )
 }
 
@@ -165,6 +180,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
         <p className="fb-meta">{metaOf(r, where, now)}</p>
         {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
+        {r.section === 'filed' && r.outcome && !postWords(r) && <OutcomeView o={r.outcome} />}
         <div className="fb-acts">{btns()}</div>
       </div>
     </li>

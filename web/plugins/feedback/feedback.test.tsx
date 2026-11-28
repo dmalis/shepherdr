@@ -37,7 +37,7 @@ const page = (s: Snapshot) => renderToStaticMarkup(<FeedbackPage now={NOW} snap=
 test('sections: Found and Filed open with their counts, Not now and Said no folded with theirs', () => {
   const html = page(snapshot())
   const heads = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
-  expect(heads).toEqual(['Found 3', 'Filed 2', 'Not now 2', 'Said no 1'])
+  expect(heads).toEqual(['Found 3', 'Filed 4', 'Not now 2', 'Said no 1'])
   // the folds are closed disclosure buttons: their rows aren't drawn until opened
   expect(html.match(/aria-expanded="false"/g)?.length).toBe(2)
   expect(html).not.toContain('The terminal pane scrolls')

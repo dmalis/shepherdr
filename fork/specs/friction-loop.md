@@ -602,6 +602,16 @@ the evidence. Each slice's demo starts from an ordinary report, not a hand-made 
 - **Tests:** a fake gh's closed completed, not planned, and duplicate with a `MarkedAsDuplicateEvent`; reopened goes
   back to open; the job doesn't run with nothing followed; gh failing keeps the last outcome.
 - **Demo:** file a problem through slice 4's demo, close the fake issue, run `--track`: the row says Closed as fixed.
+- **As built:** the follower lives in its own module, `feedback_track.py`, which `feedback.py` calls in one line. Each
+  issue is read about once an hour from its last read, answered or not (five minutes' slack, so the hourly sweep never
+  skips a due issue), rows on one issue sharing one read; `--key K --track` reads that one now. A post notes only its
+  issue: the row says Filed until the first read, which is due at once. A
+  comment's problem follows the issue it commented on, and an older version's filing (a link, no `outcome`) is followed
+  too. A duplicate of a duplicate is followed on, three steps at most; a timeline that doesn't answer, at any step, keeps
+  the last canonical issue found. The service runs `--track` an hour apart (a minute after it starts, then hourly) only while a row is
+  followed; herdr-task's own hour keeps a restart from reading again. The row's status line takes a duplicate's look
+  from the issue it points to ("Closed as a duplicate of “…”, which is closed as fixed"), and a post still under way
+  shows its step instead.
 
 ### Slice 6: on this machine, and works
 

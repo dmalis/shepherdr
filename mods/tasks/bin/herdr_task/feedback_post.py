@@ -415,7 +415,7 @@ def file_rev(key, rev, d):
 
 
 def posted(key, post, url):
-    """The post went out: filed, its yes used up, and GitHub's side noted."""
+    """The post went out: filed, its yes used up, and the issue it went to noted for --track to read."""
     t = post["target"]
     issue = url if t["action"] == "create" else f"https://github.com/{t['repo']}/issues/{t['issue']}"
     issue = re.sub(r"[#?].*$", "", issue)
@@ -425,7 +425,7 @@ def posted(key, post, url):
             return {"key": key, "filed": True, "url": url}, f"Already filed: {url}."
         ps[key] = {**{k: v for k, v in p.items() if k != "approval"}, "state": "filed", "at": now(), "url": url,
                    "post": {**post, "state": "posted", "url": url},
-                   "outcome": {"url": issue, "state": "open", "checked_at": now()}}
+                   "outcome": {"url": issue}}  # its issue; GitHub's side is read by --track (feedback_track)
     return ({"key": key, "filed": True, "url": url},
             f"{'Commented' if t['action'] == 'comment' else 'Filed'}: {url} — tell the person this link in one line.")
 

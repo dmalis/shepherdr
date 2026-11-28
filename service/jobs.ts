@@ -14,6 +14,7 @@ import type { Hub } from "./hub.ts";
 import type { Host } from "./host.ts";
 import { HOME, appHome, where, writable } from "./paths.ts";
 import { spawn } from "./spawn.ts";
+import { feedback } from "./feedback.ts";
 
 const asksDir = () => join(appHome(), "data", "chat-asks", "open");
 
@@ -70,6 +71,10 @@ export class Jobs {
       if (e.type === "reset" || ("terminal" in e && e.terminal)) this.onChange();
     });
     setInterval(() => this.flags(), 4000);
+    // the Feedback page's filed issues on GitHub (friction loop #94, slice 5): hourly, only while something is followed
+    const track = () => void feedback.track().catch(() => {});
+    setTimeout(track, 60_000);
+    setInterval(track, 3_600_000);
   }
 
   private async tick(change = false) {
