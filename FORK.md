@@ -206,7 +206,9 @@ author decides what goes into theirs.
     opening a new one, and says so.
 - **Collect what's left.** When the person asks "what else did we find", the Assistant first records any friction
   from the session it hasn't yet, then lists what waits under Found on the Feedback page, each with its proposed
-  fix: from `herdr-task feedback --list --all --json`, every row not filed, declined or put off (Not now).
+  fix: from `herdr-task feedback --list --all --json`, every row the page puts under Found. That leaves out a row
+  filed or being filed (state `filed` or `filing`, or a `url`), declined (state or decision `declined`), or put off
+  (decision `later` with no `until`, or an `until` still ahead).
 - **Industry standard first.** Every UI and UX change follows the industry standard and the common pattern of
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.
@@ -244,8 +246,9 @@ author decides what goes into theirs.
   self-contained upstream issue per theme, a few in a round, never one per fix and never one mega issue. The person
   sees the round's plan in one message, and their "go" posts it. Each fix it offered gets `upstream-proposed`.
 
-  What we post always says it is the author's to take as it is, do differently or drop. One comment per upstream
-  issue, ever, and never a second issue for the same problem.
+  What we post always says it is the author's to take as it is, do differently or drop. One offering comment per
+  upstream issue, ever, and never a second issue for the same problem. A reply to the author's question carries only
+  the person's answer, never another fix.
 - **Our pull request stays in our fork,** linked from upstream. No pull request on upstream unless the person asks
   for that one.
 - **When the author fixes it their own way,** the next sync drops our patch and keeps theirs.

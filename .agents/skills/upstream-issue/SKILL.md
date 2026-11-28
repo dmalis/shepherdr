@@ -103,8 +103,9 @@ round is posted before that "go".
    number,title,body`, each checked against the patch list of what runs now: the install folder's commit
    (`git -C <install folder> rev-parse HEAD`, FORK.md: "Where things are"), read with
    `fork/bin/sync patch-list --at <that commit>`. Go by each fix's part of the status line, never by the issue's
-   labels alone: take only the parts "not filed yet". A part that is fork-only, reverting, still "building" or
-   already proposed stays out, even on an issue that also has `not-filed`.
+   labels alone: take only the parts "not filed yet" whose pull request's merge commit runs now
+   (`git merge-base --is-ancestor <its merge commit> <that commit>`). A part that is fork-only, reverting, still
+   "building", already proposed or not in that commit stays out, even on an issue that also has `not-filed`.
 2. **Check upstream first** for each (fork-patch skill, step 1), from its issue's "Upstream checked" line:
    - fixed upstream since, in a release or on main: leave it out; the sync drops ours;
    - an upstream issue for the same problem: read its comments first
@@ -133,6 +134,8 @@ round is posted before that "go".
      parts stand alone.
    - **A theme posted in an earlier round** and still open takes this round's fixes for it as one comment, if we
      haven't commented there yet; else they go in a new theme issue for the new problem.
+   - **One comment per upstream issue:** before the plan, merge step 2's matches and these earlier themes by
+     upstream issue, so each issue gets at most one comment, linking every fix it includes.
 4. **Write each post** ("How to write one").
 5. **Show the person the plan** in one message, before anything is posted:
    - each theme issue's title and the fixes in it, each by what it does, with our issue's link;
@@ -156,7 +159,7 @@ Our pull requests stay in our fork. Never open a pull request on upstream unless
 | What | When | Yes needed |
 |---|---|---|
 | A theme issue or a comment, in an upstream round | Only for fixes merged and live here | The person's ask for the round, then their "go" on its plan. One comment per issue, ever; one issue per problem, ever |
-| A reply to the author | Only when the author asked a question on an issue we posted or commented on, with the person's answer (shaping-a-request, step 4). One reply per question | Their words for that reply |
+| A reply to the author | Only when the author asked a question on an issue we posted or commented on, with the person's answer (shaping-a-request, step 4). One reply per question; it carries only that answer, never another fix (a new fix waits for a round) | Their words for that reply |
 
 Nothing else goes there: no fix outside a round, no rewording, no follow-up nudges.
 
@@ -187,8 +190,8 @@ The upstream check (fork-patch skill, step 1) finds these.
    - **Links** to our pull requests and their commits on dmalis/shepherdr, and the release it runs on.
    - **The closing line:** "We built these in our fork. They're yours to take as they are, do differently or drop,
      part by part."
-3. **A comment** is two or three lines: what our fix does, then "We fixed this in our fork: <link to the
-   dmalis/shepherdr pull request>. It's yours to take as it is, do differently or drop."
+3. **A comment** is two or three lines per fix: what it does, with its dmalis/shepherdr pull request's link, then
+   once: "We fixed this in our fork. It's yours to take as it is, do differently or drop."
 4. **Respect upstream's stated design.** It is in the Rules of docs/develop.md, in docs/settings.md and in the
    README.
    - Offer each part as the smallest change that would let us drop our patch.
