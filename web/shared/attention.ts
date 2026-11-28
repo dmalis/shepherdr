@@ -13,7 +13,7 @@
 //   waiting for a reply, checks failed, a conflict, review rounds out, an error stop). It shows only on that task.
 // A task stopped by the person (Paused), a working one and one waiting for its checks have no action at all.
 // The source facts are the snapshot's own: no model, no guess (docs/develop.md Rules).
-import type { HandUp, Need, Snapshot, Task } from './types.ts'
+import type { HandUp, Need, Snapshot, Task, TriageCard } from './types.ts'
 import { urgentWaitsFirst } from './urgent.ts'
 
 export type Alert = NonNullable<Snapshot['alerts']>[number]
@@ -23,8 +23,9 @@ export type Owner = 'you' | 'shepherdr'
 
 /** prompt: a card or wait of an agent's own; question: a question asked from a card while its chat carries on (its
  *  task stays Working); review: Ready for your review; alert: a hand-up; wait: a wait Shepherdr handles first (or, with
- *  no Shepherdr running, yours); chat: a space's own Shepherdr asking with no record of its own */
-export type ActionKind = 'prompt' | 'question' | 'review' | 'alert' | 'wait' | 'chat'
+ *  no Shepherdr running, yours); chat: a space's own Shepherdr asking with no record of its own; triage: one of
+ *  Triage's yes cards (fork #235) */
+export type ActionKind = 'prompt' | 'question' | 'review' | 'alert' | 'wait' | 'chat' | 'triage'
 
 export interface Action {
   /** stable while it lasts, and new for a new question: need:<chat>:<prompt id>, review:<task>:<since>,
@@ -57,6 +58,8 @@ export interface Action {
   tasks?: string[]
   /** fork "Needs you 6b": the hand-up it is, its words and choices for its card */
   handUp?: HandUp
+  /** fork #235: the Triage card it is */
+  triage?: TriageCard
   /** the name of the machine it is on while that machine can't be read: its last known row stays, saying so, and it
    *  sends no new alert until it is read again */
   stale?: string
@@ -80,7 +83,7 @@ export const ALERT_FRESH_MS = 15 * 60_000
 /** a memory guard's alert is over once its machine's memory is back under this (herdr-task tick GUARD_BACK_UNDER) */
 export const MEMORY_BACK_UNDER = 75
 
-type AttentionSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'machines' | 'attention' | 'everything' | 'host' | 'screens'>>
+type AttentionSnap = Pick<Snapshot, 'places' | 'tasks' | 'needs'> & Partial<Pick<Snapshot, 'alerts' | 'machines' | 'attention' | 'everything' | 'host' | 'screens' | 'triage'>>
 
 /** the task a chat belongs to (a task's chats are <task id>/<agent>) */
 const taskOfChat = (snap: Pick<Snapshot, 'tasks'>, chat?: string) =>
@@ -274,7 +277,25 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
       card: ask ? `handup:${ask.lead}` : t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}),
       ...(rec ? { gen: rec.gen, ...(rec.up?.settled ? {} : { deadline: rec.deadline }) } : late !== undefined ? { deadline: late } : {}), ...(up ? { up } : {}), ...(ask ? { handUp: ask } : {}), ...(stale ? { stale } : {}) })
   }
+  // fork #235: Triage's yes cards (a held draft to post, an outside issue to start), each the person's, in its repo's
+  // space's chat (Everything's when that space isn't here); its hash in the id, so a changed text is a new question
+  for (const c of snap.triage?.cards ?? []) {
+    const place = triagePlace(snap, c)
+    const p = place ? snap.places.find((x) => x.id === place) : undefined
+    if (!p) continue
+    add({ id: `triage:${c.id}:${c.hash.slice(0, 12)}`, owner: 'you', kind: 'triage', what: triageAsk(c), since: c.at, place: p.id, chat: p.chat, card: `triage:${c.id}`, triage: c })
+  }
   return { at: now, actions: inOrder([...out.values()], snap.tasks) }
+}
+
+/** a Triage card's question, in a few words */
+export const triageAsk = (c: TriageCard) => (c.kind === 'start' ? 'Start a fix for this?' : 'Post this to GitHub?')
+
+/** the space a Triage card shows in: its repo's (where its schedule runs), else Everything */
+export function triagePlace(snap: AttentionSnap, c: Pick<TriageCard, 'repo'>): string | undefined {
+  const r = Object.values(snap.triage?.repos ?? {}).find((x) => x.repo && x.repo.toLowerCase() === c.repo.toLowerCase() && x.schedule?.space)
+  const sp = r?.schedule?.space
+  return (sp && snap.places.some((p) => p.id === sp) ? sp : undefined) ?? everythingId(snap)
 }
 
 /** Everything's id, as web/shared/view.ts everything() finds it: the root space, else the serving machine's home */

@@ -245,7 +245,8 @@ def yes_hash(target, title, body):
 
 
 def yeses():
-    """The app's yeses, as the service kept them: [{kind, repo, key, rev, hash, at}]. Read only, here."""
+    """The app's answers, as the service kept them: [{kind, repo, key|issue, rev?, hash, at, answer?}]; a row without
+    `answer` is a yes (the Feedback page's Post it). Read only, here."""
     try:
         with open(YES) as f:
             d = json.load(f)
@@ -255,22 +256,62 @@ def yeses():
     return [y for y in rows if isinstance(y, dict) and y.get("by") == "app"] if isinstance(rows, list) else []
 
 
-def has_yes(key, rev, h, repo, after=0):
-    """The app's yes for this draft's exact text, made after `after` (ms: the row's last Not now or Never, `unyes`,
-    which takes back an earlier yes even once undone or over)."""
+def _said(y, answer):
+    return (y.get("answer") or "yes") == answer
+
+
+def has_yes(key, rev, h, repo, after=0, answer="yes"):
+    """The app's yes (or, answer="no", its No: keep it private) for this draft's exact text, made after `after` (ms:
+    the row's last Not now or Never, `unyes`, which takes back an earlier yes even once undone or over). A changed
+    text has another hash, so it asks again."""
     return any(y.get("kind") == "draft" and y.get("key") == key and y.get("rev") == rev and y.get("hash") == h
                and str(y.get("repo") or "").lower() == repo.lower() and int(y.get("at") or 0) > int(after or 0)
-               for y in yeses())
+               and _said(y, answer) for y in yeses())
 
 
-def yes_for(key, p, repo):
-    """Whether the row's stored draft, as it is now, has the app's yes (read under the row's lock by the caller)."""
+def _draft_hash(p):
     from .feedback_post import shown
     dr = p.get("draft") if isinstance(p.get("draft"), dict) else None
+    return (dr, yes_hash(dr.get("target"), dr.get("title"), shown(dr.get("body")))) if dr else (None, None)
+
+
+def yes_for(key, p, repo, answer="yes"):
+    """Whether the row's stored draft, as it is now, has the app's yes (answer="no": its No), read under the row's
+    lock by the caller."""
+    dr, h = _draft_hash(p)
     if not dr:
         return False
-    return has_yes(key, dr.get("rev"), yes_hash(dr.get("target"), dr.get("title"), shown(dr.get("body"))), repo,
-                   p.get("unyes") or 0)
+    return has_yes(key, dr.get("rev"), h, repo, p.get("unyes") or 0, answer)
+
+
+def start_answer(repo, issue, title, body):
+    """The app's answer to "Start a fix for this?" on an outside issue (its card in Needs you), for this exact title and
+    body: "yes", "no" or None (not asked yet, or the text changed since: it asks again). Score and fix reads it at the
+    start and again at launch; at Score only nothing starts."""
+    h = yes_hash({"repo": repo, "action": "start", "issue": issue}, title, body)
+    said = [y for y in yeses() if y.get("kind") == "start" and str(y.get("repo") or "").lower() == repo.lower()
+            and y.get("issue") == issue and y.get("hash") == h]
+    return (said[-1].get("answer") or "yes") if said else None
+
+
+def starts_waiting(repo, rec=None):
+    """The outside issues the owner marked ready that wait for the app's yes (`repos[<repo>].asks` in Triage's record,
+    {issue: {title, body, at}}, written by Score and fix's start step): [{issue, title, body, hash, at}], each not
+    answered for its exact text."""
+    try:
+        rec = record_read() if rec is None else rec
+    except Unreadable:
+        return []
+    asks = ((rec.get("repos") or {}).get(repo.lower()) or {}).get("asks") or {}
+    out = []
+    for n, x in asks.items() if isinstance(asks, dict) else []:
+        if not str(n).isdigit() or not isinstance(x, dict):
+            continue
+        title, body = str(x.get("title") or ""), str(x.get("body") or "")
+        if start_answer(repo, int(n), title, body) is None:
+            out.append({"issue": int(n), "title": title, "body": body, "at": x.get("at") or 0,
+                        "hash": yes_hash({"repo": repo, "action": "start", "issue": int(n)}, title, body)})
+    return sorted(out, key=lambda x: x["at"])
 
 
 # ---- the repo, its checkout and its schedule ------------------------------------------------
@@ -420,11 +461,38 @@ def brief(folder, repo, d=None):
             "Change no files and commit nothing: this run only scores.")
 
 
-def ensure_schedule(folder, repo, d=None):
+def checkout_space(folder, space=None):
+    """The space the repo's Triage schedule runs in: the one named (--space, the service's pick), else the checkout's
+    own (launch.space_for_folder: the one space in it), else the space whose folder is closest around it (the deepest:
+    a repo's space wins over Everything's home folder, which holds every repo), else the caller's. Several equally
+    close, or none at all: Fail, saying which, never "Which space?" with no way to answer from the app."""
+    from .launch import _inside, core_spaces, default_space, space_for_folder
+    if space:
+        return bare(space)
+    sp = space_for_folder(folder)
+    if sp:
+        return bare(sp)
+    spaces = core_spaces()
+    exact = [x for x in spaces if _inside(x["folder"], folder) and _inside(folder, x["folder"])]
+    around = exact or [x for x in spaces if _inside(folder, x["folder"])]
+    if around:
+        depth = lambda x: len(os.path.realpath(os.path.expanduser(x["folder"])).rstrip("/").split("/"))
+        deepest = max(depth(x) for x in around)
+        best = sorted({str(x["id"]) for x in around if depth(x) == deepest})
+        if len(best) == 1:
+            return bare(best[0])
+        raise Fail(f"Spaces {', '.join(best)} all sit on this checkout's folder: say which one Triage runs in (--space).")
+    try:
+        return bare(default_space())
+    except Fail:
+        raise Fail("No space sits on this checkout's folder: make one for it first (New space), then switch Triage on.")
+
+
+def ensure_schedule(folder, repo, d=None, space=None):
     """The repo's Triage schedule, made (pinned to this checkout and machine, one run at a time, checked first) or, when
     the level paused it, resumed. A pause the person made stays. -> its view words"""
     from .automations import next_run, parse_when, trigger_words
-    from .launch import default_space, own_path, space_for_folder
+    from .launch import own_path
     from .scheduler import ensure_scheduler
     from .store import locate, Store
     with Store(locate(folder)) as s:
@@ -444,7 +512,7 @@ def ensure_schedule(folder, repo, d=None):
                  "created": now(), "paused": False, "mode": "here", "runs": [], "every": every, "on": on,
                  "next_run": next_run(every, now()), "fold": True,
                  "check": f"{shlex.quote(own_path())} triage due --folder {shlex.quote(s.loc['folder'])}",
-                 "space": bare(space_for_folder(s.loc["folder"]) or default_space() or ""),
+                 "space": checkout_space(s.loc["folder"], space),
                  "set": {"review": "off", "proof": "off"}, "triage": {"repo": repo}}
             if not a["space"]:
                 a.pop("space")
@@ -470,9 +538,10 @@ def pause_schedule(folder, by):
     return True
 
 
-def follow_level(folder):
-    """Makes the schedule follow the level: on from Off, the turn-on steps then the schedule; Off, it pauses.
-    -> {level, schedule, prepared?}"""
+def follow_level(folder, space=None):
+    """Makes the schedule follow the level: on from Off, the turn-on steps then the schedule (made when it is missing,
+    as after a level saved while making it failed); Off, it pauses. space: the space it runs in (the service's pick),
+    else checkout_space's. -> {level, schedule, prepared?}"""
     d = read_settings()
     level = keys(d, folder)["level"]
     if level == "off":
@@ -483,7 +552,7 @@ def follow_level(folder):
     out = {"level": level}
     if not fenced(repo):
         out["prepared"] = prepare(folder, repo)
-    out["schedule"] = ensure_schedule(folder, repo, d)
+    out["schedule"] = ensure_schedule(folder, repo, d, space)
     return out
 
 
@@ -973,6 +1042,43 @@ def digest_cmd(args):
     return {"due": True, "posted": True}, "Posted the digest in the space's chat; this run is done. End your turn."
 
 
+# ---- the page's view -------------------------------------------------------------------------
+
+def view(folders):
+    """What Settings › Triage and its cards in Needs you show (the service reads it; read only, here): the plugin, the
+    destination, each checkout asked for (its GitHub repo, its schedule, why Triage does nothing there now), and what
+    waits for the app's answer: held drafts (the publisher's, with why each waits) and outside issues to start. The
+    keys themselves come from the settings file (the service's own config snapshot)."""
+    from .store import locate
+    if plugin_off(PLUGIN):
+        return {"on": False}
+    d = read_settings()
+    dest = destination(d)
+    repos = []
+    for f in dict.fromkeys(x for x in folders or [] if isinstance(x, str) and x.startswith("/")):
+        try:
+            loc = locate(f)["folder"]
+        except Fail:
+            repos.append({"folder": f, "repo": None, "schedule": None, "stopped": "This folder isn't here any more."})
+            continue
+        _, a = schedule_of(f)
+        sch = ({"id": f"|{loc}|{a.get('id')}", "auto": a.get("id"), "paused": paused(a), "space": a.get("space"),
+                "by": (a.get("triage") or {}).get("paused_by")} if a else None)
+        level = keys(d, f)["level"]
+        repos.append({"folder": f, "repo": github_of(f), "schedule": sch, "stopped": stopped(f, d, a) if level != "off" else None})
+    pub = publisher(d)
+    drafts, starts = [], []
+    if pub:
+        from .triage_publish import waiting_rows
+        try:
+            drafts = waiting_rows()
+        except (Fail, Unreadable):
+            drafts = []
+        starts = starts_waiting(pub["repo"])
+    return {"on": True, "destination": dest, "files": pub["repo"] if pub else None, "repos": repos,
+            "drafts": drafts, "starts": starts}
+
+
 # ---- the command -----------------------------------------------------------------------------
 
 def cmd_triage(args):
@@ -980,17 +1086,20 @@ def cmd_triage(args):
     sub = args.triage
     if sub == "set":
         if in_agent_terminal():
-            raise Fail("Only the person switches Triage: Settings › Triage in the app (or their own terminal). Nothing changed.")
+            raise Fail("Only the person switches Triage: Settings › Triage in the app, or a terminal outside Shepherdr (for example over ssh). Nothing changed.")
         folder, _repo = where(args)
         value = None if args.value in ("default", "reset") else value_of(args.key, args.value)
         write_key(folder, args.key, value)
-        out = follow_level(folder) if args.key == "level" else {}
+        out = follow_level(folder, getattr(args, "space", None)) if args.key == "level" else {}
         return say(args, {"folder": folder, "key": args.key, "value": value, **out},
                    f"Triage {args.key}: {value if value is not None else 'reset'}." +
                    (f" Schedule: {out['schedule']}." if out.get("schedule") else ""))
+    if sub == "view":
+        out = view(args.folders)
+        return say(args, out, json.dumps(out, indent=2))
     if sub == "schedule":
         folder, _ = where(args)
-        out = follow_level(folder)
+        out = follow_level(folder, getattr(args, "space", None))
         return say(args, out, f"Triage is {out['level']} here; its schedule: {out['schedule']}.")
     if sub == "prepare":
         folder, repo = where(args)
@@ -1034,7 +1143,7 @@ def cmd_triage(args):
     if sub == "digest":
         data, words = digest_cmd(args)
         return say(args, data, words)
-    raise Fail("herdr-task triage set|schedule|prepare|files|status|publish|issues|score|act|due|digest")
+    raise Fail("herdr-task triage set|schedule|view|prepare|files|status|publish|issues|score|act|due|digest")
 
 
 def add_parser(sub):
@@ -1053,7 +1162,13 @@ def add_parser(sub):
     x = c("set", "the person's: one Triage key for this repo (refused in an agent's terminal)")
     x.add_argument("key", choices=list(DEFAULTS))
     x.add_argument("value")
-    c("schedule", "the repo's Triage schedule follows its level (made on, paused off)")
+    x.add_argument("--space", help="the space its schedule runs in (default: the one on this checkout)")
+    x = c("schedule", "the repo's Triage schedule follows its level (made on, paused off, made when missing)")
+    x.add_argument("--space", help="the space its schedule runs in (default: the one on this checkout)")
+    x = tr.add_parser("view", help="read only: Settings › Triage's facts and the cards waiting for the app's answer")
+    x.add_argument("--folder", dest="folders", action="append", default=[], help="a checkout the page shows (repeat)")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=cmd_triage)
     c("prepare", "turning it on, steps 1 to 3: fence the old posting, reconcile posts in flight")
     x = c("files", "whether Triage files a repo's findings (exit 0 either way)")
     x.add_argument("--repo", required=True)

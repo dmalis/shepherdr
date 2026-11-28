@@ -36,6 +36,7 @@ import { ensureShell, type ShellAt } from "./shells.ts";
 import { Chats } from "./chats.ts";
 import { act, findMachines, hc as hcRun } from "./actions.ts";
 import { feedback } from "./feedback.ts";
+import { answerCard, followLevel, spaceFor, TriageView, triageRun } from "./triage.ts";
 import { analyticsAction, howOf, noteVersion, record as note } from "./analytics.ts";
 import { AgentWatch } from "./watch.ts";
 import { Compat, activity, newsKey, placeKey } from "./compat.ts";
@@ -523,7 +524,20 @@ feedback.there.machines = async () => (await hub.call<{ machines: any[] }>("mach
 feedback.watched = () => live.anyone();
 live.onFirstPage(() => void feedback.readThere());
 feedback.start(); // reads only while the plugin is on
-const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withNext(compat.snapshot({
+// Triage (plugin triage, fork #235): Settings › Triage's facts and its yes cards (herdr-task triage view, read only),
+// read every 2 minutes while the plugin is on, when this machine's repos change and after the person's own calls; its
+// cards join Needs you before the open actions are worked out (alertNewAnd)
+let triageFolders = "[]";
+const triageView = new TriageView(triageRun, () => JSON.parse(triageFolders));
+triageView.changed = () => model.rebuild();
+const withTriage = (snap: Snapshot): Snapshot => {
+  const folders = JSON.stringify((snap.config?.repos ?? []).filter((r) => !r.machine).map((r) => r.folder).sort());
+  if (folders !== triageFolders) { triageFolders = folders; void triageView.read(); }
+  return pluginOn("triage") && triageView.last ? { ...snap, triage: triageView.last } : snap;
+};
+setInterval(() => void triageView.read(), 120_000);
+const triageSpaces = () => (model.spaces as any[]).map((x) => ({ id: String(x.id), folder: x.folder, machine: x.machine ?? null, repo: spaceRepo(x) }));
+const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live.setSnapshot(withFeedback(alertNewAnd(withTriage(withNext(compat.snapshot({
   host: me?.host ?? "this machine", user: me?.name ?? "You", spaces: b.spaces, sections: b.sections, rows: b.rows, artifacts: artifacts.list, automations: b.automations,
   settings: [...settings.sections(webNow ?? ownLink(), b.spaces.map((s: any) => ({ id: s.id, name: s.name, machine: s.machine ?? null, repo: spaceRepo(s) })), b.machines, me?.host ?? "this machine"),
     // Secrets (Everywhere's and each space's own): every kept secret and where, and the agents waiting on one
@@ -533,7 +547,7 @@ const snapshotOf = (b: Parameters<NonNullable<typeof model.onBuild>>[0]) => live
   // in the order the person dragged them into (SHEP-153): this computer first until then
   machines: (SPm.byMachineOrder as any)([{ name: me?.host ?? "this machine", here: true, state: "connected" }, ...b.known.map((m) => ({ name: m.name, here: false, state: m.state, why: m.why }))],
     (SPm.machineOrderOf as any)(model.value("spaces-chat")), (m: { name: string; here: boolean }) => (m.here ? null : m.name)),
-}), b))));
+}), b)))));
 // a task that moved on (accepted, done) changes its news lines in its Assistant's chat, whose conversation may not move:
 // open chats are told again (compat.chat reads the rows the snapshot just took)
 let newsWas: string | null = null;
@@ -782,7 +796,33 @@ async function doAction(body: any): Promise<Response> {
       setConfig(place, body.key, body.value ?? null, sp ? { id: sp.id, name: sp.name, machine: sp.machine ?? null, folder: sp.folder ?? null, repo: spaceRepo(sp) } : null);
       note("settings.changed", { key: body.key, space: place === "all" ? undefined : place });
       model.rebuild();
+      // Settings › Triage (fork #235): a repo's level saved, its schedule follows (made when missing, paused at Off)
+      if (body.key === "triage.level" && place.startsWith("repo:")) {
+        const folder = place.slice(5);
+        const done = await followLevel(folder, spaceFor(folder, triageSpaces()));
+        await triageView.read();
+        if (!done.ok) return json({ ok: false, error: done.error });
+      }
       return json({ ok: true });
+    } catch (err) { return json({ ok: false, error: (err as Error).message }); }
+  }
+  // Triage's own calls (fork #235): a yes card's Yes or No, kept here only (service/triage.ts answerCard), and Make it
+  // when a repo switched on has no schedule yet
+  if (body?.type === "triage") {
+    if (!pluginOn("triage")) return json({ ok: false, error: "Triage is switched off in Settings › Plugins." });
+    try {
+      if (body.do === "answer") {
+        const out = answerCard(body);
+        await triageView.read();
+        if (out.ok && body.answer === "yes" && body.kind === "draft") feedback.yesKept();
+        return json(out);
+      }
+      if (body.do === "schedule" && typeof body.folder === "string") {
+        const done = await followLevel(body.folder, spaceFor(body.folder, triageSpaces()));
+        await triageView.read();
+        return json(done.ok ? { ok: true } : { ok: false, error: (done.error ?? "").replace(/^Saved, but its/, "Its") });
+      }
+      return json({ ok: false, error: "Shepherdr can't do that yet." });
     } catch (err) { return json({ ok: false, error: (err as Error).message }); }
   }
   // the picker's lists: a machine's agents and each one's own models, efforts, speeds and permission modes

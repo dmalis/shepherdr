@@ -15,12 +15,16 @@ export interface NeedItem {
   card: string | null
   /** a queued question's title, for its row */
   title?: string
+  /** fork #235: its row's second line (a Triage card: what it is about) */
+  sub?: string
 }
 
 /** an action as a tap opens it: its task's pane (or its chat) at its card */
 function itemOf(snap: Snapshot, a: Action): NeedItem {
   const t = a.task ? snap.tasks.find((x) => x.id === a.task) : undefined
-  return { ...(a.task ? { task: a.task } : {}), place: t?.place ?? a.place, card: a.card, ...(!a.task && a.kind === 'question' ? { title: a.what } : {}) }
+  return { ...(a.task ? { task: a.task } : {}), place: t?.place ?? a.place, card: a.card, ...(!a.task && a.kind === 'question' ? { title: a.what } : {}),
+    // fork #235: a Triage card's row says its question, then what it is about
+    ...(a.kind === 'triage' && a.triage ? { title: a.what, sub: a.triage.title } : {}) }
 }
 
 /** what needsCount(snap, placeId) counts, one item each, oldest first */
