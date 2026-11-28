@@ -2889,7 +2889,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         self.assertEqual((self.task["summary"], self.task["details"]), ("Found three options.", "- Read five sources"))
         self.assertTrue(self.task["nothing_to_merge"])
         self.assertNotIn("auto_merge", self.task)
-        self.assertEqual(self.task["waits_why"], "Waits for you: Merge is When I mark it as done (the default).")
+        self.assertEqual(self.task["waits_why"], "Waits for you to close it: it has nothing to merge, and by default tasks finish only when you say so.")
         self.assertNotIn("pr", self.task)
         self.assertNotIn(("pr", "create"), calls)
         self.assertTrue(os.path.isdir(self.task["worktree"]))
@@ -2981,7 +2981,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
             self.assertEqual(self.ready_said(policy="auto"), "ready")
         self.assertEqual(self.task["left_files"], ["research.md"])
         self.assertNotIn("closed_alone", self.task)
-        self.assertEqual(self.task["waits_why"], "Waits for you: it committed nothing but left new files (research.md); closing it deletes them.")
+        self.assertEqual(self.task["waits_why"], "Waits for you to close it: it left new files it didn't commit (research.md), and closing deletes them.")
         self.assertTrue(os.path.isfile(os.path.join(self.task["worktree"], "research.md")))
         # committed or removed, the next ready closes it
         os.remove(os.path.join(self.task["worktree"], "research.md"))
@@ -3002,7 +3002,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         import herdr_task.settings as settings
         self.task.update(state="ready", nothing_to_merge=True)
         with mock.patch.object(settings, "merge_policy", lambda *a: "ask"):
-            self.assertEqual(waits.waits_now(self.store, self.task), "Waits for you: Merge is When I mark it as done (the default).")
+            self.assertEqual(waits.waits_now(self.store, self.task), "Waits for you to close it: it has nothing to merge, and by default tasks finish only when you say so.")
         with mock.patch.object(settings, "merge_policy", lambda *a: "auto"):
             self.assertIsNone(waits.waits_now(self.store, self.task))  # the setting changed since: no stale reason
         self.task["mode"] = "here"
@@ -3014,7 +3014,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         with mock.patch.object(settings, "merge_policy", lambda *a: "ask"), mock.patch.object(tick, "back_pass", lambda *a: None), \
                 mock.patch.object(tick, "facts", lambda *a: None):
             tick.tick_turn(self.store, {"done": []})
-        self.assertEqual(self.task["waits_why"], "Waits for you: Merge is When I mark it as done (the default).")
+        self.assertEqual(self.task["waits_why"], "Waits for you to close it: it has nothing to merge, and by default tasks finish only when you say so.")
 
     def test_closed_alone_news_says_what_it_found(self):
         import herdr_task.news as news
@@ -3024,17 +3024,77 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
         self.task.pop("closed_alone")
         self.assertIn("is done: nothing to merge</herdr-news>", news.news_line(self.store, self.task, {}, "done"))
 
+    # fork UI 15 (dmalis/shepherdr#184): the line is a sentence that says what waits on the person for this card's own
+    # action and why, never a setting's name and value ("Merge in this repo is When I mark it as done").
     def test_waits_why_names_where_merge_comes_from(self):
         from unittest import mock
         import herdr_task.waits as waits
-        for src, words in (("repo", "Waits for you: Merge in this repo is When I mark it as done."),
-                           ("Everywhere", "Waits for you: Merge Everywhere is When I mark it as done."),
-                           ("default", "Waits for you: Merge is When I mark it as done (the default).")):
-            with mock.patch.object(waits, "setting_sources", lambda s, space=None: {"tasks.merge": src}):
-                self.assertEqual(waits.waits_why(self.store, self.task, "ask"), words)
+        for src, where in (("repo", "in this repo"), ("space", "in this space"), ("machine", "on this machine"),
+                           ("Everywhere", "in every space"), ("default", "by default")):
+            with self.subTest(src=src), mock.patch.object(waits, "setting_sources", lambda s, space=None: {"tasks.merge": src}):
+                self.task.pop("nothing_to_merge", None)
+                self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
+                                 f"Waits for you to merge it: {where}, tasks merge only when you say so.")
+                self.task["nothing_to_merge"] = True
+                self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
+                                 f"Waits for you to close it: it has nothing to merge, and {where} tasks finish only when you say so.")
         self.task["set"] = {"merge": "ask"}
         self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
-                         "Waits for you: This task's Merge (set by its Assistant) is When I mark it as done.")
+                         "Waits for you to close it: it has nothing to merge, and its Assistant set this one to finish only when you say so.")
+        self.task.pop("nothing_to_merge")
+        self.assertEqual(waits.waits_why(self.store, self.task, "ask"),
+                         "Waits for you to merge it: its Assistant set this one to merge only when you say so.")
+
+    def test_waits_why_says_each_cards_own_action(self):
+        import herdr_task.waits as waits
+        for policy in ("ask", "checks", "auto"):
+            with self.subTest(policy=policy):
+                t = dict(self.task, nothing_to_merge=True, left_files=["a.md", "b.md", "c.md", "d.md"])
+                self.assertEqual(waits.waits_why(self.store, t, policy), "Waits for you to close it: it left new files it "
+                                 "didn't commit (a.md, b.md, c.md and more), and closing deletes them.")
+                t = dict(self.task, mode="here")
+                self.assertEqual(waits.waits_why(self.store, t, policy),
+                                 "Waits for you to mark it as done: it worked in the folder itself, not on a branch of its own.")
+        # Right away or When all checks pass never hold a card for the person: no rule that says they would
+        self.assertEqual(waits.waits_why(self.store, dict(self.task, nothing_to_merge=True), "auto"), "Waits for you to close it.")
+        self.assertEqual(waits.waits_why(self.store, self.task, "checks"), "Waits for you to merge it.")
+        for line in (waits.waits_why(self.store, self.task, "ask"), waits.waits_why(self.store, dict(self.task, mode="here"), "ask")):
+            self.assertNotIn(" is When", line)
+            self.assertTrue(line.startswith("Waits for you to "))
+
+    def test_a_card_saved_with_the_old_line_gets_the_new_one(self):
+        from unittest import mock
+        import herdr_task.waits as waits
+        import herdr_task.settings as settings
+        import herdr_task.tick as tick
+        olds = (("Waits for you: Merge in this repo is When I mark it as done.", {},
+                 "Waits for you to merge it: in this repo, tasks merge only when you say so."),
+                ("Waits for you: Merge is When I mark it as done (the default).", {"nothing_to_merge": True},
+                 "Waits for you to close it: it has nothing to merge, and by default tasks finish only when you say so."),
+                ("Waits for you: This task's Merge (set by its Assistant) is When I mark it as done.", {},
+                 "Waits for you to merge it: its Assistant set this one to merge only when you say so."),
+                ("Waits for you: it committed nothing but left new files (research.md); closing it deletes them.",
+                 {"nothing_to_merge": True, "left_files": ["research.md"]},
+                 "Waits for you to close it: it left new files it didn't commit (research.md), and closing deletes them."),
+                ("Waits for you: it worked in the folder itself, not on a branch of its own, so only you can close it.",
+                 {"mode": "here"}, "Waits for you to mark it as done: it worked in the folder itself, not on a branch of its own."))
+        # the Merge rule and the source the old line named, even when the settings say otherwise now
+        with mock.patch.object(settings, "merge_policy", lambda *a: "auto"), \
+                mock.patch.object(waits, "setting_sources", lambda s, space=None: {"tasks.merge": "Everywhere"}), \
+                mock.patch.object(tick, "back_pass", lambda *a: None), mock.patch.object(tick, "facts", lambda *a: None):
+            for old, has, new in olds:
+                with self.subTest(old=old):
+                    for k in ("nothing_to_merge", "left_files", "set"):
+                        self.task.pop(k, None)
+                    self.task.update({"state": "ready", "mode": "worktree", "waits_why": old, **has})
+                    self.store.dirty = False
+                    tick.tick_turn(self.store, {"done": []})
+                    self.assertEqual(self.task["waits_why"], new)
+                    self.assertTrue(self.store.dirty)
+                    self.store.dirty = False
+                    tick.tick_turn(self.store, {"done": []})  # said once: a new line is left as it is
+                    self.assertEqual(self.task["waits_why"], new)
+                    self.assertIsNone(waits.renewed(self.store, self.task))
 
     def test_a_task_with_work_waits_and_says_why(self):
         from unittest import mock
@@ -3045,7 +3105,7 @@ class MergedOnlyWithOwnWork(unittest.TestCase):
                 mock.patch.object(self.commands, "github", lambda s: None), \
                 mock.patch.object(self.commands, "github_unreachable", lambda s: None):
             self.commands.finalize(self.store, self.task)
-        self.assertTrue(self.task["waits_why"].startswith("Waits for you: Merge"))
+        self.assertTrue(self.task["waits_why"].startswith("Waits for you to merge it: "))
         with mock.patch.object(self.commands, "merge_policy", lambda *a: "checks"), \
                 mock.patch.object(self.commands, "github", lambda s: None), \
                 mock.patch.object(self.commands, "github_unreachable", lambda s: None), \

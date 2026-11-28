@@ -1,0 +1,10 @@
+/* A Ready task's review card (ReviewCard in client.tsx; fork UI 15, dmalis/shepherdr#184). On a phone, and wherever
+   the card is narrow (a task's pane beside the list), its two buttons share the card's width, the primary last, as a
+   sheet's do (iOS alerts and action sheets, GitHub's mobile merge box): side by side when both fit, else each the
+   card's whole width with the primary under the other. A label too long for the card wraps inside its button rather
+   than spill out of the card. A wide card on a desktop keeps them compact at its end. */
+.card.rvcard{container:rvcard/inline-size}
+.app.phone .card.rvcard>.acts>.btn{flex:1 1 0;min-width:fit-content;white-space:normal;overflow-wrap:anywhere;text-align:center;height:auto;min-height:var(--btn);padding-block:6px}
+@container rvcard (max-width:420px){
+  .card.rvcard>.acts>.btn{flex:1 1 0;min-width:fit-content;white-space:normal;overflow-wrap:anywhere;text-align:center;height:auto;min-height:var(--btn);padding-block:6px}
+}

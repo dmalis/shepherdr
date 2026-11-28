@@ -33,7 +33,7 @@ from . import stack
 from .news import news_pass
 from .ghnews import held_by_base, main_pass, pr_deliver, pr_news, PR_NEWS_EVERY, resting
 from .systemic import dropped, systemic_pass
-from .waits import waits_now
+from .waits import renewed, waits_now
 from .merge_wait import head_waits, mergeable_now, WAITING as GITHUB_CATCHING_UP
 from .scheduler import SCHEDULER
 from .revive import record_pass
@@ -519,6 +519,9 @@ def tick_turn(s, report):
             why = waits_now(s, t)
             if why:
                 t["waits_why"], s.dirty = why, True
+        elif t["state"] == "ready" and (new := renewed(s, t)):
+            # fork UI 15 (dmalis/shepherdr#184): a card kept in the old words ("Merge in this repo is …") says it again
+            t["waits_why"], s.dirty = new, True
         elif t["state"] == "running" and (t.get("back") or {}).get("auto"):
             settle_back(s, t, report)
         if stack.stacked(t):
