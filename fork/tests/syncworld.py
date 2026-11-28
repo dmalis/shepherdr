@@ -263,7 +263,7 @@ class World(unittest.TestCase):
     def env(self, extra=None):
         e = {k: v for k, v in os.environ.items() if k != "HERDR_GUARD_SESSION"}
         e.update(PATH=self.bin + os.pathsep + e["PATH"], FAKE_GH=self.gh_cfg, FAKE_HT=self.ht,
-                 FORK_SYNC_POLL_S="0", FORK_SYNC_CALL_WAIT_S="0")
+                 FORK_SYNC_POLL_S="0", FORK_SYNC_CALL_WAIT_S="0", FORK_SYNC_CI_POLL_S="0")
         e.update(extra or {})
         return e
 

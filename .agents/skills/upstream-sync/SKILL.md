@@ -19,7 +19,7 @@ or GitHub goes through one of its subcommands. The run ends in exactly one outco
 
 | `outcome` | Do |
 |---|---|
-| `wait` | Call the same step again. One call waits at most 9 minutes; the state keeps the clock. |
+| `wait` | Call the same step again at once. One call waits at most 9 minutes; the state keeps the clock. The step reads GitHub itself: never poll or watch GitHub by hand in between. |
 | `held` | The run is **held** at the gate it names (`kind`, `gate`): [Held](#held). |
 | `failed` (install) | The update failed: run the step `next` names (`health` anyway, which leads to the rollback, or `rollback`). |
 | `rollback` (health) | Run `rollback`. |
@@ -175,7 +175,10 @@ it found: report that, never a guess at why, and never repair `main` by force.
    or searched the same way on path `install-main`). Only an install moves the issue cursor, to this run's start. It checks the worktree, fetches
    origin's main when this run merged, and lets go of the lease when the phase is final.
 4. `outcome: again`: go to [Install merged](#install-merged)'s step 3. `next: ci` (this run installed our merges):
-   `fork/bin/sync ci`, again while it says `wait`; its line has the `command`.
+   `fork/bin/sync ci`, again at once while it says `wait`; its line has the `command`. It does the waiting: never
+   read or watch GitHub's runs yourself (`gh run list`, `gh run watch`, `gh api`) between calls. `gh run watch`
+   alone reads GitHub every few seconds, and runs waiting side by side each did it, which used up the account's
+   API limit. `ci` reads main's runs in one call a minute, shared by every run that waits.
 5. Run each command in its `before` (an alert for an unknown outcome), then its `command` exactly as printed: a
    `herdr-task ready … --nothing` or `--told "…"`. Never `ready --summary` or `--pr`: the sync PR isn't this task's.
 

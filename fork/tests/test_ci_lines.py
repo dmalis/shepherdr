@@ -107,6 +107,21 @@ class CiLines(syncworld.World):
         code, out = self.finish_then_ci()
         self.assertEqual((code, out["outcome"]), (1, "wait"), "a check that covers it still runs")
 
+    def test_runs_waiting_side_by_side_share_one_call_a_minute(self):
+        """Report ea64c69e68: three install runs waited at once, each reading GitHub on its own."""
+        a, b, c = self.merges(3)
+        for k, s in enumerate((a, b, c)):
+            self.install(s, 300 - 60 * k, f"ours-3.2.21-{k + 1}", run=f"SYNC-{k + 1}")
+        self.set_gh(checks={a: CANCELLED, b: CANCELLED, c: RUNNING})
+        t = [time.time()]
+        with mock.patch.dict(os.environ, self.env({"FORK_SYNC_CI_POLL_S": "60"}), clear=True):
+            n = len(self.gh_calls())
+            for step in range(0, 600, 20):              # each run reads every 20 seconds, for 10 minutes
+                t[0] += 20
+                for _ in range(3):
+                    merged.ci_read(self.p, self.wt, now=lambda: t[0])
+        self.assertEqual(len(self.api_calls(n)), 10, "one call a minute, however many runs read")
+
     def test_github_busy_on_an_older_commit_keeps_the_wait(self):
         """Review: only an older commit's run is active and the install's own hasn't started: still waiting at 31
         minutes, since its own run waits in line behind the older one."""

@@ -21,6 +21,8 @@
   it still runs. A red or missing result is told once (finish puts it in its --told words, for the Assistant to open
   a fix task), in plain words that name the fixes by title, never a commit's hash; nothing rolls back on it. The
   newest install whose CI passed is kept as the recovery point."""
+import fcntl
+import json
 import os
 import re
 import time
@@ -222,6 +224,30 @@ def main_runs():
     return out
 
 
+def shared_runs(p, now=time.time):
+    """main_runs(), shared by every `ci` reading at once (each install run calls its own): the last read, kept beside
+    the sync state, serves them all for ci_poll_s(), so GitHub gets one call a minute however many runs wait. Taken
+    under its own lock (never the state's: a GitHub call can take a while), so two can't both call."""
+    path = os.path.join(p.dir, "main-runs.json")
+    os.makedirs(p.dir, exist_ok=True)
+    with open(os.path.join(p.dir, "main-runs.lock"), "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as f:
+                kept = json.load(f)
+            if 0 <= now() - float(kept["at"]) < ci_poll_s() and isinstance(kept.get("runs"), dict):
+                return kept["runs"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        runs = main_runs()
+        if runs is not None:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"at": now(), "runs": runs}, f)
+            os.replace(tmp, path)
+        return runs
+
+
 def ci_verdict(repo, sha, tip, runs_of=None):
     """("green" | "red" | "pending", {name: {"state", "by", "running"}}): for each of main's checks, the newest finished
     run that covers `sha`: on it or a later commit of main's first-parent line (a later commit contains it, so its
@@ -361,7 +387,7 @@ def ci_read(p, repo, now=time.time, runs_of=None, busy=None):
         return {i["sha"]: "pending" for i in todo if i["sha"] in unresolved}
     read = True
     if runs_of is None:
-        snap = main_runs()
+        snap = shared_runs(p, now)
         read = snap is not None
         runs_of = (lambda c: None) if snap is None else (lambda c: snap.get(c, []))
         if busy is None:
@@ -567,8 +593,9 @@ def ci_step(p, run, folder, repo, cfg_hostname=None, now=time.time, sleep=time.s
         if not any(waits(s) for s in left):
             break
         if now() - began >= gate.call_wait_s():
-            raise Refused("GitHub's checks on main haven't finished on this run's installs yet: call ci again",
-                          outcome="wait", pending=len(left))
+            raise Refused("GitHub's checks on main haven't finished on this run's installs yet: call ci again now. "
+                          "It reads GitHub itself, one call a minute shared by every run: never read or watch "
+                          "GitHub's runs yourself", outcome="wait", pending=len(left))
         sleep(max(0.0, ci_poll_s()))
     with state.locked(p) as st:
         said = ci_untold(st, mark=False)
