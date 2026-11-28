@@ -2,7 +2,8 @@
 // screen: 250 kB sent, compressed"): the page's own module script and every chunk it imports before it can run,
 // followed through each chunk's static imports, counted as the brotli copy the service sends (service/static.ts).
 // What comes later (an `import()`) isn't counted. `bun web/first-screen.ts [dist]` after `bun run build` fails above
-// LIMIT, kept under the budget so a breach is seen before it is reached.
+// LIMIT, kept under the budget so a breach is seen before it is reached. Brotli is what every browser gets over HTTPS;
+// gzip (a browser without it) is shown, not checked.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -13,17 +13,15 @@ import { definePlugin, getState, go, launchHref, notice, openArtifact, openSetti
 import { closeTop as closeLayer } from '@client/overlay.tsx'
 import { later } from '@client/later.tsx'
 import { isEverything, placeOf, taskOf } from '@shared/view.ts'
-import type { CallPhase, Nav, NavAck } from './call.ts'
+import { callPhase, callSample, muteCall, sendWhere, startCall, stopCall, type Nav, type NavAck } from './call.ts'
 import { wantsCall, withoutVoice } from './launch.ts'
 import { CallMarkView } from './mark.tsx'
 import type { Head } from './screen.ts'
 import { NAME as VOICE_PAGE, needsKey, openVoiceSettings, VoiceSettings } from './settings.tsx'
 
-/** fork #163: the call (its audio, call.ts) and what it reads of the page (screen.ts) come after the first screen,
- *  or when a call starts; the buttons, keys and settings are here from the start */
-const callPart = later(() => import('./call.ts'))
-const screenPart = later(() => import('./screen.ts'))
-const quiet = (): Sample => ({ level: 0, who: null })
+/** fork #163: what a call reads of the page (screen.ts) comes after the first screen, or when it first looks. The call
+ *  itself (call.ts) is here from the start: its audio is made inside the tap that starts it */
+const screenPart = later(() => import('./screen.ts'), 'voice')
 
 /** what this page shows, told to the call as it changes: its "here" and "this task" */
 function whereNow() {
@@ -122,7 +120,7 @@ export async function voiceNav(nav: Nav): Promise<NavAck> {
 function CallWhere() {
   const where = useStore((s) => (s.ui.call && s.snap ? JSON.stringify(whereNow()) : ''))
   useEffect(() => {
-    if (where) callPart()?.sendWhere(JSON.parse(where) as Record<string, unknown>)
+    if (where) sendWhere(JSON.parse(where) as Record<string, unknown>)
   }, [where])
   return null
 }
@@ -131,7 +129,7 @@ let demoTimers: ReturnType<typeof setTimeout>[] = []
 export function endCall() {
   demoTimers.forEach(clearTimeout)
   demoTimers = []
-  callPart()?.stopCall()
+  stopCall()
   setUI({ call: false, callMuted: false })
 }
 
@@ -158,29 +156,23 @@ export function toggleCall(resume: string | null = null) {
       notice('Talk needs your ElevenLabs key. Add it here.')
     } else notice(m, { tone: 'error' })
   }
-  const go = (C: typeof import('./call.ts')) => void C.startCall(null, fail, voiceNav, () => getState().snap && C.sendWhere(whereNow()), (why) => { endCall(); if (why) notice(`Call ended: ${why}.`) }, { title: 'Shepherdr', hangUp: endCall, mute: (on) => { C.muteCall(on); setUI({ callMuted: on }) } }, () => endCall(), resume).catch(() => fail('Audio could not start on this device.'))
-  // the call's code is usually here already; in the first seconds it is fetched first (and not started if hung up meanwhile)
-  const C = callPart()
-  if (C) go(C)
-  else callPart.load().then((m) => getState().ui.call && go(m), () => fail("The call couldn't load. Check the connection, then try again."))
+  void startCall(null, fail, voiceNav, () => getState().snap && sendWhere(whereNow()), (why) => { endCall(); if (why) notice(`Call ended: ${why}.`) }, { title: 'Shepherdr', hangUp: endCall, mute: (on) => { muteCall(on); setUI({ callMuted: on }) } }, () => endCall(), resume).catch(() => fail('Audio could not start on this device.'))
 }
 
 function toggleMute() {
   const on = !getState().ui.callMuted
-  callPart()?.muteCall(on)
+  muteCall(on)
   setUI({ callMuted: on })
 }
-
-const phaseNow = (): CallPhase => callPart()?.callPhase() ?? 'connecting'
 
 /** the call's phase, looked at twice a second while a call is on (it changes without the store knowing) */
 function usePhase() {
   const on = useUI((u) => u.call)
-  const [phase, setPhase] = useState(phaseNow)
+  const [phase, setPhase] = useState(callPhase)
   useEffect(() => {
     if (!on) return
-    setPhase(phaseNow())
-    const t = setInterval(() => setPhase(phaseNow()), 500)
+    setPhase(callPhase())
+    const t = setInterval(() => setPhase(callPhase()), 500)
     return () => clearInterval(t)
   }, [on])
   return phase
@@ -190,7 +182,7 @@ function usePhase() {
 function CallMark() {
   const phase = usePhase()
   const demo = useStore((s) => !!s.snap?.demo)
-  return <CallMarkView phase={demo ? 'listening' : phase} muted={useUI((u) => u.callMuted)} sample={demo ? demoSample : (callPart()?.callSample ?? quiet)} />
+  return <CallMarkView phase={demo ? 'listening' : phase} muted={useUI((u) => u.callMuted)} sample={demo ? demoSample : callSample} />
 }
 
 /** the demo's call has no audio: a made-up voice, you then the agent in turns, so its wave moves as a real one does */

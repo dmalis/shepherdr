@@ -6,20 +6,13 @@
 // cancels. SHEP-363: no buttons of its own: the mic itself becomes Done (a green check) and the voice call's button
 // beside it becomes Cancel (a red X), so nothing moves under the thumb; a call and a dictation never run at once.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { Dictation } from './dictation.ts'
+import { canDictate, clock, dictate, dictSample, SAY, warmMic, type Dictation } from './dictation.ts'
 import { IDLE, insertAt, step, type DictEvent, type DictState } from './dictstate.ts'
 import { getState, has, holdReload, openSettings, useUI } from './kernel.ts'
-import { later } from './later.tsx'
-import type { Sample } from './meter.ts'
 import { escapeFirst } from './overlay.tsx'
 import { cx, I } from './ui.tsx'
 import { Wave } from './wave.tsx'
 import './dictate.css'
-
-/** fork #163: the recording and the writing (dictation.ts and core/voice.js) come after the first screen, or as the
- *  mic is first pressed; the mic and its states are here from the start */
-const engine = later(() => import('./dictation.ts'))
-const still = (): Sample => ({ level: 0, who: null })
 
 /** the state and the words it writes: each event steps once (no reducer, which StrictMode runs twice), so a write
  *  happens once, from the step that made it */
@@ -102,40 +95,19 @@ export function useDictation(setText: (value: string) => void, scope: string | u
     d?.cancel()
     dispatch({ t: 'cancel' })
   }
-  const fetching = useRef(false)
-  const scopeNow = useRef(scope)
-  scopeNow.current = scope
   const start = () => {
     if (!canStartDictation()) return
-    const E = engine()
-    if (!E) {
-      // its code isn't here yet (a tap in the first seconds): it starts as soon as it is, if its box is still here
-      if (fetching.current) return
-      fetching.current = true
-      const from = scope
-      return void engine.load().then(
-        () => {
-          fetching.current = false
-          if (anchor()?.isConnected && scopeNow.current === from) start()
-        },
-        () => {
-          fetching.current = false
-          dispatch({ t: 'start' })
-          dispatch({ t: 'fail', why: "Dictation couldn't load. Check the connection, then try again." })
-        },
-      )
-    }
     live.current?.cancel()
     landed.current = null
     // a fresh dictation: the cursor as it was when the mic was pressed; Try again keeps the first one's
     if (s.k === 'idle') at.current = pressed.current ?? null
     pressed.current = undefined
-    if (!E.canDictate()) {
+    if (!canDictate()) {
       dispatch({ t: 'start' })
       return dispatch({ t: 'fail', why: 'This browser has no microphone to dictate with.' })
     }
     dispatch({ t: 'start' })
-    const d = E.dictate(
+    const d = dictate(
       (text) => {
         if (live.current === d) live.current = null
         dispatch({ t: 'end', text })
@@ -155,9 +127,7 @@ export function useDictation(setText: (value: string) => void, scope: string | u
   /** the mic is being pressed: keep the box's cursor (before the press takes the focus) and wake the microphone */
   const press = () => {
     pressed.current = cursorOf(boxOf())
-    const E = engine()
-    if (E) E.warmMic()
-    else engine.load().catch(() => undefined)
+    warmMic()
   }
 
   // gone (the box closed) or another chat's box: stop, write nothing
@@ -209,10 +179,6 @@ export function useDictation(setText: (value: string) => void, scope: string | u
 /** the recording's own part of the row: the wave and the time, or (only when something must be read) why it didn't
  *  work, or the browser really asking for the microphone. No words while you talk (SHEP-334). */
 export function DictRow({ s }: { s: DictState }) {
-  // the engine is here once a dictation started (start() waits for it)
-  const E = engine()
-  const clock = E?.clock ?? (() => '0:00')
-  const asking = E?.SAY.asking ?? ''
   return (
     <div className={`dsurf ${s.k}`} role="group" aria-label="Dictation">
       {s.k === 'error' || s.k === 'asking' ? (
@@ -227,7 +193,7 @@ export function DictRow({ s }: { s: DictState }) {
               )}
             </p>
           ) : (
-            <p className="dhint">{asking}</p>
+            <p className="dhint">{SAY.asking}</p>
           )}
         </div>
       ) : s.k === 'starting' ? (
@@ -238,7 +204,7 @@ export function DictRow({ s }: { s: DictState }) {
         </div>
       ) : (
         <div className="dctl">
-          <Wave on={s.k === 'on'} sample={E?.dictSample ?? still} />
+          <Wave on={s.k === 'on'} sample={dictSample} />
           <span className="dtime" aria-hidden>
             <i className={`ddot${s.k === 'on' ? ' rec' : ''}`} />
             {s.k === 'on' ? clock(Date.now() - s.since) : s.k === 'writing' ? clock(s.took) : '0:00'}
@@ -246,7 +212,7 @@ export function DictRow({ s }: { s: DictState }) {
         </div>
       )}
       <span className="vh" role="status">
-        {s.k === 'asking' ? asking : s.k === 'starting' ? 'Getting ready' : s.k === 'on' ? 'Recording' : s.k === 'writing' ? 'Writing it down' : ''}
+        {s.k === 'asking' ? SAY.asking : s.k === 'starting' ? 'Getting ready' : s.k === 'on' ? 'Recording' : s.k === 'writing' ? 'Writing it down' : ''}
       </span>
     </div>
   )

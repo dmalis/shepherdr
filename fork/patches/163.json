@@ -10,7 +10,8 @@
     "web/src/settings-rows.tsx",
     "web/src/picker.tsx",
     "web/src/picker-sheet.tsx",
-    "web/src/dictate.tsx",
+    "web/src/dictation.ts",
+    "web/src/kernel.ts",
     "web/src/styles.css",
     "web/plugins/voice/client.tsx",
     "web/plugins/voice/settings.tsx",
@@ -31,6 +32,7 @@
     "web/plugins/screens/full.test.ts",
     "web/src/settings-look.test.tsx",
     "web/plugins/inbox/inbox.test.tsx",
+    "web/src/dictation.test.ts",
     "test/test_design.py::DesignTokens"
   ]
 }

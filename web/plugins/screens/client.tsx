@@ -7,7 +7,7 @@
 // "Needs your hands" card with Skip and Take over.
 import { useEffect, useState } from 'react'
 import { definePlugin, getState, openTask, setUI, tryAct, useSnap, type Thread } from '@client/kernel.ts'
-import { laterView } from '@client/later.tsx'
+import { later, laterFailed, laterView } from '@client/later.tsx'
 import { Btn } from '@client/ui.tsx'
 import { DoneRow } from '@plugins/chat/cards.tsx'
 import { StatusIcon } from '@plugins/tasks/icon.tsx'
@@ -18,7 +18,9 @@ import { machineLabel, taskOf, statusWord, tasksIn, tstate } from '@shared/view.
 import { screenKey, screenRow } from './menu.ts'
 
 /** the Screen view itself comes when the pane first opens (fork #163, pane.tsx) */
-const ScreenPane = laterView(() => import('./pane.tsx').then((m) => m.ScreenPane))
+/** fork #163: the Screen view comes when first opened; taking over waits for it, so Hand back is there once you drive */
+const pane = later(() => import('./pane.tsx'), 'screens')
+const ScreenPane = laterView(() => pane.load().then((m) => m.ScreenPane), undefined, 'screens')
 
 /** whose screen: a chat's, a task's or a machine's desktop */
 export function partsOf(snap: Snapshot, key: string) {
@@ -76,7 +78,7 @@ function HandsCard({ k, sc, t, ref_ }: { k: string; sc: ScreenInfo; t: Task; ref
         <div className="acts">
           {/* Skip tells the agent to find another way */}
           <Btn onClick={() => void act(k, 'skip')}>Skip</Btn>
-          <Btn kind="pri" onClick={() => { openScreen(k, true); void act(k, 'take', { src: sc.b ? 'b' : 'd' }) }}>Take over</Btn>
+          <Btn kind="pri" onClick={() => void pane.load().then(() => { openScreen(k, true); void act(k, 'take', { src: sc.b ? 'b' : 'd' }) }, laterFailed)}>Take over</Btn>
         </div>
       </div>
     </>

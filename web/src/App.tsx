@@ -23,7 +23,7 @@ import { edgeSwipe, SideDrawer, usePeek } from './edge-swipe.tsx'
 import { pickFor, PickSummary, reportedPick, useCatalog } from './picker.tsx'
 
 /** the settings window comes when first opened (fork #163, later.tsx) */
-const SettingsWindow = laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow))
+const SettingsWindow = laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow), () => setUI({ settings: null }))
 
 /** the thread the middle column shows: the open task when it has the middle, else the space's chat */
 export function middleThread(snap: Snapshot, ui: { at: string; max: string | null }): Thread | null {

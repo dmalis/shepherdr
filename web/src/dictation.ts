@@ -5,10 +5,10 @@
 // the recording (kept meanwhile) goes to the service to be written down instead, also when they come back empty
 // (afterDone); only one of the two ever writes. Cancel drops it, also while it's writing. When no words come, the mic
 // says why (SAY), never nothing.
-import * as V from '@core/voice.js'
+// fork #163: by name, so the build keeps only these of core/voice.js in the first screen's script (the call's prompt,
+// tools and settings stay out)
+import { base64, LIVE_TAIL, LIVE_WAIT, liveChunk, liveUrl, liveWords, tidyText, to16k } from '@core/voice.js'
 import { levelOf, meter, TALKING, type Sample } from './meter.ts'
-
-const { liveUrl, liveChunk, liveWords, base64, to16k, tidyText, LIVE_TAIL, LIVE_WAIT } = V as any
 
 export interface Dictation {
   /** stop listening; the words still on their way come in, then the end callback gets them all */

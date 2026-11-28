@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { boot } from './boot.ts'
-import { later } from './later.tsx'
+import { later, warmLater } from './later.tsx'
 import type { ClientPlugin } from './kernel.ts'
 import { firstScreen, LIMIT } from '../first-screen.ts'
 
@@ -56,6 +56,49 @@ test('a plugin that fails to load is left out, and the link being down leaves ev
   expect(installed).toEqual(['chat'])
 })
 
+test('the link’s snapshot, come while the plugins loaded, says which are off; a call asked for meanwhile starts once Voice is in', async () => {
+  let installed: string[] = []
+  let woke = 0
+  const off = await boot({
+    plugins: [plugin('chat'), { name: 'voice', setup: (reg: { voiceWake: (() => void) | null }) => void (reg.voiceWake = () => void woke++) } as unknown as ClientPlugin],
+    enabled: ['chat', 'voice'],
+    user: [],
+    // api/me failed, but the first snapshot said Voice is off
+    me: () => Promise.reject(new Error('offline')),
+    connect: () => undefined,
+    live: () => ['voice'],
+    install: (ps) => void (installed = ps.map((p) => p.name)),
+    woke: () => true,
+  })
+  expect(off).toEqual(['voice'])
+  expect(installed).toEqual(['chat'])
+  // with Voice on, the early call reaches it once it is installed (the real install fills the registry)
+  const kernel = await import('./kernel.ts')
+  kernel.registry.voiceWake = null
+  await boot({
+    plugins: [plugin('voice')],
+    enabled: ['voice'],
+    user: [],
+    me: () => Promise.resolve(new Response('{}')),
+    connect: () => undefined,
+    live: () => [],
+    install: () => void (kernel.registry.voiceWake = () => void woke++),
+    woke: () => true,
+  })
+  expect(woke).toBe(1)
+  kernel.registry.voiceWake = null
+})
+
+test('the idle warm-up fetches the app’s parts and those of plugins that are on, never a switched-off plugin’s', async () => {
+  const asked: string[] = []
+  later(() => (asked.push('app'), Promise.resolve(1)))
+  later(() => (asked.push('voice'), Promise.resolve(1)), 'voice')
+  later(() => (asked.push('screens'), Promise.resolve(1)), 'screens')
+  warmLater(['screens'], 0)
+  await new Promise((r) => setTimeout(r, 400))
+  expect(asked).toEqual(['app', 'voice'])
+})
+
 test('a later part is fetched once, kept, and fetched again after a failure', async () => {
   let asked = 0
   let fail = true
@@ -75,15 +118,23 @@ test('a later part is fetched once, kept, and fetched again after a failure', as
 test('pinned: the heavy views are fetched by import(), never imported where the first screen starts', () => {
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
   expect(read('./main.tsx')).toContain("await boot({ plugins, enabled, user, me: () => fetch('api/me'), connect })")
-  expect(read('./App.tsx')).toContain("laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow))")
+  expect(read('./App.tsx')).toContain("laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow)")
   expect(read('./App.tsx')).not.toMatch(/from '\.\/settings\.tsx'/)
   expect(read('./picker.tsx')).toContain("later(() => import('./picker-sheet.tsx'))")
-  expect(read('./dictate.tsx')).toContain("later(() => import('./dictation.ts'))")
-  expect(read('./dictate.tsx')).not.toMatch(/^import \{[^}]*\} from '\.\/dictation\.ts'/m)
+  // a failed Settings closes, so no empty scrim is left over the app
+  expect(read('./App.tsx')).toContain("m.SettingsWindow), () => setUI({ settings: null }))")
+  // what must run inside a tap stays in the first script: the microphone's and the call's audio
+  expect(read('./dictate.tsx')).toMatch(/^import \{[^}]*\bdictate\b[^}]*\} from '\.\/dictation\.ts'/m)
   const voice = read('../plugins/voice/client.tsx')
-  expect(voice).toContain("later(() => import('./call.ts'))")
-  expect(voice).not.toMatch(/^import \{[^}]*\} from '\.\/(call|screen)\.ts'/m)
-  expect(read('../plugins/screens/client.tsx')).toContain("laterView(() => import('./pane.tsx').then((m) => m.ScreenPane))")
+  expect(voice).toMatch(/^import \{[^}]*\bstartCall\b[^}]*\} from '\.\/call\.ts'/m)
+  expect(voice).toContain("later(() => import('./screen.ts'), 'voice')")
+  expect(voice).not.toMatch(/^import \{[^}]*\} from '\.\/screen\.ts'/m)
+  const screens = read('../plugins/screens/client.tsx')
+  expect(screens).toContain("later(() => import('./pane.tsx'), 'screens')")
+  // Take over waits for the Screen view, so Hand back is there once you drive
+  expect(screens).toContain("onClick={() => void pane.load().then(() => { openScreen(k, true); void act(k, 'take'")
+  // the kernel keeps a call asked for before the plugins were in
+  expect(read('./kernel.ts')).toContain('if (!(window as { shepherdrOff?: string[] }).shepherdrOff) wokeEarly = true')
   // xterm's stylesheet comes with the terminal
   expect(read('./styles.css')).not.toContain('xterm.css')
   expect(read('../plugins/terminal/xterm.ts')).toContain("import '@xterm/xterm/css/xterm.css'")

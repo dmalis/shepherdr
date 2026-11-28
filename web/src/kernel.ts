@@ -642,6 +642,14 @@ let saying: ReturnType<typeof setTimeout> | null = null
 let downSince: number | null = null
 let pruned = false
 let tried = 0
+/** fork #163: the link opens while the plugins load; a call asked for before Voice was installed waits for it */
+let wokeEarly = false
+/** a call asked for before the plugins were in (boot.ts takes it once they are) */
+export function takeEarlyWake() {
+  const was = wokeEarly
+  wokeEarly = false
+  return was
+}
 /** each chat as the service last sent it (its patches build on that, not on what the screen made of it) */
 const sentChats = new Map<string, Chat>()
 /** when the link last heard from the server */
@@ -720,7 +728,12 @@ export function connect() {
       msg = { type: 'chat', chat }
     }
     if (msg.type === 'show') return setUI({ art: msg.artifact, artV: null, artBack: null, pane: 'artifacts', task: null })
-    if (msg.type === 'voice') return registry.voiceWake?.()
+    if (msg.type === 'voice') {
+      if (registry.voiceWake) return registry.voiceWake()
+      // fork #163: the plugins are still coming in (boot.ts)
+      if (!(window as { shepherdrOff?: string[] }).shepherdrOff) wokeEarly = true
+      return
+    }
     if (msg.type === 'go') return openLink(msg.url)
     // fork Needs you 4/6: an alert sent while this screen is on screen (the alerts plugin says it)
     if (msg.type === 'alert') return void dispatchEvent(new CustomEvent('shepherdr:alert', { detail: msg.alert }))

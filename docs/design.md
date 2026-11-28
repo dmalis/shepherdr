@@ -450,13 +450,16 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
   every chunk it imports, as sent with brotli, and fails above 230 kB, under the 250 kB budget.
 - **Nothing waits in line at the start:** `api/me` and the live link go out at once, and the plugins come in side by
   side (`web/src/boot.ts`).
-- **Features you open** load when opened: the terminal and xterm with its stylesheet, voice and dictation, the
-  Screen view, Settings and the agent, machine and space pickers. Each plugin still registers its buttons, keys,
-  routes and switch at the start; only the code behind them comes later (`web/src/later.tsx`: `later()` for a
-  module, `laterView()` for a view, which draws nothing until it is here). Once the first screen is up, each is
-  fetched in turn while the page is idle, so a first open is usually instant; one that can't be fetched says so and
-  is tried again on its next use. A new heavy feature does the same, and is not imported where the first screen
-  starts.
+- **Features you open** load when opened: the terminal and xterm with its stylesheet, Settings, the agent, machine
+  and space pickers, the Screen view, and what a call reads of the page. Each plugin still
+  registers its buttons, keys, routes and switch at the start; only the code behind them comes later
+  (`web/src/later.tsx`: `later()` for a module, `laterView()` for a view, which draws nothing until it is here and
+  closes what it was opened in if it can't come). A second after the first screen is up, the parts of the plugins
+  that are on are fetched in turn while the page is idle, so a first open is usually instant; one that can't be
+  fetched says so with Reload beside it, and is tried again on its next use. A new heavy feature does the same, and
+  is not imported where the first screen starts.
+- **What a tap must start stays in the first script:** the microphone's and a call's audio are made inside the tap
+  (a phone keeps audio made after an await silent), so dictation and the call are never parts that come later.
 - **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
   screen are options to prove against find, copy, jump-to-quote and keeping your place.
 - **Pictures keep their room before they load,** so nothing moves as they come in: a frame of a fixed shape that the

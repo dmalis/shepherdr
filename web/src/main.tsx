@@ -45,7 +45,7 @@ registry.topBars.push(Offline, UpdateChip)
 async function start() {
   // fork #163: api/me and the link at once, the plugins side by side (boot.ts). api/me is bounded: a service that never
   // answers must not keep the page blank (it then says Loading…, then can't reach)
-  await boot({ plugins, enabled, user, me: () => fetch('api/me', { signal: AbortSignal.timeout(3000) }), connect })
+  const off = await boot({ plugins, enabled, user, me: () => fetch('api/me', { signal: AbortSignal.timeout(3000) }), connect })
   applySizes()
   watchViewport((up) => setUI({ keyboard: up }))
   createRoot(document.getElementById('root')!).render(
@@ -58,7 +58,7 @@ async function start() {
   // the parts that come later (later.tsx): fetched once the first snapshot is here and the page is idle
   const warm = () => {
     if (!getState().snap) return false
-    warmLater()
+    warmLater(off)
     return true
   }
   if (!warm()) {
