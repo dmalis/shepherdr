@@ -27,6 +27,8 @@
     "web/plugins/alerts/links.test.tsx",
     "service/trust-card.test.ts",
     "service/voice-data.test.ts",
-    "web/plugins/alerts/space.test.tsx"
+    "web/plugins/alerts/space.test.tsx",
+    "web/src/sw-actions.test.ts",
+    "web/plugins/inbox/inbox.test.tsx"
   ]
 }

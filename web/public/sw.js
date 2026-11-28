@@ -160,7 +160,7 @@ self.addEventListener('push', (e) => {
         // the app on screen says the alert itself (a notice, none when its card is on screen), never nothing at all
         const shown = list.filter((c) => c.visibilityState === 'visible')
         if (!a.test && shown.length) {
-          if (!a.clear && !a.resolved && a.title) for (const c of shown) c.postMessage({ type: 'alert', alert: { key: a.tag || a.id || '', ...(a.action ? { action: a.action } : {}), at: Date.now(), title: a.title, body: a.body || '', topic: a.topic || '', ...(a.url ? { url: a.url } : {}), ...(a.place ? { place: a.place } : {}) } })
+          if (!a.clear && !a.resolved && a.title) for (const c of shown) if (typeof c.postMessage === 'function') c.postMessage({ type: 'alert', alert: { key: a.tag || a.id || '', ...(a.action ? { action: a.action } : {}), at: Date.now(), title: a.title, body: a.body || '', topic: a.topic || '', ...(a.url ? { url: a.url } : {}), ...(a.place ? { place: a.place } : {}) } })
           return
         }
         const tag = a.tag || a.id
