@@ -1,0 +1,35 @@
+/* fork UI 14: rows and headers that read in one look (shortcut.tsx, client.tsx TaskRow and TaskHead). Nothing here
+   moves: the shortcut shows and hides at once, so the Motion setting and prefers-reduced-motion have nothing to turn off. */
+
+/* a row's what-it-needs line: one line, cut with … (its row opens the whole); an alert's kind leads it, darker */
+.row.tk>.n>.l2.one{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.tk>.n>.l2.one>.alw{color:var(--fg)}
+
+/* the one shortcut (Reply, Open PR), with a mouse: in the time's place while the row is hovered or reached by the
+   keyboard, as Gmail's and Linear's row actions; over the row's own fill, so what it covers doesn't show through.
+   On touch it is in the row's menu instead (and later a swipe). */
+.rowx>.tsc{position:absolute;top:calc(8px + var(--over, 0px) + (var(--uil) - var(--btns))/2);right:calc(var(--ib) + 4px);z-index:1;opacity:0;pointer-events:none;background:linear-gradient(var(--control2),var(--control2)) var(--canvas)}
+.rowx>.tsc .i{width:var(--ic-sm);height:var(--ic-sm)}
+.rowx:has(:focus-visible)>.tsc{opacity:1;pointer-events:auto}
+.rowx:has(>.tsc):has(:focus-visible)>.row>.v{visibility:hidden}
+@media(hover:hover){
+  .rowx:hover>.tsc{opacity:1;pointer-events:auto}
+  .rowx:has(>.tsc):hover>.row>.v{visibility:hidden}
+}
+.app.tap .rowx>.tsc{display:none}
+
+/* an open task's header: its status whole, then its pull request and the model (docs/design.md, Information order).
+   Those two sit in their own box that gives way first, and inside it each shows whole or leaves the line (it wraps
+   into the box's hidden second line): the model goes first, then the pull request, never as a stray …. A status
+   longer than the whole line is then cut with … at its end. */
+.t2>.hline>.hst{flex:0 1 auto;min-width:0}
+.t2>.hline>.hmore{flex:0 1000000 auto;min-width:0;margin-left:-6px;display:flex;flex-wrap:wrap;align-items:center;align-content:flex-start;height:var(--secl);overflow:hidden}
+/* an empty first item as tall as the line: the pull request or model is never first on its line, so one that can't
+   fit whole wraps away to the hidden line below instead of being clipped mid-letter */
+.t2>.hline>.hmore::before{content:"";flex:none;width:0;height:var(--secl)}
+.hmore>.hpr,.hmore>.head-agent{margin-left:6px}
+.hmore>.hpr{flex:none;display:inline-flex;align-items:center;gap:4px}
+.hmore>.hpr .i{width:var(--ic-sm);height:var(--ic-sm)}
+.hmore>.hpr .pn{font-variant-numeric:tabular-nums}
+.hmore>.head-agent{flex:none;white-space:nowrap}
+.hmore>.head-agent::before{content:"";display:inline-block;width:1px;height:1em;margin-right:6px;vertical-align:-.15em;background:var(--line)}

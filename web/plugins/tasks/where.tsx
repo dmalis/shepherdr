@@ -1,11 +1,10 @@
 // Where a task works, in sight (dmalis/shepherdr#100): an open task's header has a small line over its title with its
 // project (its machine too when there are several), as GitHub's "owner/repo" over an issue's title and Linear's
-// breadcrumb; a row in the list puts its repo line first (where.css). A row's model line shows only when the task runs
-// on something else than its setting, so the usual case says nothing and the exception stands out.
+// breadcrumb; a row in the list puts its repo line first (where.css). A row never shows the model: it is in the
+// header (fork UI 14).
 import { I } from '@client/ui.tsx'
-import { samePick, type Pick } from '@client/picker.tsx'
-import type { Catalog, Snapshot, Task } from '@shared/types.ts'
-import { isEverything, machineLabel, spaceLabel, workName } from '@shared/view.ts'
+import type { Snapshot, Task } from '@shared/types.ts'
+import { isEverything, machineLabel, reposOf, spaceLabel, workName } from '@shared/view.ts'
 import './where.css'
 
 /** the words over a task's title: its project and its machine when there are several; a task outside a repo or folder
@@ -49,17 +48,18 @@ export function TaskWhere({ snap, t, onShow }: { snap: Snapshot; t: Task; onShow
   )
 }
 
-/** the Tasks setting a task starts with: its working folder's on its machine (a local repo has no machine), else
- *  Everywhere's, as the service picks it (service/next.ts defaultsForTask); never the space that asked for it */
-export function taskSetting(snap: Snapshot, t: Task): Pick {
-  const c = snap.config
-  const repo = t.work && c?.repos?.find((r) => r.folder === t.work!.folder && (r.machine ?? snap.host) === t.on)
-  return repo?.agents.Tasks ?? c?.all.agents.Tasks ?? { agent: 'claude' }
-}
-
-/** whether a row says its agent: only when it isn't what the task's setting picks. Before the machine's catalog is
- *  read, aliases can't be matched, so it says it, as before. */
-export function showsAgent(snap: Snapshot, t: Task, pick: Pick, cat?: Catalog): boolean {
-  if (!cat) return true
-  return !samePick(pick, taskSetting(snap, t), cat)
+/** fork UI 14: a row's quiet line of where a task works: its project, its machine only where it tells two apart (a
+ *  project of the same name on another machine), and the space it came from when that is another folder's, with that
+ *  space's machine when a space of the same name is on another one ("team-handbook · from #shop on vm"). The header
+ *  over an open task's title has the room to name its machine whenever there are several (TaskWhere). */
+export function rowWhere(snap: Snapshot, t: Task): { name: string; machine: string; from: string } {
+  const name = workName(t)
+  if (!name) return { name: '', machine: '', from: '' }
+  // with one machine there is nothing to tell apart (as workWords)
+  const many = snap.machines.length > 1
+  const twin = many && reposOf(snap).some((r) => r.name === name && r.machine !== t.on)
+  let from = fromSpace(snap, t)
+  const p = from ? snap.places.find((x) => x.id === t.place) : undefined
+  if (many && p && !from.includes(' on ') && snap.places.some((x) => x.id !== p.id && !x.archived && x.name === p.name && x.machine !== p.machine)) from += ` on ${machineLabel(snap, p.machine)}`
+  return { name, machine: twin ? machineLabel(snap, t.on) : '', from }
 }

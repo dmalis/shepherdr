@@ -1,0 +1,55 @@
+// fork UI 14 (Tasks: rows and headers that read in one look): a task row's one shortcut, the action its state calls
+// for: Reply for a task that asks you something (its chat, at what it asks), Open PR for one ready for review with a
+// pull request. As Gmail's and Linear's inbox rows, a mouse sees it on the row's hover (and a keyboard on its focus),
+// in the place of the row's time; it is in the row's menu too, and on touch only there (later a swipe). Its name says
+// the task, so a screen reader's list of buttons tells the rows apart.
+import { Btn, I, cx } from '@client/ui.tsx'
+import { openItem } from '@client/needs-count.tsx'
+import type { MenuRow } from '@client/kernel.ts'
+import type { Snapshot, Task } from '@shared/types.ts'
+import { tstate } from '@shared/view.ts'
+import './rows.css'
+
+export interface Shortcut {
+  /** what the button says */
+  label: string
+  /** its accessible name: its words first, then the task */
+  name: string
+  icon: 'reply' | 'pr'
+  /** its menu row's words */
+  menu: string
+  run: () => void
+}
+
+/** the one shortcut a task's state calls for, or none */
+export function shortcutOf(snap: Snapshot, t: Task): Shortcut | null {
+  const s = tstate(t)
+  // it asks you (a question, a permission, a prompt, a sign-in): its own chat, at the card that asks (Needs you's
+  // exact link, as a tap on the red count opens it)
+  if (s === 'ask' && t.action?.owner === 'you' && !t.stopped) {
+    const card = snap.attention?.actions.find((a) => a.id === t.action!.id)?.card ?? null
+    return { label: 'Reply', name: `Reply to ${t.name}`, icon: 'reply', menu: 'Reply in its chat', run: () => openItem({ task: t.id, place: t.place, card }) }
+  }
+  // ready for review with an open pull request: the pull request on GitHub, where it is reviewed
+  if (s === 'ready' && t.pr && !t.pr.closed && !t.merged) {
+    const url = t.pr.url
+    return { label: 'Open PR', name: `Open PR #${t.pr.number} for ${t.name}`, icon: 'pr', menu: `Open PR #${t.pr.number}`, run: () => void window.open(url, '_blank', 'noopener,noreferrer') }
+  }
+  return null
+}
+
+/** the shortcut's row in the task's menu, first: the same action, by touch and by the menu's keys */
+export function shortcutRow(snap: Snapshot, t: Task): MenuRow[] {
+  const sc = shortcutOf(snap, t)
+  return sc ? [{ icon: sc.icon, label: sc.menu, run: sc.run }] : []
+}
+
+/** the button on a row: only with a mouse (a touch screen has the menu) */
+export function ShortcutBtn({ sc, className, style }: { sc: Shortcut; className?: string; style?: React.CSSProperties }) {
+  return (
+    <Btn small className={cx('tsc', className)} style={style} aria-label={sc.name} onClick={(e) => { e.stopPropagation(); sc.run() }}>
+      <I n={sc.icon} />
+      {sc.label}
+    </Btn>
+  )
+}

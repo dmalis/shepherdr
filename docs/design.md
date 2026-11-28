@@ -59,11 +59,14 @@ answers those first, stays quiet otherwise, and never makes them wait for it.
 
 What a row, a card or a header shows. Leave out what doesn't help the person decide.
 
-- **A task's row:** its status mark, its name, then one quiet line of what it needs or just did, then where it works.
-  How long it has waited (or since it finished) at the end. The agent's model, the branch and the pull request belong
-  in the task's header and thread, not in every row (Target: today a row can run to four lines).
-- **A task's header:** the name, then the status in words, then the agent. A status beats a model: when the line runs
-  short, the model is cut and the status stays whole (Target).
+- **A task's row:** its status mark, its name, then one quiet line of what it needs or just did (cut with …, an
+  alert's kind first), then where it works. How long it has waited (or since it finished) at the end. Where it works
+  names the machine only where it tells two apart (a project or a space of the same name on another machine). The
+  agent's model, the branch and the pull request belong in the task's header and thread, never in a row
+  (`web/plugins/tasks/rows.test.tsx`).
+- **A task's header:** the name, then the status in words, then its pull request and the agent. A status beats a
+  model: when the line runs short, the model leaves first, then the pull request, each whole or not at all, and the
+  status stays whole (`rows.css`).
 - **A card that asks something:** the question or decision first, what happens when you answer, then the buttons.
 - **Where:** a task lives in the space that asked for it and works in a folder, a repo on a machine. Where those
   differ, both are named (`from #space`), and the machine is named when it tells two apart.
@@ -254,6 +257,10 @@ Use these before making anything new; each has its states in `ds.css`.
 
 - **Rows** (`.row`, `.row2`): a status mark, the name, a second line, a value at the end (`.v`). `.rowx` wraps a row
   with its own buttons beside it. A row's menu is `⋯`, there on touch too, and has every action the row has.
+  A row has at most one shortcut button, the one its state calls for (a task: Reply for a question, Open PR for a
+  review), named with its row ("Reply to Switch payment provider") and first in its menu too. With a mouse it shows
+  in the value's place while the row is hovered or reached by the keyboard, as Gmail's and Linear's row actions; on
+  touch it is in the menu (`.tsc`, `web/plugins/tasks/rows.css`).
 - **Cards** (`.card`): the question or title, at most two quiet lines, the content, then its buttons (`.acts`, a row
   at the end that wraps). Target: on a phone, a card's two or more buttons share its width, the primary last, as a
   sheet's do.
@@ -357,8 +364,7 @@ something that arrives, reorders or retries on its own.
 
 - **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Hover styles
   sit under `@media (hover: hover)`, so a tap never leaves one lit, and a touch screen sees the press instead.
-  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css` and the task's place
-  line) to their count.
+  `test/test_design.py` holds the few still outside it (in `styles.css` and `dictate.css`) to their count.
 - **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. Today a row slides
   right to reply. Target: left shows one or two of the row's actions that are safe to undo, each tapped to act; merging,
   stopping, allowing and deleting are never on a swipe. A swipe locks to sideways before it takes over, so the list
