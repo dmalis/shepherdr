@@ -9,12 +9,29 @@
     "mods/tasks/bin/herdr_task/news.py",
     "mods/tasks/bin/herdr_task/output.py",
     "mods/tasks/bin/herdr_task/assistant_settings.py",
-    "docs/agents-and-terms.md"
+    "docs/agents-and-terms.md",
+    "service/model.ts",
+    "service/compat.ts",
+    "service/actions.ts",
+    "service/main.ts",
+    "service/voice-data.ts",
+    "web/shared/types.ts",
+    "web/shared/urgent.ts",
+    "web/plugins/tasks/urgent.tsx",
+    "web/plugins/tasks/urgent.css",
+    "web/plugins/tasks/client.tsx",
+    "web/src/icons.ts",
+    "web/demo/data.ts",
+    "web/demo/serve.ts"
   ],
   "tests": [
     "test/test_herdr_task.py::Urgent",
     "test/test_herdr_task.py::AssistantSettings.test_the_block_by_default",
     "test/test_herdr_task.py::AssistantSettings.test_the_block_for_a_space_with_its_own",
-    "core/chat-log.test.js"
+    "core/chat-log.test.js",
+    "web/shared/urgent.test.ts",
+    "web/plugins/tasks/urgent.test.tsx",
+    "service/urgent.test.ts",
+    "service/voice-data.test.ts"
   ]
 }
