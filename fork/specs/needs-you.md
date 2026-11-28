@@ -142,3 +142,16 @@ Herdr's news to an Assistant: `waiting` for an inferred wait (with its reason an
   - it doesn't repeat the question in chat, never alerts for a wait the deadline or no-Shepherdr already hands up, and never alerts for a prompt that is already the person's;
   - it takes a hand-up back once answered. Its other messages stay quiet.
 - Left for later: the card's words for a wait whose deadline passed (it shows as red with its agent's words, without a card of its own); Undo on a choice sent.
+
+## As built: Shepherdr's asks in plain words, and idle spaces (#416)
+
+- **Why:** a space's Shepherdr ended its turn on "the next step is your call" with reply bubbles, in plain words, not a card. Nothing counted it, and with nothing running the person read it as work stopped.
+- **Prevent:** every Shepherdr chat's settings note has a row, "Asking the person" (`mods/tasks/bin/herdr_task/asking.py`, as urgent.py's row): wait on the person with the question tool, optional choices too, never only in plain words. `templates/assistant.md` stays upstream's.
+- **A plain ask is the person's** (owner you, kind `chat`, id `chat:<space>`, `plain: true`; `web/shared/plain-ask.ts` asksYou). The service reads each Shepherdr chat whose turn ended once a turn, from its own log (`service/plain-ask.ts`), and keeps its newest words on the space as `asks`, with the turn read. It counts while:
+  - Shepherdr's turn has ended (running, not at work, not at a prompt), and its words are the chat's newest turn's, with nothing from the person after them;
+  - and they close on a direct question with its answers offered (two or more bubbles, or none with suggested replies off), or offer two or more choices while nothing runs in the space (no task there Working, merging or queued).
+  - Bubbles alone never count, nor one bubble on "Anything else?", nor choices offered while work runs.
+- **Quiet in delivery:** counted everywhere (the space, Everything, the Tasks icon, the badge, Glance) and listed as "#space asks you" with its question, but never pushed: it is read off words, and the message already reached the bell. A question card or a stopped Shepherdr is the one action, as before.
+- **Until answered:** it clears when the person writes (Shepherdr's next turn reads again), not when the chat is read, as GitHub keeps a review request until you act on it.
+- **Idle** (`spaceIdle`): a space with nothing running and tasks Up next of its own shows a grey "Idle" on its row (its count in the spoken label), and only while it has no red count. Never counted, never pushed.
+- Left for later: open work outside tasks (a repo's GitHub issues) doesn't make a space idle; Shepherdr starting work within its remit on its own.

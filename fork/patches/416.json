@@ -1,0 +1,25 @@
+{
+  "issue": 416,
+  "name": "Shepherdr's asks in Needs you: plain-text asks count, idle spaces say so, Shepherdr asks with a card",
+  "files": [
+    "web/shared/plain-ask.ts",
+    "service/plain-ask.ts",
+    "service/main.ts",
+    "web/shared/attention.ts",
+    "web/shared/needs-open.ts",
+    "web/shared/types.ts",
+    "web/src/list.tsx",
+    "mods/tasks/bin/herdr_task/asking.py",
+    "mods/tasks/bin/herdr_task/assistant_settings.py",
+    "docs/agents-and-terms.md",
+    "fork/specs/needs-you.md",
+    "web/demo/data.ts",
+    "web/demo/serve.ts"
+  ],
+  "tests": [
+    "service/plain-ask.test.ts",
+    "service/attention.test.ts",
+    "test/test_herdr_task.py::AskingThePerson",
+    "test/test_herdr_task.py::AssistantSettings"
+  ]
+}
