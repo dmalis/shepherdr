@@ -150,8 +150,10 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 - **Measure:** in the main chat a bubble stops at 560 px, about 70 characters, whatever the chat width; in a task's
   pane bubbles and cards take 92% of its width. A page the app writes (a proof, a plan) keeps prose to about 72
   characters a line.
-- **Truncation:** one line with `…` for names in rows; a path in a header is cut at its start (`.hp.cut`). A cut value
-  always has a way to the whole: its row opens it, or the menu shows it.
+- **Truncation:** one line with `…` for names in rows; a path in a header is cut at its start (`.hp.cut`). A quiet
+  label beside a name (a task's kind) gives way whole before the name is cut, and is still read by screen readers
+  (an alert's title, `web/plugins/inbox/fit.ts`). A cut value always has a way to the whole: its row opens it, or the
+  menu shows it.
 
 ## Readability
 
@@ -265,8 +267,9 @@ Use these before making anything new; each has its states in `ds.css`.
   what to do. Offline, the last thing known stays, with when it was seen.
 - **Toasts:** one line, gone on their own, never the only record of something that needs the person. An Undo toast
   stays at least 5 seconds.
-- **Names for screen readers:** a row's name is its title; what else it shows (why, where, when) is its description,
-  not left out (Target for alerts: today their `aria-label` replaces it).
+- **Names for screen readers:** a row's name is its title; what else it shows (why, where, when) is its description
+  (`aria-describedby` on the words it shows), not left out or replaced by an `aria-label`. A short form on screen
+  (`5m ago`) is read in words (`5 minutes ago`). The alerts list's rows are the model (`web/plugins/inbox/client.tsx`).
 - **Pages the app writes** (a proof, a plan) set their own background and text colours for light and dark.
 - **An artifact's frame** is the app's own page colour under the page (`.page`, `background: var(--canvas)`), never a fixed
   white: a page that says it can be dark and paints no background of its own reads in every theme, and a light-only
@@ -354,8 +357,8 @@ something that arrives, reorders or retries on its own.
 
 - **No hover-only.** Anything a mouse reveals on hover is always visible on touch, or in the item's menu. Hover styles
   sit under `@media (hover: hover)`, so a tap never leaves one lit, and a touch screen sees the press instead.
-  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css`, the inbox and the task's
-  place line) to their count.
+  `test/test_design.py` holds the few still outside it (in `styles.css`, `dictate.css` and the task's place
+  line) to their count.
 - **Swipes are shortcuts.** A swipe is never the only way: its action is in the row's menu too. Today a row slides
   right to reply. Target: left shows one or two of the row's actions that are safe to undo, each tapped to act; merging,
   stopping, allowing and deleting are never on a swipe. A swipe locks to sideways before it takes over, so the list

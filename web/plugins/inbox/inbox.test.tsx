@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { deviceState } from '@shared/alerts.ts'
 import { registry } from '@client/kernel.ts'
-import { advice, byDay, deviceName, deviceOf, lastWords, stateOf } from './words.ts'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { advice, agoWords, byDay, deviceName, deviceOf, lastWords, stateOf } from './words.ts'
+import { kindGivesWay } from './fit.ts'
 
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
@@ -121,6 +123,82 @@ test('a refused auto-read is not asked again for 30 s, so a page left open never
   } finally {
     globalThis.fetch = real
   }
+})
+
+/* UI 16, "Alerts read whole": a screen reader's name and description of a row, from its markup as accessible-name
+ * computation reads it: aria-labelledby and aria-describedby by id, text joined, what is aria-hidden left out */
+type Node = { tag: string; attrs: Record<string, string>; kids: (Node | string)[] }
+function parse(html: string): Node {
+  const root: Node = { tag: '', attrs: {}, kids: [] }
+  const stack = [root]
+  for (const m of html.matchAll(/<(\/?)([a-z0-9]+)([^>]*?)(\/?)>|([^<]+)/gi)) {
+    const top = stack[stack.length - 1]
+    if (m[5] !== undefined) top.kids.push(m[5].replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"'))
+    else if (m[1]) stack.pop()
+    else {
+      const node: Node = { tag: m[2], attrs: Object.fromEntries([...m[3].matchAll(/([a-z-]+)="([^"]*)"/gi)].map((a) => [a[1], a[2]])), kids: [] }
+      top.kids.push(node)
+      if (!m[4] && !['path', 'circle', 'rect', 'line', 'br'].includes(m[2])) stack.push(node)
+    }
+  }
+  return root
+}
+const find = (n: Node, id: string): Node | null => (n.attrs.id === id ? n : n.kids.reduce<Node | null>((f, k) => f ?? (typeof k === 'string' ? null : find(k, id)), null))
+// as Chrome reads the CSS: a flex container's items (kind.css .knd, inbox.css .inbx-m) are blocks, set apart by a
+// space; the dot between place and time reads as a comma (its content's alt text)
+const FLEX = ['knd', 'inbx-m']
+const words = (n: Node | string): string => {
+  if (typeof n === 'string') return n
+  if (n.attrs['aria-hidden'] === 'true') return ''
+  const lead = n.attrs.class === 'inbx-a' ? ', ' : ''
+  return lead + n.kids.map(words).join(FLEX.includes(n.attrs.class) ? ' ' : '')
+}
+const by = (root: Node, ids = '') => ids.split(' ').filter(Boolean).map((id) => words(find(root, id)!).replace(/\s+/g, ' ').trim()).join(' ')
+
+test('an alert reads whole: its title is its name, its body, place, time and status its description', async () => {
+  const { Item } = await import('./client.tsx')
+  const { snapshot } = await import('../../demo/data.ts')
+  const snap = snapshot('normal')
+  const row = (id: string) => {
+    const x = snap.inbox!.find((a) => a.id === id)!
+    const root = parse(renderToStaticMarkup(<Item x={x} snap={snap} close={() => {}} now={x.at + 40 * 60_000} />))
+    const button = root.kids.find((k): k is Node => typeof k !== 'string' && k.tag === 'button')!
+    return { button, name: by(root, button.attrs['aria-labelledby']), description: by(root, button.attrs['aria-describedby']) }
+  }
+  const unread = row('alert:a7')
+  // no aria-label in place of what the row shows
+  expect(unread.button.attrs['aria-label']).toBeUndefined()
+  expect(unread.name).toBe('Unread: Task Bigger checkout button Approval code')
+  expect(unread.description).toBe('The payment sandbox sent a code to your phone: enter it in the browser #shop, 40 minutes ago')
+  const waited = row('need:SHOP-14/worker:q2')
+  expect(waited.name).toBe('Task Switch payment provider Needs you')
+  expect(waited.description).toBe('Which provider, Stripe or Adyen? #shop, 40 minutes ago Waiting on you')
+  // the comma the parser reads between place and time is the dot's words in inbox.css, and a press keeps the light fill
+  const css = readFileSync(join(import.meta.dir, 'inbox.css'), 'utf8')
+  expect(css).toContain('.inbx-w+.inbx-a::before{content:"·" / ", ";')
+  expect(css).toContain('.inbx-it{--press:var(--control)}@media(hover:hover){.inbx-it:hover:not(:active){background:var(--control)}}')
+  // an Assistant's alert has no task kind: its title as it is
+  expect(row('msg:p:mac-mini:blog:9').name).toBe('#blog Assistant · New message')
+})
+
+test("a row's time in words for a screen reader, the short form on screen", () => {
+  const now = new Date(2026, 10, 27, 15, 0).getTime()
+  expect(agoWords(now - 10_000, now)).toBe('just now')
+  expect(agoWords(now - 60_000, now)).toBe('1 minute ago')
+  expect(agoWords(now - 40 * 60_000, now)).toBe('40 minutes ago')
+  expect(agoWords(now - 3600_000, now)).toBe('1 hour ago')
+  expect(agoWords(now - 3 * 24 * 3600_000, now)).toBe('3 days ago')
+  expect(agoWords(now - 14 * 24 * 3600_000, now)).toBe('2 weeks ago')
+})
+
+test("a title's kind gives way, whole, before the task's name is cut; the state word always keeps its room", () => {
+  // room 300: "Task · " 40, the name 200, " · Approval code" 100: it all fits
+  expect(kindGivesWay(300, 40, 160, 100)).toBe(false)
+  expect(kindGivesWay(300, 40, 200, 100)).toBe(true)
+  // the kind gone, the name may still be cut (kind.css .kn): never the state word
+  const css = readFileSync(join(import.meta.dir, 'inbox.css'), 'utf8')
+  expect(css).toContain('.inbx-t>.knd.tight>.kd{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}')
+  expect(readFileSync(join(import.meta.dir, '../chat/kind.css'), 'utf8')).toMatch(/\.knd>\.kd,\.knd>\.ks\{flex:none/)
 })
 
 test('pin: the device states the check reads are still the alerts plugin’s', () => {

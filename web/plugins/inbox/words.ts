@@ -2,6 +2,7 @@
 // in, its state, a device's name from its browser's own words, and why alerts may not show on this device.
 import type { DeviceState } from '@shared/alerts.ts'
 import type { InboxItem } from '@shared/types.ts'
+import { agoShort } from '@shared/view.ts'
 
 /** the list's sections, as GitHub's and Linear's: Today, Yesterday, Earlier */
 export function byDay<T extends { at: number }>(items: T[], now = Date.now()): { name: string; items: T[] }[] {
@@ -17,6 +18,15 @@ export function byDay<T extends { at: number }>(items: T[], now = Date.now()): {
     else out.push({ name, items: [x] })
   }
   return out
+}
+
+/** an alert's time as a screen reader says it: "5 minutes ago", where the row shows "5m ago" (UI 16) */
+export function agoWords(at: number, now = Date.now()): string {
+  const short = agoShort(at, now)
+  if (short === 'now') return 'just now'
+  const n = Number.parseInt(short, 10)
+  const unit = ({ m: 'minute', h: 'hour', d: 'day', w: 'week' } as const)[short.slice(-1) as 'm' | 'h' | 'd' | 'w']
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`
 }
 
 /** an alert that waited on you: still waiting, or resolved since; none for one that never waited */

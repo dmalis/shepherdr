@@ -13,7 +13,9 @@
 .inbx-list .cap{padding:12px 12px 4px;color:var(--muted);font-size:var(--sec);line-height:var(--secl)}
 .inbx-list .empty{padding:40px 24px}
 .inbx-it{display:flex;align-items:flex-start;gap:10px;width:100%;padding:8px 12px 8px 12px;border-radius:8px;color:var(--sub);text-align:left}
-.inbx-it:hover{background:var(--control)}
+/* a press lays the hover's light fill (ds.css, one press style), never on top of it: the row's quiet and amber words
+   keep their contrast while held */
+.inbx-it{--press:var(--control)}@media(hover:hover){.inbx-it:hover:not(:active){background:var(--control)}}
 .inbx-it>.i{margin-top:calc((var(--uil) - var(--ic)) / 2)}
 .inbx-it .n{flex:1;min-width:0;display:grid}
 .inbx-t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub)}
@@ -21,6 +23,10 @@
 .inbx-b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .inbx-it:not(.new) .inbx-b{color:var(--muted)}
 .inbx-m{display:flex;flex-wrap:wrap;column-gap:8px;margin-top:2px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);font-variant-numeric:tabular-nums}
+/* UI 16: where, then when, read with a pause (the dot's words for a screen reader are a comma) */
+.inbx-w+.inbx-a::before{content:"·" / ", ";margin-inline:4px}
+/* UI 16: the kind gives way whole before the task's name is cut (fit.ts); a screen reader still reads it */
+.inbx-t>.knd.tight>.kd{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .inbx-st{color:var(--muted)}.inbx-st.wait{color:var(--amber);font-weight:500}
 .inbx-dot{flex:none;width:8px;height:8px;margin-top:calc((var(--uil) - 8px) / 2);border-radius:50%;background:var(--blue)}
 /* the device check on Settings › Notifications */
