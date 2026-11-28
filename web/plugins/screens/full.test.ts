@@ -216,8 +216,9 @@ test('pane: the typing box sits under the finger, never outside the picture', ()
 
 test('pane: what is typed (a password) is never logged, and the keyboard is not phone-only', async () => {
   const dir = new URL('.', import.meta.url).pathname
-  for (const f of ['client.tsx', 'fullview.tsx', 'full.ts']) expect(await Bun.file(dir + f).text()).not.toMatch(/console\.(log|info|debug|warn)/)
-  const client = await Bun.file(dir + 'client.tsx').text()
+  for (const f of ['client.tsx', 'pane.tsx', 'fullview.tsx', 'full.ts']) expect(await Bun.file(dir + f).text()).not.toMatch(/console\.(log|info|debug|warn)/)
+  // fork #163: the Screen view lives in pane.tsx, fetched when it first opens
+  const client = await Bun.file(dir + 'pane.tsx').text()
   // one typing box for the pane and full screen alike, there whenever you drive, on any screen size
   expect(client).toContain('{drive ? <TypeBox')
   expect(client).not.toMatch(/drive && phone && !full/)

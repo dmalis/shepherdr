@@ -11,12 +11,19 @@ import type { Sample } from '@client/meter.ts'
 import { boxPart } from '@client/commands.ts'
 import { definePlugin, getState, go, launchHref, notice, openArtifact, openSettings, openTask, setUI, tryAct, useStore, useUI, type Thread } from '@client/kernel.ts'
 import { closeTop as closeLayer } from '@client/overlay.tsx'
+import { later } from '@client/later.tsx'
 import { isEverything, placeOf, taskOf } from '@shared/view.ts'
-import { callPhase, callSample, muteCall, sendWhere, startCall, stopCall, type Nav, type NavAck } from './call.ts'
+import type { CallPhase, Nav, NavAck } from './call.ts'
 import { wantsCall, withoutVoice } from './launch.ts'
 import { CallMarkView } from './mark.tsx'
-import { resetScreen, screenAction, type Head } from './screen.ts'
+import type { Head } from './screen.ts'
 import { NAME as VOICE_PAGE, needsKey, openVoiceSettings, VoiceSettings } from './settings.tsx'
+
+/** fork #163: the call (its audio, call.ts) and what it reads of the page (screen.ts) come after the first screen,
+ *  or when a call starts; the buttons, keys and settings are here from the start */
+const callPart = later(() => import('./call.ts'))
+const screenPart = later(() => import('./screen.ts'))
+const quiet = (): Sample => ({ level: 0, who: null })
 
 /** what this page shows, told to the call as it changes: its "here" and "this task" */
 function whereNow() {
@@ -62,7 +69,7 @@ export async function voiceNav(nav: Nav): Promise<NavAck> {
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const no = (why: string): NavAck => ({ ok: false, why, where: whereNow() })
   const check = (ok: boolean, why: string): NavAck => (ok ? { ok: true, where: whereNow() } : no(why))
-  if (nav.kind === 'screen') return { ...(await screenAction(nav, screenHead, { back: () => (history.length > 1 ? (history.back(), 'Went back one step') : closeTop()), closeTop })), where: whereNow() }
+  if (nav.kind === 'screen') return { ...(await (await screenPart.load()).screenAction(nav, screenHead, { back: () => (history.length > 1 ? (history.back(), 'Went back one step') : closeTop()), closeTop })), where: whereNow() }
   if (nav.kind === 'call') return { ok: true, where: whereNow() }
   if (nav.kind === 'space' || (nav.kind === 'chat' && str(nav.chat).startsWith('p:'))) {
     const id = str(nav.place) || snap.places.find((p) => p.chat === str(nav.chat))?.id || ''
@@ -115,7 +122,7 @@ export async function voiceNav(nav: Nav): Promise<NavAck> {
 function CallWhere() {
   const where = useStore((s) => (s.ui.call && s.snap ? JSON.stringify(whereNow()) : ''))
   useEffect(() => {
-    if (where) sendWhere(JSON.parse(where) as Record<string, unknown>)
+    if (where) callPart()?.sendWhere(JSON.parse(where) as Record<string, unknown>)
   }, [where])
   return null
 }
@@ -124,7 +131,7 @@ let demoTimers: ReturnType<typeof setTimeout>[] = []
 export function endCall() {
   demoTimers.forEach(clearTimeout)
   demoTimers = []
-  stopCall()
+  callPart()?.stopCall()
   setUI({ call: false, callMuted: false })
 }
 
@@ -142,7 +149,7 @@ export function toggleCall(resume: string | null = null) {
     later(7800, () => void tryAct({ type: 'answer', chat: 'SHOP-14/worker', question: 'q-pay', choice: 0, byVoice: true }))
     return
   }
-  resetScreen()
+  screenPart()?.resetScreen()
   const fail = (m: string) => {
     endCall()
     // no key yet: straight to Settings › Voice, where it is added, instead of only a notice
@@ -151,23 +158,29 @@ export function toggleCall(resume: string | null = null) {
       notice('Talk needs your ElevenLabs key. Add it here.')
     } else notice(m, { tone: 'error' })
   }
-  void startCall(null, fail, voiceNav, () => getState().snap && sendWhere(whereNow()), (why) => { endCall(); if (why) notice(`Call ended: ${why}.`) }, { title: 'Shepherdr', hangUp: endCall, mute: (on) => { muteCall(on); setUI({ callMuted: on }) } }, () => endCall(), resume).catch(() => fail('Audio could not start on this device.'))
+  const go = (C: typeof import('./call.ts')) => void C.startCall(null, fail, voiceNav, () => getState().snap && C.sendWhere(whereNow()), (why) => { endCall(); if (why) notice(`Call ended: ${why}.`) }, { title: 'Shepherdr', hangUp: endCall, mute: (on) => { C.muteCall(on); setUI({ callMuted: on }) } }, () => endCall(), resume).catch(() => fail('Audio could not start on this device.'))
+  // the call's code is usually here already; in the first seconds it is fetched first (and not started if hung up meanwhile)
+  const C = callPart()
+  if (C) go(C)
+  else callPart.load().then((m) => getState().ui.call && go(m), () => fail("The call couldn't load. Check the connection, then try again."))
 }
 
 function toggleMute() {
   const on = !getState().ui.callMuted
-  muteCall(on)
+  callPart()?.muteCall(on)
   setUI({ callMuted: on })
 }
+
+const phaseNow = (): CallPhase => callPart()?.callPhase() ?? 'connecting'
 
 /** the call's phase, looked at twice a second while a call is on (it changes without the store knowing) */
 function usePhase() {
   const on = useUI((u) => u.call)
-  const [phase, setPhase] = useState(callPhase)
+  const [phase, setPhase] = useState(phaseNow)
   useEffect(() => {
     if (!on) return
-    setPhase(callPhase())
-    const t = setInterval(() => setPhase(callPhase()), 500)
+    setPhase(phaseNow())
+    const t = setInterval(() => setPhase(phaseNow()), 500)
     return () => clearInterval(t)
   }, [on])
   return phase
@@ -177,7 +190,7 @@ function usePhase() {
 function CallMark() {
   const phase = usePhase()
   const demo = useStore((s) => !!s.snap?.demo)
-  return <CallMarkView phase={demo ? 'listening' : phase} muted={useUI((u) => u.callMuted)} sample={demo ? demoSample : callSample} />
+  return <CallMarkView phase={demo ? 'listening' : phase} muted={useUI((u) => u.callMuted)} sample={demo ? demoSample : (callPart()?.callSample ?? quiet)} />
 }
 
 /** the demo's call has no audio: a made-up voice, you then the agent in turns, so its wave moves as a real one does */

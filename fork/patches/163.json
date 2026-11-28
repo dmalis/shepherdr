@@ -1,0 +1,36 @@
+{
+  "issue": 163,
+  "name": "start without waiting in line",
+  "files": [
+    "web/src/boot.ts",
+    "web/src/later.tsx",
+    "web/src/main.tsx",
+    "web/src/App.tsx",
+    "web/src/settings.tsx",
+    "web/src/settings-rows.tsx",
+    "web/src/picker.tsx",
+    "web/src/picker-sheet.tsx",
+    "web/src/dictate.tsx",
+    "web/src/styles.css",
+    "web/plugins/voice/client.tsx",
+    "web/plugins/voice/settings.tsx",
+    "web/plugins/screens/client.tsx",
+    "web/plugins/screens/pane.tsx",
+    "web/plugins/terminal/client.tsx",
+    "web/plugins/terminal/xterm.ts",
+    "web/plugins/search/client.tsx",
+    "web/plugins/alerts/space.tsx",
+    "web/plugins/shortcuts/client.tsx",
+    "web/plugins/analytics/client.tsx",
+    "web/first-screen.ts",
+    ".github/workflows/check.yml",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/src/boot.test.ts",
+    "web/plugins/screens/full.test.ts",
+    "web/src/settings-look.test.tsx",
+    "web/plugins/inbox/inbox.test.tsx",
+    "test/test_design.py::DesignTokens"
+  ]
+}

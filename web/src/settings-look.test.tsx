@@ -94,9 +94,11 @@ test('pinned: Settings swaps its choices by import, has a page title, Notificati
   expect(settings).toContain("import { Choice as Seg } from './choice.tsx'")
   expect(settings).not.toMatch(/import \{[^}]*\bSeg\b[^}]*\} from '\.\/ui\.tsx'/)
   expect(settings).toContain('<h2 className="ptl">{cur}</h2>')
-  expect(settings).toContain("['General', 'gear'], ['Notifications', 'bell'], ['Agents', 'agent']")
+  // fork #163: the page names and the row live in settings-rows.tsx, so the window can come later
+  const rows = read('./settings-rows.tsx')
+  expect(rows).toContain("['General', 'gear'], ['Notifications', 'bell'], ['Agents', 'agent']")
   expect(settings).toContain("if (sec === 'Notifications') return <Notifications />")
-  expect(settings).toMatch(/export function SRow\(\{ label, wrap, children \}[^\n]*\n\s*return \(\n\s*<div className=\{cx\('srow', wrap && 'wrap'\)\}>\n\s*<span className="n">\{label\}<\/span>/)
+  expect(rows).toMatch(/export function SRow\(\{ label, wrap, children \}[^\n]*\n\s*return \(\n\s*<div className=\{cx\('srow', wrap && 'wrap'\)\}>\n\s*<span className="n">\{label\}<\/span>/)
   expect(read('./review-rows.tsx')).toContain("import { Choice as Seg } from './choice.tsx'")
   // About's rows are one group; What's new (#70) follows as its own titled section, a page's h3
   expect(read('./about.tsx')).toMatch(/<SRow label="This device" wrap>[\s\S]*?<SRow label="Shepherdr serves" wrap>[\s\S]*?\{More && <More \/>\}/)

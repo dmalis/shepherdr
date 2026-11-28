@@ -49,10 +49,10 @@ ENDLESS = {
     "web/src/dictate.css": 4,
 }
 INLINE_OFF_SCALE = {
-    "web/plugins/screens/client.tsx": 1,
+    "web/plugins/screens/pane.tsx": 1,
 }
 INLINE_COLOURS = {
-    "web/plugins/screens/client.tsx": 10,
+    "web/plugins/screens/pane.tsx": 10,
     "web/plugins/terminal/client.tsx": 1,
 }
 # hover styles outside @media (hover: hover), which a tap leaves lit (ds.css held 25 before #150)

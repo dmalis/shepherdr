@@ -7,8 +7,9 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import plugins, { enabled, user } from '../generated/client-plugins.ts'
 import { App } from './App.tsx'
-import { pluginFailed } from './guard.tsx'
-import { connect, installPlugins, registry, retryNow, setUI, useStore, useUI, type ClientPlugin } from './kernel.ts'
+import { boot } from './boot.ts'
+import { connect, getState, registry, retryNow, setUI, subscribe, useStore, useUI } from './kernel.ts'
+import { warmLater } from './later.tsx'
 import { offlineWords, TRY_AGAIN } from './states.ts'
 import { applySizes } from './resize.ts'
 import { UpdateChip } from './update-chip.tsx'
@@ -42,28 +43,10 @@ function Offline() {
 registry.topBars.push(Offline, UpdateChip)
 
 async function start() {
-  const loaded: ClientPlugin[] = []
-  for (const p of plugins) {
-    if ('setup' in p) loaded.push(p)
-    else
-      try {
-        loaded.push((await p.load()).default)
-      } catch (e) {
-        pluginFailed(p.name, e)
-      }
-  }
-  // the plugins switched off in Settings › Plugins are left out: their buttons, menu items and settings are gone
-  let off: string[] = []
-  try {
-    // bounded: a service that never answers must not keep the page blank (it then says Loading…, then can't reach)
-    off = ((await (await fetch('api/me', { signal: AbortSignal.timeout(3000) })).json()) as { off?: string[] }).off ?? []
-  } catch {
-    /* the link is down or slow: every plugin, until the first snapshot says otherwise */
-  }
-  ;(window as { shepherdrOff?: string[] }).shepherdrOff = off
-  installPlugins(loaded.filter((p) => !off.includes(p.name)), enabled.filter((n) => !off.includes(n)), user)
+  // fork #163: api/me and the link at once, the plugins side by side (boot.ts). api/me is bounded: a service that never
+  // answers must not keep the page blank (it then says Loading…, then can't reach)
+  await boot({ plugins, enabled, user, me: () => fetch('api/me', { signal: AbortSignal.timeout(3000) }), connect })
   applySizes()
-  connect()
   watchViewport((up) => setUI({ keyboard: up }))
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -72,5 +55,14 @@ async function start() {
       <LiveRegion />
     </StrictMode>,
   )
+  // the parts that come later (later.tsx): fetched once the first snapshot is here and the page is idle
+  const warm = () => {
+    if (!getState().snap) return false
+    warmLater()
+    return true
+  }
+  if (!warm()) {
+    const stop = subscribe(() => warm() && stop())
+  }
 }
 void start()

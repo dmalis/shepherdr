@@ -2,7 +2,7 @@
 // sections that each push in. 880×640 with a 200 px nav on a desktop. Opened for one space from its menu, it shows
 // only Agents, Tasks and Secrets, and every row there carries small print under its value: "Same as
 // Everything", or "Set here" with a Reset button beside it. A row is a label and a control: no hint lines under one.
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { NotificationsPage } from '@plugins/alerts/page.tsx'
 import { SpaceAlertsRow } from '@plugins/alerts/space.tsx'
 import type { Config, LevelConfig, RepoConfig, Snapshot } from '@shared/types.ts'
@@ -23,38 +23,14 @@ import { healthReadWords, READS } from '@core/machines.js'
 import { attention, attentionWords, servingOf } from '@shared/machine-facts.ts'
 import { MachineCard } from './machine-card.tsx'
 import { IconButton } from './space-icon.tsx'
-import { Btn, cx, I, IB, Meter, Row, Tgl } from './ui.tsx'
+import { Btn, I, IB, Meter, Row, Tgl } from './ui.tsx'
+import { ALL, Own, SRow } from './settings-rows.tsx'
 
-export const ALL: [string, IconName][] = [['General', 'gear'], ['Notifications', 'bell'], ['Agents', 'agent'], ['Tasks', 'tasks'], ['Secrets', 'key'], ['Machines', 'server'], ['Usage', 'gauge'], ['Plugins', 'plug'], ['About', 'info']]
+// fork #163: the rows other parts use live in settings-rows.tsx, so this window can come when first opened
+export { ALL, Own, SRow }
 const SPACE: [string, IconName][] = [['Space', 'hash'], ['Agents', 'agent'], ['Tasks', 'tasks'], ['Secrets', 'key']]
 
-/** a settings row: a label and a control */
-export function SRow({ label, wrap, children }: { label: ReactNode; wrap?: boolean; children?: ReactNode }) {
-  return (
-    <div className={cx('srow', wrap && 'wrap')}>
-      <span className="n">{label}</span>
-      {children}
-    </div>
-  )
-}
-
 const set = (place: string, key: string, value: unknown) => tryAct({ type: 'config', place, key, value })
-
-/** the small print under a space's value: "Same as Everything", or "Set here" with Reset beside it */
-export function Own({ place, own, k }: { place: string; own: boolean; k: string }) {
-  if (place === 'all') return null
-  return (
-    <small>
-      {own ? (
-        <>
-          Set here · <span className="lk" role="button" tabIndex={0} onClick={() => void set(place, k, null)} onKeyDown={(e) => e.key === 'Enter' && void set(place, k, null)}>Reset</span>
-        </>
-      ) : (
-        'Same as Everything'
-      )}
-    </small>
-  )
-}
 
 function levelOf(c: Config, place: string): { lv: LevelConfig; own: (k: string) => boolean } {
   const sp = place === 'all' ? undefined : place.startsWith('repo:') ? c.repos?.find((r) => r.key === place.slice(5)) : c.spaces[place]

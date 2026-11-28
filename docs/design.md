@@ -437,7 +437,7 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
 | Scrolling a 400-message chat or a 200-task list | p95 frame 33 ms, with the slower frames and long tasks counted |
 | A live update from the service | p95 4 ms of script per update |
 | An idle page, and a hidden one | no repeating visual work: nothing animating, no style or layout per second |
-| Script for the first screen | 250 kB sent, compressed, counting every script it loads before it can be used |
+| Script for the first screen | 250 kB sent, compressed, counting every script it loads before it can be used. A rule: checked on every build |
 | Memory | no growth in retained memory after the first minutes of live updates |
 
 - **Cached for good by the hashed file name;** the page itself is checked each load. A hashed file that isn't there
@@ -446,8 +446,17 @@ with a phone profile (4× slower CPU, 1.6 Mbps and 150 ms) unless they say other
   `Vary: Accept-Encoding`. The build writes both copies beside each hashed file (`web/compress.ts`) and the service
   picks one (`service/static.ts`); the page itself is sent as it is. A proxy in front passes the bytes on as they are
   (`web/demo/live.ts` fetches with `decompress: false`).
-- **Features you open** load when opened, as the terminal does. Target: voice, screens and Settings too (today every
-  plugin is in the first script).
+- **The first screen's script** is checked on every build: `bun web/first-screen.ts` sums the page's module script and
+  every chunk it imports, as sent with brotli, and fails above 230 kB, under the 250 kB budget.
+- **Nothing waits in line at the start:** `api/me` and the live link go out at once, and the plugins come in side by
+  side (`web/src/boot.ts`).
+- **Features you open** load when opened: the terminal and xterm with its stylesheet, voice and dictation, the
+  Screen view, Settings and the agent, machine and space pickers. Each plugin still registers its buttons, keys,
+  routes and switch at the start; only the code behind them comes later (`web/src/later.tsx`: `later()` for a
+  module, `laterView()` for a view, which draws nothing until it is here). Once the first screen is up, each is
+  fetched in turn while the page is idle, so a first open is usually instant; one that can't be fetched says so and
+  is tried again on its next use. A new heavy feature does the same, and is not imported where the first screen
+  starts.
 - **Long lists:** measure first. Skipping off-screen rows (`content-visibility`) or rendering only what is near the
   screen are options to prove against find, copy, jump-to-quote and keeping your place.
 - **Pictures keep their room before they load,** so nothing moves as they come in: a frame of a fixed shape that the

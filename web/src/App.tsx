@@ -13,7 +13,7 @@ import { HeaderPath } from './where.tsx'
 import { closeTop, Layers, Overlay } from './overlay.tsx'
 import { edge } from './resize.ts'
 import { columnsOf, swapSides, useSides } from './sides.ts'
-import { SettingsWindow } from './settings.tsx'
+import { laterView } from './later.tsx'
 import { cx, Empty, Failed, I, IB, Loading, useScrolled } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
 import { EverythingLine } from './everything-line.tsx'
@@ -21,6 +21,9 @@ import { needsWords } from '@shared/needs-open.ts'
 import { MarkRead } from './read-marks.ts'
 import { edgeSwipe, SideDrawer, usePeek } from './edge-swipe.tsx'
 import { pickFor, PickSummary, reportedPick, useCatalog } from './picker.tsx'
+
+/** the settings window comes when first opened (fork #163, later.tsx) */
+const SettingsWindow = laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow))
 
 /** the thread the middle column shows: the open task when it has the middle, else the space's chat */
 export function middleThread(snap: Snapshot, ui: { at: string; max: string | null }): Thread | null {

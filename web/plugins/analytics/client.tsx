@@ -7,7 +7,7 @@ import { PROMISE } from '../../../core/analytics.js'
 import { act, definePlugin, getState, notice, openSettings, subscribe, tryAct } from '@client/kernel.ts'
 import { confirm, openDialog } from '@client/overlay.tsx'
 import { Btn, IB, Seg, Tgl } from '@client/ui.tsx'
-import { SRow } from '@client/settings.tsx'
+import { SRow } from '@client/settings-rows.tsx'
 
 export const NAME = 'Personal analytics'
 const PERIODS = { Day: 1, Week: 7, Month: 30 } as const
