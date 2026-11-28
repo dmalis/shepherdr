@@ -1,0 +1,37 @@
+{
+  "issue": 170,
+  "name": "States: empty, loading and offline said apart",
+  "files": [
+    "web/src/live.ts",
+    "web/src/states.ts",
+    "web/src/ui.tsx",
+    "web/src/ds.css",
+    "web/src/styles.css",
+    "web/src/App.tsx",
+    "web/src/main.tsx",
+    "web/src/kernel.ts",
+    "web/src/outbox.ts",
+    "web/src/toasts.ts",
+    "web/src/list.tsx",
+    "web/src/commands.ts",
+    "web/plugins/chat/client.tsx",
+    "web/plugins/files/client.tsx",
+    "web/plugins/files/files.css",
+    "web/plugins/files/paths.ts",
+    "web/plugins/diff/client.tsx",
+    "web/plugins/diff/diff.css",
+    "web/plugins/diff/lines.ts",
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/artifacts/client.tsx",
+    "web/demo/serve.ts",
+    "web/demo/live-check.ts",
+    "docs/design.md",
+    "test/test_design.py"
+  ],
+  "tests": [
+    "web/src/live.test.tsx",
+    "web/plugins/files/paths.test.ts",
+    "web/plugins/diff/lines.test.ts",
+    "test/test_design.py::Checks"
+  ]
+}

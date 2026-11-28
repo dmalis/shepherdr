@@ -2,14 +2,15 @@
 // what a task changed against its base (its branch, committed or not), or what isn't committed yet in a space's own
 // folder, file by file; tap a file for its lines. Read only: nothing is staged, committed or edited here. The service
 // reads git on the task's or space's machine (service/worktree.ts, GET /api/worktree).
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PaneFrame } from '@client/App.tsx'
-import { definePlugin, getState, setUI, togglePane, useSnap, useUI } from '@client/kernel.ts'
+import { definePlugin, getState, linkBackAt, onLinkBack, setUI, togglePane, useSnap, useUI } from '@client/kernel.ts'
 import { openMenu } from '@client/overlay.tsx'
-import { cx, Empty, Hd, I, IB, Row } from '@client/ui.tsx'
+import { cx, Empty, Failed, Hd, I, IB, Loading, Row, Stale } from '@client/ui.tsx'
+import { UNREACHABLE } from '@client/states.ts'
 import type { Diff, DiffFile, Patch, Snapshot } from '@shared/types.ts'
 import { isEverything } from '@shared/view.ts'
-import { hasFolder, lineKind, sourcesOf, splitPath } from './lines.ts'
+import { hasFolder, lineKind, settled, sourcesOf, splitPath, type Got } from './lines.ts'
 import './diff.css'
 
 type Src = { kind: 'task' | 'space'; id: string }
@@ -22,12 +23,9 @@ const query = (s: Src, what: string, path?: string) =>
   `api/worktree?${s.kind}=${encodeURIComponent(s.id)}&what=${what}${path ? `&path=${encodeURIComponent(path)}` : ''}`
 
 async function get<T>(url: string): Promise<T | { error: string }> {
-  try {
-    const r = await fetch(url, { headers: { 'x-shepherdr': '1' } })
-    return (await r.json()) as T | { error: string }
-  } catch {
-    return { error: "Shepherdr didn't answer. Try again." }
-  }
+  const r = await fetch(url, { headers: { 'x-shepherdr': '1' } }).catch(() => null)
+  if (!r) return { error: UNREACHABLE }
+  return ((await r.json().catch(() => null)) ?? { error: `It didn't work (${r.status}).` }) as T | { error: string }
 }
 
 /** open the Changes pane on a task, at one of its files (a Ready card's file list) */
@@ -46,17 +44,30 @@ function pick(snap: Snapshot, at: string, picked: string | undefined): Src | nul
   return parse(list[0]?.key)
 }
 
+/** what a pane asked for: `v` (null while it loads the first time), and when a refresh failed over what was shown,
+ *  that stays with the error and when it came (`stale`, saved from before). Asked again when the link is back. */
 function useLoad<T>(url: string | null) {
-  const [got, setGot] = useState<{ url: string; v: T | { error: string } } | null>(null)
+  const [got, setGot] = useState<Got<T> | null>(null)
   const [n, setN] = useState(0)
   useEffect(() => {
     if (!url) return
     let live = true
-    void get<T>(url).then((v) => live && setGot({ url, v }))
+    const sent = Date.now()
+    void get<T>(url).then((v) => {
+      if (!live) return
+      // sent into an outage that has ended since: asked again rather than shown failed (kernel.ts, linkBackAt)
+      if ('error' in (v as object) && linkBackAt() > sent) return setN((x) => x + 1)
+      setGot((was) => settled(was, url, v, Date.now()))
+    })
     return () => { live = false }
   }, [url, n])
   const again = useCallback(() => setN((x) => x + 1), [])
-  return { v: got && got.url === url ? got.v : null, again }
+  const mine = got && got.url === url ? got : null
+  const failed = useRef(false)
+  failed.current = !!mine && (!!mine.stale || 'error' in (mine.v as object))
+  // the link to Shepherdr back (a real open): what couldn't be read for it is asked again
+  useEffect(() => onLinkBack(() => { if (failed.current) again() }), [again])
+  return { v: mine?.v ?? null, stale: mine?.stale, again }
 }
 
 const plusMinus = (add: number, del: number) => (
@@ -68,9 +79,9 @@ const plusMinus = (add: number, del: number) => (
 
 const WORD: Record<DiffFile['status'], string> = { added: 'New', deleted: 'Deleted', renamed: 'Renamed', modified: '' }
 
-function FileList({ src, diff, open }: { src: Src; diff: Diff; open: (path: string) => void }) {
+function FileList({ src, diff, open, again }: { src: Src; diff: Diff; open: (path: string) => void; again: () => void }) {
   if (!diff.files.length)
-    return <Empty title="Nothing changed">{src.kind === 'space' ? 'Everything in this folder is committed.' : diff.against ? `No changes against ${diff.against}.` : 'Nothing new since its last commit.'}</Empty>
+    return <Empty title="Nothing changed" act={{ label: 'Refresh', run: again }}>{src.kind === 'space' ? 'Everything in this folder is committed.' : diff.against ? `No changes against ${diff.against}.` : 'Nothing new since its last commit.'}</Empty>
   return (
     <>
       <div className="lab">
@@ -88,11 +99,11 @@ function FileList({ src, diff, open }: { src: Src; diff: Diff; open: (path: stri
 }
 
 function FileDiff({ patch }: { patch: Patch }) {
-  if (patch.binary) return <Empty>A binary file: no lines to show.</Empty>
+  if (patch.binary) return <Empty title="No lines to show">It isn’t a text file.</Empty>
   const lines = patch.text.split('\n')
   if (lines.at(-1) === '') lines.pop()
   const shown = lines.map((l) => ({ l, k: lineKind(l) })).filter((x) => x.k !== 'meta')
-  if (!shown.length) return <Empty>No lines changed in this file.</Empty>
+  if (!shown.length) return <Empty title="No lines changed">Only this file’s name or mode changed.</Empty>
   return (
     <div className="dlines" role="table" aria-label={`Changes in ${patch.path}`}>
       {shown.map((x, i) => (
@@ -131,7 +142,12 @@ function DiffPane() {
           </Hd>
         )}
       >
-        {!p ? <Empty>Loading…</Empty> : 'error' in p ? <Empty title="Can't show this file">{p.error}</Empty> : <FileDiff patch={p} />}
+        {!p ? <Loading /> : 'error' in p ? <Failed title="Can't show this file" why={p.error} again={one.again} /> : (
+          <>
+            {one.stale && <div className="dstale"><Stale at={one.stale.at} why={one.stale.why} again={one.again} /></div>}
+            <FileDiff patch={p} />
+          </>
+        )}
       </PaneFrame>
     )
   }
@@ -147,12 +163,17 @@ function DiffPane() {
       )}
     >
       {!src ? (
-        <Empty title="Nothing to show">{isEverything(snap, ui.at) ? 'No space or task with a folder yet.' : 'This space has no folder or task to show.'}</Empty>
+        <Empty title="Nothing to show" act={ui.phone ? { label: 'Pick a space', run: () => setUI({ drawer: true }) } : undefined}>{isEverything(snap, ui.at) ? 'No space or task with a folder yet.' : 'This space has no folder or task to show.'}</Empty>
       ) : (
         <>
           <Row className="dsrc" icon={src.kind === 'task' ? 'tasks' : 'folder'} label={name} sub={sources.find((s) => s.key === srcKey(src))?.sub}
             end={<I n="down" c="s16 c-mute" />} aria-haspopup="menu" onClick={choose} />
-          {!d ? <Empty>Loading…</Empty> : 'error' in d ? <Empty title="Can't show its changes">{d.error}</Empty> : <FileList src={src} diff={d} open={(path) => setUI({ diff: { src: srcKey(src), file: path } })} />}
+          {!d ? <Loading /> : 'error' in d ? <Failed title="Can't show its changes" why={d.error} again={list.again} /> : (
+            <>
+              {list.stale && <Stale at={list.stale.at} why={list.stale.why} again={list.again} />}
+              <FileList src={src} diff={d} again={list.again} open={(path) => setUI({ diff: { src: srcKey(src), file: path } })} />
+            </>
+          )}
         </>
       )}
     </PaneFrame>

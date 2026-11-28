@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode, type RefObject } from 'react'
 import { IC, type IconName } from './icons.ts'
 import { fitBox } from './grow.ts'
+import { onSaid, saidLines, say } from './live.ts'
+import { LOADING, staleWords, TRY_AGAIN } from './states.ts'
 import { onPresses, press, pressOf, pressVersion, waiting, type Press as CardPress } from './pending.ts'
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ')
@@ -188,12 +190,51 @@ export function Logo({ agent, name }: { agent: string; name?: string }) {
   return <span className="logo" aria-hidden="true">{mark.charAt(0).toUpperCase() + mark.slice(1)}</span>
 }
 
-/** the one empty state: a line of text, centred, muted; a chat's first-run state adds a short title */
-export function Empty({ title, children }: { title?: string; children: ReactNode }) {
+/** an empty place, a load that failed: the one layout (docs/design.md, Components). What it is (the title), one quiet
+ *  line on what to do or why, and the one thing to do (`act`), centred. */
+export function Empty({ title, children, act, busy }: { title?: string; children?: ReactNode; act?: { label: string; run: () => void }; busy?: boolean }) {
   return (
-    <div className="empty">
+    <div className={cx('empty', busy && 'load')} aria-busy={busy || undefined}>
       {title && <b>{title}</b>}
-      <span>{children}</span>
+      {children != null && children !== '' && <span>{children}</span>}
+      {act && <Btn small className="ea" onClick={act.run}>{act.label}</Btn>}
+    </div>
+  )
+}
+
+/** still loading: said in its own words, shown only once it takes a moment (no flash for a quick answer) */
+export const Loading = ({ children = LOADING }: { children?: string }) => <Empty busy>{children}</Empty>
+
+/** a load that failed: what couldn't be shown, why, and Try again */
+export const Failed = ({ title, why, again }: { title: string; why?: string; again: () => void }) => <Empty title={title} act={{ label: TRY_AGAIN, run: again }}>{why}</Empty>
+
+/** what was shown before stays when a refresh fails (saved from before): this line over it says so, with when it was
+ *  had, and Try again */
+export function Stale({ at, why, again }: { at: number; why?: string; again: () => void }) {
+  return (
+    <p className="stale">
+      <span>{staleWords(at, why)}</span>
+      <button type="button" className="lk" onClick={again}>{TRY_AGAIN}</button>
+    </p>
+  )
+}
+
+/** say `words` to a screen reader when `key` changes (a filter picked: its new count), not when it first shows */
+export function useSayOnChange(key: string, words: string) {
+  const was = useRef(key)
+  useEffect(() => {
+    if (was.current === key) return
+    was.current = key
+    say(words)
+  }, [key, words])
+}
+
+/** the app's one polite live region (live.ts): mounted once, it speaks each line said into it once */
+export function LiveRegion() {
+  const lines = useSyncExternalStore(onSaid, saidLines, saidLines)
+  return (
+    <div className="vh" aria-live="polite" aria-atomic="false" aria-relevant="additions">
+      {lines.map((l) => <p key={l.id}>{l.text}</p>)}
     </div>
   )
 }

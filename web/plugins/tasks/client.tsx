@@ -9,11 +9,12 @@ import { definePlugin, getState, go, has, type Command, maximize, sideHidden, mi
 import { confirm, openDialog, openForm, openMenu } from '@client/overlay.tsx'
 import { AgentField, pickFor, PickSummary, reportedPick, useCatalog, type Pick } from '@client/picker.tsx'
 import { edge } from '@client/resize.ts'
-import { ActBtn, ActError, Btn, Cnt, cx, Empty, Hd, I, IB, MenuGroup, Row, useCardActs } from '@client/ui.tsx'
+import { ActBtn, ActError, Btn, Cnt, cx, Empty, Hd, useSayOnChange, I, IB, MenuGroup, Row, useCardActs } from '@client/ui.tsx'
 import { waiting } from '@client/pending.ts'
+import { filterCountWords } from '@client/states.ts'
 import { copyText } from '@client/copy.ts'
 import { alertWhat, taskAlerts, type Alert } from '@shared/needs-you.ts'
-import { focusBox, focusChat, focusTask } from '@client/commands.ts'
+import { askInChat, focusBox, focusChat, focusTask } from '@client/commands.ts'
 import { SpaceIcon } from '@client/space-icon.tsx'
 import type { MergeEvidence, Message, Snapshot, Task } from '@shared/types.ts'
 import { askedWords, isEverything, machineLabel, nowGroups, onBranch, placeDown, reposOf, spaceLabel, spaceOnFolder, spacesOf, etaOf, headLine, leftWords, statusWord, taskChat, taskLine, taskWhen, tasksIn, tstate, workKey, workName, workWords, type Repo } from '@shared/view.ts'
@@ -684,22 +685,20 @@ function Now({ snap, place }: { snap: Snapshot; place: string }) {
   // fork UI 13: the Needs you view lists the Needs you group alone (a working task with a question of yours shows by
   // its question's row); in a view every group starts open, folded apart from the list's own (Done today is a Done)
   const groups = nowGroups(filtered, alerts).filter((g) => (g.tasks.length || (g.name === 'Needs you' && queued.length + asks.length)) && (f.view !== 'needs' || g.name === 'Needs you'))
+  // a filter picked: its new count said once to a screen reader (the one live region, live.ts)
+  useSayOnChange(JSON.stringify(f), filterCountWords(groups.reduce((n, g) => n + g.tasks.length, 0)))
   if (!groups.length)
     return snap.tasks.length ? (
       <>
         {top}
         {f.view && !filterOn(snap, f, place) ? (
-          <Empty title={EMPTY_VIEW[f.view]}>
-            <Btn onClick={() => setTF((x) => pickView(x, undefined))}>Show all tasks</Btn>
-          </Empty>
+          <Empty title={EMPTY_VIEW[f.view]} act={{ label: 'Show all tasks', run: () => setTF((x) => pickView(x, undefined)) }}>This view shows only some tasks.</Empty>
         ) : (
-          <Empty title="No tasks match">
-            <Btn onClick={() => setUI({ tf: NO_FILTER })}>Clear filter</Btn>
-          </Empty>
+          <Empty title="No tasks match" act={{ label: 'Clear filter', run: () => setUI({ tf: NO_FILTER }) }}>Clear the filter to see every task here.</Empty>
         )}
       </>
     ) : (
-      <Empty>No tasks yet. Ask in a chat to add one.</Empty>
+      <Empty title="No tasks yet" act={{ label: 'Ask in the chat', run: askInChat }}>Ask in a chat to add one.</Empty>
     )
   return (
     <>

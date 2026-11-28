@@ -10,6 +10,7 @@ import { act, getState, go, notice, openSettings, registry, setUI, shownOn, tryA
 import { confirm, openDialog, openForm, openMenu } from './overlay.tsx'
 import { AgentField, MachineField, pickFor, type Pick } from './picker.tsx'
 import { Btn, I, IB, MenuGroup, Row, Tgl } from './ui.tsx'
+import { say } from './live.ts'
 import { NeedsCount, openNeeds } from './needs-count.tsx'
 import { needsItems } from '@shared/needs-open.ts'
 import { offersRepo, suggestions, tilde, untilde } from '@core/newspace.js'
@@ -676,7 +677,6 @@ export function List({ snap }: { snap: Snapshot }) {
   const ev = everything(snap)
   // the order just dragged shows at once, until the snapshot says the same (or the move failed)
   const [moved, setMoved] = useState<string[] | null>(null)
-  const [said, setSaid] = useState('')
   const machines = inMachineOrder(listOf(snap, (m) => shownOn(ui, m)), (m) => m.machine.machine, moved)
   const keys = machines.map((m) => m.machine.machine)
   const now = snap.machines.map((m) => m.machine).join('\n')
@@ -685,7 +685,8 @@ export function List({ snap }: { snap: Snapshot }) {
   }, [now])
   const reorder: Reorder = (next, words) => {
     flushSync(() => setMoved(next))
-    if (words) setSaid(words)
+    // said through the app's one live region (live.ts), once
+    if (words) say(words)
     void tryAct({ type: 'order', under: 'all', ids: next.map((k) => `m:${k}`) }).then((ok) => !ok && setMoved(null))
   }
   return (
@@ -744,7 +745,6 @@ export function List({ snap }: { snap: Snapshot }) {
           }),
         ]
       })}
-      <span className="vh" role="status">{said}</span>
       <div className="foot">
         {/* the feedback plugin's row opens its page, with a quiet count (#94); off, upstream's box */}
         {registry.views.feedbackRow ? <registry.views.feedbackRow /> : <Row icon="feedback" label="Feedback" onClick={() => { setUI({ drawer: false }); feedbackDialog() }} />}

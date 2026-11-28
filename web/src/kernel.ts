@@ -12,8 +12,10 @@ import { apply, chatApply } from '@shared/patch.ts'
 import type { IconName } from './icons.ts'
 import { catchLink } from './applink.ts'
 import { heartbeatDue, OPEN_WITHIN, PONG_LATE, PONG_WITHIN, retryIn, SAY_LOST_AFTER } from './link.ts'
-import { expire, loadOutbox, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
+import { expire, loadOutbox, newlyFailed, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
 import { draftParts, keepDraft, keepEach, settleDrafts } from './draft.ts'
+import { say } from './live.ts'
+import { failedSendWords, LINK_BACK, LINK_LOST, LINK_UPDATING } from './states.ts'
 import { setupGuarded } from './guard.tsx'
 import { HttpError, wakeAll } from './uploads.ts'
 import { SHOW_AFTER } from './pending.ts'
@@ -474,6 +476,8 @@ export function setOutbox(fn: (out: Outgoing[]) => Outgoing[]): boolean {
 }
 function putOutbox(out: Outgoing[]): boolean {
   if (out === state.outbox) return true
+  // a send that just failed is said to a screen reader once (its bubble shows Not sent, with Retry and Remove)
+  for (const o of newlyFailed(state.outbox, out)) say(failedSendWords(o.error))
   state = { ...state, outbox: out }
   const kept = saveOutbox(out)
   // a box waiting on a send the outbox couldn't keep lets go of it once it is safe (draft.ts)
@@ -642,10 +646,33 @@ let tried = 0
 const sentChats = new Map<string, Chat>()
 /** when the link last heard from the server */
 let heard = 0
+/** a screen reader was told the link is gone (live.ts): it is told once it is back */
+let saidLost = false
+/** when the link last opened again after it was down, and who asks again then for what failed meanwhile */
+let backAt = 0
+const backs = new Set<() => void>()
+/** the link to Shepherdr is open again after it was down (a real open, not only the screen coming back): `f` runs */
+export function onLinkBack(f: () => void): () => void {
+  backs.add(f)
+  return () => void backs.delete(f)
+}
+/** when the link last came back (0: never). A request sent before this that failed was sent into the outage. */
+export const linkBackAt = () => backAt
+
+/** Try again on the line that says the link is gone: a new try now, its waits between tries started over. The line
+ *  stays until the link is back. */
+export function retryNow() {
+  if (ws?.readyState === WebSocket.OPEN) return
+  forget()
+  tries = 0
+  connect()
+}
 
 export function connect() {
   if (retrying) clearTimeout(retrying)
   retrying = null
+  // one link at a time: a link opening or open stays (a wake during start-up, then start's own connect)
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
   const url = new URL('api/ws', location.href)
   url.protocol = url.protocol.replace('http', 'ws')
   const sock = new WebSocket(url)
@@ -656,6 +683,7 @@ export function connect() {
     clearTimeout(opening!)
     heard = Date.now()
     tries = 0
+    const back = downSince !== null
     downSince = null
     if (saying) clearTimeout(saying)
     saying = null
@@ -663,7 +691,12 @@ export function connect() {
     sentChats.clear()
     // the link is back: what waits to send goes now
     wakeAll()
+    if (saidLost) (saidLost = false, say(LINK_BACK))
     if (state.ui.offline) setUI({ offline: null })
+    if (back) {
+      backAt = Date.now()
+      for (const f of backs) f()
+    }
     watchVisible()
   }
   sock.onmessage = (ev) => {
@@ -742,7 +775,10 @@ function forget() {
 function sayLater(at = Date.now()): ReturnType<typeof setTimeout> {
   return setTimeout(() => {
     if (Date.now() - at > SAY_LOST_AFTER + 1000) saying = sayLater()
-    else if (ws?.readyState !== WebSocket.OPEN) setUI({ offline: downSince })
+    else if (ws?.readyState !== WebSocket.OPEN) {
+      if (!saidLost) (saidLost = true, say(state.update?.state === 'restarting' ? LINK_UPDATING : LINK_LOST))
+      setUI({ offline: downSince })
+    }
   }, SAY_LOST_AFTER)
 }
 

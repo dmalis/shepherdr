@@ -37,3 +37,15 @@ export function lineKind(l: string): 'add' | 'del' | 'ctx' | 'hunk' | 'meta' {
   if (l.startsWith('-')) return 'del'
   return 'ctx'
 }
+
+/** what the pane asked for, as it came: its answer and when; `stale` when a refresh failed over a good answer, which
+ *  stays shown (saved from before) with the error and when it was had */
+export type Got<T> = { url: string; v: T | { error: string }; at: number; stale?: { at: number; why: string } }
+const failed = (v: unknown): v is { error: string } => !!v && typeof v === 'object' && 'error' in v
+
+/** an answer in: a good one or a first failure replaces what was had; a failure over a good answer for the same address
+ *  keeps it, marked stale */
+export function settled<T>(was: Got<T> | null, url: string, v: T | { error: string }, now: number): Got<T> {
+  if (failed(v) && was && was.url === url && !failed(was.v)) return { ...was, stale: { at: was.stale?.at ?? was.at, why: v.error } }
+  return { url, v, at: now }
+}

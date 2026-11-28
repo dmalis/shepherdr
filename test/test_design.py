@@ -41,7 +41,6 @@ OFF_SCALE = {
     "web/src/styles.css": 1,
     "web/src/about.css": 1,
     "web/plugins/chat/kind.css": 1,
-    "web/plugins/files/files.css": 1,
     "web/plugins/whatsnew/whats-new.css": 1,
 }
 ENDLESS = {
@@ -65,8 +64,6 @@ BARE_HOVER = {
 RAW_MONO = {
     "web/src/styles.css": 4,
     "web/src/about.css": 1,
-    "web/plugins/diff/diff.css": 3,
-    "web/plugins/files/files.css": 1,
     "web/plugins/whatsnew/whats-new.css": 1,
 }
 # a layer's z-index written as a number instead of a --z- token (ds.css held 4)

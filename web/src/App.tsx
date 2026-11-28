@@ -5,7 +5,7 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import type { Snapshot } from '@shared/types.ts'
 import { downWords, isEverything, needsCount, placeDown, placeOf, spaceLabel, spaceName, taskOf, type Space } from '@shared/view.ts'
-import { getState, openSettings, registry, setUI, sideHidden, togglePane, useSnap, useStore, useUI, type Thread } from './kernel.ts'
+import { getState, openSettings, registry, retryNow, setUI, sideHidden, togglePane, useSnap, useStore, useUI, type Thread } from './kernel.ts'
 import { dismiss, hold, subscribe, toasts } from './toasts.ts'
 import { handleKey } from './commands.ts'
 import { List, spaceMenu } from './list.tsx'
@@ -14,7 +14,7 @@ import { closeTop, Layers, Overlay } from './overlay.tsx'
 import { edge } from './resize.ts'
 import { columnsOf, swapSides, useSides } from './sides.ts'
 import { SettingsWindow } from './settings.tsx'
-import { cx, Empty, I, IB, useScrolled } from './ui.tsx'
+import { cx, Empty, Failed, I, IB, Loading, useScrolled } from './ui.tsx'
 import { SpaceIcon } from './space-icon.tsx'
 import { EverythingLine } from './everything-line.tsx'
 import { needsWords } from '@shared/needs-open.ts'
@@ -182,8 +182,8 @@ function Bar({ snap }: { snap: Snapshot }) {
 }
 
 /** the toasts, stacked at the top, clear of the message box. Hovering or focusing them stops their time; each has a
- *  close button (Escape closes the focused one). The list is always there, so screen readers hear each new one; an
- *  error is said at once. */
+ *  close button (Escape closes the focused one). Screen readers hear each new one once, through the app's one live
+ *  region (toast() says it, live.ts), so the list is not a live region of its own. */
 function Toasts() {
   const list = useSyncExternalStore(subscribe, toasts, toasts)
   const close = (id: number, e: { currentTarget: HTMLElement }) => {
@@ -199,12 +199,11 @@ function Toasts() {
       className="toasts"
       role="list"
       aria-label="Notifications"
-      aria-live="polite"
       onFocus={() => hold('focus', true)}
       onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && hold('focus', false)}
     >
       {list.map((t) => (
-        <li key={t.id} className={cx('toast', t.busy && 'busy', t.tone === 'error' && 'err')} role={t.tone === 'error' ? 'alert' : undefined} onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), close(t.id, e))}
+        <li key={t.id} className={cx('toast', t.busy && 'busy', t.tone === 'error' && 'err')} onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), close(t.id, e))}
           onPointerEnter={(e) => e.pointerType === 'mouse' && hold('hover', true)}
           onPointerLeave={() => hold('hover', false)}
         >
@@ -253,7 +252,15 @@ export function App() {
   // fork #117: a swipe in from the left edge opens the spaces list
   useEffect(() => edgeSwipe(), [])
   const peek = usePeek()
-  if (!snap) return <div className={cx('app', (ui.phone || coarse) && 'tap')}><div className="device" /></div>
+  // before the first snapshot: Loading… once it takes a moment, or that Shepherdr can't be reached, never a blank page
+  if (!snap)
+    return (
+      <div className={cx('app', (ui.phone || coarse) && 'tap')}>
+        <div className="device boot">
+          {ui.offline ? <Failed title="Can't reach Shepherdr" why="It tries again by itself. Check that this device is online." again={retryNow} /> : <Loading />}
+        </div>
+      </div>
+    )
   const hidden = sideHidden(ui)
   const swap = !ui.phone && !!ui.pane && side === 'right'
   const Search = registry.views.search

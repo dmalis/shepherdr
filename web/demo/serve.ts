@@ -6,6 +6,7 @@
 // `?case=post` gives the Feedback page a draft (File it…) and each step of a post after the yes (#94, slice 4).
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
+// `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Chat, Message, Snapshot, Task } from '../shared/types.ts'
@@ -426,6 +427,23 @@ Bun.serve<Sock['data'], never>({
       if (what === 'diff') return Response.json({ base: task ? 'main' : 'its last commit', against: task ? 'main' : null, files: files.map(([p, add, del, st]) => ({ path: p, status: st ?? 'modified', add, del })), add: 0, del: 0 })
       if (what === 'patch') return Response.json({ path: file, text: `diff --git a/${file} b/${file}\nindex 1a2b3c4..5d6e7f8 100644\n--- a/${file}\n+++ b/${file}\n@@ -12,9 +12,14 @@ export function search(query: string) {\n   const words = query.trim().toLowerCase().split(/\\s+/)\n-  const all = products.filter((p) => words.every((w) => p.name.toLowerCase().includes(w)))\n-  return all.slice(0, 20)\n+  const hit = cache.get(query)\n+  if (hit) return hit\n+  // one pass over the index instead of every product's name\n+  const ids = words.map((w) => index.get(w) ?? new Set<number>())\n+  const found = [...ids[0]].filter((id) => ids.every((s) => s.has(id))).slice(0, 20)\n+  cache.set(query, found)\n+  return found\n }\n \n export function clear() {\n@@ -40,3 +45,4 @@ export function clear() {\n   products.length = 0\n+  cache.clear()\n }\n` })
       return Response.json({ error: 'Ask for diff or patch.' })
+    }
+    // the Files pane (service/files.ts): shop's folder as a small tree, notes an empty folder, and blog's machine
+    // refusing to list it, so the empty and try-again states can be seen; ?case=slowfiles answers after 4 s (loading)
+    if (path === '/api/files') {
+      const space = url.searchParams.get('space') ?? '', what = url.searchParams.get('what'), file = url.searchParams.get('path') ?? ''
+      if (/(?:^|;\s*)demo-case=slowfiles/.test(req.headers.get('cookie') ?? '')) await Bun.sleep(4000)
+      if (space.endsWith(':blog')) return Response.json({ error: "The folder couldn't be read on mac-mini." })
+      const tree: Record<string, [string, 'dir' | 'file', number?][]> = space.endsWith(':notes') ? { '': [] } : {
+        '': [['src', 'dir'], ['test', 'dir'], ['docs', 'dir'], ['package.json', 'file', 812], ['README.md', 'file', 2310]],
+        src: [['search', 'dir'], ['checkout.ts', 'file', 4120], ['logo.png', 'file', 18400]],
+        'src/search': [['index.ts', 'file', 3010], ['cache.ts', 'file', 1460]],
+        test: [['search.test.ts', 'file', 2200]],
+        docs: [],
+      }
+      if (what === 'ls') return tree[file] ? Response.json({ entries: tree[file]!.map(([name, kind, size]) => ({ name, kind, ...(size != null ? { size } : {}) })) }) : Response.json({ error: 'That folder is gone.' })
+      if (what === 'read') return Response.json({ size: 812, text: file.endsWith('.json') ? '{\n  "name": "shop",\n  "private": true,\n  "scripts": { "dev": "vite", "test": "vitest" }\n}\n' : `# ${file}\n\nA fictional file in the demo.\n` })
+      return Response.json({ error: 'Ask for ls or read.' })
     }
     // New space's recent folders and whether a folder is in a git repo (service/spaces.ts newSpaceInfo, folders)
     if (path === '/api/newspace') return Response.json({ home: '/Users/sam', recent: ['/Users/sam/dev/shop', '/Users/sam/dev/recipes', '/Users/sam/dev/blog', '/Users/sam/dev/portfolio', '/Users/sam/notes'], start: '/Users/sam' })
