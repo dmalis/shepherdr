@@ -29,7 +29,9 @@ jobs:
   check:
     name: check
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # the fork's browser checks (tap, scroll, dictation, phone box, typing, still, reading) take about 4 of upstream's
+    # 10 minutes: main alone came to about 594 s of 600 (fork #144)
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
