@@ -14,3 +14,5 @@
    dialog's own bottom padding (20, a phone's sheet 16 and the gesture bar) to hide the cards scrolling under it */
 .cgrp-foot{--pad:20px;position:sticky;bottom:calc(0px - var(--pad));display:grid;gap:8px;margin-top:8px;padding:12px 0 var(--pad);background:var(--overlay);box-shadow:0 -1px 0 var(--line)}
 .sheet .cgrp-foot{--pad:calc(16px + env(safe-area-inset-bottom))}
+/* a card's focused control scrolls into view above the foot bar, never under it */
+.cgrp-items :focus{scroll-margin-bottom:96px}
