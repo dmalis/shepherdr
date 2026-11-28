@@ -1,5 +1,6 @@
 // A long chat on the built demo (dmalis/shepherdr#190): it opens on its newest messages and draws the older ones right
 // after, so each check starts at that first paint, before the rest has come in:
+// - on a phone, it ends at its newest message once it is all in;
 // - the reader's row stays where it was while the older rows come in above it, and when an earlier page comes;
 // - a quote of a message far up jumps to it, centred, even before that message was drawn;
 // - the browser's find reaches the oldest message, and a selection made at once keeps its words;
@@ -12,6 +13,7 @@ import { EV } from './data.ts'
 import type { Chat, Message } from '../shared/types.ts'
 
 const N = 400
+const BLOG = 'p:mac-mini:blog'
 const LONG = ['A long reply:', ...Array.from({ length: 40 }, (_, i) => `- line ${i + 1} of the long reply`)].join('\n')
 const row = (i: number): Message => ({
   id: `h${i}`,
@@ -30,12 +32,12 @@ type AtFirst = (sc: HTMLElement, h: Helpers) => unknown
 type Place = { id: string; before: number; after: number }
 
 /** installed before the page loads: it runs `check` at the first paint and keeps what it says in window.__out */
-function install(ev: string, check: AtFirst) {
+function install(ev: string, check: AtFirst, mark: string) {
   const w = window as unknown as { __out: Promise<{ drawn: number; out: unknown }> }
   w.__out = new Promise((done) => {
     const ready = () => {
       const sc = document.querySelector<HTMLElement>(`[data-scroll="${CSS.escape(ev)}"]`)
-      if (!sc?.querySelector('[data-msg="quote"]')) return false
+      if (!sc?.querySelector(mark)) return false
       mo.disconnect()
       const frames = (n: number) => new Promise<void>((res) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : res()); f() })
       const h: Helpers = {
@@ -68,8 +70,9 @@ function install(ev: string, check: AtFirst) {
   })
 }
 
-/** the Everything chat holds `rows`; an "earlier" action gets `older` put in front, once */
-async function serve(page: Page, rows: Message[], older: Message[] = []) {
+/** the Everything chat holds `rows`; an "earlier" action gets `older` put in front, once. With `under`: that chat
+ *  of the demo keeps its own messages, with `rows` before them */
+async function serve(page: Page, rows: Message[], older: Message[] = [], under?: string) {
   let chat: Chat = { key: EV, messages: rows, cli: 'claude', earlier: older.length > 0, top: !older.length }
   let send: ((s: string) => void) | undefined
   await page.routeWebSocket('**/api/ws', (ws) => {
@@ -77,6 +80,7 @@ async function serve(page: Page, rows: Message[], older: Message[] = []) {
     send = (s) => ws.send(s)
     demo.onMessage((data) => {
       const msg = JSON.parse(String(data))
+      if (under && msg.type === 'chat' && msg.chat?.key === under) return ws.send(JSON.stringify({ ...msg, chat: { ...msg.chat, messages: [...rows, ...msg.chat.messages], earlier: false, top: true } }))
       ws.send(msg.type === 'chat' && msg.chat?.key === EV ? JSON.stringify({ type: 'chat', chat }) : data)
     })
   })
@@ -93,13 +97,14 @@ async function serve(page: Page, rows: Message[], older: Message[] = []) {
 }
 
 export async function longChat(browser: Browser, base: string, name: string) {
-  async function open<T>(rows: Message[], check: AtFirst, older?: Message[]) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 844 }, serviceWorkers: 'block' })
+  async function open<T>(rows: Message[], check: AtFirst, older?: Message[], phone = false, under?: string) {
+    const key = under ?? EV
+    const ctx = await browser.newContext({ viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 844 }, isMobile: phone, hasTouch: phone, deviceScaleFactor: phone ? 3 : 1, serviceWorkers: 'block' })
     const page = await ctx.newPage()
     page.setDefaultTimeout(15000)
-    await serve(page, rows, older)
-    await page.addInitScript({ content: `(${install})(${JSON.stringify(EV)}, ${check})` })
-    await page.goto(base + '?place=' + encodeURIComponent(EV), { waitUntil: 'commit' })
+    await serve(page, rows, older, under)
+    await page.addInitScript({ content: `(${install})(${JSON.stringify(key)}, ${check}, ${JSON.stringify(under ? '[data-msg]' : '[data-msg="quote"]')})` })
+    await page.goto(base + '?place=' + encodeURIComponent(key), { waitUntil: 'commit' })
     const got = (await page.evaluate(() => (window as unknown as { __out: Promise<unknown> }).__out)) as { drawn: number; out: T }
     const error = (got.out as { error?: string } | null)?.error
     if (error) throw new Error(`${name}: the check failed in the page: ${error}`)
@@ -115,6 +120,8 @@ export async function longChat(browser: Browser, base: string, name: string) {
   {
     const { drawn, out, page, close } = await open<Place>(all, async (sc, h) => {
       await new Promise((res) => setTimeout(res))
+      // the reader's wheel, then the scroll it makes (its scroll event comes a frame later)
+      sc.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }))
       // h370: N - 30 (the check runs in the page, which has no N)
       sc.querySelector('[data-msg="h370"]')!.scrollIntoView({ block: 'start' })
       sc.scrollTop += 17
@@ -128,6 +135,18 @@ export async function longChat(browser: Browser, base: string, name: string) {
       (window as unknown as { find: (s: string, c: boolean, b: boolean, wrap: boolean) => boolean }).find('Needle in the oldest messages', false, false, true) &&
       !!getSelection()?.anchorNode?.parentElement?.closest('[data-msg="h7"]'))
     assert.ok(found, `${name}: find in page reaches the oldest message`)
+    await close()
+  }
+
+  // on a phone, untouched, a long chat ends at its newest message once it is all in (the demo's #blog, with its cards
+  // and folds at the end): what gets shorter and longer again after its first layout isn't the reader moving up
+  {
+    const { out, close } = await open<number>(all, async (sc, h) => {
+      await new Promise<void>((res) => { const f = () => (sc.querySelector('[data-msg="h0"]') ? res() : requestAnimationFrame(f)); f() })
+      await h.frames(10)
+      return sc.scrollHeight - sc.clientHeight - sc.scrollTop
+    }, undefined, true, BLOG)
+    assert.ok(Math.abs(out) <= 2, `${name}: on a phone the long chat ends at its newest message (${out}px above it)`)
     await close()
   }
 

@@ -644,6 +644,13 @@ function Messages({ thread }: { thread: Thread }) {
   const view = useRef({ covered, link })
   const focused = useRef<string | null>(null)
   const edge = useRef(0)
+  /** the scroll as this code last left or saw it: below it, the reader has moved up (stick.ts movedUp) */
+  const seenTop = useRef(0)
+  /** the reader's hand was on the chat (a wheel, a touch, a key, a pointer) since their last scroll event came. Only
+   *  then is a scroll below `seenTop` theirs: without it, the chat got shorter and longer again in between (a long
+   *  reply folding after its first layout), which leaves the scroll lower too */
+  const hand = useRef(false)
+  const away = (el: HTMLElement) => hand.current && movedUp(el, seenTop.current)
   const first = chat?.messages[0]?.id
   const earlierAnchor = useRef<{ first: string | undefined; row: HTMLElement; top: number } | null>(null)
   const looked = useRef<{ link: typeof link; first: string | undefined } | null>(null)
@@ -664,7 +671,7 @@ function Messages({ thread }: { thread: Thread }) {
   if (scroller && drawnFrom.current.chat === thread.chat && start < drawnFrom.current.start && filling.current?.start !== start) {
     // This render draws a step of older rows. The page still shows the last one: where the reader is goes with it.
     // They may have scrolled up in this very frame, before their scroll event came: the step mustn't put them back
-    if (stuck.current && movedUp(scroller, edge.current)) stuck.current = false
+    if (stuck.current && away(scroller)) stuck.current = false
     // kept by hand, as for an earlier page below (anchoring isn't in WebKit, and Chromium's skips the very top)
     const was = aim.current
     const row = stuck.current ? null : was && was.scrollTop === scroller.scrollTop && was.row.isConnected ? was : rowAtTop(scroller)
@@ -708,23 +715,29 @@ function Messages({ thread }: { thread: Thread }) {
       setOffEnd(thread.chat, null)
       sc.scrollTo({ top: sc.scrollHeight, behavior: 'instant' })
       edge.current = sc.scrollHeight - sc.clientHeight
+      seenTop.current = sc.scrollTop
+      hand.current = false
     }
     reopen()
     focused.current = null
     // at the foot, unless the reader has just moved up from it (their scroll event may come after what grew)
     const following = () => {
-      if (stuck.current && movedUp(sc, edge.current)) stuck.current = false
+      if (stuck.current && away(sc)) stuck.current = false
       return stuck.current
     }
 
     const on = () => {
       if (!sc.clientHeight) return
       const max = sc.scrollHeight - sc.clientHeight
-      if (following() && max !== edge.current) {
+      const at = following()
+      // their scroll event has come: where they are says the rest
+      hand.current = false
+      if (at && max !== edge.current) {
         reopen()
         return
       }
       edge.current = max
+      seenTop.current = sc.scrollTop
       const off = max - sc.scrollTop
       stuck.current = off <= 2
       if (stuck.current) {
@@ -751,7 +764,13 @@ function Messages({ thread }: { thread: Thread }) {
       }
     }
     sc.addEventListener('scroll', on, { passive: true })
-    const stopKeeping = keepAtEnd(sc, box, () => stuck.current, () => { edge.current = sc.scrollHeight - sc.clientHeight }, () => movedUp(sc, edge.current))
+    const touched = () => { hand.current = true }
+    const HAND = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
+    for (const e of HAND) sc.addEventListener(e, touched, { passive: true })
+    const stopKeeping = keepAtEnd(sc, box, () => stuck.current, () => {
+      edge.current = sc.scrollHeight - sc.clientHeight
+      seenTop.current = sc.scrollTop
+    }, () => away(sc))
     const stopReturning = onPageReturn(reopen)
     const off = onEnd(thread.chat, reopen)
     const offAsk = onAsk(thread.chat, () => {
@@ -759,6 +778,7 @@ function Messages({ thread }: { thread: Thread }) {
     })
     return () => {
       sc.removeEventListener('scroll', on)
+      for (const e of HAND) sc.removeEventListener(e, touched)
       stopKeeping()
       stopReturning()
       offAsk()
@@ -774,7 +794,7 @@ function Messages({ thread }: { thread: Thread }) {
     view.current = { covered, link }
     if (!sc || covered) return
     // drawn again (more rows, a card's news) just as the reader moved up, before their scroll event: they stay there
-    if (stuck.current && movedUp(sc, edge.current)) stuck.current = false
+    if (stuck.current && away(sc)) stuck.current = false
     if (reopened) {
       stuck.current = true
       left.current = null
@@ -792,6 +812,7 @@ function Messages({ thread }: { thread: Thread }) {
         const target = el.getBoundingClientRect()
         const viewport = sc.getBoundingClientRect()
         sc.scrollBy({ top: target.top - viewport.top + (target.height - viewport.height) / 2, behavior: 'instant' })
+        seenTop.current = sc.scrollTop
         // Only the highlight expires. The position is set in this same layout, before it is drawn.
         clearTimeout(highlight.current)
         highlight.current = setTimeout(() => {
@@ -819,6 +840,7 @@ function Messages({ thread }: { thread: Thread }) {
     else if (left.current != null && edge.current - sc.scrollTop > OFF_PX) {
       setOffEnd(thread.chat, { count: newSince(seen.current, left.current), asks: asksBelow(sc).length })
     }
+    seenTop.current = sc.scrollTop
   })
   // the rows are in and kept in place: the browser's anchoring is back on (after the effect above, whatever it did,
   // which may have returned early)

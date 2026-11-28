@@ -14,11 +14,11 @@ export function keepAtEnd(sc: HTMLElement, box: HTMLElement, stuck: () => boolea
   return () => ro.disconnect()
 }
 
-/** The reader has moved up from the foot since the chat was last pinned there (`edge`: its scroll then), though their
- *  scroll event hasn't come yet (dmalis/shepherdr#190): what grew since must not put them back. A taller window
- *  clamps the scroll to its new foot, and that is no move. */
-export function movedUp(sc: HTMLElement, edge: number): boolean {
-  return sc.scrollTop < Math.min(edge, sc.scrollHeight - sc.clientHeight) - 2
+/** The reader has moved up since the chat last left or saw its scroll at `was` (at its foot), though their scroll
+ *  event hasn't come yet (dmalis/shepherdr#190): what grew since must not put them back. Content growing below leaves
+ *  the scroll where it was, and a taller window clamps it to its new foot: neither is a move. */
+export function movedUp(sc: HTMLElement, was: number): boolean {
+  return sc.scrollTop < Math.min(was, sc.scrollHeight - sc.clientHeight) - 2
 }
 
 /** The suggested replies' row scrolls sideways when its bubbles don't fit: a soft fade at each edge where more
