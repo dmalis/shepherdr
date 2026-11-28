@@ -8,8 +8,9 @@
 .fb-from{min-width:0;padding-inline-start:10px;color:var(--muted);font-size:var(--sec);line-height:var(--secl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fb-err:empty{display:none}
 .fb-err{padding-inline:4px;color:var(--red);font-size:var(--sec);line-height:var(--secl)}
-.fb-banner{padding:8px 12px;border-radius:8px;background:var(--raised);color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
+.fb-banner{padding:8px 12px;border-radius:8px;background:var(--raised);color:var(--sub);font-size:var(--sec);line-height:var(--secl);overflow-wrap:anywhere}
 .fb-banner .lk{font:inherit}
+.fb-machines{display:grid;gap:4px;margin:0;list-style:none}
 
 .fb-sec{display:grid;gap:4px;min-width:0}
 .fb-h{display:flex;align-items:center;gap:8px;min-height:var(--row);margin:0;padding-inline:4px;font-size:var(--ui);line-height:var(--uil);font-weight:600;color:var(--fg)}

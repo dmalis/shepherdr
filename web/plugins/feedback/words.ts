@@ -16,6 +16,7 @@ export const W = {
   offAll: 'Feedback offers are off for every space: agents note nothing new.',
   offAllLink: 'Open Settings',
   stale: "Couldn't read the newest list just now: showing the last one.",
+  machinesLabel: 'Other machines',
   found: 'Found',
   filed: 'Filed',
   later: 'Not now',
@@ -105,9 +106,12 @@ export function fromWords(r: Pick<FeedbackRow, 'from'>): string {
   return 'Noted by an agent'
 }
 
-/** the row's quiet line: who, where, when, how often */
-export function metaOf(r: FeedbackRow, where: string, now = Date.now()): string {
-  const bits = [fromWords(r), ...(where && !r.from?.task ? [`in ${where}`] : []), agoWords(r.at, now)]
+/** the row's quiet line: who, where, on which machine (another one's, slice 8: its name), when, how often */
+export function metaOf(r: FeedbackRow, where: string, now = Date.now(), machine = ''): string {
+  const inWhere = where && !r.from?.task ? `in ${where}` : ''
+  // a space there is already named with its machine ("~ on pi"): said once
+  const on = machine && !inWhere.endsWith(` on ${machine}`) ? `on ${machine}` : ''
+  const bits = [fromWords(r), ...(inWhere ? [inWhere] : []), ...(on ? [on] : []), agoWords(r.at, now)]
   if (r.count > 1) bits.push(`${r.count}\u00a0reports`)
   return bits.join(' · ')
 }
@@ -182,15 +186,20 @@ export function outcomeWords(o: Outcome): { icon: 'check' | 'x' | 'clock' | 'cop
 /** a fixed row's status line (slice 6), only from what herdr-task proved: the person's Works first, then its fix on this
  *  machine (this build has the closing commit, or its install said so), then a release with it that this machine is
  *  older than, then the release alone. null: the row says GitHub's side (outcomeWords) instead */
-export function shipWords(r: Pick<FeedbackRow, 'ship' | 'tried'>): { icon: 'check' | 'clock'; fixed: boolean; text: string } | null {
+export function shipWords(r: Pick<FeedbackRow, 'ship' | 'tried'>, machine = ''): { icon: 'check' | 'clock'; fixed: boolean; text: string } | null {
   if (r.tried?.result === 'works') return { icon: 'check', fixed: true, text: W.worked }
   const s = r.ship
   if (!s) return null
-  if (s.here) return { icon: 'check', fixed: true, text: s.release ? `Fixed in ${s.release} · ${W.here}` : W.here }
-  if (s.update && s.release) return { icon: 'clock', fixed: false, text: `Fixed in ${s.release}: update Shepherdr to get it` }
+  // another machine's row (slice 8): its build is that machine's, so it says which
+  const here = machine ? `On ${machine}` : W.here
+  if (s.here) return { icon: 'check', fixed: true, text: s.release ? `Fixed in ${s.release} · ${here}` : here }
+  if (s.update && s.release) return { icon: 'clock', fixed: false, text: `Fixed in ${s.release}: update Shepherdr${machine ? ` on ${machine}` : ''} to get it` }
   if (s.release) return { icon: 'check', fixed: true, text: `Fixed in ${s.release}` }
   return null
 }
+
+/** another machine's row whose build there isn't known (slices 6 and 8) */
+export const unknownOn = (machine: string) => `${machine}’s build isn’t known, so only you can tell whether the fix is there`
 
 /** whether the row asks the person to try it: its fix is here (or this machine's build isn't known), not tried yet */
 export const tryable = (r: Pick<FeedbackRow, 'ship' | 'tried' | 'section'>) =>
@@ -244,9 +253,25 @@ export function doneWords(what: 'later' | 'no' | 'undo', when?: string): string 
 }
 
 /** where Write it up goes, when it isn't the origin: why, for the row */
-export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep'): string {
-  if (why === 'asleep') return `No chat runs in ${where} now: Write it up goes to Everything`
-  return why === 'gone' ? 'Its space is gone: Write it up goes to Everything' : `${where} can't be reached: Write it up goes to Everything`
+export function elsewhereWords(where: string, why: 'gone' | 'away' | 'asleep' | undefined, to = 'Everything', machine = ''): string {
+  // another machine's row with no space there to take it (slice 8): nothing here can read that machine's record
+  const goes = to ? `Write it up goes to ${to}` : `Write it up waits for a space on ${machine} to open`
+  if (!why) return goes
+  if (why === 'asleep') return `No chat runs in ${where} now: ${goes}`
+  return why === 'gone' ? `Its space is gone: ${goes}` : `${where} can't be reached: ${goes}`
+}
+
+/** a row another machine kept that can't be acted on now (slice 8): out of reach since its last read, or older */
+export function lockWords(why: 'stale' | 'old', machine: string, at: number | undefined, now = Date.now()): string {
+  if (why === 'old') return `Update Shepherdr on ${machine} to act on this here`
+  return at ? `${machine} can't be reached: as it was ${agoWords(at, now)}` : `${machine} can't be reached: as it was last seen`
+}
+
+/** the page's line about a linked machine whose list isn't read as it is now (slice 8) */
+export function machineWords(m: NonNullable<FeedbackList['machines']>[number], name: string, now = Date.now()): string {
+  if (m.state === 'none') return `Shepherdr isn't set up on ${name}, so its problems can't show here`
+  if (m.state === 'old') return `${name} has an older Shepherdr: its problems show, and updating it lets you act on them here`
+  return `${name} can't be reached: its problems show as they were ${agoWords(m.at, now)}`
 }
 
 export const offWords = (where: string) => `Feedback offers are off in ${where || 'its space'}: nothing more happens to it`

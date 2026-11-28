@@ -10,11 +10,16 @@ import { DictateButton } from '@client/dictate.tsx'
 import { PaneFrame } from '@client/App.tsx'
 import { Btn, Cnt, cx, Empty, Hd, I, useGrow } from '@client/ui.tsx'
 import type { FeedbackList, FeedbackMatch, FeedbackRow, Place, Snapshot } from '@shared/types.ts'
-import { everything, isEverything, spaceLabel } from '@shared/view.ts'
-import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lookUrl, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, W, writeUpText } from './words.ts'
+import { everything, isEverything, machineLabel, spaceLabel } from '@shared/view.ts'
+import { backWords, cameBackWords, doneWords, elsewhereWords, filedWords, followingWords, fromAction, fromBox, LATER, lockWords, lookUrl, machineWords, matchWords, metaOf, newerWords, offWords, chatOfSpace, outcomeWords, postWords, sectionsOf, shipWords, spaceOfChat, tryable, tryWords, unknownOn, W, writeUpText } from './words.ts'
 import { openFileIt, sendPost } from './confirm.tsx'
 
 type Answer = { ok?: boolean; error?: string; off?: boolean }
+
+/** which problem a call is for: its id, and the linked machine that kept it (slice 8; none: this one) */
+export const whose = (r: Pick<FeedbackRow, 'id' | 'machine'>) => ({ key: r.id, ...(r.machine ? { machine: r.machine } : {}) })
+/** a row's own name on the page: one id on two machines is two rows */
+export const rowKey = (r: Pick<FeedbackRow, 'id' | 'machine'>) => `${r.machine ?? ''}/${r.id}`
 
 /** one of the person's calls, answered (never thrown): the service's own words when it says no */
 export async function call(b: Record<string, unknown>): Promise<Answer> {
@@ -38,7 +43,7 @@ export async function saveBox(text: string, chat: string, setText: (v: string) =
 
 /** Not now, Never or Undo on a row; its toast offers Undo (Gmail's and Linear's pattern) */
 export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when?: string, expect?: 'later' | 'declined' | 'following'): Promise<boolean> {
-  const a = await call({ do: what, key: r.id, ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
+  const a = await call({ do: what, ...whose(r), ...(when ? { when } : {}), ...(expect ? { expect } : {}) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -50,7 +55,7 @@ export async function decide(r: FeedbackRow, what: 'later' | 'no' | 'undo', when
 /** Follow this one (slice 3): the row follows an issue its check found and moves to Filed; nothing is posted. Its
  *  toast offers Undo, as Not now's does */
 export async function follow(r: FeedbackRow, m: FeedbackMatch): Promise<boolean> {
-  const a = await call({ do: 'follow', key: r.id, url: m.url })
+  const a = await call({ do: 'follow', ...whose(r), url: m.url })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -76,7 +81,7 @@ function CheckView({ r, busy, onFollow }: { r: FeedbackRow; busy: boolean; onFol
             <p className="fb-mw">
               {w.lead}: <a className="fb-ml" href={m.url} target="_blank" rel="noreferrer">“{m.title}”</a>{w.open ? ' (open)' : ''}
             </p>
-            <Btn small disabled={busy} aria-label={`${W.follow}: ${m.title}`} onClick={() => onFollow(m)}>{W.follow}</Btn>
+            {!r.readOnly && <Btn small disabled={busy} aria-label={`${W.follow}: ${m.title}`} onClick={() => onFollow(m)}>{W.follow}</Btn>}
           </li>
         )
       })}
@@ -104,8 +109,8 @@ function OutcomeView({ o }: { o: NonNullable<FeedbackRow['outcome']> }) {
 /** a fixed row's status (slice 6): Works, On this machine with what to try, or the release that has it; GitHub's side
  *  (OutcomeView) when none of that is known. Try it follows TestFlight's "What to Test" and Linear's release notes:
  *  one plain line of what to do and what to see, under the status */
-function ShipView({ r }: { r: FeedbackRow }) {
-  const w = shipWords(r)
+function ShipView({ r, on = '' }: { r: FeedbackRow; on?: string }) {
+  const w = shipWords(r, on)
   const ask = tryable(r)
   const t = ask ? tryWords(r) : null
   return (
@@ -115,7 +120,7 @@ function ShipView({ r }: { r: FeedbackRow }) {
       ) : r.outcome && <OutcomeView o={r.outcome} />}
       {w && r.outcome?.failed && <p className="fb-note">{W.trackFailed}</p>}
       {t && <p className="fb-try"><span className="fb-k">{W.tryIt}</span> {t}</p>}
-      {ask && r.ship?.unknown && !r.ship.here && <p className="fb-note">{W.unknown}</p>}
+      {ask && r.ship?.unknown && !r.ship.here && <p className="fb-note">{on ? unknownOn(on) : W.unknown}</p>}
     </>
   )
 }
@@ -123,7 +128,7 @@ function ShipView({ r }: { r: FeedbackRow }) {
 /** the person's Works or Still broken (slice 6): kept for the build installed now; Still broken brings it back under
  *  Found with a comment for its issue to file */
 export async function tried(r: FeedbackRow, result: 'works' | 'broken'): Promise<boolean> {
-  const a = await call({ do: result, key: r.id })
+  const a = await call({ do: result, ...whose(r) })
   if (!a.ok) {
     notice(a.error!, { tone: 'error' })
     return false
@@ -142,16 +147,21 @@ export function originOf(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'
   return { place }
 }
 
-/** where Write it up goes: the origin's chat, else Everything's */
-export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat'>): Place | undefined {
+/** where Write it up goes: the origin's chat, else Everything's. Another machine's row stays on that machine (slice 8):
+ *  only a chat there reads its record, so its home space there, or nowhere while none can be reached */
+export function writeUpTo(snap: Snapshot, r: Pick<FeedbackRow, 'space' | 'noChat' | 'machine'>): Place | undefined {
   const o = originOf(snap, r)
-  return (!o.why && o.place) || everything(snap)
+  if (!o.why && o.place) return o.place
+  if (!r.machine) return everything(snap)
+  return snap.places.find((p) => p.machine === r.machine && p.home && !p.archived && !p.unreachableSince && !p.herdrDown)
 }
 
 function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackRow; snap: Snapshot; now: number; note?: string; leaving: boolean; leave: (on: boolean) => void }) {
   const [busy, setBusy] = useState('')
   const o = originOf(snap, r)
   const where = o.place ? spaceLabel(snap, o.place.id) : ''
+  const to = writeUpTo(snap, r)
+  const on = r.machine ? machineLabel(snap, r.machine) : ''
   const run = async (which: string, f: () => Promise<boolean>, goes: boolean) => {
     setBusy(which)
     if (goes) leave(true)
@@ -162,6 +172,8 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
   const later = (el: HTMLElement) =>
     openMenu(el, LATER.map((x) => ({ label: x.label, run: () => void run('later', () => decide(r, 'later', x.when), true) })), { label: W.notNow })
   const btns = () => {
+    // a machine out of reach or on an older Shepherdr (slice 8): shown as it was, nothing to act with but its issue's link
+    if (r.readOnly) return r.section === 'filed' && r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
     if (r.section === 'filed' && postWords(r)) return postBtns()
     const gh = r.url ? <a className="btn s fb-gh" href={r.url} target="_blank" rel="noreferrer">{W.onGitHub}<I n="ext" c="s16" /></a> : null
     // its fix is here (slice 6): Works is the row's one primary; Still broken sends it back under Found
@@ -178,11 +190,12 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     if (r.section === 'declined') return <Btn small disabled={!!busy} onClick={() => void run('undo', () => decide(r, 'undo', undefined, 'declined'), true)}>{W.undo}</Btn>
     const never = <Btn small disabled={!!busy} onClick={() => void run('no', () => decide(r, 'no'), true)}>{W.never}</Btn>
     if (r.off) return never
+    const none = !to
     return (
       <>
         {r.draft
-          ? <Btn small kind="pri" disabled={!!busy} aria-haspopup="dialog" className={cx(busy === 'post' && 'going')} onClick={() => void run('post', () => openFileIt(snap, r, setNote), false)}>{W.fileIt}</Btn>
-          : <Btn small kind="pri" disabled={!!busy} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>}
+          ? <Btn small kind="pri" disabled={!!busy || none} aria-haspopup="dialog" className={cx(busy === 'post' && 'going')} onClick={() => void run('post', () => openFileIt(snap, r, setNote), false)}>{W.fileIt}</Btn>
+          : <Btn small kind="pri" disabled={!!busy || none} className={cx(busy === 'write' && 'going')} onClick={() => void run('write', () => sendWriteUp(snap, r), false)}>{W.writeUp}</Btn>}
         <Btn small disabled={!!busy} aria-haspopup="menu" onClick={(e) => later(e.currentTarget)}>{W.notNow}<I n="down" c="s16" /></Btn>
         {never}
       </>
@@ -213,13 +226,14 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
     : r.section === 'filed' ? filedWords(r)
     : r.section === 'fixed' ? ''
     : r.off ? offWords(where)
-    : r.section === 'found' && o.why ? elsewhereWords(where, o.why) : ''
+    : r.section === 'found' && (o.why || !to) && !r.readOnly ? elsewhereWords(where, o.why, to ? (isEverything(snap, to.id) ? 'Everything' : spaceLabel(snap, to.id)) : '', on) : ''
+  const lock = r.readOnly ? lockWords(r.readOnly, on, snap.feedback?.machines?.find((m) => m.name === r.machine)?.at, now) : ''
   return (
     <li className={cx('fb-row', leaving && 'leave')} inert={leaving || undefined}>
       <div className="fb-in">
         <p className="fb-line">{r.line}</p>
         <p className={cx('fb-fix', !r.fix && 'none')}>{r.fix ? <><span className="fb-k">Fix:</span> {r.fix}</> : W.noFix}</p>
-        <p className="fb-meta">{metaOf(r, where, now)}</p>
+        <p className="fb-meta">{metaOf(r, where, now, on)}</p>
         {r.back && r.section === 'found' && (
           <p className="fb-st back">
             <I n="reload" c="s16" />
@@ -228,7 +242,8 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
         )}
         {r.section === 'found' && !r.off && <CheckView r={r} busy={!!busy} onFollow={(m) => void run('follow', () => follow(r, m), true)} />}
         {note && <p className={cx('fb-note', r.off && 'off')}>{note}</p>}
-        {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} />}
+        {(r.section === 'filed' || r.section === 'fixed') && !postWords(r) && <ShipView r={r} on={on} />}
+        {lock && <p className="fb-st fb-lock"><I n={r.readOnly === 'stale' ? 'clock' : 'info'} c="s16" /><span>{lock}</span></p>}
         <div className="fb-acts">{btns()}</div>
       </div>
     </li>
@@ -237,7 +252,7 @@ function RowView({ r, snap, now, note: setNote, leaving, leave }: { r: FeedbackR
 
 /** Check again: herdr-task looks on GitHub for the post's hidden line, and posts nothing */
 async function checkAgain(r: FeedbackRow): Promise<boolean> {
-  const a = await call({ do: 'reconcile', key: r.id })
+  const a = await call({ do: 'reconcile', ...whose(r) })
   notice(a.ok ? W.foundIt : a.error!, { tone: a.ok ? 'ok' : 'error' })
   return a.ok === true
 }
@@ -261,7 +276,7 @@ function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: 
   const [open, setOpen] = useState(!fold)
   const [gone, setGone] = useState<Set<string>>(new Set())
   // a row that left and came back (Undo in its toast) shows again: only rows still here can be leaving
-  const ids = rows.map((r) => r.id).join('\n')
+  const ids = rows.map(rowKey).join('\n')
   useEffect(() => setGone((g) => (g.size ? new Set([...g].filter((id) => ids.split('\n').includes(id))) : g)), [ids])
   if (!rows.length) return null
   const head = `fb-h-${id}`
@@ -281,8 +296,8 @@ function Section({ id, name, rows, snap, now, note, fold }: { id: string; name: 
       {open && (
         <ul className="fb-list">
           {rows.map((r) => (
-            <RowView key={`${r.id}:${r.section}`} r={r} snap={snap} now={now} note={note} leaving={gone.has(r.id)}
-              leave={(on) => setGone((g) => { const n = new Set(g); if (on) n.add(r.id); else n.delete(r.id); return n })} />
+            <RowView key={`${rowKey(r)}:${r.section}`} r={r} snap={snap} now={now} note={note} leaving={gone.has(rowKey(r))}
+              leave={(on) => setGone((g) => { const n = new Set(g); if (on) n.add(rowKey(r)); else n.delete(rowKey(r)); return n })} />
           ))}
         </ul>
       )}
@@ -411,6 +426,8 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
   const s = sectionsOf(list)
   const any = (list?.rows.length ?? 0) > 0
   const place = at ?? (ui.at || everything(snap)?.id || '')
+  // other machines that can't be read or acted on now (slice 8): one without Shepherdr always, the rest while they have rows
+  const machineNotes = (list?.machines ?? []).filter((m) => m.state === 'none' || list!.rows.some((r) => r.machine === m.name))
   return (
     <PaneFrame
       scrollKey="feedback"
@@ -424,6 +441,11 @@ export function FeedbackPage({ now = Date.now(), snap: given, at }: { now?: numb
           </p>
         )}
         {list?.error && <p className="fb-banner">{W.stale}</p>}
+        {machineNotes.length > 0 && (
+          <ul className="fb-banner fb-machines" aria-label={W.machinesLabel}>
+            {machineNotes.map((m) => <li key={m.name}>{machineWords(m, machineLabel(snap, m.name), now)}</li>)}
+          </ul>
+        )}
         {!any ? (
           <Empty title={W.empty}>{W.emptySub}</Empty>
         ) : (

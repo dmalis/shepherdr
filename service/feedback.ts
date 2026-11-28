@@ -6,6 +6,8 @@
 // Post it (slice 4) keeps the person's yes to one draft revision; the post itself is the Assistant's (herdr-task
 // feedback --file --rev), and Check again only reads GitHub. Slice 6: a fix's release and whether this machine has it
 // (herdr-task's read, `ship`), the person's Works and Still broken, and a problem that came back.
+// Every linked machine's problems (slice 8) are read there and shown with their machine (feedback-machines.ts); a call
+// on one of them goes to that machine.
 import { statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { FeedbackList, FeedbackMatch, FeedbackRow } from "../web/shared/types.ts";
@@ -13,6 +15,7 @@ import { where } from "./paths.ts";
 import { pluginOn } from "./next.ts";
 import { readSettings } from "./settings.ts";
 import { spawn } from "./spawn.ts";
+import { FeedbackMachines, isMachine, spaceThere } from "./feedback-machines.ts";
 
 type Ran = { code: number; stdout: string; stderr: string };
 export type Runner = (args: string[]) => Promise<Ran>;
@@ -69,7 +72,9 @@ export function withChats(l: FeedbackList, chats?: Set<string>): FeedbackList {
 
 /** Feedback offers in a space: its own, else Everywhere's, else on (herdr-task's feedback_on) */
 export function offersOn(d: any, space?: string | null): boolean {
-  const own = space ? d?.spaces?.[space.split("/").pop()!]?.agents?.feedback : undefined;
+  // a space's own setting under its full id first: another machine's space is kept as "studio/sp1" (slice 8)
+  const of = (id: string) => d?.spaces?.[id]?.agents?.feedback;
+  const own = space ? (typeof of(space) === "boolean" ? of(space) : of(space.split("/").pop()!)) : undefined;
   if (typeof own === "boolean") return own;
   const all = d?.everywhere?.agents?.feedback;
   return typeof all === "boolean" ? all : true;
@@ -249,14 +254,35 @@ export function rowsOf(list: unknown, settings: any, now = Date.now()): Feedback
 
 const settingsNow = () => { try { return readSettings(); } catch { return {}; } };
 
+/** this machine's list with each linked machine's (slice 8): every row with its machine, newest first; a machine whose
+ *  list can't be acted on now has its rows read only, and is named for the page's line about it */
+export function withMachines(here: FeedbackList, there: FeedbackMachines["lists"], settings: any, now = Date.now()): FeedbackList {
+  if (!there.size) return here;
+  const rows = [...here.rows];
+  const machines: NonNullable<FeedbackList["machines"]> = [];
+  for (const [m, l] of [...there].sort(([a], [b]) => a.localeCompare(b))) {
+    if (l.state !== "ok") machines.push({ name: m, state: l.state, at: l.at });
+    const named = l.rows.map((p: any) => (p && typeof p === "object" ? { ...p, space: spaceThere(m, p.space) } : p));
+    const lock = l.state === "stale" || l.state === "old" ? { readOnly: l.state } : {};
+    rows.push(...rowsOf(named, settings, now).rows.map((r) => ({ ...r, machine: m, ...lock })));
+  }
+  rows.sort((a, b) => b.at - a.at);
+  return { ...here, rows, found: rows.filter((r) => r.section === "found").length, ...(machines.length ? { machines } : {}) };
+}
+
 export class Feedback {
   private last: unknown[] | null = null;
   private error = "";
   private seen = "";
   private reading: Promise<void> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private thereTimer: ReturnType<typeof setInterval> | null = null;
   /** the snapshot is built again (main.ts: model.rebuild) */
   changed: () => void = () => {};
+  /** every linked machine's list (slice 8); main.ts gives it herdr-core's machine.exec and machine.list */
+  readonly there = new FeedbackMachines();
+  /** is a page open (live.ts anyone): only pages show the list, so other machines are read only then */
+  watched: () => boolean = () => true;
 
   constructor(private run: Runner = herdrTask, private file = () => join(process.env.HERDR_TASK_STORE || where().tasks, ".feedback.json"),
     private settings: () => any = settingsNow, private on: () => boolean = () => pluginOn("feedback"),
@@ -274,9 +300,22 @@ export class Feedback {
       else if (this.stamp() !== this.seen) void this.read();
     }, every);
     if (this.on()) void this.read();
+    // other machines (slice 8): every half minute while a page is open, once the machines are known
+    this.thereTimer = setInterval(() => void this.readThere(), 30_000);
+    setTimeout(() => void this.readThere(), 3_000);
   }
 
-  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    if (this.thereTimer) clearInterval(this.thereTimer);
+    this.timer = this.thereTimer = null;
+  }
+
+  /** every linked machine's list read again, while the plugin is on and a page shows it */
+  async readThere(): Promise<void> {
+    if (!this.on() || !this.watched()) return;
+    if (await this.there.read()) this.changed();
+  }
 
   /** the record, what the install said it carries beside it, and the install record (slice 6: a new or rolled-back
    *  build changes what On this machine shows, so its read is fresh within a tick) */
@@ -313,7 +352,8 @@ export class Feedback {
   /** what the page shows (null until the first read answered or failed) */
   list(now = Date.now(), chats?: Set<string>): FeedbackList | null {
     if (this.last === null && !this.error) return null;
-    const out = withChats(rowsOf(this.last ?? [], this.settings(), now), chats);
+    const settings = this.settings();
+    const out = withChats(withMachines(rowsOf(this.last ?? [], settings, now), this.there.lists, settings, now), chats);
     return this.error ? { ...out, error: "Couldn't read the newest list just now: showing the last one." } : out;
   }
 
@@ -334,11 +374,22 @@ export class Feedback {
     if (!this.on()) return { ok: false, error: "Feedback is switched off in Settings › Plugins." };
     let args: string[];
     try { args = argsOf(b); } catch (e) { return { ok: false, error: (e as Error).message }; }
-    const r = await this.run(args);
+    let r: Ran;
+    if (b.machine != null) {
+      // a row another machine kept (slice 8): the call goes there, and that machine's list is read again; the box's
+      // reports stay on this machine
+      if (!isMachine(b.machine) || b.do === "report") return { ok: false, error: "That machine isn't linked any more." };
+      const why = this.there.refusal(b.machine);
+      if (why) return { ok: false, error: why };
+      r = await this.there.run(b.machine, args);
+      this.changed();
+    } else {
+      r = await this.run(args);
+      // a poll that started before the call can't answer for it: wait for it, then read again
+      if (this.reading) await this.reading;
+      await this.read();
+    }
     const out = answer(r.stdout);
-    // a poll that started before the call can't answer for it: wait for it, then read again
-    if (this.reading) await this.reading;
-    await this.read();
     if (r.code !== 0 || !out || out.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "That didn't work." };
     // Post it (slice 4): the yes is kept, or was already (a second tap, another device): either way the chat is told
     if (b.do === "approve") return out.approved === b.rev ? { ok: true, key: out.key, changed: out.changed } : { ok: false, error: NO_POST[out.why] ?? NO_POST.changed };
