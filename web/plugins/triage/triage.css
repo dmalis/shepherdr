@@ -5,5 +5,9 @@
 .tri-text b{font-weight:600;overflow-wrap:anywhere}
 .tri-text pre{margin:0;font:inherit;font-size:var(--sec);line-height:var(--secl);color:var(--sub);white-space:pre-wrap;overflow-wrap:anywhere}
 .tri-text:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+/* the list a space's grouped drafts open (more than 3 make one card): each draft's own card, the dialog's full width,
+   one under the other; the dialog (a sheet on a phone) scrolls them */
+.tri-list{display:grid;gap:8px;min-width:0}
+.tri-list>.card{width:auto;max-width:none}
 .tri-why{display:flex;align-items:flex-start;gap:8px;margin:0;color:var(--sub);font-size:var(--sec);line-height:var(--secl)}
 .tri-why .i{flex:none;color:var(--amber);width:var(--ic-sm);height:var(--ic-sm);margin-top:2px}

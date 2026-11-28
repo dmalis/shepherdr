@@ -12,7 +12,8 @@ import { AppliesTo, useAppliesTo } from '@client/applies-to.tsx'
 import { Choice as Seg } from '@client/choice.tsx'
 import { Own, SRow } from '@client/settings-rows.tsx'
 import { ActBtn, ActError, Btn, I, Tgl, useCardActs } from '@client/ui.tsx'
-import { triageAsk, triagePlace } from '@shared/attention.ts'
+import { openDialog } from '@client/overlay.tsx'
+import { TRIAGE_DRAFTS, triageAsk, triageDraftsWords, triagePlace, triageShown } from '@shared/attention.ts'
 import type { Automation, Snapshot, TriageCard, TriageKeys } from '@shared/types.ts'
 import './triage.css'
 
@@ -156,9 +157,45 @@ export function TriageCardView({ c }: { c: TriageCard }) {
   )
 }
 
-/** the cards in a space's own chat (its repo's, else Everything's), oldest first, where Needs you opens them */
-export const triageCards = (snap: Snapshot, thread: { place: string; task?: unknown }) =>
-  thread.task ? [] : (snap.triage?.cards ?? []).filter((c) => triagePlace(snap, c) === thread.place).map((c) => ({ key: `triage:${c.id}`, at: c.at, after: () => true, node: <TriageCardView c={c} /> }))
+/** a space's held drafts, oldest first, as the list opened from their one card shows them */
+const draftsIn = (snap: Snapshot, place: string) => (snap.triage?.cards ?? []).filter((c) => c.kind === 'draft' && triagePlace(snap, c) === place)
+
+/** the list behind the one card: each draft's own card, answered one by one as before. It reads the snapshot live, so
+ *  an answered one leaves the list, and the list stays open while it empties */
+export function TriageDraftsList({ place, close }: { place: string; close: () => void }) {
+  const snap = useSnap()
+  const drafts = snap ? draftsIn(snap, place) : []
+  return (
+    <>
+      <h2>{drafts.length ? triageDraftsWords(drafts.length) : 'Nothing waits to be posted'}</h2>
+      <p>{drafts.length ? 'Each goes public only when you say yes. Answer them one by one, oldest first.' : 'Every finding here has its answer.'}</p>
+      {drafts.length > 0 && <div className="tri-list">{drafts.map((c) => <TriageCardView key={c.id} c={c} />)}</div>}
+      <div className="acts"><Btn onClick={close}>Close</Btn></div>
+    </>
+  )
+}
+
+/** more drafts than TRIAGE_GROUP_OVER in a space: one card that says how many, and opens their list */
+export function TriageDraftsCard({ place, n }: { place: string; n: number }) {
+  return (
+    <section className="card tri-card" data-card={TRIAGE_DRAFTS} data-ask="" aria-labelledby="tri-drafts-q">
+      <span className="t" id="tri-drafts-q">{triageDraftsWords(n)}</span>
+      <span className="s">Each goes public only when you say yes.</span>
+      <div className="acts">
+        <Btn kind="pri" onClick={() => openDialog((close) => <TriageDraftsList place={place} close={close} />, { wide: true, label: 'Findings to post' })}>Show them</Btn>
+      </div>
+    </section>
+  )
+}
+
+/** the cards in a space's own chat (its repo's, else Everything's), oldest first, where Needs you opens them: more
+ *  drafts than TRIAGE_GROUP_OVER are one card (triageShown), start cards always single */
+export function triageCards(snap: Snapshot, thread: { place: string; task?: unknown }) {
+  if (thread.task) return []
+  const { drafts, single } = triageShown((snap.triage?.cards ?? []).filter((c) => triagePlace(snap, c) === thread.place))
+  const one = drafts.length ? [{ key: TRIAGE_DRAFTS, at: Math.min(...drafts.map((c) => c.at)), after: () => true, node: <TriageDraftsCard place={thread.place} n={drafts.length} /> }] : []
+  return [...one, ...single.map((c) => ({ key: `triage:${c.id}`, at: c.at, after: () => true, node: <TriageCardView c={c} /> }))]
+}
 
 export default definePlugin({
   name: 'triage',
