@@ -33,14 +33,16 @@ async function startDemo() {
 
 /** the long model line the person saw: the effort and a permission mode that isn't the agent's default */
 const LONG = { kind: 'claude', model: 'opus', modelLabel: 'Opus 5.5', effort: 'xhigh', perm: 'bypass' }
+/** the demo's Codex: its effort and two speed bolts (ultra-fast) beside the model's name */
+const CODEX = { kind: 'codex', model: 'gpt-6.2-sol', modelLabel: 'GPT-6.2 Sol', effort: 'xhigh', speed: 'ultrafast' }
 /** one bar's room, in the app's own px (phone-bar.css): + and send alone, then each more button */
 const ONE_BAR = 168
 const PER_BUTTON = 48
 
-type Scene = { width: number; zoom: number; where: 'space' | 'task'; working: boolean; voice: boolean; update?: boolean }
+type Scene = { width: number; zoom: number; where: 'space' | 'task'; working: boolean; voice: boolean; update?: boolean; codex?: boolean }
 
 async function check(browser: Browser, base: string, s: Scene) {
-  const name = `${s.where} ${s.width}px zoom ${s.zoom}% ${s.working ? 'working' : 'idle'}${s.voice ? ' voice' : ''}${s.update ? ' update' : ''}`
+  const name = `${s.where} ${s.width}px zoom ${s.zoom}% ${s.working ? 'working' : 'idle'}${s.voice ? ' voice' : ''}${s.update ? ' update' : ''}${s.codex ? ' codex ultra-fast' : ''}`
   const ctx = await browser.newContext({ viewport: { width: s.width, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 })
   try {
     await ctx.addInitScript((zoom) => localStorage.setItem('shepherdr.prefs', JSON.stringify({ zoom })), s.zoom)
@@ -52,7 +54,7 @@ async function check(browser: Browser, base: string, s: Scene) {
       server.onMessage((m) => {
         if (typeof m !== 'string') return ws.send(m)
         const v = JSON.parse(m) as { type?: string; chat?: { agent?: unknown; working?: boolean; finished?: boolean }; snapshot?: { off?: string[] } }
-        if (v.type === 'chat' && v.chat) Object.assign(v.chat, { agent: { ...LONG, ...(s.update ? { update: '9.0.0' } : {}) }, working: s.working, finished: false })
+        if (v.type === 'chat' && v.chat) Object.assign(v.chat, { agent: { ...(s.codex ? CODEX : LONG), ...(s.update ? { update: '9.0.0' } : {}) }, working: s.working, finished: false })
         // the same plugins off as api/me said, or the page reloads to match
         if (v.type === 'snapshot' && v.snapshot && !s.voice) v.snapshot.off = ['voice']
         ws.send(JSON.stringify(v))
@@ -66,7 +68,7 @@ async function check(browser: Browser, base: string, s: Scene) {
     const round = s.voice ? box.locator('.cbar > .send') : box.locator(`.cbar > .send[aria-label="${s.working ? 'Stop' : 'Send'}"]`)
     await round.waitFor()
     if (s.update) await box.locator('.cbar > .agent-upd').waitFor()
-    await page.waitForFunction(() => document.querySelector('.cbar .agent .m')?.textContent === 'Opus 5.5')
+    await page.waitForFunction((label) => document.querySelector('.cbar .agent .m')?.textContent === label, s.codex ? CODEX.modelLabel : LONG.modelLabel)
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
     const m = await box.evaluate((el) => {
       const r = (e: Element | null) => e!.getBoundingClientRect()
@@ -101,6 +103,8 @@ async function check(browser: Browser, base: string, s: Scene) {
     // the model line is cut inside its own width, never pushed out of it
     assert.ok(m.agentOver <= 1, `${name}: the model line overflows by ${m.agentOver}px`)
     assert.ok(m.modelCut, `${name}: the model's name is not cut with an ellipsis on one line`)
+    // the model's name keeps room to be read ("Opus…"), on its own row too
+    assert.ok(m.modelWidth >= 28 * m.zoom, `${name}: the model's name has only ${m.modelWidth.toFixed(1)}px`)
     // too narrow for one bar with a readable model line: upstream's own rows, nothing cut off
     if (m.room < ONE_BAR + PER_BUTTON * m.more) return `${name} (${Math.round(m.room)}px: its own rows)`
     // one bar: every visible part of it sits on one line, + first, the round button last at the right edge
@@ -108,8 +112,6 @@ async function check(browser: Browser, base: string, s: Scene) {
     assert.ok(spread <= 3 * m.zoom, `${name}: the bar's parts are on more than one line (${m.rows} rows, ${spread.toFixed(1)}px apart)`)
     assert.ok(m.first, `${name}: + is not first in the bar`)
     assert.ok(m.last && m.lastRight <= 8 * m.zoom, `${name}: send/stop is not at the bar's right end`)
-    // the model's name keeps room to be read ("Opus…")
-    assert.ok(m.modelWidth >= 28 * m.zoom, `${name}: the model's name has only ${m.modelWidth.toFixed(1)}px`)
     // two rows: the text row and one bar (the bar's tallest part, its padding)
     assert.ok(m.box - m.text <= 64 * m.zoom, `${name}: the bar is ${m.box - m.text}px tall, more than one row`)
     return name
@@ -136,6 +138,10 @@ try {
     }
   for (const width of [320, 390])
     for (const zoom of [100, 125]) await run({ width, zoom, where: 'space', working: false, voice: true, update: true })
+  // the speed's two bolts beside a long name: they give way before it
+  await run({ width: 360, zoom: 175, where: 'space', working: true, voice: false, codex: true })
+  await run({ width: 375, zoom: 125, where: 'space', working: false, voice: true, update: true, codex: true })
+  await run({ width: 320, zoom: 100, where: 'space', working: true, voice: true, codex: true })
   console.log(`box check: ${n} scenes; the bar one line wherever it has room, nothing cut off anywhere`)
 } finally {
   await browser.close()

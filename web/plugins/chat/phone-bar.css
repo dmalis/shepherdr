@@ -1,7 +1,7 @@
 /* fork #105: on a phone the message box is two rows: the text, then one bar with + on the left, the model line taking
    what is left and send or stop on the right, as ChatGPT's and Claude's apps keep theirs. Short of room the model line
-   drops its logo, chevron and permission mode (picker.tsx's fitAgentLine), then its effort gives way before the
-   model's name, each cut with an ellipsis. Upstream's narrow box (ds.css, under 336px: a phone under 368px wide, or
+   drops its logo, chevron and permission mode (picker.tsx's fitAgentLine), then its effort and speed give way
+   before the model's name, which is cut with an ellipsis last. Upstream's narrow box (ds.css, under 336px: a phone under 368px wide, or
    Zoom over 100%) gives the model line a row of its own instead, which pushes send or stop alone onto a third row.
 
    That stays only for a box too narrow for one bar with a readable model line: its side padding (12px), + (44px),
@@ -37,5 +37,11 @@
   }
   .app .cbox > .cbar > .agent > .e:not(.pm) {
     flex: 0 1000 auto;
+  }
+  /* the speed's bolts (one when fast, two when ultra-fast) give way with the effort, before the model's name */
+  .app .cbox > .cbar > .agent > .speed-bolts {
+    flex: 0 1000 auto;
+    min-width: 0;
+    overflow: hidden;
   }
 }

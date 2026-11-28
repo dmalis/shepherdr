@@ -19,6 +19,7 @@ test('the bar stays one line on a phone: no wrap, the model line shrinks, its ef
     expect(rules).toContain(`@container (min-width: ${w}px) {\n    .app .cbox > .cbar:has(> .agent)${not} {\n      flex-wrap: nowrap;\n    }\n    .app .cbox > .cbar${not} > .agent {\n      flex: 0 1 auto;\n    }\n  }`)
   }
   expect(rules).toContain('.app .cbox > .cbar > .agent > .e:not(.pm) {\n    flex: 0 1000 auto;\n  }')
+  expect(rules).toContain('.app .cbox > .cbar > .agent > .speed-bolts {\n    flex: 0 1000 auto;\n    min-width: 0;\n    overflow: hidden;\n  }')
   // zoom-css.ts writes a container query once per zoom step, scaled
   expect(read('web/zoom-css.ts')).toContain('root.walkAtRules(/^(container|media)$/i, (at) => {')
   // every rule only where a finger is the pointer: nothing before the media block, nothing after it
@@ -40,6 +41,7 @@ test('upstream seams: the narrow box it undoes, and the model line that cuts its
   expect(ds).toContain('.agent .m{min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}')
   expect(ds).toContain('.agent .e{min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}')
   expect(ds).toContain('.agent .e:not(.pm){flex:none}')
+  expect(ds).toContain('.speed-bolts{display:inline-flex;align-items:center;flex:none;')
   // short of room it drops its logo, chevron and permission mode first
   const picker = read('web/src/picker.tsx')
   expect(picker).toContain("export const AGENT_DROPS = ['logo', 'chev', 'perm'] as const")
