@@ -85,11 +85,13 @@ const { serveChoice } = HCORE as any;
 import { iconValue, isPicture } from "../core/space-icon.js";
 import * as MN from "../core/mentions.js";
 const { REACH_FILE, reachable } = MN as any;
+import { knownFrom } from "./known-spaces.ts";
 
 // A machine's reach map, as its spaces: kept a minute (its scheduler redraws it every 5)
 const reaches = new Map<string, { at: number; got: Promise<{ from: string | null; spaces: any[]; checked: number | null }> }>();
 // The spaces the service knows (its own list, each with its place's name): a reach map that reads a machine's
-// spaces as empty still lists them (core/mentions.js reachable, SHEP-185).
+// spaces as empty still lists them (core/mentions.js reachable, SHEP-185). Relative to this machine: reachOf() gives
+// them to another machine's map as that machine sees them (known-spaces.ts).
 function knownSpaces() {
   return compat.allSpaces().map((s) => {
     const p = compat.last?.places.find((x) => x.id === s.id);
@@ -101,7 +103,7 @@ function reachOf(machine: string | null) {
   if (was && Date.now() - was.at < 60_000) return was.got;
   const got = exec(hub, ["sh", "-c", REACH_FILE], machine, 20).then((r) => {
     const d = JSON.parse(r.stdout || "null");
-    return { from: d?.graph?.core?.name ?? machine, spaces: reachable(d?.graph, knownSpaces()), checked: d?.at ?? null };
+    return { from: d?.graph?.core?.name ?? machine, spaces: reachable(d?.graph, knownFrom(knownSpaces(), host.me?.id, machine)), checked: d?.at ?? null };
   }).catch(() => null).then((r) => r?.checked ? r : {
     // no map there yet (its scheduler hasn't run): its own spaces, which it always reaches
     from: machine, checked: null,
