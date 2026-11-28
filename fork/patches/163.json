@@ -28,6 +28,7 @@
     "web/plugins/feedback/report.ts",
     "web/plugins/feedback/rows.tsx",
     "web/first-screen.ts",
+    "web/demo/live-check.ts",
     ".github/workflows/check.yml",
     "docs/design.md"
   ],

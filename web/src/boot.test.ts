@@ -117,7 +117,7 @@ test('a later part is fetched once, kept, and fetched again after a failure', as
 // the seams: start() goes through boot, and each heavy view is reached only through import()
 test('pinned: the heavy views are fetched by import(), never imported where the first screen starts', () => {
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
-  expect(read('./main.tsx')).toContain("await boot({ plugins, enabled, user, me: () => fetch('api/me'), connect })")
+  expect(read('./main.tsx')).toContain("const off = await boot({ plugins, enabled, user, me: () => fetch('api/me', { signal: AbortSignal.timeout(3000) }), connect })")
   expect(read('./App.tsx')).toContain("laterView(() => import('./settings.tsx').then((m) => m.SettingsWindow)")
   expect(read('./App.tsx')).not.toMatch(/from '\.\/settings\.tsx'/)
   expect(read('./picker.tsx')).toContain("later(() => import('./picker-sheet.tsx'))")
