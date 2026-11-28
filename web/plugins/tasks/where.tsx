@@ -4,7 +4,7 @@
 // header (fork UI 14).
 import { I } from '@client/ui.tsx'
 import type { Snapshot, Task } from '@shared/types.ts'
-import { isEverything, machineLabel, reposOf, spaceLabel, workName } from '@shared/view.ts'
+import { isEverything, isTilde, machineLabel, reposOf, spaceLabel, workName } from '@shared/view.ts'
 import './where.css'
 
 /** the words over a task's title: its project and its machine when there are several; a task outside a repo or folder
@@ -60,6 +60,6 @@ export function rowWhere(snap: Snapshot, t: Task): { name: string; machine: stri
   const twin = many && reposOf(snap).some((r) => r.name === name && r.machine !== t.on)
   let from = fromSpace(snap, t)
   const p = from ? snap.places.find((x) => x.id === t.place) : undefined
-  if (many && p && !from.includes(' on ') && snap.places.some((x) => x.id !== p.id && !x.archived && x.name === p.name && x.machine !== p.machine)) from += ` on ${machineLabel(snap, p.machine)}`
+  if (many && p && !isTilde(snap, p) && snap.places.some((x) => x.id !== p.id && !x.archived && x.name === p.name && x.machine !== p.machine)) from += ` on ${machineLabel(snap, p.machine)}`
   return { name, machine: twin ? machineLabel(snap, t.on) : '', from }
 }

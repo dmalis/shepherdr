@@ -628,7 +628,13 @@ export function TaskRow({ snap, t, tag, alert }: { snap: Snapshot; t: Task; tag:
           {/* one repo picked leaves the line out, unless it says the space it came from (dmalis/shepherdr#131) */}
           {(tag || !!fromSpace(snap, t)) && t.work && <RepoLine snap={snap} t={t} />}
         </span>
-        {when && <span className="v">{when}</span>}
+        {/* with a shortcut, the time's place holds its size too, so the shortcut over it never covers the name (rows.css) */}
+        {sc ? (
+          <span className="v vsc">
+            {when && <span className="vw">{when}</span>}
+            <span className="btn s vsz" aria-hidden="true"><I n={sc.icon} />{sc.label}</span>
+          </span>
+        ) : when && <span className="v">{when}</span>}
       </button>
       {sc && <ShortcutBtn sc={sc} className={moving.className} style={moving.style} />}
       <IB icon="dots" label={`More for ${t.name}`} aria-haspopup="menu" className={moving.className} style={moving.style} onClick={(e) => taskMenu(e.currentTarget, t, 'row')} />

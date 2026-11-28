@@ -5,7 +5,7 @@
 // the task, so a screen reader's list of buttons tells the rows apart.
 import { Btn, I, cx } from '@client/ui.tsx'
 import { openItem } from '@client/needs-count.tsx'
-import type { MenuRow } from '@client/kernel.ts'
+import { getState, type MenuRow } from '@client/kernel.ts'
 import type { Snapshot, Task } from '@shared/types.ts'
 import { tstate } from '@shared/view.ts'
 import './rows.css'
@@ -24,20 +24,27 @@ export interface Shortcut {
 }
 
 /** the one shortcut a task's state calls for, or none */
-export function shortcutOf(snap: Snapshot, t: Task): Shortcut | null {
+export function shortcutOf(_snap: Snapshot, t: Task): Shortcut | null {
   const s = tstate(t)
-  // it asks you (a question, a permission, a prompt, a sign-in): its own chat, at the card that asks (Needs you's
-  // exact link, as a tap on the red count opens it)
-  if (s === 'ask' && t.action?.owner === 'you' && !t.stopped) {
-    const card = snap.attention?.actions.find((a) => a.id === t.action!.id)?.card ?? null
-    return { label: 'Reply', name: `Reply to ${t.name}`, icon: 'reply', menu: 'Reply in its chat', run: () => openItem({ task: t.id, place: t.place, card }) }
-  }
   // ready for review with an open pull request: the pull request on GitHub, where it is reviewed
   if (s === 'ready' && t.pr && !t.pr.closed && !t.merged) {
     const url = t.pr.url
     return { label: 'Open PR', name: `Open PR #${t.pr.number} for ${t.name}`, icon: 'pr', menu: `Open PR #${t.pr.number}`, href: url, run: () => void window.open(url, '_blank', 'noopener,noreferrer') }
   }
+  // its lead action is yours and asks something (a question, a prompt, a permission, a sign-in, a hand-up), in any
+  // state the task shows (a working task's secret request too): its own chat, at that action's card, the exact link a
+  // tap on the red count opens. A stopped task's card is its own (Restart), not a reply.
+  if (t.action?.owner === 'you' && t.action.kind !== 'review' && !t.stopped && s !== 'done' && s !== 'archived') {
+    const id = t.action.id
+    return { label: 'Reply', name: `Reply to ${t.name}`, icon: 'reply', menu: 'Reply in its chat', run: () => openItem({ task: t.id, place: t.place, card: cardOf(id) }) }
+  }
   return null
+}
+
+/** the action's card as it is when pressed (a menu or a row can outlive the snapshot it was drawn from): none when it
+ *  was answered meanwhile, so the task opens at its newest instead */
+export function cardOf(id: string): string | null {
+  return getState().snap?.attention?.actions.find((a) => a.id === id)?.card ?? null
 }
 
 /** the shortcut's row in the task's menu, first: the same action, by touch and by the menu's keys */

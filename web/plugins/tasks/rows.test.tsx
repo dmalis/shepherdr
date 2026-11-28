@@ -13,7 +13,7 @@ import { withAttention } from '@shared/attention.ts'
 // the formatted words need a browser (DOMPurify): here they are drawn as they are
 mock.module('@plugins/chat/markdown.tsx', () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, toHtml: (t: string) => t, linked: (t: string) => t, withLinks: (t: string) => [t] }))
 const { TaskRow, taskRows } = await import('./client.tsx')
-const { shortcutOf, shortcutRow, ShortcutBtn } = await import('./shortcut.tsx')
+const { cardOf, shortcutOf, shortcutRow, ShortcutBtn } = await import('./shortcut.tsx')
 const { rowWhere } = await import('./where.tsx')
 const { getState } = await import('@client/kernel.ts')
 
@@ -29,7 +29,9 @@ const nameOf = (html: string) => {
   const btn = html.match(/<button[^>]*class="row row2 tk[^"]*"[^>]*>([\s\S]*?)<\/button>/)![1]!
   // a status ring is an image: its label stands for its drawing (and its hidden time left)
   const img = /<span[^>]*role="img"[^>]*aria-label="([^"]*)"[^>]*><svg[\s\S]*?<\/svg>(?:<span[^>]*aria-hidden="true"[^>]*>[^<]*<\/span>)?<\/span>/g
-  return unescape(btn.replace(img, (_m, a: string) => ` ${a} `).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+  // what is hidden from a screen reader (the shortcut's invisible copy that sizes the time's place) is not read
+  const hidden = /<span[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/span>/g
+  return unescape(btn.replace(img, (_m, a: string) => ` ${a} `).replace(hidden, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
 }
 
 test('a row reads in one look: status, name, what it needs, where, when; no model', () => {
@@ -63,6 +65,12 @@ test('one shortcut per state: Reply for a question, Open PR for a review, nothin
   expect(shortcutOf(snap, { ...t12, merged: true })).toBeNull()
   expect(shortcutOf(snap, { ...t12, pr: { ...t12.pr!, closed: true } })).toBeNull()
   expect(shortcutOf(snap, { ...task('SHOP-14'), stopped: { by: 'error', why: 'gone' } })).toBeNull()
+  // Reply follows the task's lead action, the one its row, its header and the red count go by: a working task whose
+  // lead action is yours (a secret it asks for, a question from a card) gets it too; Shepherdr's own wait doesn't
+  const lead = { id: 'need:x', owner: 'you' as const, kind: 'question' as const, what: 'Which key?', since: 1 }
+  expect(shortcutOf(snap, { ...task('SHOP-22'), action: lead })?.label).toBe('Reply')
+  expect(shortcutOf(snap, { ...task('SHOP-22'), action: { ...lead, owner: 'shepherdr' } })).toBeNull()
+  expect(shortcutOf(snap, { ...task('SHOP-22'), action: { ...lead, kind: 'review' } })).toBeNull()
   // every row in the demo has at most one, and each named with its task
   for (const t of snap.tasks) {
     const html = row(t)
@@ -98,6 +106,30 @@ test('Open PR opens the pull request in a new tab; Reply opens the task at its q
     ;(globalThis as { window: unknown }).window = was
   }
   expect(opened).toEqual([['https://github.com/example/shop/pull/212', '_blank', 'noopener,noreferrer']])
+})
+
+test('Reply opens the card of the action as it is when pressed: none once it was answered', () => {
+  const id = task('SHOP-14').action!.id
+  expect(cardOf(id)).toBe(snap.attention!.actions.find((a) => a.id === id)!.card)
+  Object.assign(getState(), { snap: { ...snap, attention: { ...snap.attention!, actions: snap.attention!.actions.filter((a) => a.id !== id) } } })
+  try {
+    expect(cardOf(id)).toBeNull()
+  } finally {
+    Object.assign(getState(), { snap })
+  }
+})
+
+test('the shortcut has its own slot: the time\'s place takes its size while it shows, so it never covers the name', () => {
+  const html = row(task('SHOP-12'))
+  expect(html).toMatch(/<span class="v vsc"><span class="vw">[^<]+<\/span><span class="btn s vsz" aria-hidden="true"><svg[^>]*>[\s\S]*?<\/svg>Open PR<\/span><\/span><\/button>/)
+  // no shortcut: the time as before
+  expect(shortcutOf(snap, task('BLOG-10'))).toBeNull()
+  expect(row(task('BLOG-10'))).toMatch(/<span class="v">[^<]+<\/span><\/button>/)
+  const css = readFileSync(new URL('./rows.css', import.meta.url), 'utf8')
+  expect(css).toContain('.row.tk>.v.vsc>.vsz{display:none;visibility:hidden;height:0;overflow:hidden}')
+  // on touch the time never hides for a shortcut that isn't there
+  expect(css).not.toMatch(/(^|\n)\s*\.rowx[^{]*>\.row>\.v\{visibility:hidden\}/)
+  expect(css).toContain('.app:not(.tap) .rowx:has(:focus-visible)>.row>.v.vsc>.vw{visibility:hidden}')
 })
 
 test('two projects or spaces with one name keep their machine; a name on one machine has none', () => {
