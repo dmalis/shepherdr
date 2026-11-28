@@ -10,7 +10,7 @@ import type { Task } from '@shared/types.ts'
 import { taskChat, tstate } from '@shared/view.ts'
 import './urgent.css'
 
-/** a row's title starts with it: the icon, and "Urgent, " for a screen reader only */
+/** a row's title starts with it: the icon, and "Urgent, " for a screen reader only (the app's .vh, web/src/dictate.css) */
 export function UrgentMark({ t }: { t: Task }) {
   if (!t.urgent) return null
   return <span className="urg"><I n="urgent" /><span className="vh">Urgent, </span></span>
