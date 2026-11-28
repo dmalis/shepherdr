@@ -5,10 +5,13 @@
     "web/plugins/tasks/marks.tsx",
     "web/plugins/tasks/urgent.tsx",
     "web/plugins/tasks/urgent.css",
-    "web/plugins/tasks/client.tsx"
+    "web/plugins/tasks/client.tsx",
+    "web/plugins/triage/settings.tsx",
+    "web/plugins/triage/client.tsx"
   ],
   "tests": [
     "web/plugins/tasks/marks.test.tsx",
-    "web/plugins/tasks/urgent.test.tsx"
+    "web/plugins/tasks/urgent.test.tsx",
+    "web/plugins/triage/triage.test.tsx"
   ]
 }
