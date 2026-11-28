@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, sandbox, stack, urgent
+from . import after_merge, ghbudget, sandbox, stack, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -1922,7 +1922,8 @@ def cmd_reply(args):
 
 def merge_waits(err):
     """A merge that only waits (checks running, an approval, GitHub's queue) or couldn't be asked just now: no failure."""
-    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP) or str(err).startswith("Couldn't reach")
+    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP) or str(err).startswith("Couldn't reach") \
+        or ghbudget.limited(err)  # dmalis/shepherdr#201: GitHub's request limit: it merges once it resets
 
 
 def note_merge_failed(t, why):
@@ -1976,8 +1977,25 @@ def merge_now(s, t, accept=False):
     """Merges the task's pull request on GitHub and tidies up here. Returns why it
     couldn't, or None when it's merged (and the task done). A base branch with GitHub's merge
     queue (#742, #801, #802): the pull request joins the queue and the task stays Merging until
-    GitHub merged it (the tick finishes it then, and deletes its branch there)."""
+    GitHub merged it (the tick finishes it then, and deletes its branch there).
+    dmalis/shepherdr#201: GitHub refusing for its hourly request limit is never a failure: it waits, its card says when
+    it merges (ghbudget.wait_words()), and the tick merges it once the limit resets."""
+    err = _merge_now(s, t, accept)
+    if err and (ghbudget.limited(err) or (err.startswith("Couldn't reach") and ghbudget.reset_at())):
+        err = ghbudget.wait_words()
+        t["pr"]["wait"] = err
+        if ghbudget.limited(t.get("attention")):
+            t.pop("attention", None)
+            t.pop("attention_at", None)
+        s.dirty = True
+    return err
+
+
+def _merge_now(s, t, accept=False):
     n, repo = str(t["pr"]["number"]), t["pr"]["repo"]
+    until = ghbudget.held(["pr", "merge"])
+    if until:
+        return ghbudget.wait_words(until)  # nothing asked of GitHub till the budget a merge spends resets
     v = pr_view(t)
     s.dirty = True
     if not v:
@@ -2103,6 +2121,10 @@ def cmd_merge(args):
                 error += " Merge again when they pass."
             elif error == WAITS_APPROVAL:
                 error += " Merge again once it's approved."
+            elif error and ghbudget.limited(error) and t["state"] == "ready":
+                # dmalis/shepherdr#201: asked to merge, it merges by itself once GitHub's limit resets
+                t["auto_merge"] = t.get("auto_merge") or "checks"
+                how, error = "limit", None
             elif error and not merge_waits(error):
                 sent = merge_failed(s, t, error, args)
                 error += f" Its agent ({sent}) was asked to fix it and hand it in again." if sent else ""
@@ -2111,6 +2133,10 @@ def cmd_merge(args):
             s.dirty = True
             sent, started = tell(s, t, local_merge_msg(s, t), args)
         v = view(s, t)
+    if how == "limit":
+        say(args, {**v, "merged": False, "waits": t["pr"].get("wait")},
+            f"{s.name(t)}: {t['pr'].get('wait')}. It merges by itself then.")
+        return
     if error:
         say(args, {**v, "error": error}, None) if args.json else print(f"herdr-task: {error}", file=sys.stderr)
         sys.exit(1)
@@ -2195,6 +2221,10 @@ def cmd_accept(args):
             elif error in (CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP):
                 # Accepted: it merges by itself once they pass, or once it's approved (Merging).
                 t["auto_merge"], how, error = "checks", "approval" if error == WAITS_APPROVAL else "checks", None
+            elif error and ghbudget.limited(error):
+                # dmalis/shepherdr#201: accepted, it merges by itself once GitHub's request limit resets
+                t["auto_merge"] = t.get("auto_merge") or "checks"
+                how, error = "limit", None
             elif error and not merge_waits(error):
                 # 3.2: the merge failed: back to its agent, which fixes it and hands it in again
                 t.pop("accepted_at", None)
@@ -2224,6 +2254,7 @@ def cmd_accept(args):
                       ("was closed on GitHub, so nothing merged; done." if t.get("closed_unmerged") else "merged; done."),
             "checks": f"{s.name(t)} accepted: it merges once its checks pass.",
             "approval": f"{s.name(t)} accepted: it merges once it's approved.",
+            "limit": f"{s.name(t)} accepted: {(t.get('pr') or {}).get('wait')}, by itself.",
             "queue": f"{s.name(t)} accepted: pull request #{(t.get('pr') or {}).get('number')} is in GitHub's merge queue; done once GitHub merges it.",
             "agent": f"{s.name(t)} accepted: merge asked of {sent}" + (" (a new agent)" if started else "")}[how]
     say(args, {**v, "accepted": how, "terminal": sent, "new_agent": started}, text)

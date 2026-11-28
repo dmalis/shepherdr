@@ -18,6 +18,7 @@ from .agents import (
 from .provider import provider_cut, provider_error
 from .sessions import find_lost_logs, refresh_sessions
 from . import github as github_mod, ghnews as ghnews_mod
+from . import ghbatch, ghbudget
 from .github import (_ASK, _unsettled, already_merged, answer, answered, BEHIND, checks_state, collision, collision_reason, collision_words, CHECKS_NEVER, checks_missing, checks_since, drop_branch, merge_checks, expected_checks, finish, github, merged_here, needs_approval, note_checks, pr_for_branch, pr_merged, pr_pending, pr_problem,
                      pr_view, pr_wait, queue_dropped_why, released, queue_entry, queue_merge, queue_refusal, unqueue, tidy_done, tidy_due, update_main, watch_main)
 from .launch import default_space
@@ -39,7 +40,16 @@ from .scheduler import SCHEDULER
 from .revive import record_pass
 
 
-PR_WAIT_EVERY = 20000  # how often a pull request whose checks still run is read again (ms)
+PR_WAIT_EVERY = 60000  # how often a pull request whose checks still run is read again, at most (ms)
+PR_WAIT_MAX = 3 * 60000  # dmalis/shepherdr#201: and at least, once its checks have run a long while
+
+
+def wait_every(t):
+    """dmalis/shepherdr#201: how soon a pull request that waits (its checks run, GitHub catches up) is read again:
+    a minute, then slower the longer it waits since it said ready (a quarter of that), up to PR_WAIT_MAX; further
+    apart still while little of GitHub's hourly budget is left (ghbudget.slow())."""
+    waited = now() - (t.get("ready_at") or now())
+    return ghbudget.every(max(PR_WAIT_EVERY, min(PR_WAIT_MAX, waited // 4)))
 
 
 def at_work(s, t):
@@ -157,7 +167,8 @@ def facts(s, t, report):
     seen_pr(s, t)
     if t.get("pr"):
         pr = t["pr"]
-        if now() - pr.get("checked", 0) < PR_EVERY:
+        # dmalis/shepherdr#201: read in this pass's batch, it takes that answer even before its own time
+        if now() - pr.get("checked", 0) < ghbudget.every(PR_EVERY) and not ghbatch.asked("view", pr.get("repo"), pr.get("number")):
             return
         pr["checked"] = now()
         s.dirty = True
@@ -191,7 +202,7 @@ def facts(s, t, report):
         if said == GITHUB_CATCHING_UP or (said and t.get("auto_merge")):
             # dmalis/shepherdr#74: the commit before its push is never read as its own: looked at again soon, and once that
             # lasts, its merge on its own says so (merge_now()), never held by what GitHub says of the other commit
-            pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY
+            pr["checked"] = now() - PR_EVERY + wait_every(t)
             t["_pr_fresh"] = said != GITHUB_CATCHING_UP
             return
         v = mergeable_now(s, t, v)  # dmalis/shepherdr#97: GitHub's answer for the commit before its push is no conflict
@@ -231,7 +242,7 @@ def facts(s, t, report):
                 else:
                     pr.pop("wait", None)
             if wait:
-                pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY
+                pr["checked"] = now() - PR_EVERY + wait_every(t)
         try:
             pr_news(s, t, v, report)
         except Exception as e:  # never stops the tick
@@ -252,7 +263,7 @@ def facts(s, t, report):
                 # herdr-task fix does by hand): Working again, its card saying it rebases only now it was asked.
                 report.setdefault("merge_failed", []).append({"task": s.ref(t), "why": problem, "to": merge_failed(s, t, problem)})
                 return
-            pr["checked"] = now() - PR_EVERY + PR_WAIT_EVERY  # its agent mid-turn or asking: looked at again soon
+            pr["checked"] = now() - PR_EVERY + wait_every(t)  # its agent mid-turn or asking: looked at again soon
         if t["state"] in ("ready", "running") and problem != t.get("attention"):
             if problem:
                 t["attention"], t["attention_at"] = problem, now()
@@ -311,11 +322,11 @@ def seen_pr(s, t):
         if t.pop("pr_seen", None):
             s.dirty = True
         return
-    if now() - t.get("pr_looked", 0) < PR_OPEN_EVERY:
+    repo = github(s)
+    if now() - t.get("pr_looked", 0) < ghbudget.every(PR_OPEN_EVERY) and not ghbatch.asked("branch", repo, t["branch"]):
         return
     t["pr_looked"] = now()
     s.dirty = True
-    repo = github(s)
     found = answer("branch", repo, t["branch"]) if repo else None
     found = pr_for_branch(t, repo) if found is _ASK else found
     if found:
@@ -442,37 +453,45 @@ def prefetch(s):
     Working task's pull request opened by its agent), asked first with the list's lock let go: a few gh calls per
     task, seconds each on a busy machine, held every other herdr-task here (a status line) past its wait. Returns
     the answers for github.answered(); a task that changed meanwhile only asks again under the lock."""
-    asks = []
+    asks, at_work = [], []
     for t in s.data["tasks"]:
         if not (t.get("worktree") and t["state"] in ("running", "ready")):
             continue
+        at_work.append(t)
         pr = t.get("pr")
         if pr:
-            if pr.get("number") and pr.get("repo") and now() - pr.get("checked", 0) >= PR_EVERY:
+            if pr.get("number") and pr.get("repo") and now() - pr.get("checked", 0) >= ghbudget.every(PR_EVERY):
                 asks.append(json.loads(json.dumps(t)))
         elif t["state"] == "running" and t.get("mode") == "worktree" and t.get("branch") \
-                and now() - t.get("pr_looked", 0) >= PR_OPEN_EVERY:
+                and now() - t.get("pr_looked", 0) >= ghbudget.every(PR_OPEN_EVERY):
             asks.append(json.loads(json.dumps(t)))
     if not asks:
         return {}
     repo = github(s) if any(not t.get("pr") for t in asks) else None
     found = {}
     with released(s):
+        # dmalis/shepherdr#201: once any is due, every pull request of these tasks in one query per repo, and every
+        # Working one's branch in one list (each task then takes its answer this pass: facts(), seen_pr())
+        ghbudget.look()
+        found.update(ghbatch.ahead(json.loads(json.dumps(at_work)), repo))
         for t in asks:
             pr = t.get("pr")
             if not pr:
-                if repo:
+                if repo and ("branch", repo, t["branch"]) not in found:
                     found[("branch", repo, t["branch"])] = pr_for_branch(t, repo)
                 continue
             key = (pr["repo"], pr["number"])
-            v = found[("view",) + key] = pr_view(t)
+            if ("view",) + key not in found:
+                found[("view",) + key] = pr_view(t)
+            v = found[("view",) + key]
             if not isinstance(v, dict):
                 continue
-            if t.get("auto_merge") and any(_unsettled(c) for c in v.get("statusCheckRollup") or []):
+            if t.get("auto_merge") and ("required",) + key not in found and any(_unsettled(c) for c in v.get("statusCheckRollup") or []):
                 found[("required",) + key] = github_mod.required_checks(t)
             w = pr.get("watch") or {}
             if t["state"] == "ready" and v.get("state") == "OPEN" and (
-                    w.get("since") != (t.get("ready_at") or 0) or now() - (w.get("checked") or 0) >= PR_NEWS_EVERY):
+                    w.get("since") != (t.get("ready_at") or 0) or now() - (w.get("checked") or 0) >= PR_NEWS_EVERY) \
+                    and not ghnews_mod.unchanged(t, v):
                 found[("comments",) + key] = ghnews_mod.pr_comments(pr["repo"], pr["number"])
     return found
 

@@ -10,17 +10,25 @@ from .base import Fail, GH, git, hc_json, now, run, STORE
 from .agents import agent_running, detail, live_agents, live_helpers, mid_turn_agents
 from .after_accept import start as after_accept
 from . import rebased_push
+from . import ghbudget
 
 
 # ---- GitHub ---------------------------------------------------------------------------------
 
 def gh(*args, cwd=None):
+    # dmalis/shepherdr#201: GitHub said the hour's request limit ran out: nothing that spends it goes out till it resets
+    until = ghbudget.held(args)
+    if until:
+        return False, "", ghbudget.held_err(until)
     # gh not installed (or not on this caller's PATH, as a background service's): it doesn't work here, said plainly
     try:
         r = run([GH, *args], cwd=cwd or STORE)
     except FileNotFoundError:
         return False, "", "gh isn't installed here (GitHub CLI)"
-    return r.returncode == 0, r.stdout.strip(), (r.stderr or r.stdout).strip()
+    err = (r.stderr or r.stdout).strip()
+    if r.returncode != 0 and ghbudget.limited(err):
+        ghbudget.refused(args, err)
+    return r.returncode == 0, r.stdout.strip(), err
 
 
 # #1490: what the scheduler asked GitHub with the task list's lock let go (tick.prefetch()), each answer used once by
@@ -418,7 +426,8 @@ CHECKS_PERMISSION = "Checks: read and Commit statuses: read"
 
 
 def denied(err):
-    return any(x in (err or "").lower() for x in DENIED)
+    # a 403 for the request limit is no permission (dmalis/shepherdr#201): it waits for the reset
+    return any(x in (err or "").lower() for x in DENIED) and not ghbudget.limited(err)
 
 
 def pr_view(task):
@@ -696,7 +705,12 @@ def drop_branch(s, task):
 
 
 def merge_method(repo):
-    """The first enabled merge method in the repository's settings."""
+    """The first enabled merge method in the repository's settings. dmalis/shepherdr#201: from GitHub's GraphQL
+    (its own hourly budget, apart from REST's) and kept an hour (ghbatch.merge_method()); REST as before otherwise."""
+    from . import ghbatch
+    flag = ghbatch.merge_method(repo)
+    if flag:
+        return flag
     ok, out, err = gh("api", f"repos/{repo}")
     if not ok:
         raise Fail(f"Couldn't read merge methods for {repo}: {err or 'no answer'}")

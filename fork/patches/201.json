@@ -1,0 +1,17 @@
+{
+  "issue": 201,
+  "name": "tasks stay inside GitHub's API limit with many pull requests",
+  "files": [
+    "mods/tasks/bin/herdr_task/ghbatch.py",
+    "mods/tasks/bin/herdr_task/ghbudget.py",
+    "mods/tasks/bin/herdr_task/github.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "mods/tasks/bin/herdr_task/ghnews.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "docs/agents-and-terms.md"
+  ],
+  "tests": [
+    "test/test_herdr_task.py"
+  ]
+}
