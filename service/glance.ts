@@ -16,6 +16,7 @@ import { ALERT_FRESH_MS, MEMORY_BACK_UNDER, alertStands, needsYou, unreadChats, 
 import { notifyOf, terminalQuestion, watchTitle } from "../web/shared/alerts.ts";
 import { kindWho, taskKind } from "../web/shared/kinds.ts";
 import { taskLine, waitingReport } from "../web/shared/view.ts";
+import { actionUrl } from "../web/shared/action-link.ts";
 
 /** the doc's format: a change the Android app can't read as before bumps it (new fields alone don't) */
 export const GLANCE_FORMAT = 1;
@@ -48,8 +49,11 @@ export type Item = {
   alert?: boolean;
   /** fork Needs you 3/6: a machine's warning (an agent's memory or restart alert): the bell keeps it, it notifies nothing */
   ops?: true;
-  /** where a tap opens, relative to Shepherdr's address (./?place=…&task=…) */
+  /** where a tap opens, relative to Shepherdr's address (./?place=…&task=…). fork Needs you 4/6: an open action's
+   *  opens its exact card (…&focus=<card>&action=<id>), or what came of it once it closed */
   url: string;
+  /** fork Needs you 4/6: the open action it is (a needs or ready item): one per action, the same id its push names */
+  action?: string;
   accept?: { task: string };
   /** other: the card takes free words too (Reply sends them as its "Other" answer) */
   answer?: { chat: string; question: string; choices: Choice[]; other?: boolean };
@@ -191,7 +195,8 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
     const t = w.task ? tasks.get(w.task) : undefined;
     if (w.type === "task" && t) {
       const sent = alerts.get(w.action.id);
-      items.push({ ...taskItem(t, "needs", w.at || undefined), ...textOf(w.action.kind === "wait" ? w.action.what : t.sub ?? t.report?.msg ?? t.summary), alert: !!sent && !sent.muted });
+      items.push({ ...taskItem(t, "needs", w.at || undefined), ...textOf(w.action.kind === "wait" ? w.action.what : t.sub ?? t.report?.msg ?? t.summary), alert: !!sent && !sent.muted,
+        url: sent?.url ?? actionUrl(snap, w.action), action: w.action.id });
       continue;
     }
     const pushed = alerts.get(w.key);
@@ -200,7 +205,7 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
       : { title: `${spaceOf(w.place)?.name ?? "Shepherdr"} · Needs you`, body: w.action.what, tag: w.key, ...(w.place ? { place: w.place, url: urlOf(w.place) } : {}) });
     const it: Item = { key: w.key, kind: "needs", type: w.type, tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY),
       ...(t ? { task: t.id, ...taskRow(t) } : chatRow(w.place)), ...(w.at ? { at: w.at } : {}), alert: !!pushed && !pushed.muted,
-      url: a.url ?? (a.place ?? w.place ? urlOf(a.place ?? w.place) : "./"), ...textOf(w.need ? needText(w.need) : w.alert?.body ?? a.body) };
+      url: pushed?.url ?? actionUrl(snap, w.action), action: w.action.id, ...textOf(w.need ? needText(w.need) : w.alert?.body ?? a.body) };
     if (w.alert?.ops) it.ops = true;
     if (a.accept) it.accept = a.accept;
     if (a.reply) it.reply = a.reply;
@@ -226,7 +231,7 @@ export function glanceOf(snap: any, alerts: Map<string, any>, now = Date.now(), 
     const t = tasks.get(key.slice(6));
     if (!t) continue;
     items.push({ key, kind: "ready", type: "task", tag: a.tag, title: clip(a.title, WATCH_TITLE), body: clip(a.body, WATCH_BODY), task: t.id, ...taskRow(t), ...(t.at ? { at: t.at } : {}), alert: !a.muted,
-      url: a.url ?? urlOf(t.place, t.id), ...(a.accept ? { accept: a.accept } : {}), ...textOf(t.summary ?? a.body), ...trustOf(t, proofIds) });
+      url: a.url ?? urlOf(t.place, t.id), ...(a.action ? { action: a.action } : {}), ...(a.accept ? { accept: a.accept } : {}), ...textOf(t.summary ?? a.body), ...trustOf(t, proofIds) });
   }
   const start = today(now);
   for (const t of snap.tasks ?? []) {
@@ -477,12 +482,13 @@ export class GlanceFeed {
   }
 }
 
-/** POST /api/open's url: one Shepherdr link a tap on an alert opens (./?place=…&task=…&focus=… or ./#accept=<task>) */
+/** POST /api/open's url: one Shepherdr link a tap on an alert opens (./?place=…&task=…&focus=… or ./#accept=<task>;
+ *  fork Needs you 4/6: with the action it names, …&action=<id>) */
 export function openUrlOk(url: unknown): url is string {
   if (typeof url !== "string" || url.length > 600) return false;
   if (/^\.\/#accept=[^\s#?&]+$/.test(url)) return true;
   const m = /^\.\/\?([^#\s]*)$/.exec(url);
   if (!m) return false;
   const q = new URLSearchParams(m[1]);
-  return !!q.get("place") && [...q.keys()].every((k) => k === "place" || k === "task" || k === "focus");
+  return !!q.get("place") && [...q.keys()].every((k) => k === "place" || k === "task" || k === "focus" || k === "action");
 }

@@ -12,6 +12,7 @@ import { fitWho } from "../web/shared/kinds.ts";
 import { excerpt } from "../web/shared/excerpt.ts";
 import { unread } from "../web/shared/needs-you.ts";
 import { attentionOf } from "../web/shared/attention.ts";
+import { actionUrl } from "../web/shared/action-link.ts";
 import { DEFAULT_LEVEL, levelOf, OFF, PUSH_TTL_S, REACH, type Reach } from "../web/shared/reach.ts";
 
 /** a push alert; its buttons (SHEP-243) and what each does: answer a card, accept a task, reply in its chat */
@@ -28,6 +29,9 @@ type Out = {
    *  that never went out goes, one that did stays quiet (sent) */
   stale?: true;
   sent?: true;
+  /** fork Needs you 4/6: the open action it is about (web/shared/attention.ts): its link opens that action's card, and
+   *  a new round of the same thing (a task Ready again) is a new alert */
+  action?: string;
 };
 
 /**
@@ -71,22 +75,26 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
     if (now.has(needKey(n))) continue;
     // fork Needs you 3/6: a muted space's (Notify Off) stays in the bell, quiet
     const quiet = snap.settings && !notifies(snap, { go: { place: n.place }, task: n.task ? true : undefined });
-    now.set(needKey(n), { ...needAlert(snap, n, true), ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
+    // fork Needs you 4/6: its link opens this action's own card (a step for your hands: the hands card)
+    now.set(needKey(n), { ...needAlert(snap, n, true), url: actionUrl(snap, a), action: a.id, ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
   }
   // a wait Shepherdr would handle that is the person's (no Shepherdr running in its space) with no need record of its
   // own (a task stopped by an error): as a Needs you alert of its task. (Other alerts come from need records, as before.)
   for (const a of mine) if (a.kind === "wait" && a.up && !a.need && a.task) {
     const quiet = snap.settings && !notifies(snap, { go: { place: a.place }, task: true });
-    now.set(a.id, { title: T.toastTitle(taskWho(snap, a.task), T.NEEDS_YOU), body: a.what, tag: a.task, topic: "needs", place: a.place, waits: true, url: alertUrl({ place: a.place, task: a.task }),
+    now.set(a.id, { title: T.toastTitle(taskWho(snap, a.task), T.NEEDS_YOU), body: a.what, tag: a.task, topic: "needs", place: a.place, waits: true, url: actionUrl(snap, a), action: a.id,
       ...(a.stale ? held : quiet ? { muted: true as const } : {}) });
   }
   // a task ready for the person's Accept (Ready is only that: one Settings merge by itself shows Working meanwhile,
   // core/tasks.js readyWait), the same Accept as the Tasks panel's: its review action
   const reviews = new Set(mine.filter((a) => a.kind === "review").map((a) => a.task));
+  // fork Needs you 4/6: each review's action, its link and its round (a task Ready again is a new one)
+  const review = new Map(mine.filter((a) => a.kind === "review" && a.task).map((a) => [a.task!, a]));
   const staleReady = new Set(mine.filter((a) => a.kind === "review" && a.stale).map((a) => a.task));
   // (one being accepted keeps its alert, as before: the yes was given, nothing new to send)
   for (const t of snap.tasks ?? []) if (reviews.has(t.id) || (t.status === "ready" && !t.archived && t.accepting))
-    now.set(`ready:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), T.FINISHED), body: t.summary || "Tap to look at it.", tag: t.id, topic: "ready", place: t.place, waits: true, url: alertUrl({ place: t.place, task: t.id }),
+    now.set(`ready:${t.id}`, { title: T.toastTitle(taskWho(snap, t.id), T.FINISHED), body: t.summary || "Tap to look at it.", tag: t.id, topic: "ready", place: t.place, waits: true,
+      ...((r) => (r ? { url: actionUrl(snap, r), action: r.id } : { url: alertUrl({ place: t.place, task: t.id }) }))(review.get(t.id)),
       // the card's own button, saying what it does (web/shared/ready-words.ts, dmalis/shepherdr#29): Close, Merge into main
       actions: [{ ...ACCEPT, title: readyWords(t).go }], accept: { task: t.id }, ...(staleReady.has(t.id) ? held : {}) });
   // a finished task ("Everything" on a device adds these); a schedule's run that found nothing to do sends none
@@ -111,11 +119,14 @@ export function alertsOf(snap: any, said: (chat: string) => string | undefined =
   // fork Needs you 5/6: a hand-up from a machine that can't be read now is quiet (and one kept from its last read stays
   // listed, so it isn't new again once the machine is back)
   const staleAlerts = new Map(mine.filter((a) => a.kind === "alert" && a.stale && a.alert).map((a) => [a.alert!.id, a.alert!]));
+  // fork Needs you 4/6: a hand-up that stands is an action: its link opens its task at its card
+  const handUps = new Map(mine.filter((a) => a.kind === "alert" && a.alert).map((a) => [a.alert!.id, a]));
   // one about a task on a machine still marked out of reach (its terminal heard before the machine list says it is
   // back) waits too: it goes once the machine is read
   const off = new Set((snap.machines ?? []).filter((m: any) => !m.here && m.status === "off").map((m: any) => m.machine));
   const away = (a: any) => { const t = a.task ? tasks.get(a.task) : undefined; return !!t && off.has(t.on); };
   const agentAlert = (a: any) => now.set(`alert:${a.id}`, { title: a.title, body: a.body, tag: `alert:${a.id}`, topic: a.ops ? "ops" : "needs", ...(a.place ? { place: a.place, url: alertUrl({ place: a.place, task: a.task }) } : {}),
+    ...((h) => (h ? { url: actionUrl(snap, h), action: h.id } : {}))(handUps.get(a.id)),
     ...(a.restart ? { actions: [RESTART_ALL], restart: { alert: a.id } } : {}), ...(staleAlerts.has(a.id) || (a.notify && away(a)) ? held : a.notify ? {} : { muted: true as const }) });
   for (const a of snap.alerts ?? []) agentAlert(a);
   for (const a of staleAlerts.values()) if (!now.has(`alert:${a.id}`)) agentAlert(a);
@@ -136,12 +147,14 @@ export const waitingTags = (alerts: Map<string, Out>) => [...new Set([...alerts.
 
 /** Tell devices about new alerts. fork Needs you 3/6: nothing is pushed for one that stopped waiting (no "No longer
  *  waiting"): the next push's open tags, and the app when it opens (/api/waiting), close it on each device. */
-export function pushChanges(before: Map<string, Out>, now: Map<string, Out>, badge: number, open = waitingTags(now)) {
+export function pushChanges(before: Map<string, Pick<Out, "muted" | "stale" | "sent" | "action">>, now: Map<string, Out>, badge: number, open = waitingTags(now)) {
   // fork Needs you 5/6: one kept quiet while its machine couldn't be read goes once that machine is read, unless it
   // went out before (sent: carried from one map to the next while it stays quiet)
-  for (const [k, a] of now) { const was = before.get(k); if (a.stale && was && (was.sent || !was.muted)) a.sent = true; }
-  return [...now].filter(([k, a]) => { const was = before.get(k); return !a.muted && (!was || (!!was.stale && !was.sent)); })
-    .map(([, { stale: _s, sent: _t, ...a }]) => ({ ...a, badge, open }));
+  // fork Needs you 4/6: a key that now names another action (a task Ready again) is a new alert
+  const prior = (k: string, a: Out) => { const was = before.get(k); return was && !(was.action && a.action && was.action !== a.action) ? was : undefined; };
+  for (const [k, a] of now) { const was = prior(k, a); if (a.stale && was && (was.sent || !was.muted)) a.sent = true; }
+  return [...now].filter(([k, a]) => { const was = prior(k, a); return !a.muted && (!was || (!!was.stale && !was.sent)); })
+    .map(([key, { stale: _s, sent: _t, ...a }]) => ({ ...a, key, badge, open }));
 }
 
 /** fork Needs you 3/6: the machine warnings the warnings line shows (can't reach it, memory nearly full), unless the

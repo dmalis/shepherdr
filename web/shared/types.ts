@@ -5,6 +5,9 @@ import type { ChatPatch, SnapPatch } from './patch.ts'
 import type { Stamp } from './build-stamp.ts'
 import type { Attention, TaskAction } from './attention.ts'
 
+/** fork Needs you 4/6: an alert sent (service/alert-ledger.ts): its key, the action it is about, its words and link */
+export type AlertEvent = { key: string; action?: string; at: number; title: string; body: string; topic: string; url?: string; place?: string; task?: string; sticky?: true }
+
 /** Status marks: red needs you, green ready, green turning ring merging, amber working, grey ring idle or to do, grey
  * clock queued, grey check done, dashed ring unreachable. */
 export type Status = 'need' | 'ready' | 'merging' | 'work' | 'idle' | 'queued' | 'scheduled' | 'todo' | 'done' | 'off'
@@ -1705,6 +1708,9 @@ export type ServerEvent =
   | { type: 'voice' }
   /** a tap on the phone app's alert (POST /api/open, SHEP-246): this screen goes where it points, in place */
   | { type: 'go'; url: string }
+  /** fork Needs you 4/6: an alert sent while this screen is on screen: it says it as a notice of the app's own, unless
+   *  its card is already on screen (its device gets no push) */
+  | { type: 'alert'; alert: AlertEvent }
 
 /** how Shepherdr's last update of itself went (update.json in its folder, written by the supervisor) */
 export interface UpdateStatus {

@@ -1,0 +1,27 @@
+{
+  "issue": 147,
+  "name": "Needs you 4: exact links",
+  "files": [
+    "service/alert-ledger.ts",
+    "service/main.ts",
+    "service/push.ts",
+    "service/live.ts",
+    "service/glance.ts",
+    "web/shared/action-link.ts",
+    "web/shared/needs-words.ts",
+    "web/shared/types.ts",
+    "web/src/kernel.ts",
+    "web/public/sw.js",
+    "web/plugins/alerts/client.tsx",
+    "web/plugins/alerts/links.tsx",
+    "web/demo/serve.ts",
+    "docs/glance.md"
+  ],
+  "tests": [
+    "service/alert-ledger.test.ts",
+    "service/push.test.ts",
+    "service/glance.test.ts",
+    "service/inbox.test.ts",
+    "web/plugins/alerts/links.test.tsx"
+  ]
+}

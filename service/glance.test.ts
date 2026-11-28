@@ -50,8 +50,10 @@ test("the Tasks panel's order: needs first, then ready, working, done today; nev
   expect(g.format).toBe(1);
   const need = g.items[0];
   expect(need).toMatchObject({ type: "need", tag: "HERD-5", task: "HERD-5", title: "Watch voice: fix… · Needs you", body: "Rerun CI on main?", space: "Home", machine: "Mac mini", progress: 8, left: "5h", alert: true, at: NOW - 5000 });
-  expect(need.url).toBe("./?place=sp1&task=HERD-5&focus=q1");
-  expect(g.items[1]).toMatchObject({ accept: { task: "HERD-4" }, title: "Fix login · Ready for review", url: "./?place=sp1&task=HERD-4", alert: true });
+  // fork Needs you 4/6: each names its action, and opens its card
+  expect(need.url).toBe("./?place=sp1&task=HERD-5&focus=q1&action=need%3AHERD-5%2Fworker%3Aq1");
+  expect(need.action).toBe("need:HERD-5/worker:q1");
+  expect(g.items[1]).toMatchObject({ accept: { task: "HERD-4" }, title: "Fix login · Ready for review", url: "./?place=sp1&task=HERD-4&focus=review%3AHERD-4&action=review%3AHERD-4%3A0", action: "review:HERD-4:0", alert: true });
   expect(g.items[2]).toMatchObject({ alert: false, title: "Task · Tidy the docs · Working", line: "Designing the per-hop timing logs" });
 });
 
@@ -387,8 +389,30 @@ test("open: only the asking device's page on screen gets go; none yet, its first
   expect(later.sent).toEqual([{ type: "go", url: "./?place=sp1&task=HERD-5&focus=q1" }]);
 });
 
+// fork Needs you 4/6: an alert sent goes to each device one way: its page on screen now says it (one page per device,
+// the one used last), else a push. A page whose link dropped is not on screen: no 15 s grace that swallows it.
+test("alert: each device's page on screen now hears it once; a page off screen or dropped does not", () => {
+  setSystemTime(NOW);
+  const l = new Live({ on() {} } as any, { on() {} } as any, () => null, "0");
+  const old = page(PHONE, NOW - 5000), phone = page(PHONE, NOW), mac = page(MAC, NOW, false), here = page(null as any, NOW);
+  for (const x of [old, phone, mac, here]) (l as any).pages.add(x.ws);
+  const e = { key: "need:HERD-5/worker:q1", action: "need:HERD-5/worker:q1", at: NOW, title: "Fix login · Needs you", body: "Deploy now?", topic: "needs" };
+  l.alert(e);
+  expect(phone.sent).toEqual([{ type: "alert", alert: e }]);
+  expect(old.sent).toEqual([]);
+  expect(mac.sent).toEqual([]);
+  expect(here.sent).toEqual([{ type: "alert", alert: e }]);
+  // on screen: no push to it; its link dropped a moment ago: not on screen any more (the push goes)
+  expect(l.looking(PHONE, false)).toBe(true);
+  (l as any).pages.delete(old.ws);
+  l.leave(phone.ws);
+  expect(l.looking(PHONE, false)).toBe(false);
+  // pin: the old grace stays for whoever still asks for it
+  expect(l.looking(PHONE)).toBe(true);
+});
+
 test("open: only a Shepherdr alert link", () => {
-  for (const ok of ["./?place=sp1", "./?place=sp1&task=HERD-5&focus=q1", "./#accept=HERD-4", "./#accept=m3%3AHERD-4"]) expect(openUrlOk(ok)).toBe(true);
+  for (const ok of ["./?place=sp1", "./?place=sp1&task=HERD-5&focus=q1", "./?place=sp1&task=HERD-5&focus=q1&action=need%3AHERD-5%2Fworker%3Aq1", "./#accept=HERD-4", "./#accept=m3%3AHERD-4"]) expect(openUrlOk(ok)).toBe(true);
   for (const bad of ["https://evil.test/", "/?place=sp1", "./?task=HERD-5", "./?place=sp1&next=https://x", "javascript:alert(1)", "./#accept=", "./#settings", 5, null])
     expect(openUrlOk(bad)).toBe(false);
 });

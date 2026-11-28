@@ -132,9 +132,10 @@ export class Live {
   /** Is the app on screen on tailnet device D now (SHEP-338): a page of it says it is visible, or one that was dropped
    *  while visible less than 15 s ago. That device then shows no system notification: no web push, and its phone app's
    *  own (Shepherdr Wake) hears the new alert as seen (glance.ts). */
-  looking(device: string | null | undefined) {
+  looking(device: string | null | undefined, grace = true) {
     if (!device) return false;
     for (const w of this.pages) if (w.data.from === device && w.data.visible && w.readyState === 1) return true;
+    if (!grace) return false;
     const at = this.lookedAt.get(device);
     return at !== undefined && Date.now() - at < LOOK_GRACE_MS;
   }
@@ -302,6 +303,20 @@ export class Live {
   /** Open an alert's link on device `from` (POST /api/open, SHEP-246): its page on screen used last goes there in place,
    *  as a tap on the alert does, without reloading. None on screen yet: the first that shows up within 15 s does. */
   go(from: string, url: string) { return this.toDevice(from, JSON.stringify({ type: "go", url })); }
+
+  /** fork Needs you 4/6: an alert just sent, to the pages on screen now: one per device (its page used last), each page
+   *  of this machine's own (no device) */
+  alert(event: unknown) {
+    const msg = JSON.stringify({ type: "alert", alert: event });
+    const best = new Map<string, WS>();
+    for (const ws of this.pages) {
+      if (ws.readyState !== 1 || !ws.data.visible) continue;
+      if (!ws.data.from) { ws.send(msg); continue; }
+      const had = best.get(ws.data.from);
+      if (!had || (ws.data.seen ?? 0) > (had.data.seen ?? 0)) best.set(ws.data.from, ws);
+    }
+    for (const ws of best.values()) ws.send(msg);
+  }
 
   /** one message to device `from`'s page on screen it used last, or held for its first page within 15 s */
   private toDevice(from: string, msg: string) {

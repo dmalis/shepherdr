@@ -283,6 +283,9 @@ export interface UI {
   jump: string | null
   /** A link opens its chat again even when that chat is already on screen. */
   chatLink: { place: string; task: string | null; focus: string | null } | null
+  /** fork Needs you 4/6: the open action an alert's link names (its `action`), until the alerts plugin finds it: its
+   *  live card, or what came of it once it closed */
+  action?: string | null
   /** the artifacts grid's search box: null is closed */
   artq: string | null
   /** the warnings line was closed: the ids of the warnings it held ("a|b"), until one that isn't among them shows */
@@ -378,6 +381,7 @@ let state: State = {
     offline: null,
     jump: params.get('focus'),
     chatLink: params.has('focus') ? { place: params.get('place') ?? '', task: params.get('task') ?? params.get('max'), focus: params.get('focus') } : null,
+    action: params.get('action'),
     artq: null,
     banner: null,
     ...stored<Partial<UI>>('shepherdr.ui', {}),
@@ -512,7 +516,7 @@ if (typeof window !== 'undefined') {
     const st = (e as PopStateEvent).state as { shep?: number; step?: Step } | null
     const q = new URLSearchParams(location.search)
     const step: Partial<Step> = st?.shep === 2 && st.step ? st.step : { at: q.get('place') ?? state.ui.at, task: taskOfUrl(q), art: q.get('artifact'), pane: paneOfUrl(q), max: MQ?.matches ? null : q.get('max'), artWide: false, scrFull: false, settings: null, drawer: false, search: false, page: q.get('page') }
-    state ={ ...state, ui: { ...state.ui, ...step, artBack: null, jump: q.get('focus'), chatLink: null } }
+    state ={ ...state, ui: { ...state.ui, ...step, artBack: null, jump: q.get('focus'), chatLink: null, action: null } }
     written = JSON.stringify(stepOf(state.ui))
     stayOnShown()
     watchVisible()
@@ -558,6 +562,7 @@ export function openLink(href: string, step = false) {
       page: q.get('page'),
       jump: focus,
       chatLink,
+      action: q.get('action'),
       ...(chat && state.ui.aterm[chat] ? { aterm: { ...state.ui.aterm, [chat]: false } } : {}),
     })
   } finally {
@@ -672,6 +677,8 @@ export function connect() {
     if (msg.type === 'show') return setUI({ art: msg.artifact, artV: null, artBack: null, pane: 'artifacts', task: null })
     if (msg.type === 'voice') return registry.voiceWake?.()
     if (msg.type === 'go') return openLink(msg.url)
+    // fork Needs you 4/6: an alert sent while this screen is on screen (the alerts plugin says it)
+    if (msg.type === 'alert') return void dispatchEvent(new CustomEvent('shepherdr:alert', { detail: msg.alert }))
     if (msg.type === 'snapshot') {
       // a plugin switched on or off in Settings › Plugins: the page starts again with it in or out (main.tsx)
       const booted = (window as { shepherdrOff?: string[] }).shepherdrOff

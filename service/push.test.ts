@@ -112,8 +112,8 @@ test("a ready task's alert offers Accept, the Tasks panel's Accept", () => {
   const [a] = watch({ places: [], tasks: [{ id: "m3:HERD-4", name: "Fix login", status: "ready", place: "sp1" }], needs: [], settings: [] });
   // one button: Chrome on Android hands every site button over as the last one's action
   expect(a.actions).toEqual([{ action: "accept", title: "Mark as done" }]);
-  // named by its title, never its id; a tap opens the task itself
-  expect(a).toMatchObject({ title: "Fix login · Ready for review", body: "Tap to look at it.", url: "./?place=sp1&task=m3%3AHERD-4" });
+  // named by its title, never its id; a tap opens the task at its review card (fork Needs you 4/6: naming its action)
+  expect(a).toMatchObject({ title: "Fix login · Ready for review", body: "Tap to look at it.", url: "./?place=sp1&task=m3%3AHERD-4&focus=review%3Am3%3AHERD-4&action=review%3Am3%3AHERD-4%3A0", action: "review:m3:HERD-4:0" });
   expect(a.accept).toEqual({ task: "m3:HERD-4" });
   // it goes once the task isn't ready any more (accepted from the app)
   expect(a.waits).toBe(true);
@@ -124,7 +124,7 @@ test("a question's first sendable choice is its button: never a grant for good",
   const [a] = watch({ places: [], tasks: [], settings: [], needs: [{ id: "r1", chat: "HERD-5/worker", place: "sp1", task: "HERD-5", question: perm }] });
   expect(a.actions).toEqual([{ action: "0", title: "Yes" }]);
   expect(a.answer).toEqual({ chat: "HERD-5/worker", question: "r1" });
-  expect(a.url).toBe("./?place=sp1&task=HERD-5&focus=r1");
+  expect(a.url).toBe("./?place=sp1&task=HERD-5&focus=r1&action=need%3AHERD-5%2Fworker%3Ar1");
   const three = { id: "q", kind: "Question", title: "Which?", choices: [{ label: "Red" }, { label: "Green" }, { label: "Blue" }] };
   const [b] = watch({ places: [], tasks: [], settings: [], needs: [{ id: "q", chat: "HERD-5/worker", place: "sp1", task: "HERD-5", question: three }] });
   expect(b.actions).toEqual([{ action: "0", title: "Red" }]);

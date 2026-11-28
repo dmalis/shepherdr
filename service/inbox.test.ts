@@ -20,7 +20,8 @@ test("pin: alertsOf still makes the alerts the list keeps, keyed, with their wor
   const a = alertsOf(snap({ ready: true, need: true }));
   const ready = a.get("ready:HERD-4")!;
   expect(ready).toMatchObject({ title: expect.stringContaining("Fix login"), body: "Login works again", tag: "HERD-4", topic: "ready", place: "sp1", waits: true });
-  expect(ready.url).toBe("./?place=sp1&task=HERD-4");
+  // fork Needs you 4/6: its review card, naming its action
+  expect(ready.url).toBe("./?place=sp1&task=HERD-4&focus=review%3AHERD-4&action=review%3AHERD-4%3A0");
   expect(a.get("need:HERD-5/worker:q1")).toMatchObject({ topic: "needs", tag: "HERD-5", waits: true });
 });
 

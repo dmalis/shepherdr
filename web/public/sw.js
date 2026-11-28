@@ -156,8 +156,13 @@ self.addEventListener('push', (e) => {
       .catch(() => undefined)
       .then(ours)
       .then((list) => {
-        // a test (Settings › Notifications › Send a test) shows though you are looking at the app
-        if (!a.test && list.some((c) => c.visibilityState === 'visible')) return
+        // a test (Settings › Notifications › Send a test) shows though you are looking at the app. fork Needs you 4/6:
+        // the app on screen says the alert itself (a notice, none when its card is on screen), never nothing at all
+        const shown = list.filter((c) => c.visibilityState === 'visible')
+        if (!a.test && shown.length) {
+          if (!a.clear && !a.resolved && a.title) for (const c of shown) c.postMessage({ type: 'alert', alert: { key: a.tag || a.id || '', ...(a.action ? { action: a.action } : {}), at: Date.now(), title: a.title, body: a.body || '', topic: a.topic || '', ...(a.url ? { url: a.url } : {}), ...(a.place ? { place: a.place } : {}) } })
+          return
+        }
         const tag = a.tag || a.id
         // a push must show something: quietly, and gone at once, it leaves only the older alert's going
         if (a.clear) return self.registration.showNotification(a.title, { tag, silent: true }).then(() => self.registration.getNotifications({ tag })).then((shown) => shown.forEach((n) => n.close()))
@@ -170,7 +175,8 @@ self.addEventListener('push', (e) => {
           ...(a.resolved ? { silent: true } : {}),
           icon: 'icon-192.png?v=2',
           badge: 'badge-96.png?v=2',
-          data: { url: a.url || './', waits: !!a.waits, resolved: !!a.resolved, answer: a.answer, accept: a.accept, reply: a.reply, restart: a.restart },
+          // fork Needs you 4/6: the action it is about (its link names it too: a tap opens its card, or what came of it)
+          data: { url: a.url || './', waits: !!a.waits, resolved: !!a.resolved, answer: a.answer, accept: a.accept, reply: a.reply, restart: a.restart, action: a.action },
         }
         const actions = fit(a.actions)
         if (actions.length) options.actions = actions
