@@ -198,9 +198,12 @@ def post_one(key, copy, pub, ctx):
             return "waits"
         dr = {**dr, "body": fpost.fresh(key, dr["body"])}  # a draft from before mark_key: its marker names no machine
         # a yes from the backlog's batch card: never past the privacy check (the batch holds only drafts that pass it;
-        # one that fails now waits for its own card), and paced by GitHub's limits instead of Triage's cap
-        bulk = bool(yes) and dr["target"]["action"] == "create" and tri.yes_for(key, p, pub["repo"], batch=True)
-        if bulk:
+        # one that fails now waits for its own card), and paced by GitHub's limits instead of Triage's cap. A held
+        # draft's own Yes in the backlog's review goes with the batch too, at its pace: its own Yes, so past the check
+        src = tri.yes_from(key, p, pub["repo"]) if yes and dr["target"]["action"] == "create" else None
+        batch = src == "batch"
+        bulk = src in ("batch", "backlog")
+        if batch:
             # the privacy inputs read again for each batch post (a word added to the deny list during the pass counts),
             # used for this check and for the wrapper's own check of the text right before gh
             ctx = tri.ctx_for(pub["folder"], pub["repo"])
@@ -213,7 +216,7 @@ def post_one(key, copy, pub, ctx):
     text = (dr["title"] + "\n" if dr["target"]["action"] == "create" else "") + fpost.shown(dr["body"])
     try:
         res = tgh.call(argv, repo=pub["repo"], text=text, body=dr["body"], write=True,
-                       create=dr["target"]["action"] == "create", yes=yes and not bulk, ctx=ctx,
+                       create=dr["target"]["action"] == "create", yes=yes and not batch, ctx=ctx,
                        still=lambda: tri.publisher() == pub, bulk=bulk)
     except Exception as e:  # noqa: BLE001  (anything else: nobody knows whether it went out)
         res = tgh.Result(False, err=f"{type(e).__name__}: {e}", sent=True, why="failed")

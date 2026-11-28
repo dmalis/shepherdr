@@ -142,7 +142,7 @@ export function keepYes(key: string, rev: number, dir = store(), settings: any =
   const hash = yesHash(dr.target, dr.title, shown(dr.body));
   const old = readJson(join(dir, ".triage-yes.json"));
   if ((Array.isArray(old?.yes) ? old.yes : []).some((y: any) => y?.kind === "draft" && y.key === key && y.rev === rev && y.hash === hash && (y.answer ?? "yes") === "yes")) return true;
-  keepRow(dir, { kind: "draft", repo, key, rev, hash, at, by: "app" }, (y) => y.kind === "draft" && y.key === key);
+  keepRow(dir, { kind: "draft", repo, key, rev, hash, at, by: "app", from: "card" }, (y) => y.kind === "draft" && y.key === key);
   return true;
 }
 
@@ -159,11 +159,26 @@ function said(dir: string, match: (y: any) => boolean): "yes" | "no" | null {
   return y ? ((y.answer ?? "yes") === "no" ? "no" : "yes") : null;
 }
 
+/** how long after a repo's batch Yes its review's held drafts still go with it (herdr-task's triage.BACKLOG_MS) */
+export const BACKLOG_MS = 3_600_000;
+
+/** the batch a held draft's own Yes in the backlog's review belongs to: the batch card the view shows now, or the
+ *  repo's batch Yes within the last hour (the review after its Post all) -> its hash, or null (no batch: everyday) */
+function batchOf(dir: string, repo: string, view: TriageViewOf | null, at: number): string | null {
+  const card = view?.cards.find((c) => c.kind === "batch" && !!c.items?.length && c.repo.toLowerCase() === repo.toLowerCase());
+  if (card) return card.hash;
+  const all = readJson(join(dir, ".triage-yes.json"))?.yes;
+  const was = (Array.isArray(all) ? all : []).filter((y: any) => y && y.kind === "draft" && typeof y.batch === "string" && String(y.repo ?? "").toLowerCase() === repo.toLowerCase()
+    && at - (Number(y.at) || 0) >= 0 && at - (Number(y.at) || 0) <= BACKLOG_MS).pop();
+  return was ? was.batch : null;
+}
+
 /** One card's answer, as the person tapped it on the exact text the card showed (its hash): a held draft (post it, or
  *  keep it private) or an outside issue (start a fix, or not). The text is read again here and hashed as herdr-task
  *  hashes it; a text that changed since keeps nothing (the card asks again). No herdr-task command writes this file.
+ *  view: Triage's view now, for the batch a held draft's Yes in the backlog's review belongs to.
  *  -> {ok: true} or {ok: false, error, changed?} */
-export function answerCard(b: any, dir = store(), settings: any = readSettings(), at = Date.now()): { ok: boolean; error?: string; changed?: boolean } {
+export function answerCard(b: any, dir = store(), settings: any = readSettings(), at = Date.now(), view: TriageViewOf | null = null): { ok: boolean; error?: string; changed?: boolean } {
   const answer = b?.answer === "yes" ? "yes" : b?.answer === "no" ? "no" : null;
   if (!answer || typeof b?.hash !== "string" || !/^[0-9a-f]{64}$/.test(b.hash)) return { ok: false, error: "That card isn't one Shepherdr knows." };
   const repo = destination(settings);
@@ -186,7 +201,11 @@ export function answerCard(b: any, dir = store(), settings: any = readSettings()
     // since, and its own Yes or No takes the batch's place
     const was = said(dir, (y) => y.kind === "draft" && !y.batch && y.key === key && y.rev === dr.rev && y.hash === b.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0));
     if (was) return was === answer ? { ok: true } : { ok: false, error: ANSWERED[was] };
-    keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
+    // where it was given (herdr-task's yes_from): a held draft's own Yes in the backlog's review goes with its batch (the
+    // one on screen, or the Post all just made), at the batch's pace, still only on its own Yes, never the batch's; one
+    // with no batch to belong to, or its card anywhere else, keeps Triage's everyday pace
+    const of = b.from === "backlog" && answer === "yes" && dr.target?.action === "create" ? batchOf(dir, repo, view, at) : null;
+    keepRow(dir, { kind: "draft", repo, key, rev: dr.rev, hash: b.hash, at, by: "app", ...(of ? { from: "backlog", of } : { from: "card" }), ...(answer === "no" ? { answer } : {}) }, (y) => y.kind === "draft" && y.key === key);
     return { ok: true };
   }
   if (b.kind === "start") {
@@ -248,7 +267,7 @@ export function answerBatch(b: any, view: TriageViewOf | null, dir = store(), se
     // answered already for this very text (No on another screen stays No; Yes again changes nothing)
     const was = answers.filter((y) => y.kind === "draft" && y.key === x.key && y.rev === x.rev && y.hash === x.hash && (Number(y.at) || 0) > (Number(p.unyes) || 0)).pop();
     if (was) { if ((was.answer ?? "yes") !== "yes") changed++; continue; }
-    rows.push({ kind: "draft", repo, key: x.key, rev: x.rev, hash: x.hash, at, by: "app", batch: b.hash });
+    rows.push({ kind: "draft", repo, key: x.key, rev: x.rev, hash: x.hash, at, by: "app", from: "batch", batch: b.hash });
   }
   if (rows.length) keepRows(dir, rows, (y, row) => y.kind === "draft" && y.key === row.key);
   return { ok: true, kept: rows.length, changed };

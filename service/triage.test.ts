@@ -40,7 +40,7 @@ test("the app's yes is kept owner-only for the draft's revision and exact text, 
   const dir = store();
   expect(keepYes("a1", 2, dir, SETTINGS, 5)).toBe(true);
   const [y] = yeses(dir);
-  expect(y).toEqual({ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: yesHash({ repo: REPO, action: "create" }, "Reply bubble hides its message", BODY), at: 5, by: "app" });
+  expect(y).toEqual({ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: yesHash({ repo: REPO, action: "create" }, "Reply bubble hides its message", BODY), at: 5, by: "app", from: "card" });
   expect(statSync(join(dir, ".triage-yes.json")).mode & 0o777).toBe(0o600);
   expect(keepYes("a1", 2, dir, SETTINGS, 9)).toBe(true);
   expect(yeses(dir)).toHaveLength(1);
@@ -107,7 +107,7 @@ const HASH = () => yesHash({ repo: REPO, action: "create" }, "Reply bubble hides
 test("a card's Yes or No is kept here only, for the exact text it showed; a changed text keeps nothing and asks again", () => {
   const dir = store();
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 7)).toEqual({ ok: true });
-  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", answer: "no" }]);
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", from: "card", answer: "no" }]);
   expect(statSync(join(dir, ".triage-yes.json")).mode & 0o777).toBe(0o600);
   // the text changed after the card was drawn: the card's hash no longer matches
   const old = store();
@@ -115,6 +115,39 @@ test("a card's Yes or No is kept here only, for the exact text it showed; a chan
   expect(r).toEqual({ ok: false, error: CHANGED, changed: true });
   expect(answerCard({ kind: "draft", key: "a1", rev: 1, hash: HASH(), answer: "yes" }, old, SETTINGS)).toMatchObject({ changed: true });
   expect(() => readFileSync(join(old, ".triage-yes.json"))).toThrow();
+});
+
+test("a held draft's own Yes in the backlog's review names its batch (it posts at the batch's pace); with no batch it doesn't", () => {
+  const B = "b".repeat(64), H = 3_600_000;
+  const view = { destination: REPO, files: REPO, repos: {}, cards: [{ id: "batch", kind: "batch", repo: REPO, title: "", body: "", hash: B, at: 0, items: [{ key: "k1", copy: false, rev: 1, hash: "c".repeat(64), title: "t", body: "b", kind: null, at: 0 }] }] } as any;
+  const yes = (dir: string, b: Record<string, unknown>, at = 7 * H, v: any = null) => answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes", ...b }, dir, SETTINGS, at, v);
+  // the review shows a batch now: the held draft's Yes belongs to it
+  const dir = store();
+  expect(yes(dir, { from: "backlog" }, 7 * H, view)).toEqual({ ok: true });
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7 * H, by: "app", from: "backlog", of: B }]);
+  // after Post all the batch has left the view: the repo's batch Yes in the last hour still holds the review together
+  const after = (ago: number) => {
+    const d = store();
+    writeFileSync(join(d, ".triage-yes.json"), JSON.stringify({ yes: [{ kind: "draft", repo: REPO, key: "k1", rev: 1, hash: "c".repeat(64), at: 7 * H - ago, by: "app", from: "batch", batch: B }] }));
+    expect(yes(d, { from: "backlog" }).ok).toBe(true);
+    return yeses(d).find((y: any) => y.key === "a1");
+  };
+  expect(after(5 * 60_000)).toMatchObject({ from: "backlog", of: B });
+  expect(after(H + 1)).toMatchObject({ from: "card" });          // an hour and more after: everyday again
+  expect(after(H + 1).of).toBeUndefined();
+  // the sheet with no batch at all (4 held drafts in Needs you), its card in Needs you, or anything else: everyday
+  for (const from of ["backlog", undefined, "card", "batch", 1]) {
+    const d = store();
+    expect(yes(d, { from }).ok).toBe(true);
+    expect(yeses(d)[0]).toMatchObject({ from: "card" });
+    expect(yeses(d)[0].batch).toBeUndefined();
+  }
+  expect(yeses((() => { const d = store(); yes(d, { from: "card" }, 7 * H, view); return d; })())[0]).toMatchObject({ from: "card" });
+  // a comment has no pace of its own to take: never marked as the backlog's
+  const T = { repo: REPO, action: "comment", issue: 12 };
+  const c = store({ draft: { target: T } });
+  expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: yesHash(T, "Reply bubble hides its message", BODY), answer: "yes", from: "backlog" }, c, SETTINGS, 7 * H, view).ok).toBe(true);
+  expect(yeses(c)[0]).toMatchObject({ from: "card" });
 });
 
 test("a card's answer is refused when it isn't Triage's to keep", () => {
@@ -198,7 +231,7 @@ test("a card is answered once for its text: the same answer again changes nothin
   // another screen still showed the card: its Yes doesn't overturn the No
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "yes" }, dir, SETTINGS, 8)).toMatchObject({ ok: false, error: expect.stringContaining("already said No") });
   expect(answerCard({ kind: "draft", key: "a1", rev: 2, hash: HASH(), answer: "no" }, dir, SETTINGS, 9)).toEqual({ ok: true });
-  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", answer: "no" }]);
+  expect(yeses(dir)).toEqual([{ kind: "draft", repo: REPO, key: "a1", rev: 2, hash: HASH(), at: 7, by: "app", from: "card", answer: "no" }]);
   // a Not now or Never since (unyes) takes the earlier answer back: the card may be answered again
   const p = JSON.parse(readFileSync(join(dir, ".feedback.json"), "utf8"));
   p.problems.a1.unyes = 10;

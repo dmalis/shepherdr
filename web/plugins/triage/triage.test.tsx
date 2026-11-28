@@ -13,7 +13,7 @@ import { snapshot } from '../../demo/data.ts'
 
 const { getState, setUI } = await import('@client/kernel.ts')
 const { AppliesTo, RepoPicker } = await import('@client/applies-to.tsx')
-const { batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
+const { answerOf, batchShown, postWords, TriageCardView, TriageDraftsCard, TriageDraftsList, TriageSettings, triageCards, whyWords } = await import('./client.tsx')
 
 ;(globalThis as { location?: unknown }).location ??= new URL('http://127.0.0.1/')
 const ui0 = { ...getState().ui }
@@ -265,6 +265,15 @@ test('an open review keeps the list the person read: a change from elsewhere say
   expect(batchShown(read, { ...read }, false)).toEqual({ list: read, stale: false })
   expect(batchShown(read, now, false)).toEqual({ list: read, stale: true })
   expect(batchShown(read, now, true)).toEqual({ list: now, stale: false })
+})
+
+test("a held draft's Yes in the review says it was given there, so it goes with the batch; its own card's doesn't", () => {
+  const snap = withBatch(snapshot('triage') as Snapshot, 4, 2)
+  const held = snap.triage!.cards.find((c) => c.kind === 'draft')!
+  expect(answerOf(held, 'yes', true)).toEqual({ type: 'triage', do: 'answer', answer: 'yes', kind: 'draft', hash: held.hash, key: held.key, copy: !!held.copy, rev: held.rev, from: 'backlog' })
+  expect(answerOf(held, 'yes')).not.toHaveProperty('from')
+  // the review's held cards are the ones that say it; a card in Needs you stays as it was
+  expect(src('./client.tsx')).toContain('node: <TriageCardView c={c} backlog />')
 })
 
 test("the bulk bar names its count: Post all N while all are ticked, Post N once one is unticked", () => {

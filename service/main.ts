@@ -820,7 +820,7 @@ async function doAction(body: any): Promise<Response> {
     try {
       if (body.do === "answer") {
         // the backlog's batch: one Yes for the ticked drafts of the card the view shows now
-        const out = body.kind === "batch" ? answerBatch(body, triageView.last) : answerCard(body);
+        const out = body.kind === "batch" ? answerBatch(body, triageView.last) : answerCard(body, undefined, undefined, undefined, triageView.last);
         await triageView.read();
         if (out.ok && body.answer === "yes" && (body.kind === "draft" || body.kind === "batch")) feedback.yesKept();
         return json(out);

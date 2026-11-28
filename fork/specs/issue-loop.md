@@ -414,8 +414,16 @@ For each repo, in this order:
   - A publisher pass starts nothing new after 150 seconds and says `more` (a GitHub call started then still ends within
     the service's 5-minute limit). The service then runs the next pass a minute later, so a
     batch never outlives the call that runs it.
-  - Everyday posting keeps 10 an hour and 30 a day: a plain yes or a post Triage makes by itself never takes the
-    batch's pace.
+  - A held draft's own Yes in the same review goes with the batch: the person meant the whole backlog to go now. Each
+    answer row names where it was given (`from`: `batch`, `backlog` for a held draft's own Yes in the review, `card` for
+    its card in Needs you or the Feedback page's Post it). The service writes `backlog` only when the Yes belongs to a
+    batch, and names it (`of`): the batch the review shows, or the repo's batch Yes within the last hour (the review after
+    its Post all). A review with no batch (only held drafts) is everyday. A `backlog` one posts at the batch's pace,
+    through the same gate and receipts. It still posts only on its own Yes for its exact text, never on the batch's; as
+    any own Yes, it goes past the privacy check the person read on its card. A yes kept before rows named where counts
+    as the backlog's only when given within that hour after the repo's batch Yes.
+  - Everyday posting keeps 10 an hour and 30 a day: a yes on a card in Needs you, the Feedback page's Post it, or a post
+    Triage makes by itself never takes the batch's pace.
 
   Filed, joined, dropped and kept private add up to the snapshot, per machine. `unsure` rows stay recoverable from the
   backup and that list.

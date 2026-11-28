@@ -895,7 +895,7 @@ class YesCards(Triaged):
         """the service's row for a card's answer (service/triage.ts answerCard), on the draft's text now"""
         dr = fb.problems_read()[key]["draft"]
         h = tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))
-        row = {"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app"}
+        row = {"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app", "from": "card"}
         with open(tri.YES, "w") as f:
             json.dump({"yes": [{**row, "answer": answer} if answer == "no" else row]}, f)
 
@@ -995,13 +995,87 @@ class BatchYes(Triaged):
 
     def batch_yes(self, keys, batch="b" * 64):
         """the service's rows for one batch Yes (service/triage.ts answerBatch), on each draft's text now"""
+        self.yes_rows(keys, {"from": "batch", "batch": batch})
+
+    def yes_rows(self, keys, mark):
+        """the service's yes rows, one per draft on its text now, each with `mark` (where it was given)"""
         rows = []
         for key in keys:
             dr = fb.problems_read()[key]["draft"]
             h = tri.yes_hash(dr["target"], dr["title"], tpub.fpost.shown(dr["body"]))
-            rows.append({"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app", "batch": batch})
+            rows.append({"kind": "draft", "repo": REPO, "key": key, "rev": dr["rev"], "hash": h, "at": 1, "by": "app", **mark})
         with open(tri.YES, "w") as f:
             json.dump({"yes": rows}, f)
+
+    def test_a_held_drafts_own_yes_in_the_backlog_review_posts_at_the_batchs_pace(self):
+        # the person posted the batch, then answered the held drafts one by one in the same review: they go now too,
+        # two seconds apart, once each, with their receipts, not 10 an hour
+        keys = self.hold(12)
+        self.yes_rows(keys, {"from": "backlog"})
+        out = tpub.publish()
+        self.assertEqual((out["posted"], len(self.hub.creates())), (12, 12), out)
+        self.assertNotIn("why", out)
+        self.assertEqual(len(self.slept), 11)
+        self.assertTrue(all(0 < ms <= tgh.APART_MS for ms in self.slept))
+        self.assertEqual(len(self.record()["repos"][REPO]["receipts"]), 12)
+        self.assertEqual(tpub.publish()["posted"], 0)
+        self.assertEqual(len(self.hub.creates()), 12)
+        self.assertEqual(len(self.gh_state()["bulk"][REPO.lower()]), 12)  # counted in the batch's ceiling
+
+    def test_an_everyday_single_yes_keeps_triages_cap(self):
+        keys = self.hold(12)
+        self.yes_rows(keys, {"from": "card"})  # each on its own card in Needs you, or the Feedback page's Post it
+        out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 10, out)
+        self.assertIn("Triage's pace", out["why"])
+
+    def test_a_privacy_held_draft_posts_only_on_its_own_backlog_yes(self):
+        # the batch's yes never takes it past the privacy check; the person's own Yes on its exact text does, at the
+        # batch's pace when given in the review
+        (key,) = self.hold(1, details="Jane saw it at 192.168.1.20.")
+        self.batch_yes([key])
+        self.assertEqual((tpub.publish()["posted"], self.hub.writes()), (0, []))
+        self.yes_rows([key], {"from": "backlog"})
+        self.assertEqual(tpub.publish()["posted"], 1)
+        self.assertEqual(len(self.gh_state()["bulk"][REPO.lower()]), 1)
+
+    def legacy(self, after_batch_ms):
+        """a batch Yes for one draft at T0, then 12 single Yeses kept before rows said where (no `from`)"""
+        T0 = 10 * tri.BACKLOG_MS
+        first, *keys = self.hold(13)
+        self.yes_rows(keys, {})
+        with open(tri.YES) as f:
+            rows = [{**y, "at": T0 + after_batch_ms} for y in json.load(f)["yes"]]
+        self.batch_yes([first])
+        with open(tri.YES) as f:
+            batch = [{**y, "at": T0} for y in json.load(f)["yes"]]
+        with open(tri.YES, "w") as f:
+            json.dump({"yes": batch + rows}, f)
+
+    def test_an_older_yes_given_in_the_hour_after_post_all_goes_with_the_batch(self):
+        self.legacy(5 * 60_000)  # answered one by one in the review, minutes after Post all
+        self.assertEqual(tpub.publish()["posted"], 13)
+
+    def test_an_older_yes_before_the_batch_keeps_triages_cap(self):
+        self.legacy(-60_000)  # before the batch's Yes: a card in Needs you, or the Feedback page
+        out = tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 11, out)  # the batch's one, and Triage's 10 an hour
+        self.assertIn("Triage's pace", out["why"])
+
+    def test_an_older_yes_long_after_the_batch_keeps_triages_cap(self):
+        self.legacy(tri.BACKLOG_MS + 1)
+        tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 11)
+
+    def test_a_yes_with_no_from_and_no_batch_at_all_keeps_triages_cap(self):
+        keys = self.hold(12)
+        self.yes_rows(keys, {})  # an older everyday yes (the Feedback page's Post it)
+        tpub.publish()
+        self.assertEqual(len(self.hub.creates()), 10)
+
+    def gh_state(self):
+        with open(tgh.STATE) as f:
+            return json.load(f)
 
     def test_the_waiting_rows_say_which_may_go_in_the_batch(self):
         (ok,) = self.hold(1)
@@ -1033,7 +1107,7 @@ class BatchYes(Triaged):
         with open(tri.YES) as f:
             rows = json.load(f)["yes"]
         with open(tri.YES, "w") as f:
-            json.dump({"yes": [{k: v for k, v in y.items() if k != "batch"} for y in rows]}, f)
+            json.dump({"yes": [{**{k: v for k, v in y.items() if k != "batch"}, "from": "card"} for y in rows]}, f)
         tpub.publish()
         self.assertEqual(len(self.hub.creates()), 10)
 

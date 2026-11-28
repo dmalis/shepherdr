@@ -8,7 +8,8 @@
   limit waits for its reset; a secondary one waits `retry-after`, else one minute, doubling up to 30 minutes
   (Triage's own wait, `.triage-gh.json`). While it waits, nothing is sent.
 - **The pace:** writes go one at a time (a lock), two seconds apart; at most 10 new issues an hour and 30 a day per repo.
-  A create over the cap isn't sent, and says so. A create the person said yes to in the backlog's batch (`bulk`) skips
+  A create over the cap isn't sent, and says so. A create the person said yes to in the backlog's review (`bulk`: its
+  batch, or a held draft's own Yes there) skips
   that cap and keeps inside GitHub's documented secondary limits for content-creating requests instead ("no more than
   80 content-generating requests per minute and no more than 500 content-generating requests per hour", and "wait at
   least one second between each request": docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api and
