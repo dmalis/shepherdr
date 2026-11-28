@@ -86,3 +86,45 @@ test("the stored record reaches the task through the model, and only while it is
   expect(out.tasks[0].wait).toEqual({ id: wait.id, gen: 4, kind: "stopped", first: NOW - 3 * min, deadline: NOW + 2 * min });
   expect(out.tasks[1].wait).toBeUndefined();
 });
+
+test("a wait seen before its record lands stays quiet, then alerts once under the id that lasts", () => {
+  const memo = new Map();
+  // the service reads it live a moment before herdr-task's tick writes its record
+  const early = attend(structuredClone(snapOf(null, { tasks: [task("vm:SHOP-3", "p:vm:shop", { on: "vm", waitPending: true })] })), NOW, memo);
+  expect(yours(early)).toEqual([]);
+  expect(early.tasks[0].action).toMatchObject({ owner: "shepherdr", kind: "wait" });
+  const p1 = alertsOf(early);
+  const landed = attend(structuredClone(snapOf(rec("w1", 1, NOW))), NOW + 15_000, memo);
+  const p2 = alertsOf(landed);
+  expect(yours(landed).map((a) => a.id)).toEqual(["wait:w1"]);
+  expect(pushChanges(p1, p2, 1).length).toBe(1);
+  expect(pushChanges(p2, alertsOf(attend(structuredClone(snapOf(rec("w1", 1, NOW))), NOW + 30_000, memo)), 1)).toEqual([]);
+});
+
+test("waitOf: the open record, else pending from a source that keeps them, else nothing", () => {
+  const { waitOf } = require("./wait-record.ts");
+  const w = { id: "ab", gen: 1, kind: "reply", first: 5, deadline: 10 };
+  expect(waitOf({ wait: w, keeps_waits: true }, "reply", true)).toEqual({ wait: w });
+  expect(waitOf({ wait: null, keeps_waits: true }, "reply", true)).toEqual({ waitPending: true });
+  expect(waitOf({ wait: w, keeps_waits: true }, "attention", true)).toEqual({ waitPending: true });
+  expect(waitOf({ wait: null, keeps_waits: true }, "asks", true)).toEqual({});
+  expect(waitOf({ wait: null, keeps_waits: false }, "reply", true)).toEqual({});
+  expect(waitOf({ wait: w, keeps_waits: true }, "reply", false)).toEqual({});
+});
+
+test("a machine back on the list reads as connecting until its task list is read", async () => {
+  const { Model } = await import("./model.ts");
+  const m = new Model({ terminals: new Map(), on: () => () => {} } as any, { put: () => {} } as any) as any;
+  m.lists = new Map([[null, []]]);
+  m.value = () => undefined;
+  let known: any[] = [];
+  m.onBuild = (b: any) => { known = b.known; };
+  const build = () => { try { m.build(); } catch { /* the spaces half needs more of the service */ } if (m.settleTimer) clearTimeout(m.settleTimer); };
+  m.machines = ["vm"]; m.known = [{ name: "vm", state: "connected" }];
+  m.unread = new Set(["vm"]);
+  build();
+  expect(known).toEqual([{ name: "vm", state: "connecting" }]);
+  m.unread.clear();
+  build();
+  expect(known).toEqual([{ name: "vm", state: "connected" }]);
+});

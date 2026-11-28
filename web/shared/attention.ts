@@ -233,7 +233,9 @@ export function projectAttention(snap: AttentionSnap, now = Date.now()): Attenti
     const since = rec?.first ?? t.needsAt ?? n?.at ?? t.at ?? 0
     const stale = staleOf(snap, t.on)
     const shepherds = !!n || !!t.stopped
-    const up = shepherds && !stale && noShepherdr(snap, t.place)
+    // its source keeps records and this one's hasn't landed yet (at most a tick): quiet until it has, so the person
+    // is told once, under the id that lasts
+    const up = shepherds && !stale && !(!rec && t.waitPending) && noShepherdr(snap, t.place)
     add({ id: rec ? `wait:${rec.id}` : `wait:${t.id}:${since}`, owner: !shepherds || up ? 'you' : 'shepherdr', kind: 'wait', what: waitWhat(t, n), since, place: t.place, task: t.id, chat: t.agent?.chat ?? `${t.id}/worker`,
       card: t.stopped ? `stopped:${t.id}` : null, ...(n ? { need: n } : {}), ...(rec ? { gen: rec.gen, deadline: rec.deadline } : {}), ...(up ? { up: 'no-shepherdr' as const } : {}), ...(stale ? { stale } : {}) })
   }

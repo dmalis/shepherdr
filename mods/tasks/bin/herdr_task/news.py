@@ -106,7 +106,7 @@ def news_line(s, t, v, event, words=None):
     kind = f' needs="{attr(v["needs"])}"' if event in ("waiting", "needs-you", "failed") and v.get("needs") else ""
     # dmalis/shepherdr "Needs you 6a": the wait it is about, by the id Herdr keeps for it (wait_record.py)
     w = wait_record.open_wait(t) if event in ("waiting", "failed") else None
-    kind += f' wait="{attr(w["id"])}"' if w else ""
+    kind += f' wait="{attr(w["id"])}"' if w and w.get("kind") == v.get("needs") else ""
     # dmalis/shepherdr#119: an urgent task's line says so on its tag (read again when it goes: urgent.first)
     return f'<herdr-news task="{attr(ref)}" event="{event}"{kind}{urgent.attr(t)}>{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 
@@ -163,8 +163,9 @@ def news_pass(report, folder=None):
     tilde, every = tilde_of(here), everything_of(here)
     told_in = lambda sp: every if tilde and every and sp == tilde else sp
     current = {}  # key -> (status, stall mark, open wait), to check queued lines against
-    # herdr-core answered: only a fresh read closes or replaces a wait (wait_record.track)
-    read_ok = hc_json("ls") is not None
+    # dmalis/shepherdr "Needs you 6a": tasks herdr-core couldn't be asked about this pass. Unknown is no news: their
+    # wait records, fields and queued lines stay as they were, and their lines wait for a pass that reads them.
+    unknown = set()
     marks = {}  # dmalis/shepherdr#119: key -> urgent now, for every list this pass reads
     for path in store_files(folder):
         d = read_list(path)
@@ -178,8 +179,15 @@ def news_pass(report, folder=None):
             # The first look at a list only notes how its tasks are: old news isn't news.
             first = "_init" not in mine
             mine["_init"] = True
+            # the service reads this list's waits by their records (service/wait-record.ts): it keeps them
+            if s.write and s.data.get("wait_records") != 1:
+                s.data["wait_records"] = 1
+                s.dirty = True
             for t in s.data["tasks"]:
                 key = f"{s.slug}#{t['id']}"
+                if t["state"] in ("running", "ready") and hc_json("ls", "--label", f"herdr.task={s.key(t)}") is None:
+                    unknown.add(key)
+                    continue
                 live = [k for k in map(detail, live_agents(s.key(t))) if agent_running(k)] if t["state"] in ("running", "ready") else []
                 v, event, stall = news_state(s, t, live)
                 # dmalis/shepherdr "Needs you 6a": its inferred wait kept here, with its id, generation, first and deadline
@@ -187,7 +195,7 @@ def news_pass(report, folder=None):
                 waited = (wait_record.open_wait(t) or {}).get("id")
                 if s.write:
                     changed, _ = wait_record.track(t, v, live, settings=lambda: settings_for(s, t.get("space")),
-                                                   read_ok=read_ok, began=lambda: turn_began(t))
+                                                   began=lambda: turn_began(t))
                     s.dirty = s.dirty or changed
                 wait = (wait_record.open_wait(t) or {}).get("id")
                 regen = bool(waited and wait and waited != wait)
@@ -295,7 +303,7 @@ def news_pass(report, folder=None):
     # Still true? A line whose task moved on since (or was removed) goes unsaid.
     def holds(x):
         c = current.get(x["key"])
-        if (folder and c is None) or x["event"] in APART:
+        if (folder and c is None) or x["event"] in APART or x["key"] in unknown:
             return True  # another folder's task: not looked at this time; a failed command's line is news either way
         # dmalis/shepherdr "Needs you 6a": a line about a wait a newer one replaced, or one that closed, goes unsaid
         if c and x.get("wait") and c.get("wait") != x["wait"]:
@@ -303,7 +311,9 @@ def news_pass(report, folder=None):
         return bool(c) and (c["stall"] == x["stall"] if x["event"] == "stalled" else c["status"] == x["status"])
     outbox[:] = [x for x in outbox if holds(x) and now() - x["at"] < NEWS_KEEP_MS]
     for space in dict.fromkeys(x["space"] for x in outbox):
-        batch = [x for x in outbox if x["space"] == space]
+        batch = [x for x in outbox if x["space"] == space and x["key"] not in unknown]
+        if not batch:
+            continue
         if now() - min(x["at"] for x in batch) < NEWS_SETTLE_MS:
             continue
         to = coordinator_in(space)

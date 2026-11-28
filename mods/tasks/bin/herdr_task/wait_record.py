@@ -27,8 +27,12 @@ import secrets
 from .base import now
 
 ASK_AFTER_MIN = 5          # "Ask me after"'s default (part 6b adds its row in Settings)
-REOPEN_MS = 60_000         # closed this recently and back with the same mark: the same wait (a status flicker)
+REOPEN_MS = 60_000         # closed this recently and back with the same mark: the same wait (a status flicker), even
+                           # past its deadline
 KINDS = ("reply", "attention", "stopped")
+# a reply wait's words that say nothing of which question it is (agents.py REASONS["reply"], OUT_OF_ROUNDS, and news'
+# plain form)
+STOCK = ("Waits for your reply", "Waits for a reply", "Out of review rounds")
 
 
 def ask_after_ms(settings):
@@ -52,15 +56,19 @@ def inferred(v):
 
 
 def mark_of(t, v, live, kind, began=lambda: None):
-    """What makes this wait this one question, from the task's own facts. reply: when someone last wrote to its agent
-    (its log, so a herdr-core restart keeps it), else its agent's terminal and turn; attention: when Herdr found the
-    problem; stopped: when it stopped, else when its last agent started. began(): when someone last wrote to its agent (read only for a
-    reply)."""
+    """What makes this wait this one question, from the task's own facts. reply: its question or its agent's own words
+    for why it waits, so the same question asked again after a reply from Shepherdr is the same wait (a reply never
+    moves its deadline); with only the stock words, when someone last wrote to its agent (its log, so a herdr-core
+    restart keeps it), else its agent's terminal and turn. attention: when Herdr found the problem. stopped: when it
+    stopped, else when its last agent started. began(): when someone last wrote to its agent (read only when needed)."""
     if kind == "attention":
         return f"attention:{t.get('attention_at') or 0}"
     if kind == "stopped":
         last = (t.get("agents") or [{}])[-1] or {}
         return f"stopped:{t.get('stopped_at') or last.get('at') or 0}"
+    why = " ".join(str(v.get("why") or "").split())
+    if why and why not in STOCK:
+        return f"words:{why.lower()}"
     when = began()
     if t.get("review_out"):
         return f"rounds:{when or ''}"
@@ -69,7 +77,7 @@ def mark_of(t, v, live, kind, began=lambda: None):
     k = next((k for k in live if (k.get("labels") or {}).get("herdr.role") != "reviewer"), None)
     if k:
         return f"reply:{k.get('address')}:{k.get('turn') or 0}"
-    return f"reply:{v.get('why') or ''}"
+    return "reply:"
 
 
 def open_wait(t):
@@ -105,8 +113,10 @@ def track(t, v, live, settings=lambda: None, read_ok=True, began=lambda: None):
                 w["why"] = why  # the same question, its words read better now
                 return True, None
             return False, None
-        if out.get("how") in ("moved-on", "person") and at - (out.get("at") or 0) < REOPEN_MS:
-            w.pop("outcome")  # back within a moment, the same question: the same wait, its first and deadline kept
+        if out.get("how") in ("moved-on", "person") and (at - (out.get("at") or 0) < REOPEN_MS or at < (w.get("deadline") or 0)):
+            # back with the same question, within a moment or before its deadline (a reply from Shepherdr that didn't
+            # settle it): the same wait, its first and deadline kept
+            w.pop("outcome")
             return True, None
     superseded = open_wait(t)["id"] if open_wait(t) else None
     gen = (int(w.get("gen") or 0) if w else 0) + 1

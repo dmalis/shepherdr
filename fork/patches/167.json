@@ -4,6 +4,7 @@
   "files": [
     "mods/tasks/bin/herdr_task/wait_record.py",
     "mods/tasks/bin/herdr_task/news.py",
+    "mods/tasks/bin/herdr_task/home.py",
     "service/wait-record.ts",
     "service/model.ts",
     "service/next.ts",

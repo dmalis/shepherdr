@@ -121,10 +121,68 @@ class WaitLifecycle(unittest.TestCase):
         back = self.run_pass(reply, began=1000)
         self.assertEqual((back["id"], back["first"], back.get("outcome")), (w["id"], w["first"], None))
 
+    def test_the_same_question_after_a_reply_keeps_its_wait_and_deadline(self):
+        self.start()
+        reply = {"status": "needs", "needs": "reply", "why": "Which colour?"}
+        w = dict(self.run_pass(reply, began=1000))
+        self.assertTrue(self.store.data.get("wait_records"), "the list says it keeps wait records")
+        # Shepherdr wrote to it ("noted") and it asked the same again: a reply never moves the deadline
+        again = self.run_pass(reply, began=2000)
+        self.assertEqual((again["id"], again["first"], again["deadline"]), (w["id"], w["first"], w["deadline"]))
+        # it went to work on that reply a while, then asked the same again before its deadline: still the same wait
+        self.run_pass({"status": "working", "needs": None, "why": None}, began=2000)
+        later = self.news.now() + 3 * 60000
+        with self.mock.patch.object(self.news.wait_record, "now", lambda: later):
+            back = self.run_pass(reply, began=3000)
+        self.assertEqual((back["id"], back["deadline"], back.get("outcome")), (w["id"], w["deadline"], None))
+        # only the stock words: which turn it is says which question
+        stock = {"status": "needs", "needs": "reply", "why": "Waits for your reply"}
+        s1 = dict(self.run_pass(stock, began=4000))
+        self.assertNotEqual(s1["id"], w["id"])
+        self.assertNotEqual(self.run_pass(stock, began=5000)["id"], s1["id"])
+
+    def test_a_failed_lookup_holds_its_news_as_it_was(self):
+        self.start()
+        reply = {"status": "needs", "needs": "reply", "why": "Which colour?"}
+        with self.mock.patch.object(self.news, "NEWS_SETTLE_MS", 10 ** 9):
+            w = dict(self.run_pass(reply, began=1000))
+        with open(self.news.NEWS) as f:
+            queued = json.load(f)["outbox"]
+        self.sent.clear()
+        # herdr-core can't say what its agents do: no false stop, the queued line kept and not sent yet
+        self.assertEqual(self.run_pass({"status": "needs", "needs": "stopped", "why": "Agent stopped"}, hc_up=False), w)
+        with open(self.news.NEWS) as f:
+            self.assertEqual(json.load(f)["outbox"], queued)
+        self.assertEqual(self.sent, [])
+        # read again: the line goes, about the wait it was about
+        self.run_pass(reply, began=1000)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn(f'event="waiting" needs="reply" wait="{w["id"]}"', self.sent[0][1])
+
     def test_the_person_s_prompt_is_no_inferred_wait(self):
         self.start()
         self.assertIsNone(self.run_pass({"status": "needs", "needs": "asks", "why": "Asks permission"}))
         self.assertIsNone(self.run_pass({"status": "needs", "needs": "stopped", "why": "Stopped by you.", "stopped_by": "you"}))
+
+
+class OverviewWaits(unittest.TestCase):
+    """The home Assistant's overview: a queued line about a wait a newer line on the same task replaced never goes."""
+    setUp, round, overview = H.HomeLead.setUp, H.HomeLead.round, H.HomeLead.overview
+    CFG = H.HomeLead.CFG
+
+    def test_a_replaced_wait_never_reaches_the_overview(self):
+        world, t = {"mini": dict(H.home_world()["mini"], links=[], linked_by=0)}, 10 ** 12
+        # "Which colour?" waits in the overview queue (its Assistant was busy), then "Which size?" replaces it
+        path = os.path.join(self.store, ".home-mini.json")
+        with open(path, "w") as f:
+            json.dump({"at": 0, "outbox": [{"to": "home:local", "line": '<herdr-overview task="SHOP-7" event="waiting" wait="w1">~/shop: Which colour?</herdr-overview>',
+                                            "at": t - 60000, "wait": "w1", "of": ["", "SHOP-7"]}]}, f)
+        world["mini"]["news"] = [{"to": "t9", "space": "sp-shop", "folder": "~/shop", "lines": [
+            '<herdr-news task="SHOP-7" event="waiting" needs="reply" wait="w2">SHOP-7 is waiting: Which size?</herdr-news>']}]
+        sent = self.round(world, "mini", at=t)
+        lines = [l for _, l in self.overview(sent)]
+        self.assertEqual([l.split(">", 1)[1].split("<")[0] for l in lines], ["~/shop: SHOP-7 is waiting: Which size?"])
+        self.assertIn('wait="w2"', lines[0])
 
 
 class AskAfter(unittest.TestCase):
