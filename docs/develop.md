@@ -48,7 +48,8 @@ copies.
   run starts. Then a `shep-*` folder the run left in the shared temp folder fails the run, by name: make it under
   `tmpdir()`, or remove it when the test ends. With another run beside it (another checkout's tests), it only warns,
   since whose it is can't be told. A program started without the test's environment (`Bun.spawn` with no `env`) still
-  uses the shared one.
+  uses the shared one. In a task, the shared temp folder is the task's own, under `~/.cache/shepherdr/tmp`:
+  `home_guard.py` lets a test open that folder and the run's own, and still fails every other real-home path.
 
 ## Checks
 

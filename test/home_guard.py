@@ -55,7 +55,23 @@ def touches(path):
     path = os.fsdecode(path)
     if not os.path.isabs(path):
         path = os.path.join(os.getcwd(), path)
-    return _inside(path, REAL_DIRS) and not _inside(path, [os.path.realpath(ROOT)])
+    return _inside(path, REAL_DIRS) and not _inside(path, [os.path.realpath(ROOT)] + OWN)
+
+
+# The run's own temp folders, the only other real-home paths a test may open. A task's TMPDIR is its own folder under
+# ~/.cache/shepherdr/tmp (#216), so a run in a task makes its shep-run-* folder inside a guarded folder. Kept here:
+# the temp folder the run started from, only when it lies deeper than a guarded folder (never a whole one, never the
+# home), and the shep-run-* folder the run made, named in RUN_VAR for the programs it starts.
+OWN = []
+
+
+def own(shared=None, run=None):
+    if shared:
+        p = os.path.realpath(shared)
+        if any(p.startswith(d + os.sep) for d in REAL_DIRS):
+            OWN.append(p)
+    if run and os.path.basename(os.path.normpath(run)).startswith(RUN_PREFIX):
+        OWN.append(os.path.realpath(run))
 
 
 # The person's installed commands (herdr-task's zipapp and the links beside it): a test may read them, never write
@@ -161,10 +177,12 @@ def start_run(own_home=True):
     """Makes this run's folder (TMPDIR inside it, and HOME when own_home) and removes it when the run ends."""
     shared = tempfile.gettempdir()
     me = os.getpid()
+    own(shared=shared)
     clean_stale_runs(shared, me)
     before = shep_entries(shared)
     shared_with = bool(other_runs(shared, me))
     run = tempfile.mkdtemp(prefix=f"{RUN_PREFIX}{me}-")
+    own(run=run)
     home, tmp = os.path.join(run, "home"), os.path.join(run, "tmp")
     os.mkdir(home, 0o700)
     os.mkdir(tmp, 0o700)
@@ -233,6 +251,8 @@ if not os.environ.get(RUN_VAR):
     # one, in one folder of its own, removed when the run ends, so the many folders its tests make never pile up in
     # the shared temp folder (they once filled a tmpfs's inodes). The programs a test starts inherit both.
     start_run(own_home=os.path.realpath(os.environ.get("HOME") or REAL) == REAL)
+else:
+    own(run=os.environ[RUN_VAR])
 # git commits in throwaway repos need a name; the real ~/.gitconfig is out of reach now
 for k, v in (("GIT_AUTHOR_NAME", "Test"), ("GIT_AUTHOR_EMAIL", "test@example.invalid"),
              ("GIT_COMMITTER_NAME", "Test"), ("GIT_COMMITTER_EMAIL", "test@example.invalid")):

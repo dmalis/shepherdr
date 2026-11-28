@@ -430,5 +430,78 @@ class TestRunTemp(unittest.TestCase):
         self.assertIn(f"process.env.{home_guard.RUN_VAR} = run;", src)
 
 
+class RunInATasksTemp(unittest.TestCase):
+    """A run started in a task, whose TMPDIR is its own folder under ~/.cache/shepherdr/tmp, a folder the guard
+    keeps tests out of: the run may open its own temp folders and nothing else there. The guard's idea of the real
+    home is a fake one here, and every open goes through its real audit hook."""
+
+    def setUp(self):
+        self.home = os.path.realpath(tempfile.mkdtemp(prefix="tasktmp-realhome-"))
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.shared = os.path.join(self.home, ".cache", "shepherdr", "tmp", "sd-1-abcd")
+        os.makedirs(self.shared)
+        fake = [os.path.join(self.home, os.path.relpath(d, home_guard.REAL)) for d in home_guard.REAL_DIRS]
+        for p in (mock.patch.dict(os.environ), mock.patch.object(tempfile, "tempdir", self.shared),
+                  mock.patch.object(home_guard, "REAL_DIRS", fake),
+                  mock.patch.object(home_guard, "OWN", [])):  # the real run's own lie around this fake home
+            p.start()
+            self.addCleanup(p.stop)
+        reg = mock.patch.object(home_guard.atexit, "register")
+        self.register = reg.start()
+        self.addCleanup(reg.stop)
+
+    def write(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("x")
+
+    def assertRefused(self, path):
+        with self.assertRaises(home_guard.RealHome):
+            self.write(path)
+
+    def test_the_run_opens_its_own_folders_and_ends_clean(self):
+        run = home_guard.start_run()
+        self.assertEqual(os.path.dirname(run), self.shared)
+        self.write(os.path.join(run, "tmp", "shep-asks-x", "a.json"))
+        self.write(os.path.join(tempfile.mkdtemp(prefix="shep-diff-"), "b"))
+        self.write(os.path.join(run, "home", ".config", "shepherdr", "settings.json"))  # its throwaway HOME
+        self.write(os.path.join(self.shared, "beside"))  # the temp folder it started from
+        fn, *args = self.register.call_args[0]
+        exit = mock.Mock()
+        fn(*args, exit=exit, **self.register.call_args[1])  # its end removes its folder through the guard
+        self.assertEqual(exit.call_args_list, [])
+        self.assertFalse(os.path.exists(run))
+
+    def test_every_other_real_home_path_still_fails(self):
+        run = home_guard.start_run()
+        for p in (".config/shepherdr/settings.json", ".cache/shepherdr/tmp/sd-2-efgh/x", ".cache/shepherdr/x",
+                  ".local/share/herdr/ask/ask-hook.sh", ".claude/settings.json"):
+            with self.subTest(p=p):
+                self.assertRefused(os.path.join(self.home, p))
+        link = os.path.join(run, "tmp", "settings")
+        os.makedirs(os.path.join(self.home, ".config", "shepherdr"), exist_ok=True)
+        os.symlink(os.path.join(self.home, ".config", "shepherdr"), link)
+        self.assertRefused(os.path.join(link, "settings.json"))  # a link out of the run's folder leads where it lands
+
+    def test_a_whole_guarded_folder_as_tmpdir_stays_guarded(self):
+        tempfile.tempdir = shared = os.path.join(self.home, ".cache", "shepherdr")
+        run = home_guard.start_run()
+        self.write(os.path.join(run, "tmp", "a"))
+        self.assertRefused(os.path.join(shared, "other", "x"))
+
+    def test_only_a_folder_deeper_than_a_guarded_one_or_a_runs_own_counts(self):
+        for shared in (self.home, os.path.join(self.home, ".cache"), os.path.join(self.home, ".config", "shepherdr")):
+            home_guard.own(shared=shared)
+        home_guard.own(run=os.path.join(self.home, ".config", "shepherdr"))  # not a run's folder by its name
+        self.assertRefused(os.path.join(self.home, ".config", "shepherdr", "settings.json"))
+
+    def test_a_program_the_run_starts_keeps_its_run_folder(self):
+        """A program a test starts imports the guard again with RUN_VAR set: that run's folder is its own too."""
+        run = os.path.join(self.shared, f"{home_guard.RUN_PREFIX}1-abc")
+        home_guard.own(run=run)
+        self.write(os.path.join(run, "tmp", "a"))
+        self.assertRefused(os.path.join(self.shared, "x"))  # the shared temp folder is the starting run's, not its
+
+
 if __name__ == "__main__":
     unittest.main()
