@@ -63,6 +63,8 @@ import { Push, alertsOf, agentAlerts, pushChanges, waitingTags } from "./push.ts
 import { Inbox } from "./inbox.ts";
 import { waiting } from "../web/shared/alerts.ts";
 import { attend } from "./attention.ts";
+import { AlertLedger, eventOf } from "./alert-ledger.ts";
+import { BELL_ONLY } from "../web/shared/reach.ts";
 import { GlanceFeed, MAX_CHATS, glanceOf, openUrlOk, saidToPerson } from "./glance.ts";
 import { chatPage } from "./native-chat.ts";
 import { unreadChats } from "../web/shared/needs-you.ts";
@@ -171,12 +173,17 @@ inbox.onChange = () => model.rebuild();
 // that device gets no web push, never two notifications of one alert
 const glance = new GlanceFeed();
 push.quiet = (node) => glance.quiet(node);
+// fork Needs you 4/6: a phone app's stream dropped a moment ago may come back and say the alert itself; if it doesn't
+// within its grace, the push goes after all
+push.graceLeft = (node) => glance.graceLeft(node);
 // fork Needs you 3/6: a phone app follows its device's choice: nothing from a space it muted, its level (Off: nothing)
 glance.muted = (device) => push.mutedOn(device);
 glance.level = (device) => push.levelOn(device);
 // the app on screen on a device (SHEP-338): no system notification there, web push nor its phone app's own
-push.looking = (node) => live.looking(node);
-glance.looking = (device) => live.looking(device);
+// fork Needs you 4/6: only a page on screen now (no grace for a dropped socket): its app says the alert itself, and
+// one pushed to a device whose page came back on screen is said by its service worker the same way (web/public/sw.js)
+push.looking = (node) => live.looking(node, false);
+glance.looking = (device) => live.looking(device, false);
 live.onPushDevice = (endpoint, device) => push.nodeOf(endpoint, device);
 // an agent's herdr-artifact open (service/show.ts): the serving machine's screen the person is on opens the artifact
 const shows = new Shows();
@@ -184,8 +191,10 @@ hub.on((e) => {
   if (e.type !== "reset" && e.type !== "labels" && e.type !== "created") return;
   for (const a of shows.take(hub.terminals.values())) if (host.serving()) live.show(a.artifact);
 });
-// what was already waiting or ready when the service started: no alert for it
-let alerted: ReturnType<typeof alertsOf> | null = null;
+// what was already waiting or ready when the service started: no alert for it. fork Needs you 4/6: what was sent is
+// kept on disk (service/alert-ledger.ts), so a restart sends nothing again and one that came meanwhile still goes; only
+// the very first run starts from what waits then
+const ledger = new AlertLedger();
 // the agents' own alerts ride on the snapshot (the web app's toasts: web/plugins/alerts/toasts.tsx), then push
 const chatOfAddress = (a: string) => { for (const [k, v] of ((compat as any).chats ?? new Map()) as Map<string, string>) if (v === a) return k; return null; };
 // fork Needs you 5/6: every open action, worked out once (service/attention.ts), with the alerts it reads: what the pages,
@@ -238,10 +247,7 @@ const newsOf = (key: string) => lastWords(key) ?? news.get(key)?.said ?? null;
 function alertNew(snap: any) {
   // their words: service/push.ts alertsOf
   const now = alertsOf(snap, lastSaid);
-  // the phone's and watch's glance, with these same words (service/glance.ts)
-  try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
   waitingNow = { count: waiting(snap).count, tags: waitingTags(now) };
-  if (alerted) for (const a of pushChanges(alerted, now, waitingNow.count, waitingNow.tags)) void push.send(a);
   // fork #37: an open alert from a machine that can't be reached stays open until it can say what happened
   const off = new Set((snap.machines ?? []).filter((m: any) => m.status === "off").map((m: any) => m.machine));
   const away = (x: { task?: string; place?: string }) => {
@@ -250,8 +256,20 @@ function alertNew(snap: any) {
     const m = x.task?.includes(":") ? x.task.slice(0, x.task.indexOf(":")) : null;
     return !!m && (off.has(m) || !(snap.machines ?? []).some((q: any) => q.machine === m));
   };
-  inbox.record(alerted, now, away);
-  alerted = now;
+  // fork Needs you 4/6: each alert once per action, kept on disk before it goes anywhere (the glance feed, the app on
+  // screen, a push); how each closed action ended. One whose machine can't be read isn't closed (nor sent again later).
+  const alerted = ledger.prior(now);
+  let out = alerted ? pushChanges(alerted, now, waitingNow.count, waitingNow.tags) : [];
+  if (snap.attention) ledger.track(snap.attention, away);
+  ledger.keep(now);
+  if (!ledger.save()) { ledger.unsend(out.map((a) => a.key)); out = []; }
+  push.made = new Set([...now.values()].map((a) => a.tag).filter(Boolean) as string[]);
+  // the phone's and watch's glance, with these same words (service/glance.ts)
+  try { readNews(snap); glance.set(glanceOf(snap, now, Date.now(), newsOf)); } catch (err) { console.error(`glance: ${(err as Error).message}`); }
+  // a device with the app on screen hears it there, as a notice of the app's own (none when its card is on screen);
+  // every other device by push
+  for (const { key, ...a } of out) { if (!BELL_ONLY.includes(a.topic)) live.alert(eventOf(key, a)); void push.send(a); }
+  inbox.record(alerted as Map<string, any> | null, now, away);
 }
 compat.agents = new Agents(hub);
 (compat.agents as Agents).onOffer = () => live.refresh();
@@ -727,6 +745,8 @@ const voiceIO: VoiceIO = {
 
 
 /** The person's calls on a task that change its state (its list says so): read again once done (model.reread). */
+/** fork Needs you 4/6: the actions that answer what a chat or task waits on */
+const ANSWERS = new Set(["answer", "send", "accept", "close", "task-resume", "keys", "held-now", "restart"]);
 const TASK_ACTS = new Set(["accept", "close", "delete", "archive", "reopen", "task-resume", "task-start", "task-move", "task-rename", "task-urgent", "schedule"]);
 
 /** One of the web app's actions (an Action, POST /api/action), as the page sends it: a voice call's acts go here too. */
@@ -853,6 +873,8 @@ async function doAction(body: any): Promise<Response> {
       const card = body.card && typeof body.card.chat === "string" ? { address: asker ?? compat.addrOf(body.card.chat) ?? "" } : undefined;
       if (card && !card.address) throw new Error("That agent isn't here any more.");
       await secrets.keep(body.level, body.name, typeof body.value === "string" ? body.value : null, card);
+      // fork Needs you 4/6: that card was answered (a late tap on its alert says so)
+      if (body.card && typeof body.card.chat === "string" && typeof body.card.id === "string") ledger.touch([`${body.card.chat}#${body.card.id}`]);
       if (body.name === "ELEVENLABS_API_KEY") forgetKey();
       await refreshSecrets();
       return json({ ok: true });
@@ -929,6 +951,11 @@ async function doAction(body: any): Promise<Response> {
     const ref = typeof body?.task === "string" ? body.task : typeof body?.chat === "string" ? body.chat.split("/")[0] : null;
     const onTask = TASK_ACTS.has(body?.type) && ref ? compat.taskOf(ref) : null;
     const r = await act(hub, body, compat);
+    // fork Needs you 4/6: the person answered there (a card, a message, an accept, keys in its terminal): an action of
+    // that chat or task that closes now was answered, not moved on by itself (a late tap on its alert says so)
+    // An answer names its card: only that card was answered.
+    if ((r as any)?.ok !== false && ANSWERS.has(body?.type)) ledger.touch(body.type === "answer" && typeof body.question === "string" && typeof body.chat === "string"
+      ? [`${body.chat}#${body.question}`] : [typeof body.chat === "string" ? body.chat : null, typeof body.task === "string" ? body.task : null]);
     // personal analytics: that it happened and how, never what was said (service/analytics.ts)
     if (body?.type === "send" && typeof body.chat === "string" && !body.was) note("message.sent", { chat: body.chat, how: howOf(body.how) });
     else if (body?.type === "answer" && typeof body.chat === "string")
@@ -1141,6 +1168,9 @@ const server = Bun.serve<{ who: string }>({
     }
     if (path === "/api/push/key") return json({ key: await push.key() });
     if (path === "/api/waiting") return json(waitingNow);
+    // fork Needs you 4/6: how an action a late tap names ended (answered, or moved on by itself); {} while it is open or
+    // unknown
+    if (path === "/api/outcome") return json(ledger.outcome(url.searchParams.get("action") ?? "") ?? {});
     if (path === "/api/push/subscribe" && req.method === "POST") {
       const body = await req.json().catch(() => null);
       try { push.subscribe(body?.sub, body?.device, typeof body?.from === "string" ? body.from : undefined, await deviceFrom(req, pass.via), body?.turnOn === true); return json({ ok: true, ...push.state(body.sub.endpoint) }); } catch (err) { return json({ error: (err as Error).message }, 400); }

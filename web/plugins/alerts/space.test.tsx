@@ -44,8 +44,9 @@ test('pin: where the rows sit', () => {
   expect(read('plugins/alerts/client.tsx')).toMatch(/reg\.spaceMenu\.push\(\{[\s\S]*?!isEverything\(snap, p\.id\) \? spaceAlertsRow\(/)
   // the page: the device's choice, then the place for part 6's "Ask me after", then the bell
   expect(read('plugins/alerts/page.tsx')).toMatch(/<Choice<Tell> label=\{WORDS\.reach\}[\s\S]*Ask me after[\s\S]*\{WORDS\.bell\}/)
-  // a machine's warning never toasts
-  expect(read('plugins/alerts/client.tsx')).toContain('if (!a.notify || a.ended || a.ops ||')
+  // a machine's warning never toasts (fork Needs you 4/6: the service says on screen only what it pushes, never the
+  // bell-only topics; a muted alert is never sent at all)
+  expect(readFileSync(join(root, '../service/main.ts'), 'utf8')).toContain('if (!BELL_ONLY.includes(a.topic)) live.alert(eventOf(key, a));')
 })
 
 test('Unmute alerts under a muted Everything sets this space On; else it goes back to Everything', () => {

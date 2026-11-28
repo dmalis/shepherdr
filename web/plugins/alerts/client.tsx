@@ -2,12 +2,13 @@
 // alerts left on the phone in step with what still waits, and takes a tapped alert straight to its task. The choice
 // itself is in Settings › Notifications (device.ts).
 import { useEffect, useState } from 'react'
-import { definePlugin, getState, notice, openLink, setPushEndpoint, useSnap, useStore, visibleChats } from '@client/kernel.ts'
-import { alertUrl, keptTags } from '@shared/alerts.ts'
-import { ALERT_FRESH_MS } from '@shared/needs-you.ts'
+import { definePlugin, getState, openLink, setPushEndpoint, useSnap, useStore, visibleChats } from '@client/kernel.ts'
+import { keptTags } from '@shared/alerts.ts'
 import { isEverything, needsCount, spaceLabel } from '@shared/view.ts'
 import { registerWorker } from './worker.ts'
 import { spaceAlertsRow } from './space.tsx'
+// fork Needs you 4/6: a tap's exact card (or what came of it), and the alerts said on screen (links.tsx)
+import { LinkResolver, listenAlerts } from './links.tsx'
 
 const TITLE = 'Shepherdr'
 
@@ -46,34 +47,12 @@ function Keeper() {
   return null
 }
 
-/** the alerts this screen has seen: the ones there when it opened show on their task's row, not as a toast */
-const seen = new Set<string>()
-let primed = false
-
-/** an agent's new alert as a toast that stays until closed (#1561): its push is dropped while the app is on screen,
- *  and its words (a guard's approval code) must reach the person; Open goes to its task */
-function AlertToasts() {
-  const snap = useSnap()
-  const alerts = snap?.alerts
-  useEffect(() => {
-    if (!snap) return
-    const fresh = (alerts ?? []).filter((a) => !seen.has(a.id))
-    for (const a of fresh) seen.add(a.id)
-    if (!primed) return void (primed = true)
-    for (const a of fresh) {
-      // fork Needs you 3/6: a machine's warning (memory, a restart, a provider cutting off) stays in the bell, no toast
-      if (!a.notify || a.ended || a.ops || !(Date.now() - (Number(a.at) || 0) < ALERT_FRESH_MS)) continue
-      const url = a.place ? alertUrl({ place: a.place, ...(a.task ? { task: a.task } : {}) }) : a.task ? `./?${new URLSearchParams({ task: a.task })}` : null
-      notice(a.title, { sub: a.body || undefined, sticky: true, ...(url ? { act: { label: 'Open', run: () => openLink(url, true) } } : {}) })
-    }
-  }, [alerts, !!snap])
-  return null
-}
-
 export default definePlugin({
   name: 'alerts',
   setup(reg) {
-    reg.overlays.push(Keeper, AlertToasts)
+    // fork Needs you 4/6: an agent's own alert (#1561) is said with the rest, as each alert sent while on screen
+    reg.overlays.push(Keeper, LinkResolver)
+    listenAlerts()
     // fork Needs you 3/6: Mute alerts / Unmute alerts on a space's menu (Everything's has none: it is every space)
     reg.spaceMenu.push({
       order: 30,

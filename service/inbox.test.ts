@@ -20,7 +20,8 @@ test("pin: alertsOf still makes the alerts the list keeps, keyed, with their wor
   const a = alertsOf(snap({ ready: true, need: true }));
   const ready = a.get("ready:HERD-4")!;
   expect(ready).toMatchObject({ title: expect.stringContaining("Fix login"), body: "Login works again", tag: "HERD-4", topic: "ready", place: "sp1", waits: true });
-  expect(ready.url).toBe("./?place=sp1&task=HERD-4");
+  // fork Needs you 4/6: its review card, naming its action
+  expect(ready.url).toBe("./?place=sp1&task=HERD-4&focus=review%3AHERD-4&action=review%3AHERD-4%3A0");
   expect(a.get("need:HERD-5/worker:q1")).toMatchObject({ topic: "needs", tag: "HERD-5", waits: true });
 });
 
@@ -218,4 +219,16 @@ test("last seen is written every 10 minutes of steady use, not only after a gap"
   for (let m = 0; m <= 30; m++) p.saw(["https://push.example/mac"], 1_000_000 + m * 60_000);
   const disk = JSON.parse(readFileSync(file, "utf8"))[0].seen;
   expect(disk).toBeGreaterThanOrEqual(1_000_000 + 20 * 60_000);
+});
+
+// fork Needs you 4/6: the bell is passive, keyed as delivery is: a task Ready again (another review round) between two
+// reads closes the old row and adds a new one, whose link names the new round
+test("a task Ready again is a new row; the old round's row closes", () => {
+  const box = new Inbox(join(dir(), "inbox.json"));
+  const ready = (needsAt: number) => alertsOf({ ...snap({ ready: true }), tasks: snap({ ready: true }).tasks.map((t) => ({ ...t, needsAt })) } as any);
+  box.record(alertsOf(snap()), ready(1));
+  box.record(ready(1), ready(2));
+  const rows = box.list().filter((x) => x.key === "ready:HERD-4");
+  expect(rows.map((x) => [x.action, !!x.closed])).toEqual([["review:HERD-4:2", false], ["review:HERD-4:1", true]]);
+  expect(rows[0].url).toContain("action=review%3AHERD-4%3A2");
 });

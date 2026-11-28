@@ -35,16 +35,25 @@ after it closes (a reconnect), Shepherdr sends no web push to that device's brow
 buzzes twice. If the native link stays down longer, web push takes over again. The device is the tailnet node the
 request comes from (the same id the wake word uses).
 
-The app on screen (SHEP-338): while a Shepherdr page is visible on a device (focused or not, or dropped less than 15 s
-ago), that device shows no system notification for a new alert. Its web push skips all its subscriptions, and its
-native stream (and `GET /api/glance?native=1`) carries each alert that came then with `"alert": false` (and an
-`urgent` to match) for as long as it lasts, so the phone app lists it but never notifies, then or after it leaves the
-app. Alerts that came before, and new ones after it leaves, notify as before; other devices are unaffected.
+The app on screen (SHEP-338): while a Shepherdr page is visible on a device (focused or not), that device shows no
+system notification for a new alert: the page says it itself, as a notice with Open, unless its card is already on
+screen (fork Needs you 4/6). Its web push skips all its subscriptions, and its native stream (and
+`GET /api/glance?native=1`) carries each alert that came then with `"alert": false` (and an `urgent` to match) for as
+long as it lasts, so the phone app lists it but never notifies, then or after it leaves the app. A page whose link just
+dropped is not on screen: the alert goes by push or the phone app as usual, and a push that lands on a page back on
+screen is said by the page the same way. Alerts that came before, and new ones after it leaves, notify as before; other
+devices are unaffected.
+
+Each alert goes once per action, never again after the service restarts or a page reconnects (the service keeps what it
+sent in `alerted.json` in its folder, owner-only). An item about an open action (a question, a permission, a task
+waiting or Ready for review) has its `action` id, and its `url` names it: `…&focus=<card>&action=<id>`. A tap opens
+that exact card, on whichever machine the task runs; once it closed, the same task opens and says what came of it
+("Answered · …", "Task moved on · …"). A `url` without `action` (an older item) opens what it always did.
 
 ## `POST /api/open {"url": "…"}`
 
 Opens an item in the Shepherdr page already open on the asking device, in place, as a tap on that alert would, without
-the browser rebuilding the page. `url` is an item's `url`: `./?place=…[&task=…][&focus=…]` or `./#accept=<task>`;
+the browser rebuilding the page. `url` is an item's `url`: `./?place=…[&task=…][&focus=…][&action=…]` or `./#accept=<task>`;
 anything else is 400. The device's page on screen used last goes there; with none on screen yet, the first page of that
 device that shows up within 15 s does. Answer: `{"ok": true, "shown": true|false}` (false: held for that page). The
 phone then brings the browser forward with no new activity.
@@ -88,7 +97,8 @@ Unchanged from the web push buttons (SHEP-243): `POST /api/action` with
       "line": "Designing the per-hop timing logs", "progress": 8, "left": "5h",
       "at": 1794937163410,               // its own time; absent when it has none
       "alert": true,                     // notify about it (needs, ready); a working or done row only lists
-      "url": "./?place=sp42&task=ELIA-53&focus=q1",   // relative to the web app's address; for POST /api/open
+      "url": "./?place=sp42&task=ELIA-53&focus=q1&action=need%3AELIA-53%2Fworker%3Aq1",   // relative to the web app's address; for POST /api/open
+      "action": "need:ELIA-53/worker:q1",             // the open action it is (needs and ready items): its push names the same
       "accept": { "task": "ELIA-53" },                // a Ready task
       "answer": { "chat": "ELIA-53/worker", "question": "q1",
                   "choices": [{ "i": 0, "label": "Yes" }, { "i": 1, "label": "No" }],

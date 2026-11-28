@@ -35,5 +35,6 @@ export const START_SHEPHERDR = 'Start it'
 /** a machine its last known row comes from, that can't be read now */
 export const cantCheck = (machine: string) => `Can't check ${machine} right now`
 
-/** a late tap on an action that closed: answered, or its task moved on by itself */
-export const CLOSED_WORDS = { answered: 'Answered', moved: 'Task moved on' } as const
+/** a late tap on an action that closed: answered, or its task moved on by itself (fork Needs you 4/6: a space's own ask
+ *  that went on by itself has no task: it no longer waits) */
+export const CLOSED_WORDS = { answered: 'Answered', moved: 'Task moved on', over: 'No longer waiting' } as const

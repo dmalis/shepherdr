@@ -160,6 +160,20 @@ test('the app on screen, focused or not (the fold split beside another app), sho
   expect(none.shown.length).toBe(1)
 })
 
+// fork Needs you 4/6: never nothing at all. A push that lands while the app is on screen is handed to that window, which
+// says it as a notice of its own (web/plugins/alerts/links.tsx); a hidden window gets nothing, a clear nothing
+test('a push that lands while the app is on screen is handed to the window on screen, once', async () => {
+  const got: any[] = [], hid: any[] = []
+  const on = { ...win('visible', false), postMessage: (m: unknown) => got.push(m) }
+  const off = { ...win('hidden', false), postMessage: (m: unknown) => hid.push(m) }
+  const w = worker(() => ({ status: 200, body: {} }), { windows: [on, off] })
+  await w.push({ ...needs, url: './?place=sp1&task=HERD-5&focus=q1&action=need%3AHERD-5%2Fworker%3Aq1', action: 'need:HERD-5/worker:q1', topic: 'needs' })
+  await w.push({ title: 'x', tag: 'HERD-5', clear: true })
+  expect(w.shown).toEqual([])
+  expect(hid).toEqual([])
+  expect(got).toMatchObject([{ type: 'alert', alert: { key: 'HERD-5', action: 'need:HERD-5/worker:q1', title: 'HERD-5 · Needs you', body: 'Rerun CI on main?', topic: 'needs', url: './?place=sp1&task=HERD-5&focus=q1&action=need%3AHERD-5%2Fworker%3Aq1' } }])
+})
+
 test("another app's window on the same host doesn't quiet it; a test alert shows though the app is on screen", async () => {
   const other = worker(() => ({ status: 200, body: {} }), { windows: [win('visible', true, 'https://box.example.test/other/')] })
   await other.push(needs)

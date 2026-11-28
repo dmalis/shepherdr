@@ -378,6 +378,8 @@ Bun.serve<Sock['data'], never>({
     // a background shell's last lines (chat/jobs.tsx)
     if (path === '/api/activity' && url.searchParams.get('what') === 'job') return Response.json({ output: `  VITE v6.0.0  ready in 412 ms\n\n  ➜  Local:   http://127.0.0.1:5173/\n  page reload src/checkout.css (${new Date().toLocaleTimeString()})` })
     if (path === '/api/me') return Response.json({ login: 'sam', off: [] })
+    // fork Needs you 4/6: a late tap on an alert says what came of it (here: each closed one was answered)
+    if (path === '/api/outcome') return Response.json({ id: url.searchParams.get('action') ?? '', outcome: 'answered', at: Date.now(), what: 'Run the search migration now?', task: 'SHOP-12' })
     // the bell's list (fork #37): read on one page, read on all; and the devices that get alerts
     if (path === '/api/inbox/read') {
       const b = (await req.json().catch(() => ({}))) as { all?: boolean; ids?: string[] }

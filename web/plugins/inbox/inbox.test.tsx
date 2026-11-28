@@ -144,5 +144,6 @@ test('pin: the bell sits in the list’s top row, and the check on Settings › 
   expect(readFileSync(join(root, 'plugins/alerts/page.tsx'), 'utf8')).toMatch(/{WORDS\.reach}[\s\S]*Ask me after[\s\S]*\{WORDS\.bell\}[\s\S]*<DeviceCheck now=\{now\} reread=\{read\} \/>/)
   expect(JSON.parse(readFileSync(join(root, 'plugins.json'), 'utf8')).plugins).toContain('inbox')
   // the service worker still shows a test alert while the app is on screen
-  expect(readFileSync(join(root, 'public/sw.js'), 'utf8')).toContain('if (!a.test && list.some((c) => c.visibilityState')
+  // (fork Needs you 4/6: and hands any other to the app on screen, which says it itself)
+  expect(readFileSync(join(root, 'public/sw.js'), 'utf8')).toContain("const shown = list.filter((c) => c.visibilityState === 'visible')\n        if (!a.test && shown.length)")
 })
