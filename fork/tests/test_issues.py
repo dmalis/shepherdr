@@ -65,7 +65,10 @@ class FakeGh:
             i["labels"] = [{"name": n} for n in names]
             return True, "", ""
         if a[:2] == ["issue", "close"]:
-            self.issues[int(a[2])]["state"] = "closed"
+            i = self.issues[int(a[2])]
+            i["state"] = "closed"
+            if "--comment" in a:
+                i.setdefault("comments", []).append(a[a.index("--comment") + 1])
             return True, "", ""
         if a[:2] == ["pr", "edit"]:
             with open(a[a.index("--body-file") + 1], encoding="utf-8") as f:
@@ -122,17 +125,17 @@ class World(unittest.TestCase):
 class IssuePass(World):
     def issues(self):
         return [
-            issue(10, "Status: carried since `ours-1-1`, not filed yet (built in #40). What it does: A.\n\n## Why\n",
-                  ["patch", "not-filed", "live"]),
-            issue(11, "**Status:** building. Fork-only: ours.\n\n## Why\n\nWords.", ["patch", "fork-only"]),
+            issue(10, "Status: live since `ours-1-1` (built in #40). What it does: A.\n\n## Why\n",
+                  ["patch", "live", "device-check"]),
+            issue(11, "**Status:** building. What it does: ours.\n\n## Why\n\nWords.", ["patch"]),
             issue(12, "## Why\n\nWords stay.\n\nDevice check: open the phone's chat\n\n"
                       "Status: #50: building; #60: building. What it does: B.", ["patch"]),
             issue(13, "Part of #12. A slice, no status line of its own.", ["patch"]),
             issue(14, "Status: carried since `ours-1-1`, not filed yet. What it does: C.",
-                  ["patch", "not-filed", "live", "fixed-upstream"]),
-            issue(15, "Status: reverting in #54. What it does: D.", ["patch", "not-filed", "live"]),
-            issue(18, "Status: reverting in #52. What it does: E.", ["patch", "not-filed", "live"]),
-            issue(16, "Status: carried since `ours-1-1`.", ["patch", "live"], state="closed"),
+                  ["patch", "live", "fixed-upstream"]),
+            issue(15, "Status: reverting in #54. What it does: D.", ["patch", "live"]),
+            issue(18, "Status: reverting in #52. What it does: E.", ["patch", "live"]),
+            issue(16, "Status: live since `ours-1-1`.", ["patch", "live"], state="closed"),
             issue(17, "Status: building. Not merged yet.", ["patch"]),
         ]
 
@@ -146,22 +149,27 @@ class IssuePass(World):
         self.assertEqual(len(reads), 3, "open issues, closed ones still live, merged pull requests: once each")
         body = {n: i["body"] for n, i in gh.issues.items()}
         labels = {n: sorted(x["name"] for x in i["labels"]) for n, i in gh.issues.items()}
-        # already right: untouched, its tag kept (it names the install that first carried it)
+        # already right, and waiting on a device: untouched and open, its tag kept (the install that first carried it)
         self.assertNotIn(10, [c and int(c[2]) for c in gh.writes()])
-        self.assertTrue(body[10].startswith("Status: carried since `ours-1-1`"))
-        # building -> carried, no "not filed yet" on a fork-only one; the words after it stay
-        self.assertEqual(body[11], "**Status:** carried since `ours-1-2`. Fork-only: ours.\n\n## Why\n\nWords.")
-        self.assertEqual(labels[11], ["fork-only", "live", "patch"])
-        # a part lands, the other stays building; the device check is said, not called fixed
+        self.assertEqual((body[10].split("\n")[0], gh.issues[10]["state"]),
+                         ("Status: live since `ours-1-1` (built in #40). What it does: A.", "open"))
+        # building -> live; the words after it stay; live and healthy, so it closes with one comment
+        self.assertEqual(body[11], "**Status:** live since `ours-1-2`. What it does: ours.\n\n## Why\n\nWords.")
+        self.assertEqual((labels[11], gh.issues[11]["state"]), (["live", "patch"], "closed"))
+        self.assertEqual(gh.issues[11]["comments"],
+                         ["Live since `ours-1-2`: closing. The fix stays carried (fork/patches/11.json)."])
+        # a part lands, the other stays building; the device check is said, not called fixed; it stays open
         self.assertEqual(body[12].split("\n")[-1],
-                         "Status: carried since `ours-1-2`; not seen on a device yet: please check its Device check "
-                         "line. #50: not filed yet; #60: building. What it does: B.")
+                         "Status: live since `ours-1-2`; not seen on a device yet: please check its Device check "
+                         "line. #50: live; #60: building. What it does: B.")
         self.assertTrue(body[12].startswith("## Why\n\nWords stay.\n\nDevice check: open the phone's chat\n"))
-        self.assertEqual(labels[12], ["device-check", "live", "not-filed", "patch"])
+        self.assertEqual((labels[12], gh.issues[12]["state"]), (["device-check", "live", "patch"], "open"))
         self.assertEqual(out["device_checks"], [{"issue": 12, "check": "open the phone's chat"}])
-        # no status line: only live goes on
-        self.assertEqual((body[13], labels[13]), ("Part of #12. A slice, no status line of its own.",
-                                                  ["live", "patch"]))
+        # no status line: live goes on, and it closes
+        self.assertEqual((body[13], labels[13], gh.issues[13]["state"]),
+                         ("Part of #12. A slice, no status line of its own.", ["live", "patch"], "closed"))
+        # no label says where it stands with upstream any more
+        self.assertFalse(any({"not-filed", "upstream-proposed"} & set(x) for x in labels.values()))
         # fixed upstream, dropped: said, labels off, closed
         self.assertEqual(body[14], "Status: fixed upstream in `v3.2.21`, then dropped. What it does: C.")
         self.assertEqual((labels[14], gh.issues[14]["state"]), (["fixed-upstream", "patch"], "closed"))
@@ -189,10 +197,15 @@ class IssuePass(World):
         self.assertEqual((out["edits"], gh.writes()), ([], []))
 
     def test_a_later_install_doesnt_move_carried_since(self):
-        """The by-hand round of 50 writes: every carried issue's tag moved. Now a new tag moves none of them."""
+        """The by-hand round of 50 writes: every carried issue's tag moved. Now a new tag moves none of them: the
+        older words become "live since" with the first tag, and a later pass writes nothing."""
         carried = [issue(n, f"Status: carried since `ours-1-1`, not filed yet (built in #{n}). What: x.",
-                         ["patch", "not-filed", "live"]) for n in (10, 11, 12, 13)]
+                         ["patch", "live", "device-check"]) for n in (10, 11, 12, 13)]
         gh = FakeGh(carried, self.prs())
+        issues.run(self.repo, self.c4, self.c2, "ours-1-5", "v3.2.21", gh)
+        self.assertEqual([gh.issues[n]["body"] for n in (10, 11, 12, 13)],
+                         [f"Status: live since `ours-1-1` (built in #{n}). What: x." for n in (10, 11, 12, 13)])
+        gh.calls = []
         out = issues.run(self.repo, self.c4, self.c2, "ours-1-9", "v3.2.21", gh)
         self.assertEqual(gh.writes(), [], out)
 
@@ -200,7 +213,7 @@ class IssuePass(World):
         gh = FakeGh(self.issues(), self.prs())
         out = self.pass_(gh, dry_run=True)
         self.assertEqual(gh.writes(), [])
-        self.assertEqual(out["bodies"]["11"], "carried since `ours-1-2`. Fork-only: ours.")
+        self.assertEqual(out["bodies"]["11"], "live since `ours-1-2`. What it does: ours.")
 
     def test_a_status_line_in_a_code_block_isnt_one(self):
         self.assertIsNone(issues.status_at("```\nStatus: building\n```\n"))
@@ -209,22 +222,42 @@ class IssuePass(World):
     def test_a_lead_building_before_parts_keeps_every_part(self):
         """Review: the upstream link and the other part were wiped with the leading "building"."""
         text, _ = issues.carried_text("building; #29: proposed upstream as upstream issue 1648; #30: building. "
-                                      "What it does: Adds pause.", "ours-1-2", False, {30: True}, False)
-        self.assertEqual(text, "carried since `ours-1-2`; #29: proposed upstream as upstream issue 1648; "
-                               "#30: not filed yet. What it does: Adds pause.")
+                                      "What it does: Adds pause.", "ours-1-2", {30: True}, False)
+        self.assertEqual(text, "live since `ours-1-2`; #29: proposed upstream as upstream issue 1648; "
+                               "#30: live. What it does: Adds pause.")
 
     def test_a_status_example_in_an_indented_block_isnt_the_line(self):
         body = "How to write it:\n\n    Status: building\n\nStatus: carried since `ours-1-1`."
         self.assertEqual(issues.status_at(body)[1:], ("Status: ", "carried since `ours-1-1`."))
         self.assertIsNone(issues.status_at("~~~\nStatus: x\n~~~\n"))
 
-    def test_a_fork_only_issue_offers_a_newly_landed_part(self):
-        """Review: a new fix on a fork-only issue still waits for an upstream round, part by part."""
-        edits = issues.plan([issue(20, "Status: carried since `ours-1-1`; #20: fork-only; #30: building.",
-                                   ["patch", "fork-only", "live"])], [], {20}, {20: {30: True}}, "ours-1-2", None)
-        self.assertEqual(issues.status_at(edits[0]["body"])[2],
-                         "carried since `ours-1-1`; #20: fork-only; #30: not filed yet.")
-        self.assertEqual(edits[0]["add"], ["not-filed"])
+    def test_the_older_upstream_words_become_live(self):
+        """Our own path (#233): nothing waits for an upstream round, so "not filed yet" goes, part by part."""
+        edits = issues.plan([issue(20, "Status: carried since `ours-1-1`, not filed yet; #20: not filed yet; "
+                                       "#30: building.", ["patch", "live", "not-filed"])],
+                            [], {20}, {20: {30: True}}, "ours-1-2", None)
+        self.assertEqual(issues.status_at(edits[0]["body"])[2], "live since `ours-1-1`; #20: live; #30: live.")
+        self.assertEqual((edits[0]["add"], edits[0]["remove"], edits[0]["close"]), ([], [], True))
+        self.assertEqual(edits[0]["comment"],
+                         "Live since `ours-1-1`: closing. The fix stays carried (fork/patches/20.json).")
+
+    def test_a_live_fix_stays_open_while_it_waits(self):
+        """A fix still building, a device check, `later` or pipeline work: the issue stays open."""
+        cases = [issue(21, "Status: live since `ours-1-1`; #30: live; #31: building.", ["patch", "live"]),
+                 issue(22, "Status: live since `ours-1-1`. What: x.", ["patch", "live", "later"]),
+                 issue(23, "Status: live since `ours-1-1`. What: x.", ["pipeline", "live"]),
+                 issue(24, "Status: #40: live; reverting in #41.", ["patch", "live"])]
+        edits = issues.plan(cases, [], {21, 22, 23, 24}, {21: {30: False}}, "ours-1-2", None)
+        self.assertEqual([e for e in edits if e["close"]], [])
+
+    def test_a_closed_issue_whose_fix_upstream_shipped_says_so(self):
+        """Closed once live; the sync then drops ours for upstream's: its line says so, it loses live, stays shut."""
+        closed = [issue(25, "Status: live since `ours-1-1`. What: x.", ["patch", "live", "fixed-upstream"],
+                        state="closed")]
+        edits = issues.plan([], closed, set(), {}, "ours-1-2", "v3.2.30")
+        self.assertEqual(len(edits), 1)
+        self.assertEqual((issues.status_at(edits[0]["body"])[2], edits[0]["remove"], edits[0]["close"]),
+                         ("fixed upstream in `v3.2.30`, then dropped. What: x.", ["live"], False))
 
     def test_a_close_that_didnt_go_in_is_made_by_the_next_pass(self):
         """Review: the edit went in and the close didn't; the retry must still close."""
@@ -246,9 +279,8 @@ class IssuePass(World):
 
     def test_building_with_words_keeps_its_pull_requests(self):
         text, newly = issues.carried_text('building, ready for merge in "Speed" (#187). The page asks.', "ours-1-2",
-                                          False, {}, False)
-        self.assertEqual((text, newly), ("carried since `ours-1-2`, not filed yet (built in #187). The page asks.",
-                                         True))
+                                          {}, False)
+        self.assertEqual((text, newly), ("live since `ours-1-2` (built in #187). The page asks.", True))
 
 
 class PartOf(World):

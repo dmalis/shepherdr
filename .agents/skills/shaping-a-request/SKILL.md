@@ -54,8 +54,8 @@ new one carries the issue's link in its brief). The issue's text stays as approv
 - **Give 2–3 options.** Include "upstream's way" when there is one, and "change nothing" when the need is already
   met. For each option, say:
   - what the person would notice;
-  - what it costs;
-  - how it fits upstream.
+  - what it costs to build and to carry through upstream's releases;
+  - whether upstream already has it, or a part of it we could build on.
 - **Recommend one,** and say why in plain words.
 - **Push back when the idea won't meet the need.** For example: "More rounds won't stop this. Rounds keep finding
   new edge cases (upstream #1557). What stops it is a CI gate on the paths that move money."
@@ -69,11 +69,32 @@ new one carries the issue's link in its brief). The issue's text stays as approv
 - **Record the decision in the issue:** the need, the options, the choice and why.
 - **If they chose our way,** the fork-patch skill builds it.
 - **If they chose upstream's way,** show the person how to use it. There is no patch.
-- **When upstream declines one of their requests,** we build our own; the person decided that once, for every
-  decline. Use the maintainer's reasoning to shape how it's built (the upstream-issue skill).
-- **When upstream proposes another approach or asks a question,** come back here.
+- **When upstream declines one of the person's open upstream issues,** we build our own; the person decided that
+  once, for every decline. Use the maintainer's reasoning to shape how it's built (the upstream-issue skill).
+- **When upstream proposes another approach or asks a question** on one of them, come back here.
   1. Weigh the maintainer's reasoning against the need and the research.
   2. Recommend: adopt upstream's way and drop ours, keep ours, or a third way.
+
+Nothing is offered upstream (FORK.md: "Upstream issues"): researching upstream is how we find what it already has.
+
+## Confusion is a UX problem
+
+When Shepherdr's behaviour confuses the person:
+1. **Check the process first.** Do they know the process behind it: how tasks, settings, review and merge work?
+   Judge from what they said; if it's unclear, ask one question.
+   - They don't know it yet: explain it briefly. It is still friction: record it and propose its fix in the same
+     reply (FORK.md: "Every friction is a candidate fix").
+   - They know it and are still confused: the screen gave a wrong or missing hint, and that hint is the problem to
+     fix, not something to explain away. Answer so they can carry on, then go on below.
+2. **Name the gap:** what the screen showed, what the person expected from it, and the hint that was wrong or
+   missing. Put this in the issue's "Why".
+3. **Offer the better UX:** how upstream and comparable tools show the same state or action, and your recommended
+   hint, label, state or default that would have prevented the confusion for any Shepherdr user. Offer it in the
+   same reply.
+4. **Record it** under Found (FORK.md: "Record it at once"), and fix it here (fork-patch skill) once the person
+   picks it on the Feedback page or says yes in chat.
+
+The fix is done when the screen makes the behaviour clear, not when the person has understood it.
 
 ## Filing and the handoff
 
@@ -95,10 +116,9 @@ new one carries the issue's link in its brief). The issue's text stays as approv
   go on the issue (fork-patch skill).
 - **A pick or a yes in chat that posted nothing** (the person asked for a fix without filing): an issue here, a task
   with a brief (this skill first), an install right after the merge.
-  - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`, then `not-filed` once live, until an
-    upstream round offers it.
-  - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has nothing to file: its issue is `fork-only` from
-    the start, with why.
+  - A change to Shepherdr is a patch (fork-patch skill): labelled `patch`; its issue closes once the fix is live.
+  - A change to only our own files (`FORK.md`, `fork/`, `.agents/`) has no patch file: its issue is labelled
+    `pipeline` when it is the sync, trial or install's, and closes once that work is done.
 - **When the fix belongs to a running task's area,** add it to that task (`herdr-task reply`) instead of opening a new
   one, and say so.
 - **Other spaces' task agents** get the friction rule from the Everywhere "When a task starts" notes

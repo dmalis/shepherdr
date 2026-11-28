@@ -90,8 +90,10 @@ on from their records ([Held](#held)).
    patch-list`), never the open issue list. For each one:
    - read what upstream changed in its files (`git log -p <old release>..<release sha> -- <its files>`) and adapt it
      as the fork-patch skill's step 4 says;
-   - upstream now does the same thing: drop the patch and its file, comment on its issue and label it
-     `fixed-upstream`. It closes only after the install without it is healthy (step 7);
+   - upstream now does the same thing: take theirs. Drop the patch and its file, comment on its issue (open or
+     closed) and label it `fixed-upstream`; step 7 says so on it after the install without it is healthy. Keep ours
+     only where it is clearly better for the person, cut down to a small addition on top of theirs, with why on its
+     issue (upstream-issue skill: "Upstream already has it");
    - one you can't adapt in this run: **held** (kind `draft`, blocker its issue number).
 4. Run each patch's `tests` (`fork/bin/sync patch-tests`), `python3 -m unittest discover -s fork/tests` and `bin/sync-shared --check`. Patches that
    touch the web app also: `bun install && bun web/build-plugins.ts && bunx tsc`. Never the whole suite: CI runs it.
@@ -143,17 +145,18 @@ it found: report that, never a guess at why, and never repair `main` by force.
    issues whose line or labels change. Never edit a status line, a `live` label or a pull request's `Part of #n` by
    hand: a pass it got wrong is a bug in `fork/sync/issues.py`, fixed there with a test. What it does, so you can read
    its line:
-   - **Carried:** each issue in the patch list gets "carried since `<tag>`" at the start of its status line, in
-     place of a leading "building". A line that already says "carried since" keeps its tag: it names the install
-     that first carried the fix, so a later install writes nothing there (a tag written before this rule names the
-     last install that moved it by hand; it stays too). The rest of the line stays as it is. A
-     fix's part "#m: building" becomes "#m: not filed yet" once #m runs, and "reverting in #m" becomes "reverted in
-     #m" (upstream-issue skill: "Several fixes on one issue").
+   - **Live:** each issue in the patch list gets "live since `<tag>`" at the start of its status line, in place of
+     a leading "building". A line that already says "live since" (or the older "carried since") keeps its tag: it
+     names the install that first carried the fix, so a later install writes nothing there. The rest of the line
+     stays as it is, but for the older words "not filed yet", which go. A fix's part "#m: building" becomes "#m:
+     live" once #m runs, and "reverting in #m" becomes "reverted in #m" (fork-patch skill: "The record on GitHub").
+   - **Closes what is live:** an open issue in the patch list closes with one comment ("Live since `<tag>`:
+     closing. The fix stays carried (fork/patches/<n>.json).") once no fix of it is still building or reverting.
+     One with `device-check` or another waiting label (`KEEP_OPEN` in `fork/sync/issues.py`) stays open.
    - **Labels follow the install and the line:** `live` on every issue in the patch list, off every other (open or
-     closed); `not-filed` on while the line says "not filed yet" or "reverting", off when it says neither. A
-     `fixed-upstream` issue the list no longer has says "fixed upstream in `vX.Y.Z`, then dropped" and closes; one
-     whose last fix was reverted is labelled `reverted` and closes. A rollback changes nothing: this step runs only
-     after a healthy install.
+     closed). A `fixed-upstream` issue the list no longer has says "fixed upstream in `vX.Y.Z`, then dropped" and
+     closes (a closed one stays closed); one whose last fix was reverted is labelled `reverted` and closes. A
+     rollback changes nothing: this step runs only after a healthy install.
    - **Which issue a fix is part of:** its pull request's `Part of #n`, else the patch files its merge commit
      changed (`fork/patches/<n>.json`, plus the `umbrella` a patch file names). A pull request whose body lacked the
      line gets it added (`linked` in the step's line). Sync pull requests (`sync/*`) are left out. The fork check
@@ -165,8 +168,8 @@ it found: report that, never a guess at why, and never repair `main` by force.
      Only the person's confirmation takes `device-check` off; no install does.
    - **`unlinked` in its line:** a pull request that changes Shepherdr (any file outside `FORK.md`, `fork/` and
      `.agents/`) and names no issue, in its body or by a patch file. It gets one now (fork-patch skill, step 1),
-     labelled `patch` and `not-filed`, with the status line "carried since `<tag>`, not filed yet. What it does: …
-     Try it: …" from the pull request, and the issue's link commented on the pull request.
+     labelled `patch`, with the status line "live since `<tag>`. What it does: … Try it: …" from the pull request,
+     and the issue's link commented on the pull request. It stays open until a `fork/patches/<n>.json` names it.
    - **`outcome: wait`:** GitHub refused a read or a write: call it again; it writes only what is still different.
      `--dry-run` writes nothing and shows each new line (`bodies`), to check a pass before it runs.
    - **The Feedback page learns what this machine carries:** `fork/bin/found installed <candidate>`. It reads the

@@ -5,13 +5,16 @@ FORK.md, "Every piece of work is recorded on GitHub").
   once, works out each issue's status line and labels from the patch list at the installed commit, and writes only
   the issues whose line or labels change (one `gh issue edit` each). The words after the status line stay as they
   are. What the pass does to a status line, and nothing else:
-  - an issue the install carries: "carried since `<tag>`" goes at the start of a line that has none, in place of a
-    leading "building". A line that already says "carried since" keeps its tag: it names the install that first
-    carried the fix, so a later install writes nothing there. A fix's part "#m: building" becomes "#m: not filed
-    yet" once pull request #m runs; "reverting in #m" becomes "reverted in #m". `live` goes on.
+  - an issue the install carries: "live since `<tag>`" goes at the start of a line that has none, in place of a
+    leading "building". A line that already says "live since" (or the older "carried since") keeps its tag: it
+    names the install that first carried the fix, so a later install writes nothing there. A fix's part "#m:
+    building" becomes "#m: live" once pull request #m runs; "reverting in #m" becomes "reverted in #m". `live` goes
+    on. The older words "not filed yet" go: this fork offers nothing upstream (FORK.md: "The aim", #233).
+  - then it closes, with one comment, once no fix of it is still building or reverting: this pass runs only after a
+    healthy install. It stays open with a label in KEEP_OPEN, `device-check` above all, until the person confirms.
   - an issue the install no longer carries loses `live`. One labelled `fixed-upstream` says "fixed upstream in
-    `vX.Y.Z`, then dropped" and closes; one whose last fix was reverted says "reverted in #m" and closes.
-  - `not-filed` follows the line: on while it says "not filed yet" or "reverting", off when it says neither.
+    `vX.Y.Z`, then dropped" and closes; one whose last fix was reverted says "reverted in #m" and closes. A closed
+    one still labelled `live` gets the same line, and stays closed.
   - a fix that landed in this install, on an issue with a "Device check:" line: `device-check` goes on, the line says
     "not seen on a device yet", and `device_checks` hands its words to finish's --says.
 - Which issue a merged pull request is part of: its body's `Part of #n`, and else the patch files its merge commit
@@ -37,9 +40,13 @@ FENCE = re.compile(r"^ {0,3}(```|~~~)")
 INLINE_CODE = re.compile(r"(`+)[^`]*?\1")
 PART = re.compile(r"#\d+(?: \([^()]*\))?: ")           # a fix's own part, on a line with several: "#29: ..."
 CLAUSE_END = re.compile(r"; |\. |\.$")
-CARRIED = re.compile(r"carried since `?ours-[0-9][\w.-]*`?")
+# "live since `ours-…`", or the older "carried since `ours-…`, not filed yet": the tag is the first install's
+CARRIED = re.compile(r"(?:carried|live) since (`?ours-[0-9][\w.-]*`?)(?:, not filed yet\b)?")
 LEAD_BUILDING = re.compile(r"^building\b[.,;:]?\s*", re.I)
 PART_BUILDING = re.compile(r"(#(\d+)(?: \([^()]*\))?): building\b")
+PART_NOT_FILED = re.compile(r"(#\d+(?: \([^()]*\))?): not filed yet\b")
+# a live fix's issue that stays open: the person hasn't confirmed it on a device, it waits, or it is pipeline work
+KEEP_OPEN = {"device-check", "later", "on-hold", "sync-blocked", "rethink", "fixed-upstream", "pipeline", "handover"}
 REVERTING = re.compile(r"\breverting in #(\d+)")
 DEVICE_LINE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?Device check:(?:\*\*)?\s*(.+)$", re.M)
 NOT_SEEN = "not seen on a device yet"
@@ -167,17 +174,17 @@ def ships(paths):
 
 # --- the plan ---
 
-def carried_text(text, tag, fork_only, landed, device):
+def carried_text(text, tag, landed, device):
     """A carried issue's status text, moved by this install. `landed`: the pull requests of this issue that run now
     ({number: newly}, newly true when this install brought it)."""
     out = text
     newly_landed = False
-    if not CARRIED.search(out):
+    had = CARRIED.search(out)
+    if had:
+        out = out[:had.start()] + f"live since {had.group(1)}" + out[had.end():]
+    else:
         lead = LEAD_BUILDING.match(out)
-        # each fix's own part says where it stands ("#29: proposed upstream ...; #30: building"): the issue's lead
-        # then only says it is carried. A single fix's lead also says it isn't filed yet, unless it stays ours.
-        parts = bool(PART.search(out))
-        carried = f"carried since `{tag}`" + ("" if fork_only or parts else ", not filed yet")
+        carried = f"live since `{tag}`"
         if lead:
             # only the leading "building" clause goes ("building, ready for merge in "X" (#187)", up to its first
             # "; " or ". "), and the pull requests it named stay as "(built in #187)"; every word after it stays
@@ -188,7 +195,7 @@ def carried_text(text, tag, fork_only, landed, device):
             out = carried + built + (rest or ".")
             newly_landed = True
         else:
-            out = f"carried since `{tag}`. " + out if out else f"carried since `{tag}`."
+            out = f"{carried}. " + out if out else f"{carried}."
 
     def part(m):
         nonlocal newly_landed
@@ -196,9 +203,9 @@ def carried_text(text, tag, fork_only, landed, device):
         if n not in landed:
             return m.group(0)
         newly_landed = newly_landed or landed[n]
-        # a fix's own part: it waits for an upstream round like any other, whatever the issue's other parts are
-        return f"{m.group(1)}: not filed yet"
+        return f"{m.group(1)}: live"
     out = PART_BUILDING.sub(part, out)
+    out = PART_NOT_FILED.sub(lambda m: f"{m.group(1)}: live", out)
     out = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in landed else m.group(0), out)
     if device and newly_landed and NOT_SEEN not in out:
         head, dot, rest = out.partition(". ")
@@ -206,8 +213,15 @@ def carried_text(text, tag, fork_only, landed, device):
     return out, newly_landed
 
 
-def not_filed_fits(text):
-    return "not filed yet" in text or "reverting" in text
+def still_moving(text):
+    """A fix of the issue is still building or reverting: it stays open."""
+    return bool(LEAD_BUILDING.match(text) or PART_BUILDING.search(text) or REVERTING.search(text))
+
+
+def close_words(text, tag, n):
+    had = CARRIED.search(text or "")
+    since = had.group(1).strip("`") if had else tag
+    return f"Live since `{since}`: closing. The fix stays carried (fork/patches/{n}.json)."
 
 
 def all_undone(text):
@@ -217,70 +231,71 @@ def all_undone(text):
             and not LEAD_BUILDING.match(text))
 
 
+def dropped(body, labels, mine, release_tag):
+    """(new body or None, labels to add, whether it is done) for an issue the install no longer carries."""
+    st = status_at(body)
+    if st and "fixed-upstream" in labels:
+        i, prefix, text = st
+        if text.startswith("fixed upstream in"):
+            return None, set(), True                # said already: an earlier pass's close didn't go in
+        if release_tag:
+            rest = CARRIED.sub("", text, count=1).lstrip(" ,;.")
+            text2 = f"fixed upstream in `{release_tag}`, then dropped" + (". " + rest if rest else ".")
+            return with_status(body, i, prefix, text2), set(), True
+    elif st and REVERTING.search(st[2]):
+        i, prefix, text = st
+        text2 = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in mine else m.group(0), text)
+        if text2 != text:
+            done = all_undone(text2)
+            return with_status(body, i, prefix, text2), {"reverted"} if done else set(), done
+    elif st and "reverted" in labels and all_undone(st[2]):
+        return None, set(), True                    # said already: an earlier pass's close didn't go in
+    return None, set(), False
+
+
 def plan(issues, closed_live, carried, landed, tag, release_tag):
-    """[{number, body (or None), add, remove, close, device}] for each issue that changes, from: the open issues
-    ([{number, body, labels}]), the closed issues still labelled live, the issue numbers the install carries,
-    `landed` ({issue: {pr number: newly}}: each issue's own pull requests that run now, by their `Part of #n` or
-    their patch files), the install's tag and the upstream release it holds. A pass that stopped half way (an edit
-    went in, its close didn't) is finished by the next: a close follows the issue's line and labels as they are."""
+    """[{number, body (or None), add, remove, close, comment, device}] for each issue that changes, from: the open
+    issues ([{number, body, labels}]), the closed issues still labelled live (the same fields), the issue numbers the
+    install carries, `landed` ({issue: {pr number: newly}}: each issue's own pull requests that run now, by their
+    `Part of #n` or their patch files), the install's tag and the upstream release it holds. A pass that stopped half
+    way (an edit went in, its close didn't) is finished by the next: a close follows the issue's line and labels as
+    they are."""
     out = []
     for issue in sorted(issues, key=lambda i: i.get("number") or 0):
         n, body, labels = issue.get("number"), issue.get("body") or "", labels_of(issue)
-        add, remove, close, new_body, device = set(), set(), False, None, None
+        add, remove, close, new_body, device, comment = set(), set(), False, None, None, None
         st = status_at(body)
         mine = landed.get(n) or {}
         if n in carried:
             if "live" not in labels:
                 add.add("live")
+            text2 = ""
             if st:
                 i, prefix, text = st
                 dev = DEVICE_LINE.search(body)
-                text2, newly = carried_text(text, tag, "fork-only" in labels, mine, bool(dev))
+                text2, newly = carried_text(text, tag, mine, bool(dev))
                 if text2 != text:
                     new_body = with_status(body, i, prefix, text2)
                 if dev and newly:
                     device = dev.group(1).strip()
                     if "device-check" not in labels:
                         add.add("device-check")
-                fits = not_filed_fits(text2)
-                if fits and "not-filed" not in labels:
-                    add.add("not-filed")
-                elif not fits and "not-filed" in labels:
-                    remove.add("not-filed")
+            if not (labels | add) & KEEP_OPEN and not still_moving(text2):
+                close, comment = True, close_words(text2, tag, n)
         else:
             if "live" in labels:
                 remove.add("live")
-            if st and "fixed-upstream" in labels:
-                i, prefix, text = st
-                if text.startswith("fixed upstream in"):
-                    close = True                    # said already: an earlier pass's close didn't go in
-                    remove |= {"not-filed"} & labels
-                elif release_tag:
-                    rest = CARRIED.sub("", text, count=1).lstrip(" ,;")
-                    rest = re.sub(r"^not filed yet\b[.,;]?\s*", "", rest)
-                    text2 = f"fixed upstream in `{release_tag}`, then dropped" + (". " + rest if rest else ".")
-                    new_body = with_status(body, i, prefix, text2)
-                    remove |= {"not-filed"} & labels
-                    close = True
-            elif st and REVERTING.search(st[2]):
-                i, prefix, text = st
-                text2 = REVERTING.sub(lambda m: f"reverted in #{m.group(1)}" if int(m.group(1)) in mine
-                                      else m.group(0), text)
-                if text2 != text:
-                    new_body = with_status(body, i, prefix, text2)
-                    if all_undone(text2):
-                        add.add("reverted")
-                        remove |= {"not-filed"} & labels
-                        close = True
-            elif st and "reverted" in labels and all_undone(st[2]):
-                close = True                        # said already: an earlier pass's close didn't go in
-                remove |= {"not-filed"} & labels
+            new_body, more, close = dropped(body, labels, mine, release_tag)
+            add |= more
         if new_body is not None or add or remove or close:
             out.append({"number": n, "body": new_body, "add": sorted(add), "remove": sorted(remove), "close": close,
-                        **({"device": device} if device else {})})
-    for issue in closed_live:
-        if issue.get("number") not in carried and "live" in labels_of(issue):
-            out.append({"number": issue["number"], "body": None, "add": [], "remove": ["live"], "close": False})
+                        **({"comment": comment} if comment else {}), **({"device": device} if device else {})})
+    for issue in sorted(closed_live, key=lambda i: i.get("number") or 0):
+        n, labels = issue.get("number"), labels_of(issue)
+        if n in carried or "live" not in labels:
+            continue
+        new_body, more, _ = dropped(issue.get("body") or "", labels, landed.get(n) or {}, release_tag)
+        out.append({"number": n, "body": new_body, "add": sorted(more), "remove": ["live"], "close": False})
     return out
 
 
@@ -301,7 +316,7 @@ def read_github(gh):
     issues = gh_json(gh, "issue", "list", "-R", state.REPO, "--state", "open", "--limit", LIST_LIMIT,
                      "--json", "number,body,labels")
     closed = gh_json(gh, "issue", "list", "-R", state.REPO, "--state", "closed", "--label", "live",
-                     "--limit", LIST_LIMIT, "--json", "number,labels")
+                     "--limit", LIST_LIMIT, "--json", "number,body,labels")
     prs = gh_json(gh, "pr", "list", "-R", state.REPO, "--state", "merged", "--limit", PR_LIMIT,
                   "--json", "number,headRefName,mergeCommit,body")
     if not all(isinstance(x, list) for x in (issues, closed, prs)):
@@ -325,7 +340,8 @@ def write(gh, edit, scratch):
     if len(args) > 5:
         ok, _, _ = gh(*args)
     if ok and edit.get("close"):
-        ok, _, _ = gh("issue", "close", str(edit["number"]), "-R", state.REPO)
+        more = ["--comment", edit["comment"]] if edit.get("comment") else []
+        ok, _, _ = gh("issue", "close", str(edit["number"]), "-R", state.REPO, *more)
     return ok
 
 
