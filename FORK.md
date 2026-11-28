@@ -5,8 +5,8 @@ patches sit on top of each release and are adapted to it.
 
 This file adds the fork's own rules. It never loosens AGENTS.md's safety and test rules, or the rules for agents'
 own logins and settings. It makes exactly two exceptions to AGENTS.md:
-- **Upstream issues:** they are posted only in an upstream round the person asked for, as the upstream-issue skill
-  says.
+- **Upstream issues:** they are posted only in an upstream round the person asked for, and replies to the author
+  only in the person's words, as the upstream-issue skill says.
 - **The install step:** the "Upstream sync" schedule's run may install, once #2 has proven it, and may push
   `ours-*` tags. Install tags are not releases; AGENTS.md's release rules still hold.
 
@@ -161,7 +161,8 @@ A change to the pipeline's own code (`fork/bin`, `fork/sync`) is rehearsed on a 
 
 The upstream-issue skill. The person's standing rule: our Shepherdr works for them, built in a way that fits
 Shepherdr for everyone. It is a closed loop: every problem and request is filed here and fixed here. Upstream hears
-from us only in an upstream round the person asks for, and upstream's author decides what goes into theirs.
+from us only in an upstream round the person asks for, or in their own reply to the author's question, and upstream's
+author decides what goes into theirs.
 - **Fix it here first.** Every problem the person filed upstream (open, or closed without a fix) and every one they
   find later is fixed here as a patch (the fork-patch skill), unless upstream already fixed it ("Check upstream
   first"). The person never waits on upstream.
@@ -204,8 +205,8 @@ from us only in an upstream round the person asks for, and upstream's author dec
   - When the fix belongs to a running task's area, the Assistant adds it to that task (`herdr-task reply`) instead of
     opening a new one, and says so.
 - **Collect what's left.** When the person asks "what else did we find", the Assistant first records any friction
-  from the session it hasn't yet, then lists what waits under Found (`herdr-task feedback --list`), each with its
-  proposed fix.
+  from the session it hasn't yet, then lists what waits under Found on the Feedback page, each with its proposed
+  fix: from `herdr-task feedback --list --all --json`, every row not filed, declined or put off (Not now).
 - **Industry standard first.** Every UI and UX change follows the industry standard and the common pattern of
   well-known apps: browsers, Slack, Linear, GitHub, Figma, Notion, VS Code, and the iOS and macOS conventions. Name the
   apps you followed in the pull request.

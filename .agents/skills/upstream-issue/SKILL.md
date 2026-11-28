@@ -18,7 +18,8 @@ person filed upstream (open, or closed without a fix) and every one they find la
 5. **Then the author decides:** take it as it is, do it differently, or drop it. Our Shepherdr already has it either
    way.
 
-Upstream is someone else's public project. It hears from us only in a round the person asked for.
+Upstream is someone else's public project. It hears from us only in a round the person asked for, and in a reply to
+the author's question in the person's words ("When to post there").
 
 **The person's earlier issues count too.** List them with `gh search issues -R eliasstravik/shepherdr --author dmalis`
 (no `--state`: open and closed). Each one that is open, or closed with no fix in a release, and has no `patch` issue
@@ -39,7 +40,8 @@ When Shepherdr's behaviour confuses the person:
 3. **Offer the better UX** (shaping-a-request skill): how upstream and comparable tools show the same state or
    action, and your recommended hint, label, state or default that would have prevented the confusion for any
    Shepherdr user. Offer it to the person in the same reply.
-4. **Fix it here** through steps 2–5 above, like any other fix.
+4. **Record it** under Found (FORK.md: "Record it at once"). **Fix it here** through steps 2–5 above, like any
+   other fix, once the person picks it on the Feedback page or says yes in chat.
 
 The fix is done when the screen makes the behaviour clear, not when the person has understood it.
 
@@ -97,10 +99,12 @@ Only when the person asks ("offer ours upstream", "file them with the author"), 
 Their ask is the yes for this round; their "go" on the plan (step 5) is the yes for its exact posts. Nothing in a
 round is posted before that "go".
 1. **Gather** every fix we carry, live and not offered yet:
-   `gh issue list -R dmalis/shepherdr --label not-filed --label live --limit 200 --json number,title,body`, each
-   checked against the installed patch list (`fork/bin/sync patch-list --at <newest ours-* tag>`). From an issue
-   with several fixes take only the parts "not filed yet". Leave out `fork-only`, anything reverting, and parts
-   still "building".
+   `gh issue list -R dmalis/shepherdr --label patch --label live --label not-filed --limit 200 --json
+   number,title,body`, each checked against the patch list of what runs now: the install folder's commit
+   (`git -C <install folder> rev-parse HEAD`, FORK.md: "Where things are"), read with
+   `fork/bin/sync patch-list --at <that commit>`. Go by each fix's part of the status line, never by the issue's
+   labels alone: take only the parts "not filed yet". A part that is fork-only, reverting, still "building" or
+   already proposed stays out, even on an issue that also has `not-filed`.
 2. **Check upstream first** for each (fork-patch skill, step 1), from its issue's "Upstream checked" line:
    - fixed upstream since, in a release or on main: leave it out; the sync drops ours;
    - an upstream issue for the same problem: read its comments first
@@ -114,6 +118,9 @@ round is posted before that "go".
    | An issue where one of ours links another pull request | No post: say so in the plan. It stays `not-filed` |
    | Someone else's request that the author declined | No post: the author has decided |
    | Nothing | Part of a theme issue (step 3) |
+
+   Group these by upstream issue: several fixes that match one issue share its one comment, which names each of
+   them.
 
 3. **Group by theme,** never one issue per fix and never one mega issue. A theme is one bigger picture as a user
    meets it, e.g. "Needs you and notifications", "Typing and the message box on a phone", "Task list and filters",
@@ -149,7 +156,7 @@ Our pull requests stay in our fork. Never open a pull request on upstream unless
 | What | When | Yes needed |
 |---|---|---|
 | A theme issue or a comment, in an upstream round | Only for fixes merged and live here | The person's ask for the round, then their "go" on its plan. One comment per issue, ever; one issue per problem, ever |
-| A reply to the author | Only with the person's answer to the author's question (shaping-a-request, step 4) | Their words |
+| A reply to the author | Only when the author asked a question on an issue we posted or commented on, with the person's answer (shaping-a-request, step 4). One reply per question | Their words for that reply |
 
 Nothing else goes there: no fix outside a round, no rewording, no follow-up nudges.
 
@@ -177,7 +184,7 @@ The upstream check (fork-patch skill, step 1) finds these.
    - **Title:** the problem as a user meets it, not our fixes' names.
    - **The problem,** a few lines in a user's words: what hurts and when.
    - **What we built,** one short bullet per part: how it behaves, and whether it stands alone or needs another part.
-   - **Links** to our pull requests (and commits where they help) on dmalis/shepherdr, and the release it runs on.
+   - **Links** to our pull requests and their commits on dmalis/shepherdr, and the release it runs on.
    - **The closing line:** "We built these in our fork. They're yours to take as they are, do differently or drop,
      part by part."
 3. **A comment** is two or three lines: what our fix does, then "We fixed this in our fork: <link to the

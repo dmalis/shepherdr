@@ -404,9 +404,9 @@ page or in chat, on the draft.
   1. `pending`: every `found` run first sweeps the feedback record (`herdr-task feedback --list --all --json`,
      read-only) and makes a pending handoff for each approved new issue in our repo that is `posted` and has none
      yet, however it got there: a post with an answer, or one found later by reconciling. The filing Assistant runs
-     `fork/bin/found` right after it files; our daily not-filed run runs it too, so a post found by reconciling is
-     handed off within a day. (The closed loop, #133, removed the daily not-filed run: this slice needs another
-     daily caller, such as the "Upstream sync" schedule's run.) A comment on an existing issue makes no handoff.
+     `fork/bin/found` right after it files, and a daily caller runs it too, so a post found by reconciling is
+     handed off within a day. That caller was the daily not-filed run, which the closed loop (#133) removed: this
+     slice picks another, such as the "Upstream sync" schedule's run. A comment on an existing issue makes no handoff.
   2. `sent`: `found` sends this repo's space's Assistant the issue's link with `herdr-task tell-assistant`. A send
      that fails or times out stays `pending`; every `found` run sends each pending one again.
   3. `taken`: the receiving Assistant runs `fork/bin/found took <issue> --task <task>` once the work is in a task, a
