@@ -62,6 +62,16 @@ test('the generic grouping: 3 stay, a 4th makes one card where the newest came u
   const after = groupCards(mk(4).map((c) => (c.key === 'k:0' ? { ...c, after: (m: { text?: string }) => m.text === 'news' } : c)), snap, th, [kind], () => mk(4))
   expect(after[1]!.after!({ at: 50, text: 'news' } as never)).toBe(true)
   expect(after[1]!.after!({ at: 50, text: 'else' } as never)).toBe(false)
+  // an undated one sits at the chat's end, and so does its group
+  const undated = groupCards(mk(4).map((c) => (c.key === 'k:2' ? { ...c, at: undefined } : c)), snap, th, [kind], () => mk(4))
+  expect(undated.find((c) => c.key === 'many')!.at).toBeUndefined()
+})
+
+test('the sheet closes on any move away: another place, pane, task or file in Changes (a link inside it)', () => {
+  const s = src('./card-group.tsx')
+  for (const f of ['u.at', 'u.pane', 'u.task', 'u.art', 'u.scr?.key', 'u.diff?.src', 'u.diff?.file']) expect(s).toContain(f)
+  // with no card left to focus, focus goes to the message box (not on a phone)
+  expect(s).toContain('if (!getState().ui.phone) focusBox()')
 })
 
 test('reviews waiting for you: 3 stay single in a chat, a 4th makes one card; a merging one stays its own', () => {

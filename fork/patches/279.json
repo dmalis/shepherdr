@@ -8,6 +8,7 @@
     "web/plugins/tasks/groups.ts",
     "web/plugins/tasks/client.tsx",
     "web/plugins/triage/client.tsx",
+    "web/plugins/triage/triage.css",
     "web/shared/attention.ts",
     "web/demo/data.ts",
     "web/demo/serve.ts",
@@ -15,6 +16,7 @@
   ],
   "tests": [
     "web/src/card-group.test.tsx",
-    "web/plugins/triage/triage.test.tsx"
+    "web/plugins/triage/triage.test.tsx",
+    "web/demo/cards.test.ts"
   ]
 }

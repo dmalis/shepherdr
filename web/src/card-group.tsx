@@ -11,7 +11,8 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { GROUP_OVER } from '@shared/card-group.ts'
 import type { Message, Snapshot } from '@shared/types.ts'
-import { useSnap, useUI, type Thread, type UI } from './kernel.ts'
+import { focusBox } from './commands.ts'
+import { getState, useSnap, useUI, type Thread, type UI } from './kernel.ts'
 import { focusables } from './layer-focus.ts'
 import { openDialog } from './overlay.tsx'
 import { Btn } from './ui.tsx'
@@ -61,19 +62,22 @@ export function peekWords(names: string[]): string {
 }
 
 /** the sheet closed after its one card went (answers left GROUP_OVER or fewer, each its own card again): focus goes to
- *  the first of them */
+ *  the first of them, or with none left, to the message box */
 function focusLeft(opener: Element | null, single?: string) {
-  if (!single) return
   setTimeout(() => {
     if (opener?.isConnected) return
-    const card = document.querySelector<HTMLElement>(single)
-    if (card) (focusables(card)[0] ?? card).focus()
+    const card = single ? document.querySelector<HTMLElement>(single) : null
+    if (card) return (focusables(card)[0] ?? card).focus()
+    // none left (each answered): the chat's message box, the next thing to do there, as a chat card's Chat about
+    // this does (WAI-ARIA's dialog pattern: a logical place when the opener is gone). Not on a phone, where it would
+    // raise the keyboard nobody asked for
+    if (!getState().ui.phone) focusBox()
   })
 }
 
 /** what the sheet's place is: a change of it (a card's own link opened a task, a screen or a file) closes the sheet, as
  *  a tap in an iOS stack opens its app and the stack goes */
-const where = (u: UI) => [u.at, u.pane, u.task, u.max, u.art, u.scr?.key, u.settings?.sec].join('\n')
+const where = (u: UI) => [u.at, u.pane, u.task, u.max, u.art, u.scr?.key, u.settings?.sec, u.diff?.src, u.diff?.file].join('\n')
 
 /** The sheet: its words, an optional bulk action, then each card as it is in the chat, one under the other, oldest
  *  first. Once one is answered and leaves, focus goes on to the card now in its place (the next one), as a mail app
@@ -160,8 +164,8 @@ export function groupCards(cards: ChatCardOf[], snap: Snapshot, thread: Thread, 
   for (const kind of kinds) {
     const run = ofKind(out, snap, kind)
     if (run.length <= GROUP_OVER) continue
-    const times = run.map((c) => c.at).filter((x): x is number => x !== undefined)
-    const at = times.length ? Math.max(...times) : undefined
+    // where its latest member was: an undated one is at the chat's end, so the group is too
+    const at = run.some((c) => c.at === undefined) ? undefined : Math.max(...run.map((c) => c.at!))
     const one: ChatCardOf = {
       key: kind.id,
       ...(at !== undefined ? { at } : {}),
