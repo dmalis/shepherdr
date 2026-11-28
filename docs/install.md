@@ -139,7 +139,7 @@ lists the hosts it could try, and tries each once only with `--go`.
 ~/.config/shepherdr/          settings.json, model-picks.json
 ~/.local/share/shepherdr/     tasks/, artifacts/, secrets/ (owner-only), worktrees/, and Shepherdr's own code
 ~/.local/state/shepherdr/     service/ (its token and log), browser/ (the agents' sign-ins), secret-drop/
-~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr)
+~/.cache/shepherdr/           safe to delete (macOS: ~/Library/Caches/shepherdr), tmp/ (tasks' temp folders)
 ```
 
 `SHEPHERDR_HOME=<folder>` puts all four under `<folder>/{config,data,state,cache}`. Otherwise `XDG_CONFIG_HOME`,
@@ -147,6 +147,15 @@ lists the hosts it could try, and tries each once only with `--go`.
 them into the service's unit. The unit also sets `HC_SESSION=shepherdr`, so the service's agents run in Shepherdr's
 own herdr-core session; `shepherdr doctor` says when a unit lacks it, and `shepherdr update` writes it. Task worktrees go to `~/.local/share/shepherdr/worktrees` unless `tasks.worktree_root`
 in the settings file names another folder.
+
+Each task gets a temp folder of its own, `~/.cache/shepherdr/tmp/<task>` (macOS: `~/Library/Caches/shepherdr/tmp/<task>`),
+made when its agent starts. Its agent and the task's terminal in the web app get it as `TMPDIR`, `TMP` and `TEMP`, so
+what its tests, builds and tools leave there (pytest, Node, Python's tempfile, mktemp, Go and Rust all use `TMPDIR`)
+never fills the machine's `/tmp`. It is outside the worktree, so nothing in it shows in git. Shepherdr deletes it once
+the task is Done and its agents have ended, and at once when the task is removed. The scheduler also removes, when it
+starts and every 10 minutes after, any folder there whose task is Done, is gone, or that no task has recorded for an
+hour, such as one a crash left behind. Helper agents a task's agent starts itself with `hc run` (its reviewer) start in
+herdr-core's own environment, so they use the machine's temp folder.
 
 ## Uninstall
 

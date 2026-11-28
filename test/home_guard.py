@@ -7,8 +7,10 @@ or its cards. herdr-task itself refuses hc and herdr-app on a changed HOME (base
 
 Then a Python audit hook fails a test at once, with what it touched, when it opens a file in the real home's Herdr
 folders, or starts a program with the real HOME (or none, which falls back to it)."""
+import atexit
 import os
 import pwd
+import shutil
 import sys
 import tempfile
 
@@ -72,6 +74,57 @@ def writes_bin(path):
     return _inside(os.path.join(os.path.realpath(d), base), REAL_BIN) or _inside(d, REAL_BIN)
 
 
+# ---- the run's own temp folder (dmalis/shepherdr#216) ------------------------------------------------------------
+# Like pytest's basetemp or Bazel's TEST_TMPDIR: one folder per run, removed at its end. Then the shared temp folder is
+# checked: a shep-* entry the run added there (a test that wrote past TMPDIR) fails it, by name. Entries that were
+# there before, and other runs' own folders (RUN_FOLDERS), never count.
+RUN_PREFIX = "shep-run-"
+# what a run's own setup makes, in any version (test/preload.ts's RUN_FOLDERS): another run's, never a test's leftover
+RUN_FOLDERS = (RUN_PREFIX, "shep-test-home-", "shep-data-", "shep-settings-", "shep-app-", "shep-hc-")
+TEMP_VARS = ("TMPDIR", "TMP", "TEMP")
+
+
+def shep_entries(folder):
+    """The shep-* names in a temp folder, other runs' own folders (RUN_FOLDERS) left out."""
+    try:
+        return {n for n in os.listdir(folder) if n.startswith("shep-") and not n.startswith(RUN_FOLDERS)}
+    except OSError:
+        return set()
+
+
+def start_run():
+    """Makes this run's folder (HOME and TMPDIR inside it) and removes it when the run ends. Returns it."""
+    shared = tempfile.gettempdir()
+    before = shep_entries(shared)
+    run = tempfile.mkdtemp(prefix=RUN_PREFIX)
+    home, tmp = os.path.join(run, "home"), os.path.join(run, "tmp")
+    os.mkdir(home, 0o700)
+    os.mkdir(tmp, 0o700)
+    os.environ["HOME"] = home
+    for v in TEMP_VARS:
+        os.environ[v] = tmp
+    tempfile.tempdir = None  # gettempdir() reads TMPDIR again
+    atexit.register(end_run, run, shared, before, os.getpid())
+    return run
+
+
+def end_run(run, shared, before, pid, exit=os._exit):
+    """At the run's end (only in the process that made it): its folder goes, then a shep-* entry it left in the
+    shared temp folder fails the run."""
+    if os.getpid() != pid:
+        return None
+    shutil.rmtree(run, ignore_errors=True)
+    left = sorted(shep_entries(shared) - before)
+    if left:
+        sys.stdout.flush()
+        sys.stderr.write(f"\nThis test run left {len(left)} folder(s) in {shared}: {', '.join(left[:10])}"
+                         f"{' …' if len(left) > 10 else ''}. Make them under the run's own TMPDIR, or remove them when "
+                         "the test ends (test/home_guard.py).\n")
+        sys.stderr.flush()
+        exit(1)
+    return left
+
+
 def _audit(event, args):
     if event == "open":
         if touches(args[0]):
@@ -99,7 +152,11 @@ def _audit(event, args):
 for k in DROP:
     os.environ.pop(k, None)
 if os.path.realpath(os.environ.get("HOME") or REAL) == REAL:
-    os.environ["HOME"] = tempfile.mkdtemp(prefix="shep-test-home-")
+    # dmalis/shepherdr#216: the run's throwaway HOME and its temp folder (TMPDIR, TMP, TEMP) in one folder of its
+    # own, removed when the run ends, so the many folders its tests make never pile up in the shared temp folder
+    # (they once filled a tmpfs's inodes). The programs a test starts inherit both. A run that is killed leaves this
+    # one folder; inside a task it goes with the task's own temp folder.
+    start_run()
 # git commits in throwaway repos need a name; the real ~/.gitconfig is out of reach now
 for k, v in (("GIT_AUTHOR_NAME", "Test"), ("GIT_AUTHOR_EMAIL", "test@example.invalid"),
              ("GIT_COMMITTER_NAME", "Test"), ("GIT_COMMITTER_EMAIL", "test@example.invalid")):

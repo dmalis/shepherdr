@@ -468,7 +468,7 @@ const pickFrom = (v: any) => (v?.agent ? { agent: String(v.agent), model: v.mode
 function shellAt(key: string): ShellAt | null {
   if (key.startsWith("sh:task:")) {
     const id = key.slice(8), r = (model.rows as any[]).find((x) => (x.machine ? `${x.machine}:${x.ref}` : x.ref) === id);
-    return r ? { folder: r.worktree ?? r.folder, machine: r.machine ?? null } : null;
+    return r ? { folder: r.worktree ?? r.folder, machine: r.machine ?? null, tmp: r.tmp ?? null } : null;
   }
   const s = (model.spaces as any[]).find((x) => x.id === key.slice(3));
   return s?.folder ? { folder: s.folder, machine: s.machine ?? null } : null;

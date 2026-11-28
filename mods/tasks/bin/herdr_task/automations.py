@@ -965,6 +965,12 @@ def one_pass(report):
         except Exception as e:  # never stops the scheduler
             print(f"{time.strftime('%H:%M:%S')} ending done agents: {e}", flush=True)
         try:
+            # dmalis/shepherdr#216: task temp folders nothing needs now, a crashed one's too (first round, then every 10 min)
+            from .task_tmp import sweep
+            sweep(report)
+        except Exception as e:  # never stops the scheduler
+            print(f"{time.strftime('%H:%M:%S')} task temp folders: {e}", flush=True)
+        try:
             lost_logs_pass(report)
         except Exception as e:  # never stops the scheduler
             print(f"{time.strftime('%H:%M:%S')} lost logs: {e}", flush=True)
@@ -1040,6 +1046,8 @@ def cmd_scheduler(args):
             print(f"{time.strftime('%H:%M:%S')} home: {m}: {e}", flush=True)
         for f in report.get("ended") or []:
             print(f"{time.strftime('%H:%M:%S')} {f['task']} is done: ended {', '.join(f['terminals'])}", flush=True)
+        if report.get("tmp_removed"):
+            print(f"{time.strftime('%H:%M:%S')} removed task temp folders: {', '.join(report['tmp_removed'])}", flush=True)
         if (report.get("memory_guard") or {}).get("alert"):
             print(f"{time.strftime('%H:%M:%S')} memory guard: {report['memory_guard']['alert']}", flush=True)
         if args.once:

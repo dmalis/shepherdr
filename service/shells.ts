@@ -11,6 +11,17 @@ export interface ShellAt {
   /** the folder it starts in, and the machine (null: this one) */
   folder: string;
   machine: string | null;
+  /** a task's own temp folder there (herdr-task's task_tmp.py), its shell's TMPDIR, TMP and TEMP while it exists */
+  tmp?: string | null;
+}
+
+/** That machine's own shell (hc gives every program SHELL), with the task's temp folder as TMPDIR, TMP and TEMP when
+ *  it is still there: hc run has no way to set a variable, so a short sh sets them first (dmalis/shepherdr#216). */
+export const TMP_SHELL = 'if [ -d "$1" ]; then TMPDIR=$1 TMP=$1 TEMP=$1; export TMPDIR TMP TEMP; fi; exec "${SHELL:-/bin/sh}"';
+
+/** What hc runs for a shell: nothing (its own shell), or TMP_SHELL with the task's temp folder. */
+export function shellArgv(at: ShellAt): string[] {
+  return at.tmp ? ["--", "sh", "-c", TMP_SHELL, "herdr-shell", at.tmp] : [];
 }
 
 /** the live shell kept for a key ("sh:<space id>" or "sh:task:<task id>"), if any */
@@ -29,7 +40,7 @@ export function ensureShell(hub: Hub, key: string, at: ShellAt): Promise<string>
   if (was) return was;
   const p = (async () => {
     // with no program, hc starts that machine's own shell; it outlives the page and is nobody's child
-    const r = await hc(["run", "--bg", "--json", "--no-parent", ...(at.machine ? ["--on", at.machine] : []), "--cwd", at.folder, "--label", `${SHELL_LABEL}=${key}`]);
+    const r = await hc(["run", "--bg", "--json", "--no-parent", ...(at.machine ? ["--on", at.machine] : []), "--cwd", at.folder, "--label", `${SHELL_LABEL}=${key}`, ...shellArgv(at)]);
     let out: any = null;
     try { out = JSON.parse(r.stdout); } catch {}
     const address: string | undefined = out?.address ?? out?.terminal?.address ?? out?.terminal;

@@ -1,0 +1,27 @@
+{
+  "issue": 216,
+  "name": "Per-task temp folders, and tests that clean up",
+  "files": [
+    "mods/tasks/bin/herdr_task/task_tmp.py",
+    "mods/tasks/bin/herdr_task/launch.py",
+    "mods/tasks/bin/herdr_task/tick.py",
+    "mods/tasks/bin/herdr_task/commands.py",
+    "mods/tasks/bin/herdr_task/automations.py",
+    "service/shells.ts",
+    "service/main.ts",
+    "service/model.ts",
+    "test/preload.ts",
+    "test/home_guard.py",
+    "docs/install.md",
+    "docs/develop.md",
+    "docs/agents-and-terms.md",
+    "test/test_task_tmp.py",
+    "service/shells-tmp.test.ts"
+  ],
+  "tests": [
+    "test/test_task_tmp.py",
+    "service/shells-tmp.test.ts",
+    "test/test_herdr_task.py::CleanEnv",
+    "test/test_herdr_task.py::DetachedActions"
+  ]
+}

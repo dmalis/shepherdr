@@ -21,6 +21,7 @@ from .agents import detail, LINE_MAX, live_agents, ROW_MAX, SUMMARY_MAX
 from .github import finish, remote_of
 from .guard import guard_argv
 from .browsers import browser_env, browser_line, browser_path, desktop_path
+from . import task_tmp
 
 
 # ---- an agent's own herdr-task commands never ask -------------------------------------------
@@ -1089,7 +1090,8 @@ def launch(s, task, argv, space, message=None, parent=None, resume=None, role=No
     # HERDR_BROWSER_TASK and HERDR_BROWSER_SPACE: whose tab herdr-browser drives in which space's browser, and whose
     # desktop herdr-desktop uses (3.2; HERD-57), for it and its children. guard_argv: nothing it runs can take down
     # the live session it runs in (SHEP-323).
-    env = [*browser_env(key, bare(space)), f"HERDR_TASK_CODEX_AUTO_REVIEW={int(auto_review)}"]
+    # TMPDIR, TMP and TEMP: the task's own temp folder, removed with the task (task_tmp.py, dmalis/shepherdr#216).
+    env = [*browser_env(key, bare(space)), f"HERDR_TASK_CODEX_AUTO_REVIEW={int(auto_review)}", *task_tmp.env_for(task_tmp.ensure(s, task))]
     r = run(["hc", "run", "--bg", "--json", "--keep", "--cwd", folder_for(s, task), "--name", name,
              *labels, *rel, "--", *low_priority(clean_env(["env", *env, *in_shell(guard_argv(cmd))]), name)])
     try:
