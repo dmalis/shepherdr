@@ -1,0 +1,18 @@
+{
+  "issue": 144,
+  "name": "phone: more room while reading a chat",
+  "files": [
+    "web/plugins/reading/client.tsx",
+    "web/plugins/reading/reading.ts",
+    "web/plugins/reading/reading.css",
+    "web/plugins/typing/typing.css",
+    "web/plugins.json",
+    "web/demo/reading-check.ts",
+    ".github/workflows/check.yml",
+    "docs/plugins.md"
+  ],
+  "tests": [
+    "web/plugins/reading/reading.test.ts",
+    "web/plugins/typing/typing.test.ts"
+  ]
+}
