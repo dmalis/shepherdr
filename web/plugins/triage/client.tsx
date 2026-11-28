@@ -22,15 +22,17 @@ export const PAGE = 'Triage'
 
 const set = (place: string, key: string, value: unknown) => tryAct({ type: 'config', place, key: `triage.${key}`, value })
 
-const LEVELS: [TriageKeys['level'], string][] = [['off', 'Off'], ['score', 'Score only']]
+const LEVELS: [TriageKeys['level'], string][] = [['off', 'Off'], ['score', 'Score only'], ['fix', 'Score and fix']]
 const FROM: [number, string][] = [[3, '3 and up'], [4, '4 and up'], [5, 'Only 5']]
 const PER_DAY = ['1', '2', '3', '5', '10'] as const
 
 /** what the level does, in a sentence under it */
 const levelWords = (lv: TriageKeys['level'], repo: string | null) =>
   lv === 'off'
-    ? 'Triage reads nothing here. Score and fix comes in a later step.'
-    : `Every hour Triage reads new issues${repo ? ` in ${repo}` : ''}, scores each from 1 to 5 and labels it. It changes no code yet.`
+    ? 'Triage reads nothing here.'
+    : lv === 'score'
+      ? `Every hour Triage reads new issues${repo ? ` in ${repo}` : ''}, scores each from 1 to 5 and labels it. It changes no code.`
+      : `Every hour Triage scores new issues${repo ? ` in ${repo}` : ''}, then starts a fix, one at a time, for an issue you mark ready or one of its own findings scored high enough.`
 
 /** the schedule as the Schedules page lists it (its next run, its last) */
 const scheduleIn = (snap: Snapshot, id: string): Automation | undefined => Object.values(snap.automations ?? {}).flat().find((a) => a.id === id)
@@ -99,7 +101,7 @@ export function TriageSettings({ place }: { place: string }) {
       {why && <p className="tri-why" role="status"><I n="warn" />{why}</p>}
       {repo && lv.level !== 'off' && <ScheduleRow snap={snap} folder={repo.folder} />}
       <div className="lab">Fixes</div>
-      <p className="hint">Used once Score and fix comes: Triage then starts a fix for each issue scored this high, a few a day.</p>
+      <p className="hint">At Score and fix, Triage marks its own findings scored this high ready and fixes them, up to this many a day. A fix that stops or fails waits for you; it never starts again by itself.</p>
       <SRow label={<>Fix from<Own place={at} own={own('fix_from')} k="triage.fix_from" /></>} wrap>
         <Seg label="Fix from" values={FROM.map((x) => x[1])} value={FROM.find((x) => x[0] === lv.fix_from)?.[1] ?? FROM[1]![1]} onChange={(w) => void set(at, 'fix_from', FROM.find((x) => x[1] === w)![0])} />
       </SRow>

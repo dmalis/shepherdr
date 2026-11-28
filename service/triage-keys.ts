@@ -6,16 +6,15 @@
 // the settings file only.
 import { repoLayer } from "./settings.ts";
 
-export type TriageKeys = { level: "off" | "score"; fix_from: number; fixes_per_day: number; ask_merge: boolean };
+export type TriageKeys = { level: "off" | "score" | "fix"; fix_from: number; fixes_per_day: number; ask_merge: boolean };
 export const TRIAGE_DEFAULTS: TriageKeys = { level: "off", fix_from: 4, fixes_per_day: 3, ask_merge: true };
 export const TRIAGE_KEYS = Object.keys(TRIAGE_DEFAULTS) as (keyof TriageKeys)[];
-const LEVELS = ["off", "score"];
+const LEVELS = ["off", "score", "fix"];
 
 /** a key's value, checked: herdr-task's value_of. Throws the words the page shows. */
 export function triageValue(key: string, v: unknown): TriageKeys[keyof TriageKeys] {
   if (key === "level") {
-    if (v === "fix") throw new Error("Score and fix comes in a later step of Triage: for now a repo is Off or Score only.");
-    if (typeof v !== "string" || !LEVELS.includes(v)) throw new Error("Triage is Off or Score only.");
+    if (typeof v !== "string" || !LEVELS.includes(v)) throw new Error("Triage is Off, Score only or Score and fix.");
     return v as TriageKeys["level"];
   }
   if (key === "fix_from" || key === "fixes_per_day") {
@@ -34,7 +33,7 @@ export function triageValue(key: string, v: unknown): TriageKeys[keyof TriageKey
  *  so the page shows what Triage does; undefined: it doesn't check (unset). The page itself saves only strict values. */
 export function triageRead(key: string, v: unknown): TriageKeys[keyof TriageKeys] | undefined {
   const s = typeof v === "string" ? v.trim().toLowerCase() : v;
-  if (key === "level") return s === "off" || s === "score" ? s : undefined;
+  if (key === "level") return s === "off" || s === "score" || s === "fix" ? s : undefined;
   if (key === "fix_from" || key === "fixes_per_day") {
     const n = typeof s === "number" ? s : typeof s === "string" && /^[+-]?\d+$/.test(s) ? Number(s) : NaN;
     const [lo, hi] = key === "fix_from" ? [3, 5] : [1, 10];

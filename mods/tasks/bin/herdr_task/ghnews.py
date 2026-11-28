@@ -227,6 +227,8 @@ def pr_deliver(s, t, report):
     n = pr.get("news")
     if not n:
         return
+    if ((t.get("triage_fix") or {}) if isinstance(t.get("triage_fix"), dict) else {}).get("blocked"):
+        return  # dmalis/shepherdr#235: a blocked Triage fix is the person's: nothing goes back to its agent
     if t["state"] != "ready" or n.get("since") != t.get("ready_at") or now() - (n.get("at") or 0) > NOTICE_KEEP_MS:
         pr.pop("news")
         s.dirty = True

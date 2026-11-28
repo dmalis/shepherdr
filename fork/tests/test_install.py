@@ -24,6 +24,8 @@ from installworld import World, git, store_key  # noqa: E402
 from sync import gate, install, public, state  # noqa: E402
 from sync.state import Refused  # noqa: E402
 
+real_probe = install.probe
+
 
 class Baseline(World):
     def test_the_first_run_captures_what_is_installed(self):
@@ -142,6 +144,50 @@ class BeforeAnythingMoves(World):
             state.record_rehearsal(st, other, install.pipeline_hash(self.wt, other))
         self.assertNotEqual(install.pipeline_hash(self.wt, other), install.pipeline_hash(self.wt, self.C))
         self.assertEqual(self.refused().fields["gate"], "rehearsal")
+
+    def test_a_paused_triage_holds_an_install_that_brings_its_fix(self):
+        # dmalis/shepherdr#235: Triage's record names fix PR #77; a commit between the baseline and C merged it
+        with open(os.path.join(self.store, ".triage.json"), "w") as f:
+            json.dump({"fixes": {"dmalis/shepherdr#5": {"pr": 77, "folder": "/x/repo"}}}, f)
+        real = install.git
+
+        def logged(repo, *args, **kw):
+            if args[:1] == ("log",):
+                return True, "Fix the quote (#77)\nMerge pull request #12 from x/y", ""
+            return real(repo, *args, **kw)
+        asked = []
+        with mock.patch.object(install, "git", logged), \
+                mock.patch.object(install, "probe", lambda s, what, *a: asked.append((what, a)) or {"paused": {"/x/repo": True}}
+                                  if what == "triage" else real_probe(s, what, *a)):
+            e = self.refused()
+        self.assertEqual((e.fields["gate"], e.fields["blocker"], e.fields["prs"]), ("triage", "triage-paused", [77]))
+        self.assertEqual(asked, [("triage", ("/x/repo",))])
+        # resumed, it installs; the pause unreadable, it holds
+        with mock.patch.object(install, "git", logged), \
+                mock.patch.object(install, "probe", lambda s, what, *a: None if what == "triage" else real_probe(s, what, *a)):
+            self.assertEqual(self.refused().fields["gate"], "triage")
+        with mock.patch.object(install, "git", logged), \
+                mock.patch.object(install, "probe", lambda s, what, *a: {"paused": {"/x/repo": False}} if what == "triage" else real_probe(s, what, *a)):
+            self.set(plan=["ok"])
+            self.assertEqual(self.install()["update"], "ok")
+
+    def test_the_triage_probe_runs_on_the_installed_herdr_task(self):
+        # the names the probe relies on (triage.schedule_of, paused, plugin_off, PLUGIN), on this checkout's herdr-task
+        class S:
+            tasks_bin = os.path.join(ROOT, "mods", "tasks", "bin")
+        gone = os.path.join(self.tmp, "no-such-repo")
+        self.assertEqual(install.probe(S(), "triage", gone), {"paused": {gone: False}})
+
+    def test_triage_s_record_unreadable_holds_and_a_fix_not_in_the_range_doesnt(self):
+        with open(os.path.join(self.store, ".triage.json"), "w") as f:
+            f.write("{not json")
+        self.assertEqual(self.refused().fields["blocker"], "triage-paused")
+        with open(os.path.join(self.store, ".triage.json"), "w") as f:
+            json.dump({"fixes": {"dmalis/shepherdr#5": {"pr": 77, "folder": "/x/repo"}}}, f)
+        with mock.patch.object(install, "probe", lambda s, what, *a: self.fail("no Triage fix here: nothing asked")
+                               if what == "triage" else real_probe(s, what, *a)):
+            self.set(plan=["ok"])
+            self.assertEqual(self.install()["update"], "ok")
 
     def test_a_quarantined_candidate(self):
         with state.locked(self.p) as st:

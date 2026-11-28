@@ -6,7 +6,7 @@ import { setTriage, TRIAGE_DEFAULTS, triageConfig, triageOf, triageRead, triageV
 
 test("each key takes only what herdr-task takes", () => {
   expect(triageValue("level", "score")).toBe("score");
-  expect(() => triageValue("level", "fix")).toThrow(/later step/);
+  expect(triageValue("level", "fix")).toBe("fix"); // Score and fix (phase 4)
   expect(() => triageValue("level", "on")).toThrow();
   expect(triageValue("fix_from", 5)).toBe(5);
   for (const v of [2, 6, 4.5, "4"]) expect(() => triageValue("fix_from", v)).toThrow();
@@ -35,7 +35,7 @@ test("saving: the level only for one repo, only this machine's, and Reset takes 
   expect(next.everywhere.triage).toEqual({ ask_merge: true });
   expect(() => setTriage(next, "all", "triage.level", "score")).toThrow(/one repo at a time/);
   expect(() => setTriage(next, "repo:vm-b:/s", "triage.level", "score")).toThrow(/this machine/);
-  expect(() => setTriage(next, "repo:/r", "triage.level", "fix")).toThrow();
+  expect(() => setTriage(next, "repo:/r", "triage.level", "everything")).toThrow();
   expect(() => setTriage(next, "repo:/r", "triage.rules", [])).toThrow();
   expect(() => setTriage(next, "sp1", "triage.fix_from", 4)).toThrow();
   expect(next.repos["/r"].triage).toEqual({ level: "score" });

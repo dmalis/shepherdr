@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import after_merge, brief_rounds, cutoff, ghbudget, proof_hold, sandbox, stack, urgent
+from . import after_merge, brief_rounds, cutoff, ghbudget, proof_hold, sandbox, stack, triage_fix, urgent
 from .base import Fail, git, guard, now, own_core_check, run, STORE, stop_note, VERSION
 from .settings import (
     agent_argv, agent_key, bare, check_automatic_agent, merge_policy, review_limits, set_opts, set_task, settings_block, settings_for, space_base,
@@ -130,6 +130,9 @@ def cmd_add(args):
         take_pr(s, t, getattr(args, "pr", None))
         detached_refusal(s, t)
         set_notes(t, args)
+        from .triage_fix import adding
+        if adding():
+            t["triage_fix"] = dict(adding())  # dmalis/shepherdr#235: a fix Triage adds, linked in this same write
         urgent.mark(s, t, getattr(args, "urgent", None))  # dmalis/shepherdr#119
         if args.after:
             set_after(s, t, *parse_after(s, args.after))
@@ -1496,8 +1499,12 @@ def finalize(s, t):
             if policy == "auto":
                 err = merge_now(s, t)
                 if err and not merge_waits(err):
-                    # step 37: a merge that fails is its agent's to fix; it is the one saying ready now
+                    from .triage_fix import merge_failed as triage_blocked
                     note_merge_failed(t, err)
+                    if triage_blocked(s, t, err):
+                        # dmalis/shepherdr#235: a Triage fix's failed merge is blocked: the person's, never retried
+                        return f"{s.name(t)} is ready, but merging it failed: {err} Triage blocked it for the person; stop here."
+                    # step 37: a merge that fails is its agent's to fix; it is the one saying ready now
                     back_to_work(s, t, f"its merge failed: {err}", f"Fixing: {err}")
                     return (f"{s.name(t)} {READY_BUT} merging it failed: {err} Fix it (a conflict: rebase onto "
                             f"{t.get('base') or 'main'}; failing checks: find out why), commit, then run ready again.")
@@ -2061,7 +2068,8 @@ def cmd_reply(args):
 
 def merge_waits(err):
     """A merge that only waits (checks running, an approval, GitHub's queue) or couldn't be asked just now: no failure."""
-    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP) or str(err).startswith("Couldn't reach") \
+    from .triage_fix import ASKS, PAUSED
+    return err in (IN_QUEUE, CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP, PAUSED, ASKS) or str(err).startswith("Couldn't reach") \
         or ghbudget.limited(err)  # dmalis/shepherdr#201: GitHub's request limit: it merges once it resets
 
 
@@ -2075,6 +2083,9 @@ def merge_failed(s, t, why, args=None):
     """Hands a failed merge to the task's agent (see above). Returns the agent told, or None when none could be
     (then it needs the person: its attention says why)."""
     note_merge_failed(t, why)
+    from .triage_fix import merge_failed as triage_blocked
+    if triage_blocked(s, t, why):
+        return None  # dmalis/shepherdr#235: a Triage fix whose merge failed is blocked, never handed back to its agent
     main, wt, br, base = s.loc["folder"], t.get("worktree"), t.get("branch"), t.get("base") or "main"
     c = collision(s, t, fetch=True) if str(why).startswith("It conflicts") else None
     if c:
@@ -2133,7 +2144,11 @@ def merge_now(s, t, accept=False):
 
 
 def _merge_now(s, t, accept=False):
+    from .triage_fix import merge_hold
     n, repo = str(t["pr"]["number"]), t["pr"]["repo"]
+    held = merge_hold(s, t, accept=accept)  # dmalis/shepherdr#235: a Triage fix waits while Triage is paused, Accept included
+    if held:
+        return held
     until = ghbudget.held(["pr", "merge"])
     if until:
         return ghbudget.wait_words(until)  # nothing asked of GitHub till the budget a merge spends resets
@@ -2157,6 +2172,9 @@ def _merge_now(s, t, accept=False):
             return said
         if mergeable_waits(s, t, v):  # dmalis/shepherdr#97: GitHub still works out whether the commit pushed merges
             return GITHUB_CATCHING_UP
+        held = merge_hold(s, t, v, accept)  # dmalis/shepherdr#235: merge=ask merges only on the Accept, at its commit
+        if held:
+            return held
         # only the base branch's required checks hold a merge (#1221); merge "on its own" (also a merge by hand) none
         # beyond them
         on_its_own = (t.get("auto_merge") or merge_policy(s, t)) == "auto"
@@ -2366,6 +2384,9 @@ def cmd_accept(args):
             elif error in (CHECKS_RUNNING, WAITS_APPROVAL, GITHUB_CATCHING_UP):
                 # Accepted: it merges by itself once they pass, or once it's approved (Merging).
                 t["auto_merge"], how, error = "checks", "approval" if error == WAITS_APPROVAL else "checks", None
+            elif error == triage_fix.PAUSED:
+                # dmalis/shepherdr#235: accepted while Triage is paused: it merges on Resume if its checks still pass
+                t["auto_merge"], how, error = "checks", "paused", None
             elif error and ghbudget.limited(error):
                 # dmalis/shepherdr#201: accepted, it merges by itself once GitHub's request limit resets
                 t["auto_merge"] = t.get("auto_merge") or "checks"
@@ -2398,6 +2419,7 @@ def cmd_accept(args):
             "github": f"{s.name(t)} accepted: pull request #{(t.get('pr') or {}).get('number')} " +
                       ("was closed on GitHub, so nothing merged; done." if t.get("closed_unmerged") else "merged; done."),
             "checks": f"{s.name(t)} accepted: it merges once its checks pass.",
+            "paused": f"{s.name(t)} accepted: Triage is paused for this repo, so it merges once Triage resumes and its checks pass.",
             "approval": f"{s.name(t)} accepted: it merges once it's approved.",
             "limit": f"{s.name(t)} accepted: {(t.get('pr') or {}).get('wait')}, by itself.",
             "queue": f"{s.name(t)} accepted: pull request #{(t.get('pr') or {}).get('number')} is in GitHub's merge queue; done once GitHub merges it.",

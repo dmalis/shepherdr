@@ -1616,7 +1616,7 @@ export interface TriageView {
 
 /** Triage's keys at one level (service/triage-keys.ts) */
 export interface TriageKeys {
-  level: 'off' | 'score'
+  level: 'off' | 'score' | 'fix'
   fix_from: number
   fixes_per_day: number
   ask_merge: boolean

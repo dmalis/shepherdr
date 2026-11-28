@@ -5,7 +5,7 @@ the repo's Triage schedule scores the open `needs-triage` issues, and `act` pass
 Score only nothing starts a fix; Score and fix is a later phase and can't be switched on yet.
 
 - **The keys** (settings.json `repos[<folder>].triage`, an Everywhere default for all but the level, which each repo
-  switches on by hand): `level` (off, score), `fix_from` (3 to 5), `fixes_per_day` (1 to 10), `ask_merge`. Only the
+  switches on by hand): `level` (off, score, fix), `fix_from` (3 to 5), `fixes_per_day` (1 to 10), `ask_merge`. Only the
   person sets them: the service saves them, and `triage set` is refused in an agent's terminal. `triage.rules` and
   `triage.private_words` live only in the settings file.
 - **The schedule:** one per repo, in its checkout, "Triage". Switching a repo on from Off makes it (after the turn-on
@@ -38,7 +38,7 @@ RECORD = os.path.join(STORE, ".triage.json")
 YES = os.path.join(STORE, ".triage-yes.json")
 TITLE = "Triage"
 PLUGIN = "triage"
-LEVELS = ("off", "score")           # "fix" (Score and fix) comes in a later phase
+LEVELS = ("off", "score", "fix")    # fix: Score and fix (triage_fix.py, phase 4)
 DEFAULTS = {"level": "off", "fix_from": 4, "fixes_per_day": 3, "ask_merge": True}
 SCORES = [f"score:{n}" for n in range(1, 6)]
 AREAS = ("patch", "pipeline")
@@ -60,10 +60,8 @@ def value_of(key, v):
     """A key's value, checked and normalised, or Fail."""
     s = str(v).strip().lower() if not isinstance(v, (bool, int)) or isinstance(v, bool) else v
     if key == "level":
-        if s == "fix":
-            raise Fail("Score and fix comes in a later step of Triage: for now a repo is off or Score only.")
         if s not in LEVELS:
-            raise Fail("Triage's level is off or score (Score only).")
+            raise Fail("Triage's level is off, score (Score only) or fix (Score and fix).")
         return s
     if key in ("fix_from", "fixes_per_day"):
         try:
@@ -400,7 +398,11 @@ def publisher(d=None):
 
 def start_refusal(s, t):
     """Why a queued or scheduled run of Triage's schedule can't start now (its pause, the plugin), or None
-    (commands.begin): the check when a task is added holds again when it starts."""
+    (commands.begin): the check when a task is added holds again when it starts. A fix Triage started is checked again
+    at its launch (triage_fix.launch_refusal: the pause, the owner's `ready`, an approved hash)."""
+    if isinstance(t.get("triage_fix"), dict):
+        from .triage_fix import launch_refusal
+        return launch_refusal(s, t)
     if not t.get("automation"):
         return None
     a = next((x for x in s.data.get("automations") or [] if x.get("id") == t["automation"]), None)
@@ -455,7 +457,8 @@ def brief(folder, repo, d=None):
             "words).\n"
             f"3. Write the list as one JSON array to a file in your TMPDIR, then run `{ht} triage score <that file> "
             f"--folder {f}`. It checks each entry and applies only its own labels; it never closes, retitles or marks "
-            "anything ready. Fix what it refuses and run it again.\n"
+            "anything ready. Fix what it refuses and run it again. No issue waiting: write `[]` and run it all the same "
+            "(what follows scoring, such as starting a fix at Score and fix, is code, and runs then).\n"
             f"4. Last, run `{ht} triage digest --folder {f} --task <your task's key>`: on Monday morning it posts the "
             "week's digest in the space's chat and ends this run. Otherwise end as the lines below say (nothing to "
             "tell: --nothing).\n\n"
@@ -505,6 +508,10 @@ def ensure_schedule(folder, repo, d=None, space=None):
                 said = "resumed"
             else:
                 said = "paused (by you)" if a.get("paused") else "on"
+            new = brief(s.loc["folder"], repo, d)
+            if a.get("prompt") != new:  # an older brief (phase 2's) gets today's words
+                a["prompt"] = new
+                s.dirty = True
         else:
             every, on = parse_when("hourly")
             a = {"id": s.data.get("auto_next", 1), "title": TITLE, "prompt": brief(s.loc["folder"], repo, d),
@@ -655,6 +662,43 @@ def open_issues(repo, ctx, label=None):
     return [x for x in rows if isinstance(x, dict) and not x.get("pull_request") and isinstance(x.get("number"), int)]
 
 
+PART_OF = re.compile(r"\bPart of #(\d+)\b", re.I)
+CODE = re.compile(r"(`+)[^`]*?\1")
+
+
+def part_of(body):
+    """The issues a pull request's body names with `Part of #n`, outside its code (fork/sync/issues.py's rule: an
+    example in a code block or span isn't a link)."""
+    out, fenced = set(), False
+    for line in str(body or "").split("\n"):
+        if re.match(r"^ {0,3}(```|~~~)", line):
+            fenced = not fenced
+            continue
+        if fenced or line.startswith(("    ", "\t")):
+            continue
+        out |= {int(n) for n in PART_OF.findall(CODE.sub(" ", line))}
+    return out
+
+
+def merged_parts(repo, ctx):
+    """{issue: [merged pull requests naming it with `Part of #n`]}: work already merged for it. Such an issue is never
+    scored nor started without the owner's `ready`; the digest asks whether it's done. Unreadable: Fail."""
+    from . import triage_gh as tgh
+    r = tgh.read(["api", f"repos/{repo}/pulls?state=closed&per_page=100", "--paginate"], repo=repo, ctx=ctx)
+    if not r.ok:
+        raise Fail("GitHub couldn't list the merged pull requests: " + (r.err or r.why or "no answer")[:200])
+    try:
+        rows = tgh.pages(r.out)
+    except ValueError:
+        raise Fail("GitHub's answer couldn't be read.")
+    out = {}
+    for p in rows:
+        if isinstance(p, dict) and p.get("merged_at") and isinstance(p.get("number"), int):
+            for n in part_of(p.get("body")):
+                out.setdefault(n, []).append(p["number"])
+    return out
+
+
 def labels_of(x):
     return [str(l.get("name") if isinstance(l, dict) else l) for l in x.get("labels") or []]
 
@@ -691,8 +735,15 @@ def issues_cmd(args):
     own_ = receipts(repo)
     rows = [{"number": x["number"], "title": cut(x.get("title"), 200), "body": cut(x.get("body")),
              "author": (x.get("user") or {}).get("login"), "labels": labels_of(x), "own": str(x["number"]) in own_}
-            for x in open_issues(repo, ctx, "needs-triage") if not set(labels_of(x)) & set(SKIP)]
+            for x in to_score(repo, ctx)]
     return rows
+
+
+def to_score(repo, ctx):
+    """The open needs-triage issues the scorer gets: none it skips (later, decision…), and none a merged pull request
+    names (`Part of #n`: its work merged; the digest asks the person to close it)."""
+    done = merged_parts(repo, ctx)
+    return [x for x in open_issues(repo, ctx, "needs-triage") if not set(labels_of(x)) & set(SKIP) and x["number"] not in done]
 
 
 # ---- score -----------------------------------------------------------------------------------
@@ -789,7 +840,7 @@ def score_cmd(args):
         raise Fail(why + " Nothing scored.")
     entries = read_entries(args.file)
     ctx = ctx_for(folder, repo, d)
-    waiting = {x["number"]: x for x in open_issues(repo, ctx, "needs-triage") if not set(labels_of(x)) & set(SKIP)}
+    waiting = {x["number"]: x for x in to_score(repo, ctx)}
     refused, ok = [], []
     for e in entries:
         r = entry_refusal(e, waiting)
@@ -882,6 +933,12 @@ def act(folder, repo, numbers, d=None):
             with record() as rec2:
                 repo_rec(rec2, repo).setdefault("told", {})[str(n)] = kind
             out.append({"issue": n, "told": kind})
+    if keys(d, folder)["level"] == "fix":
+        from .triage_fix import act_fix
+        try:
+            out += act_fix(folder, repo, d)
+        except Fail as e:  # GitHub or the record unreadable: nothing starts this run
+            out.append({"fix": "nothing started", "why": str(e)[:300]})
     return out
 
 
@@ -912,8 +969,11 @@ def waiting_count(repo, r, ctx):
     except ValueError:
         raise Fail("GitHub's answer couldn't be read.")
     tag = next((l.split(":", 1)[1].strip() for l in head.split("\n") if l.lower().startswith("etag:")), None)
-    n = len([x for x in rows if isinstance(x, dict) and not x.get("pull_request") and not set(labels_of(x)) & set(SKIP)])
-    return n, tag
+    rows = [x for x in rows if isinstance(x, dict) and not x.get("pull_request") and not set(labels_of(x)) & set(SKIP)]
+    if rows:  # the ones a merged pull request names aren't scored (to_score): no run for those alone
+        done = merged_parts(repo, ctx)
+        rows = [x for x in rows if x.get("number") not in done]
+    return len(rows), tag
 
 
 def due_cmd(args):
@@ -938,13 +998,18 @@ def due_cmd(args):
     reasons = []
     due, _ = digest_due(r)
     score_due = now() - int(r.get("last_score") or 0) >= SCORE_EVERY_MS
-    if not due and not score_due:
+    fixing = keys(read_settings(), folder)["level"] == "fix"
+    if not due and not score_due and not fixing:
         print("Nothing to do.")
         return 1
     # any run reads GitHub first (a 304 costs nothing): a run never starts on a check that didn't reach it, and only a
     # read that worked clears the failure
     try:
-        n, tag = waiting_count(repo, r, ctx_for(folder, repo))
+        ctx = ctx_for(folder, repo)
+        n, tag = waiting_count(repo, r, ctx)
+        if fixing:
+            from .triage_fix import due_reasons
+            reasons += due_reasons(folder, repo, r, read_settings(), ctx)
     except Fail as e:
         check_failed(repo, str(e))
         print(f"Triage can't check: {e}")
@@ -953,7 +1018,7 @@ def due_cmd(args):
         x = repo_rec(rec, repo)
         x.pop("failing", None)
         if tag:
-            x["etag"] = {"needs-triage": tag, "count": n}
+            x.setdefault("etag", {}).update({"needs-triage": tag, "count": n})
     if due:
         reasons.append("Monday's digest")
     if score_due and n:
@@ -1007,6 +1072,11 @@ def digest_text(folder, repo, ctx, at=None):
     for n in range(5, 0, -1):
         lines += section(f"Waiting, score {n}:", [titled(x) for x in rows if has(x, f"score:{n}") and flowless(x)])
     needs = [f"{'decide' if has(x, 'decision') else 'blocked'}: {titled(x)}" for x in rows if has(x, "decision") or has(x, "blocked")]
+    from .triage_fix import digest_lines
+    needs += digest_lines(repo, rows)
+    done = merged_parts(repo, ctx)
+    lines += section("Done? Close it:", [f"{titled(x)}, named by " + ", ".join(f"#{p}" for p in sorted(done[x['number']]))
+                                         for x in rows if x["number"] in done and not has(x, "fixing")])
     n_yes = waiting_yes()
     if n_yes:
         needs.append(f"{n_yes} finding{'' if n_yes == 1 else 's'} wait{'s' if n_yes == 1 else ''} for your yes before "
