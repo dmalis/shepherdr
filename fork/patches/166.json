@@ -1,0 +1,17 @@
+{
+  "issue": 166,
+  "name": "Alerts: read whole by screen readers",
+  "files": [
+    "web/plugins/inbox/client.tsx",
+    "web/plugins/inbox/fit.ts",
+    "web/plugins/inbox/words.ts",
+    "web/plugins/inbox/inbox.css",
+    "web/plugins/inbox/inbox.test.tsx",
+    "web/src/ds.css",
+    "docs/design.md"
+  ],
+  "tests": [
+    "web/plugins/inbox/inbox.test.tsx",
+    "test/test_design.py::DesignTokens"
+  ]
+}

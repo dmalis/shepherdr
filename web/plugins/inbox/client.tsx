@@ -2,14 +2,15 @@
 // 7 days, newest first, by day. The pattern of Slack's Activity, Linear's Inbox and GitHub's notifications: unread
 // until opened or marked read (one tap on the row, or Mark all read), and read on every device at once (the service
 // keeps the list, service/inbox.ts). An alert also counts as read once its task or space is open on a screen you use.
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { definePlugin, notice, openLink, openSettings, useSnap, useUI, type UI } from '@client/kernel.ts'
 import { openMenu } from '@client/overlay.tsx'
 import { Btn, Cnt, cx, Empty, I, IB, Seg } from '@client/ui.tsx'
 import type { IconName } from '@client/icons.ts'
 import type { InboxItem, Snapshot } from '@shared/types.ts'
 import { agoShort, spaceLabel } from '@shared/view.ts'
-import { byDay, stateOf } from './words.ts'
+import { agoWords, byDay, stateOf } from './words.ts'
+import { useKindFit } from './fit.ts'
 import './inbox.css'
 import { KindTitle } from '@plugins/chat/kind.tsx'
 
@@ -92,17 +93,25 @@ function iconOf(x: InboxItem): [IconName, string] {
 /** where an alert opens: its own link, else its task or space */
 const hrefOf = (x: InboxItem) => x.url ?? (x.place ? `./?${new URLSearchParams({ place: x.place, ...(x.task ? { task: x.task } : {}) })}` : null)
 
-function Item({ x, snap, close }: { x: InboxItem; snap: Snapshot; close: () => void }) {
+/** one alert (UI 16, "Alerts read whole"): its name is its title (the task's kind, name and what happened), with
+ *  Unread first while it is; its body, place, time and status are its description, read from the words on screen,
+ *  as GitHub's notifications and Slack's Activity read theirs. Exported for its test. */
+export function Item({ x, snap, close, now }: { x: InboxItem; snap: Snapshot; close: () => void; now?: number }) {
   const read = isRead(x)
   const st = stateOf(x)
   const [icon, tone] = iconOf(x)
   const where = x.place ? spaceLabel(snap, x.place) : ''
   const href = hrefOf(x)
+  const id = useId()
+  const title = useRef<HTMLSpanElement>(null)
+  useKindFit(title, x.title)
+  const ago = agoShort(x.at, now)
   return (
     <button
       type="button"
       className={cx('inbx-it', !read && 'new')}
-      aria-label={`${read ? '' : 'Unread: '}${x.title}`}
+      aria-labelledby={`${read ? '' : `${id}u `}${id}t`}
+      aria-describedby={[x.body && `${id}b`, `${id}m`].filter(Boolean).join(' ')}
       onClick={() => {
         if (!read) void markRead([x.id]).then((ok) => ok || notice("Couldn't mark it read. Try again.", { tone: 'error' }))
         close()
@@ -111,10 +120,17 @@ function Item({ x, snap, close }: { x: InboxItem; snap: Snapshot; close: () => v
     >
       <I n={icon} c={tone} />
       <span className="n">
-        <span className="inbx-t"><KindTitle title={x.title} /></span>
-        {x.body && <span className="inbx-b">{x.body}</span>}
-        <span className="inbx-m">
-          {[where, agoShort(x.at) === 'now' ? 'now' : `${agoShort(x.at)} ago`].filter(Boolean).join(' · ')}
+        {!read && <span id={`${id}u`} className="vh">Unread:</span>}
+        <span id={`${id}t`} ref={title} className="inbx-t"><KindTitle title={x.title} /></span>
+        {x.body && <span id={`${id}b`} className="inbx-b">{x.body}</span>}
+        <span id={`${id}m`} className="inbx-m">
+          <span>
+            {where && <span className="inbx-w">{where}</span>}
+            <span className="inbx-a">
+              <span aria-hidden="true">{ago === 'now' ? 'now' : `${ago} ago`}</span>
+              <span className="vh">{agoWords(x.at, now)}</span>
+            </span>
+          </span>
           {st && <span className={cx('inbx-st', st === 'Waiting' && 'wait')}>{st === 'Waiting' ? 'Waiting on you' : 'Resolved'}</span>}
         </span>
       </span>

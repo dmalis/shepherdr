@@ -136,8 +136,10 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
 - **Measure:** in the main chat a bubble stops at 560 px, about 70 characters, whatever the chat width; in a task's
   pane bubbles and cards take 92% of its width. A page the app writes (a proof, a plan) keeps prose to about 72
   characters a line.
-- **Truncation:** one line with `…` for names in rows; a path in a header is cut at its start (`.hp.cut`). A cut value
-  always has a way to the whole: its row opens it, or the menu shows it.
+- **Truncation:** one line with `…` for names in rows; a path in a header is cut at its start (`.hp.cut`). A quiet
+  label beside a name (a task's kind) gives way whole before the name is cut, and is still read by screen readers
+  (an alert's title, `web/plugins/inbox/fit.ts`). A cut value always has a way to the whole: its row opens it, or the
+  menu shows it.
 
 ## Readability
 
@@ -251,8 +253,9 @@ Use these before making anything new; each has its states in `ds.css`.
   what to do. Offline, the last thing known stays, with when it was seen.
 - **Toasts:** one line, gone on their own, never the only record of something that needs the person. An Undo toast
   stays at least 5 seconds.
-- **Names for screen readers:** a row's name is its title; what else it shows (why, where, when) is its description,
-  not left out (Target for alerts: today their `aria-label` replaces it).
+- **Names for screen readers:** a row's name is its title; what else it shows (why, where, when) is its description
+  (`aria-describedby` on the words it shows), not left out or replaced by an `aria-label`. A short form on screen
+  (`5m ago`) is read in words (`5 minutes ago`). The alerts list's rows are the model (`web/plugins/inbox/client.tsx`).
 - **Pages the app writes** (a proof, a plan) set their own background and text colours for light and dark.
 
 ## Writing

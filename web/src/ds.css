@@ -29,7 +29,7 @@ button,[role="tab"],summary,.lk{-webkit-user-select:none;user-select:none;-webki
    Words that rest quiet lift to --fg instead, as their hover does, so they keep their contrast while held.
    Hover is only for a mouse (@media(hover:hover)), so a tap never leaves anything lit. iOS shows :active because
    the app listens for touchstart (kernel.ts) */
-:is(.ib,button.row,.tbtn,.qbtn,.agent,.tile,button.fake,.emo button,.toast .ta,.toast .tx,.ncnt,.tab,.seg button,.grp,.pt,.toend):active:not(:disabled,[aria-disabled="true"]){background-image:linear-gradient(var(--press,var(--control2)),var(--press,var(--control2)))}
+:is(.ib,button.row,.inbx-it,.tbtn,.qbtn,.agent,.tile,button.fake,.emo button,.toast .ta,.toast .tx,.ncnt,.tab,.seg button,.grp,.pt,.toend):active:not(:disabled,[aria-disabled="true"]){background-image:linear-gradient(var(--press,var(--control2)),var(--press,var(--control2)))}
 :is(.send,.keys button,.fchip button,.tg,.banner>button.n,.thumb,a.pic,a.fchip,.atb,.arm,.rxc):active:not(:disabled,[aria-disabled="true"]){opacity:.6}
 :is(.fold,.hpath,button.ref,.files button,.wtag,.rline,.gstrip .gh):active:not(:disabled,[aria-disabled="true"]){color:var(--fg)}
 p,h2,h3{margin:0}small{font-size:inherit}

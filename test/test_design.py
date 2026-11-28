@@ -57,7 +57,6 @@ INLINE_COLOURS = {
 BARE_HOVER = {
     "web/src/styles.css": 2,
     "web/src/dictate.css": 3,
-    "web/plugins/inbox/inbox.css": 1,
     "web/plugins/tasks/where.css": 3,
 }
 # a monospace stack written out instead of var(--mono) (ds.css held 11)
