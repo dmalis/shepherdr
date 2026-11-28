@@ -15,6 +15,8 @@ import type { Message, Snapshot } from '@shared/types.ts'
 import { spacesOf, taskRef } from '@shared/view.ts'
 import { taskFor, withMentions } from './mentions.tsx'
 import { markKind } from './kind.tsx'
+import { made, replyKey } from './made.ts'
+import { taskKind } from '@shared/kinds.ts'
 
 marked.setOptions({ gfm: true, breaks: false })
 // #1549: an agent's raw HTML shows as typed: a placeholder like <code> or <id> stays words and styles nothing after it.
@@ -274,9 +276,12 @@ export function linked(text: string, snap: Snapshot | null, mentions: Message['m
 /** an agent's words, formatted; `mentions`: the tasks the server found named in them */
 export function Markdown({ text, mentions, plain, place }: { text: string; mentions?: Message['mentions']; plain?: boolean; place?: string }) {
   const snap = useSnap()
-  const html = useMemo(
-    () =>
-      toHtml(plain ? text : linked(text, snap, mentions, place), (a, kind, target) => {
+  const html = useMemo(() => {
+    const source = plain ? text : linked(text, snap, mentions, place)
+    const task = (id: string) => snap?.tasks.find((t) => t.id === id)
+    // kept by the words and the kind of each task they link (made.ts): a chat opened again parses none of them
+    return made(replyKey(source, !!plain, (id) => taskKind(task(id))), () =>
+      toHtml(source, (a, kind, target) => {
         a.removeAttribute('target')
         a.removeAttribute('rel')
         a.removeAttribute('href')
@@ -286,8 +291,8 @@ export function Markdown({ text, mentions, plain, place }: { text: string; menti
         a.setAttribute(kind === 'task' ? 'data-task' : 'data-place', target)
         if (kind === 'task') markKind(a, snap?.tasks.find((t) => t.id === target))
       }),
-    [text, snap?.tasks, snap?.places, snap?.machines, mentions, plain, place],
-  )
+    )
+  }, [text, snap?.tasks, snap?.places, snap?.machines, mentions, plain, place])
   const ref = useRef<HTMLDivElement>(null)
   useBoxes(ref, html)
   const open = (e: MouseEvent) => {

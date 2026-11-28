@@ -1,8 +1,9 @@
 // Run with a built app: bun run build && bun web/demo/scroll-check.ts [demo URL]
 import assert from 'node:assert/strict'
-import { chromium, type Page } from 'playwright-core'
+import { chromium, webkit, type Page } from 'playwright-core'
 import { chrome } from './tap-check.ts'
 import { EV } from './data.ts'
+import { longChat } from './long-chat.ts'
 import type { Chat, Message } from '../shared/types.ts'
 
 const demo = process.argv[2] ? null : await startDemo()
@@ -267,13 +268,25 @@ async function runChecks() {
     await sc.locator('[data-msg]').first().waitFor()
     await bottom(page, 'browser Back')
     console.log(`Browser Back reopened at the bottom (restored from cache: ${await page.locator('body').getAttribute('data-restored')})`)
+    await longChat(browser, base, 'Chromium')
   } finally {
     await browser.close()
   }
 }
 
+// WebKit has no scroll anchoring, so a long chat keeps the reader's place there by hand: SCROLL_WEBKIT names a
+// Playwright server that runs WebKit (`playwright run-server`, e.g. in Playwright's own container image on the host's
+// network, so it reaches the demo), of the same version as playwright-core here
+async function webkitChecks() {
+  const at = process.env.SCROLL_WEBKIT
+  if (!at) return console.log('WebKit: skipped (set SCROLL_WEBKIT to a Playwright server)')
+  const browser = await webkit.connect(at)
+  try { await longChat(browser, base, 'WebKit') } finally { await browser.close() }
+}
+
 try {
   await runChecks()
+  await webkitChecks()
 } finally {
   demo?.server.kill()
 }

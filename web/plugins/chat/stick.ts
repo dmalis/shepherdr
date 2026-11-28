@@ -2,15 +2,23 @@
  *  came) and when its window gets shorter (the box grew, the suggested replies came above it), its end stays in view.
  *  A ResizeObserver runs after layout and before paint, so the move never shows as a jump. No imports: the layout test
  *  (test/test_reply_row.py) runs this very file in a real Chrome. */
-export function keepAtEnd(sc: HTMLElement, box: HTMLElement, stuck: () => boolean, pinned?: () => void): () => void {
+export function keepAtEnd(sc: HTMLElement, box: HTMLElement, stuck: () => boolean, pinned?: () => void, left?: () => boolean): () => void {
   const ro = new ResizeObserver(() => {
-    if (!stuck()) return
+    // `left`: the reader has just moved up, and their scroll event will say so (dmalis/shepherdr#190)
+    if (!stuck() || left?.()) return
     sc.scrollTo({ top: sc.scrollHeight, behavior: 'instant' })
     pinned?.()
   })
   ro.observe(box)
   ro.observe(sc)
   return () => ro.disconnect()
+}
+
+/** The reader has moved up since the chat last left or saw its scroll at `was` (at its foot), though their scroll
+ *  event hasn't come yet (dmalis/shepherdr#190): what grew since must not put them back. Content growing below leaves
+ *  the scroll where it was, and a taller window clamps it to its new foot: neither is a move. */
+export function movedUp(sc: HTMLElement, was: number): boolean {
+  return sc.scrollTop < Math.min(was, sc.scrollHeight - sc.clientHeight) - 2
 }
 
 /** The suggested replies' row scrolls sideways when its bubbles don't fit: a soft fade at each edge where more
