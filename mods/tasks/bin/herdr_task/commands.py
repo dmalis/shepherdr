@@ -1321,6 +1321,14 @@ def finalize(s, t):
             pr = pr_open(s, t, repo, t.get("summary"))
         except Fail as e:
             failed = str(e)
+            if ghbudget.limited(failed) and (t.get("pr") or {}).get("number"):
+                # dmalis/shepherdr#201: pushed, its pull request already open, only GitHub's request limit kept Herdr from
+                # looking: Ready as usual, and the tick reads it and merges it once the limit resets
+                pr, failed = t["pr"], None
+            elif ghbudget.limited(failed):
+                failed = (f"{ghbudget.LIMIT}: its pull request couldn't be opened; run ready again after "
+                          f"{ghbudget.clock(ghbudget.reset_at())}." if ghbudget.reset_at() else
+                          f"{ghbudget.LIMIT}: its pull request couldn't be opened; run ready again in a few minutes.")
     elif not local and os.path.isdir(wt) and github_unreachable(s):
         # #988: a GitHub repo gh couldn't reach just now: never on as if it had no GitHub (Accept would
         # merge it here while a pull request, its agent's, stays open there).
@@ -1340,7 +1348,7 @@ def finalize(s, t):
             " The person marks it as done on its card."
     if failed:
         t["attention"] = failed
-        return f"{s.name(t)} {READY_BUT} {failed} Tell the person."
+        return f"{s.name(t)} {READY_BUT} {failed}" + ("" if ghbudget.limited(failed) else " Tell the person.")
     if repo:
         pr["checked"] = 0
         # Working until its checks are done and GitHub knows it can merge (the tick: pr_wait()).
@@ -1981,8 +1989,10 @@ def merge_now(s, t, accept=False):
     dmalis/shepherdr#201: GitHub refusing for its hourly request limit is never a failure: it waits, its card says when
     it merges (ghbudget.wait_words()), and the tick merges it once the limit resets."""
     err = _merge_now(s, t, accept)
-    if err and (ghbudget.limited(err) or (err.startswith("Couldn't reach") and ghbudget.reset_at())):
-        err = ghbudget.wait_words()
+    # "Couldn't reach" is the limit only while the budget its pull request's read spends is out (not REST's alone)
+    until = ghbudget.held(["pr", "view"])
+    if err and (ghbudget.limited(err) or (err.startswith("Couldn't reach") and until)):
+        err = ghbudget.wait_words(until)
         t["pr"]["wait"] = err
         if ghbudget.limited(t.get("attention")):
             t.pop("attention", None)
@@ -2091,7 +2101,9 @@ def own_open_pr(s, t):
         if why:
             raise Fail(f"Couldn't ask GitHub whether {s.name(t)} has a pull request ({why}); nothing merged. Try again.")
         return None
-    found = pr_for_branch(t, repo)
+    # dmalis/shepherdr#201: only GitHub's own "none" lets it merge here; a call it refused or held for its request limit
+    # (or any failed call) is no answer, else an open pull request its agent made would be passed by
+    found = pr_for_branch(t, repo, strict=True)
     if not found:
         return None
     if found.get("headRefOid") != branch_tip(s, t):

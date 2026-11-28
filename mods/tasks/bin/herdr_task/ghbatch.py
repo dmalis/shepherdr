@@ -10,7 +10,7 @@ from . import ghbudget
 from .base import now
 from . import github
 
-CHUNK = 25          # pull requests per query (GitHub's node limit is far above it; a short answer stays quick)
+CHUNK = 50          # pull requests per query (GitHub's node limit is far above it; a short answer stays quick)
 LIST_LIMIT = 200    # open pull requests listed for the Working tasks' branches
 METHOD_KEEP = 3600000
 

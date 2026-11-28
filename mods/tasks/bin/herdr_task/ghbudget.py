@@ -49,9 +49,9 @@ def write(d):
 
 
 def limited(err):
-    """gh's error says GitHub refused for the request limit (primary or secondary), or it is Herdr's own wait for it."""
+    """gh's error says GitHub refused for the request limit (primary or secondary), or it holds Herdr's own wait for it."""
     e = (err or "").lower()
-    return e.startswith(LIMIT.lower()) or any(w in e for w in WORDS)
+    return LIMIT.lower() in e or any(w in e for w in WORDS)
 
 
 def resource(args):
@@ -67,11 +67,20 @@ def free(args):
     return [str(x) for x in args[:2]] == ["api", "rate_limit"]
 
 
+def secondary(err):
+    """A refusal for GitHub's secondary limit (too many at once), not the hour's budget: it names no reset."""
+    e = (err or "").lower()
+    return limited(err) and LIMIT.lower() not in e and (
+        "secondary" in e or not ("rate limit exceeded" in e or "rate limit already exceeded" in e))
+
+
 def held(args):
-    """The time (ms) its budget resets when GitHub said it ran out and the hour hasn't reset yet, else None."""
+    """The time (ms) its budget resets when GitHub said it ran out and the hour hasn't reset yet (or a secondary
+    limit's minute, which holds every call), else None."""
     if free(args):
         return None
-    until = (read().get(resource(args)) or {}).get("until") or 0
+    d = read()
+    until = max((d.get(resource(args)) or {}).get("until") or 0, d.get("secondary") or 0)
     return until if until > now() else None
 
 
@@ -93,7 +102,7 @@ def held_err(until):
 def reset_at():
     """When the budget that ran out resets (ms), the later of the two; None while neither is out."""
     d = read()
-    times = [(d.get(r) or {}).get("until") or 0 for r in ("core", "graphql")]
+    times = [(d.get(r) or {}).get("until") or 0 for r in ("core", "graphql")] + [d.get("secondary") or 0]
     later = max(times)
     return later if later > now() else None
 
@@ -134,9 +143,14 @@ def keep(res, d=None):
 
 def refused(args, err):
     """GitHub refused a call for the limit: no call that spends the same budget goes out until it resets (read from
-    rate_limit; a secondary limit, which names no reset: a minute)."""
+    rate_limit; a secondary limit, which names no reset: a minute for every call, kept apart from the budgets so a
+    read showing some left can't end it early, and nothing asked meanwhile, rate_limit included)."""
     name = resource(args)
     d = read()
+    if secondary(err):
+        d["secondary"] = max(d.get("secondary") or 0, now() + SECONDARY_WAIT)
+        write(d)
+        return
     res = rate_limit()
     if res:
         d = keep(res, d)
@@ -163,13 +177,17 @@ def graphql_left(rl):
     """The GraphQL rateLimit field of Herdr's own query ({"limit", "remaining", "resetAt"}), noted."""
     if not isinstance(rl, dict) or not isinstance(rl.get("remaining"), int):
         return
+    keep({"graphql": {"limit": rl.get("limit"), "remaining": rl["remaining"], "reset": (iso_ms(rl.get("resetAt")) or 0) // 1000}})
+
+
+def iso_ms(text):
+    """GitHub's time ("2026-11-28T04:40:00Z") in ms, or None."""
     import datetime
     try:
-        reset = int(datetime.datetime.strptime(str(rl.get("resetAt")), "%Y-%m-%dT%H:%M:%SZ")
-                    .replace(tzinfo=datetime.timezone.utc).timestamp())
+        return int(datetime.datetime.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")
+                   .replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
     except ValueError:
-        reset = 0
-    keep({"graphql": {"limit": rl.get("limit"), "remaining": rl["remaining"], "reset": reset}})
+        return None
 
 
 def slow():

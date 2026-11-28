@@ -10715,10 +10715,22 @@ class GitHubLimit(PrLooks):
             for i in range(1, n + 1)]
         return self.store.data["tasks"]
 
+    def iso(self, ago):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime((self.clock[0] - ago) // 1000))
+
     def github_says(self, mergeable="MERGEABLE", checks=()):
         with open(os.path.join(self.dir, "view.json"), "w") as f:
             json.dump({"state": "OPEN", "mergeable": mergeable, "headRefOid": "abc", "mergeCommit": None, "reviewDecision": "",
-                       "mergeStateStatus": "CLEAN", "updatedAt": "2026-11-28T03:00:00Z", "statusCheckRollup": list(checks)}, f)
+                       "mergeStateStatus": "CLEAN", "updatedAt": self.iso(10 * 60000), "statusCheckRollup": list(checks)}, f)
+
+    def changed(self, ago):
+        """GitHub's updatedAt for the pull request, `ago` ms before now (a review or comment came then)."""
+        with open(os.path.join(self.dir, "view.json")) as f:
+            v = json.load(f)
+        v["updatedAt"] = self.iso(ago)
+        with open(os.path.join(self.dir, "view.json"), "w") as f:
+            json.dump(v, f)
+        return v["updatedAt"]
 
     def a_pass(self, after=15000):
         """One pass of the tick over the list: its batched read, then each task's look (facts)."""
@@ -10757,14 +10769,89 @@ class GitHubLimit(PrLooks):
         self.assertEqual(len(lists()), 2)  # its first read since ready: reviews, review comments, comments
         self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
         self.assertEqual(len(lists()), 2)
-        with open(os.path.join(self.dir, "view.json")) as f:
-            v = json.load(f)
-        v["updatedAt"] = "2026-11-28T03:05:00Z"  # a comment came
-        with open(os.path.join(self.dir, "view.json"), "w") as f:
-            json.dump(v, f)
+        came = self.changed(-self.ghnews.PR_NEWS_EVERY + 5 * 60000)  # a comment came, minutes before the next read
         self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
         self.assertEqual(len(lists()), 4)
-        self.assertEqual(t["pr"]["watch"]["updated"], "2026-11-28T03:05:00Z")
+        self.assertEqual(t["pr"]["watch"]["updated"], came)
+
+    def test_a_change_seconds_old_is_read_again_in_case_github_s_lists_lag(self):
+        # review: updatedAt can move before the review shows in GitHub's REST lists; a fresh one isn't kept as read
+        t = self.tasks(1)[0]
+        self.github_says(checks=[self.PASSED])
+        self.a_pass()
+        lists = lambda: [a for a in self.calls() if a[:1] == ["api"] and "comments" in " ".join(a)]
+        self.changed(-self.ghnews.PR_NEWS_EVERY + 10000)  # 10 s before the next read
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 4)
+        self.assertNotIn("updated", t["pr"]["watch"])
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)  # read once more, then kept
+        self.assertEqual(len(lists()), 6)
+        self.a_pass(after=self.ghnews.PR_NEWS_EVERY)
+        self.assertEqual(len(lists()), 6)
+
+    def test_a_new_hand_in_never_pulls_in_pull_requests_still_backing_off(self):
+        old = self.tasks(1)[0]
+        self.github_says(checks=[self.RUNNING])
+        self.a_pass()
+        checked = old["pr"]["checked"]
+        new = {**json.loads(json.dumps(old)), "id": 2, "branch": "b2", "ready_at": self.clock[0]}
+        new["pr"] = {"number": 102, "url": "https://github.com/o/r/pull/102", "repo": "o/r", "checked": 0}
+        self.store.data["tasks"].append(new)
+        before = len(self.calls())
+        self.a_pass(after=15000)
+        graphql = [a for a in self.calls()[before:] if a[:2] == ["api", "graphql"]]
+        self.assertEqual(len(graphql), 1)
+        self.assertEqual(re.findall(r"p_(\d+): pullRequest", " ".join(graphql[0])), ["102"])
+        self.assertEqual(old["pr"]["checked"], checked)
+
+    def test_a_secondary_limit_holds_every_call_a_minute_whatever_the_budget_says(self):
+        err = "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)"
+        self.assertTrue(self.ghbudget.secondary(err))
+        self.assertFalse(self.ghbudget.secondary(self.LIMIT_ERR))
+        self.ghbudget.refused(["pr", "view"], err)
+        self.assertEqual(self.calls(free=True), [])  # nothing asked, rate_limit included
+        until = self.clock[0] + self.ghbudget.SECONDARY_WAIT
+        self.assertEqual((self.ghbudget.held(["api", "repos/o/r"]), self.ghbudget.held(["pr", "merge"])), (until, until))
+        self.clock[0] += 5000
+        self.ghbudget.keep(self.read_rate())  # a read showing plenty left
+        self.assertEqual(self.ghbudget.held(["pr", "view"]), until)
+        self.clock[0] = until + 1
+        self.assertIsNone(self.ghbudget.held(["pr", "view"]))
+
+    def test_accept_never_merges_here_when_github_couldnt_say_there_is_no_pull_request(self):
+        # review: a held lookup gave the same None as "none", and Accept merged locally past an open pull request
+        t = self.tasks(1)[0]
+        t.pop("pr")
+        self.rate(core=5000, graphql=0)
+        self.limit("all")
+        self.ghbudget.refused(["pr", "list"], self.LIMIT_ERR)
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
+        with self.assertRaises(self.commands.Fail) as e:
+            self.commands.own_open_pr(self.store, t)
+        self.assertIn("nothing merged", str(e.exception))
+        self.assertNotIn("pr", t)
+
+    def test_a_known_repo_stays_known_through_the_limit(self):
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0] - 2 * 3600000}  # an hour old: asked again
+        self.rate(core=5000, graphql=0)
+        self.limit("all")
+        self.ghbudget.refused(["repo", "view"], self.LIMIT_ERR)
+        from unittest import mock
+        with mock.patch.object(self.tick.github_mod.shutil, "which", lambda x: x):
+            self.assertEqual(self.tick.github_mod.github(self.store), "o/r")
+
+    def test_ready_with_its_pull_request_open_waits_out_the_limit_quietly(self):
+        # review: a held look at its open pull request set attention, and the tick then never merged it
+        t = self.tasks(1, state="running")[0]
+        self.store.data["github"] = {"repo": "o/r", "at": self.clock[0]}
+        held = self.ghbudget.held_err(self.clock[0] + 600000)
+        from unittest import mock
+        with mock.patch.object(self.commands, "pr_open", side_effect=self.commands.Fail(f"Couldn't open a pull request: {held}")), \
+                mock.patch.object(self.commands, "github", lambda s: "o/r"), \
+                mock.patch.object(self.commands, "merge_policy", lambda s, t: "checks"):
+            msg = self.commands.finalize(self.store, t)
+        self.assertNotIn(self.commands.READY_BUT, msg)
+        self.assertEqual((t["state"], t.get("attention"), t.get("auto_merge")), ("ready", None, "checks"))
 
     def test_checks_that_run_are_read_no_faster_than_a_minute_and_slower_later(self):
         t = self.tasks(1)[0]

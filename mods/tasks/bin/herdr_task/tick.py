@@ -453,11 +453,10 @@ def prefetch(s):
     Working task's pull request opened by its agent), asked first with the list's lock let go: a few gh calls per
     task, seconds each on a busy machine, held every other herdr-task here (a status line) past its wait. Returns
     the answers for github.answered(); a task that changed meanwhile only asks again under the lock."""
-    asks, at_work = [], []
+    asks = []
     for t in s.data["tasks"]:
         if not (t.get("worktree") and t["state"] in ("running", "ready")):
             continue
-        at_work.append(t)
         pr = t.get("pr")
         if pr:
             if pr.get("number") and pr.get("repo") and now() - pr.get("checked", 0) >= ghbudget.every(PR_EVERY):
@@ -473,7 +472,8 @@ def prefetch(s):
         # dmalis/shepherdr#201: once any is due, every pull request of these tasks in one query per repo, and every
         # Working one's branch in one list (each task then takes its answer this pass: facts(), seen_pr())
         ghbudget.look()
-        found.update(ghbatch.ahead(json.loads(json.dumps(at_work)), repo))
+        # only the due ones (review): a hand-in never pulls in pull requests still inside their back-off
+        found.update(ghbatch.ahead(json.loads(json.dumps(asks)), repo))
         for t in asks:
             pr = t.get("pr")
             if not pr:

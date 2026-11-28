@@ -64,6 +64,8 @@ def github(s):
     if g and now() - g.get("at", 0) < 3600000:
         return g.get("repo")
     ok, out, err = gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner", cwd=s.loc["folder"])
+    if not ok and g.get("repo") and ghbudget.limited(err):
+        return g["repo"]  # dmalis/shepherdr#201: GitHub's request limit, not a new answer: the repo it said, asked again later
     if not (ok and out) and not settled(err) and on_github(s.loc["folder"]):
         s.github_error = err or "gh couldn't read the repo"
         return None
@@ -342,11 +344,15 @@ def pr_adopt(task, repo):
     return task.get("pr") if found else None
 
 
-def pr_for_branch(task, repo):
+def pr_for_branch(task, repo, strict=False):
     """The open pull request from this repo for the task's branch into its base, whatever its head
-    (opened by its agent, ready never knowing: #988), as gh lists it, or None."""
-    ok, out, _ = gh("pr", "list", "--repo", repo, "--head", task["branch"], "--state", "open",
-                    "--json", "number,url,isCrossRepository,baseRefName,headRefOid")
+    (opened by its agent, ready never knowing: #988), as gh lists it, or None. strict: GitHub not answering (its
+    request limit, a blip) raises Fail instead of the same None as "none" (dmalis/shepherdr#201)."""
+    ok, out, err = gh("pr", "list", "--repo", repo, "--head", task["branch"], "--state", "open",
+                      "--json", "number,url,isCrossRepository,baseRefName,headRefOid")
+    if strict and not ok:
+        raise Fail(f"Couldn't ask GitHub whether {task.get('branch')} has a pull request ({err or 'gh failed'}); "
+                   "nothing merged. Try again" + (f" after {ghbudget.clock(ghbudget.reset_at())}." if ghbudget.reset_at() else "."))
     try:
         return next((p for p in json.loads(out) if not p.get("isCrossRepository")
                      and p.get("baseRefName") == (task.get("base") or "main")), None) if ok and out else None
@@ -417,7 +423,7 @@ BAD = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP
 PENDING = {"QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED"}
 
 
-VIEW = "state,mergeable,headRefOid,mergeCommit,reviewDecision,mergeStateStatus"
+VIEW = "state,mergeable,headRefOid,mergeCommit,reviewDecision,mergeStateStatus,updatedAt"  # updatedAt: #201's comments gate
 # SHEP-179: a token that may read a pull request but not its checks (a fine-grained one without Checks: read, as
 # the exe.dev GitHub integration's) gets GitHub's "Resource not accessible" for them: a permission, never a blip.
 DENIED = ("resource not accessible", "http 403", "must have", "not have permission", "insufficient scope")
