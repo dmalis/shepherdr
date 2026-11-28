@@ -12,7 +12,15 @@ const check = read('web/demo/phone-box-check.ts')
 const box = read('web/plugins/chat/client.tsx')
 
 test('the check finds the box as the chat draws it: the text row, then the bar, its round button Send or Stop', () => {
-  expect(check).toContain(`'.cbox:has(> .crow + .cbar) >> visible=true'`)
+  // each scene's own chat's box, by its text area's data-box: #shop's and SHOP-15's thread in the demo
+  expect(check).toContain('.cbox:has(> .crow textarea.cin[data-box="${chat}"])')
+  expect(check).toContain("const CHAT = { space: 'p:mac-mini:shop', task: 'SHOP-15/worker' }")
+  expect(box).toContain('data-box={key}')
+  const data = read('web/demo/data.ts')
+  expect(data).toContain("shop: 'p:mac-mini:shop'")
+  expect(data).toContain("task('SHOP-15', ")
+  expect(data).toContain("chat('SHOP-15/worker', ")
+  expect(read('web/src/kernel.ts')).toContain("at: params.get('place')")
   const at = box.indexOf('className="cbox"')
   expect(at).toBeGreaterThan(-1)
   const row = box.indexOf('<div className="crow">', at)
