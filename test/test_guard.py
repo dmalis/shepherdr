@@ -278,7 +278,7 @@ class EveryAgent(Stand):
         with open(core, "w") as f:
             f.write("#!/bin/sh\nsleep 30\n")   # its process name is herdr-core, as the live core's
         os.chmod(core, 0o755)
-        live = "/home/u/.local/share/shepherdr/service/main.ts"   # the install's own service (bin/shepherdr's unit)
+        live = "/x/.local/share/shepherdr/service/main.ts"    # the install's own service (bin/shepherdr's unit)
         for argv in ([core], ["sh", "-c", "sleep 30; exit 0", "herdr-task", "scheduler"],
                      ["sh", "-c", "sleep 30; exit 0", "bun", live], ["sleep", "30"],
                      ["sh", "-c", "sleep 30; exit 0", "bun", "service/main.ts"]):   # a throwaway one, from a checkout
