@@ -22,6 +22,7 @@
     "web/plugins/chat/attach.test.tsx",
     "web/plugins/typing/typing.test.ts",
     "web/plugins/voice/box.test.tsx",
-    "web/src/draft.test.ts"
+    "web/src/draft.test.ts",
+    "web/demo/phone-box-check.test.ts"
   ]
 }

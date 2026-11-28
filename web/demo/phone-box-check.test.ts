@@ -21,7 +21,8 @@ test('the check finds the box as the chat draws it: the text row, then the bar, 
   expect(data).toContain("task('SHOP-15', ")
   expect(data).toContain("chat('SHOP-15/worker', ")
   expect(read('web/src/kernel.ts')).toContain("at: params.get('place')")
-  const at = box.indexOf('className="cbox"')
+  // fork #186: the box's class also says when a file is dragged over the page
+  const at = box.indexOf("className={cx('cbox', drag && 'drop', drag === 'over' && 'over')}")
   expect(at).toBeGreaterThan(-1)
   const row = box.indexOf('<div className="crow">', at)
   const bar = box.indexOf('<div className="cbar">', row)
