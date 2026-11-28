@@ -34,7 +34,6 @@ export const needsPress = (f: TaskFilter): TaskFilter => (f.needs?.length ? f : 
 function ViewMenu({ close, counts, view }: { close: () => void; counts: Record<View, number>; view?: View }) {
   return (
     <div className="vmenu" role="group" aria-label="More views">
-      <div className="cap">Show</div>
       {MORE_VIEWS.map((v) => (
         <button
           type="button"
