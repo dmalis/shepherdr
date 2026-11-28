@@ -55,7 +55,7 @@ test('Settings › Triage: Everything sets the shared keys, a repo its level and
   for (const w of ['Fix from', 'Fixes a day', 'Ask me before merging its fixes']) expect(all).toContain(w)
   const shop = page(snap, SHOP)
   expect(shop).toContain('Score only')
-  expect(shop).toContain('Set here · Reset')
+  expect(shop).not.toContain('Set here · Reset') // the level is the repo's own: Off is its reset
   expect(shop).toContain('Same as Everything')
   expect(shop).toContain('in example/shop')
   expect(shop).toContain('Checks every hour, next in 24 min.')
@@ -112,7 +112,7 @@ test('a card shows the exact words, why they wait, and Yes / No; the start card 
   const t = text(d)
   expect(t).toContain('Post this to GitHub?')
   expect(t).toContain(whyWords(draft!))
-  expect(t).toContain('It goes to example/shop as written below.')
+  expect(t).toContain('Yes posts it to example/shop as written below.')
   expect(t).toContain(draft!.title)
   expect(d).toContain('Update the badge from the cart’s own change event')
   expect(t).toContain('No, keep it private')

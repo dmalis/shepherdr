@@ -83,11 +83,12 @@ export function TriageSettings({ place }: { place: string }) {
   return (
     <>
       <p className="hint">
-        Triage reads the issues in {snap.triage?.destination ?? 'your own repo'}, scores each and labels it, so you see what matters first. Its posts carry no private words: whatever it isn’t sure of waits for you under Needs you.
+        Triage reads the issues in {snap.triage?.destination ?? 'your own repo'}, scores each and labels it, so you see what matters first. Nothing goes public that it isn’t sure is free of private words: that waits for your yes under Needs you.
       </p>
       <AppliesTo snap={snap} repo={repo} repos={here} />
+      {/* the level is each repo's own (Everything has none): no Same as Everything, Off is its reset */}
       {repo ? (
-        <SRow label={<>Triage<Own place={at} own={own('level')} k="triage.level" /><small>{levelWords(lv.level, v?.repo ?? null)}</small></>} wrap>
+        <SRow label={<>Triage<small>{levelWords(lv.level, v?.repo ?? null)}</small></>} wrap>
           <Seg label="Triage" values={LEVELS.map((x) => x[1])} value={LEVELS.find((x) => x[0] === lv.level)![1]} onChange={(w) => void set(at, 'level', LEVELS.find((x) => x[1] === w)![0])} />
         </SRow>
       ) : (
@@ -134,7 +135,7 @@ export function TriageCardView({ c }: { c: TriageCard }) {
     <section className="card tri-card" data-card={`triage:${c.id}`} data-ask="" aria-labelledby={`${id}-q`} aria-describedby={`${id}-why`}>
       <span className="t" id={`${id}-q`}>{triageAsk(c)}</span>
       <span className="s" id={`${id}-why`}>
-        {start ? `${c.repo}#${c.issue} is marked ready. It’s someone else’s words, so Triage starts a fix only when you say so.` : `${whyWords(c)} It goes to ${c.repo} as written below.`}
+        {start ? `${c.repo}#${c.issue} is marked ready. It’s someone else’s words, so Triage starts a fix only when you say so.` : `${whyWords(c)} Yes posts it to ${c.repo} as written below.`}
       </span>
       {/* the exact words, as they would go: what your answer is bound to */}
       <div className="tri-text" role="region" aria-label={start ? 'The issue' : 'What would be posted'} tabIndex={0}>
