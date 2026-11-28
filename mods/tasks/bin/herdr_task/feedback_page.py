@@ -102,7 +102,14 @@ def change(ps, key, p, later, undo, no, expect=None):
         return {"changed": True, "state": back["state"]}, "Back as it was."
     if p.get("decision") == "following":
         return {"changed": False, "why": "following"}, "It follows an issue: Undo that first."
-    was = {k: p.get(k) for k in KEPT}
+    from .feedback_post import cleared, stale  # Not now and Never take back a yes to post it (slice 4)
+    post = p.get("post") or {}
+    if post.get("state") == "posting" and not stale(post):
+        return {"changed": False, "why": "posting"}, "It's being posted right now: nothing changed."
+    if post.get("state") == "unsure" and not no:
+        return {"changed": False, "why": "unsure"}, "It may have been posted: only Never is left for it."
+    p = cleared(p)
+    was = {k: (None if k == "decision" and p.get(k) == "approved" else p.get(k)) for k in KEPT}
     if no:
         if p.get("decision") == "declined":
             return {"changed": False, "state": "declined"}, "Already said no."

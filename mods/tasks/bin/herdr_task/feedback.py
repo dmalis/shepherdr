@@ -520,10 +520,14 @@ def cmd_feedback(args):
     addr, k = me()
     labels = k.get("labels") or {}
     assistant = bool(k) and is_coordinator(k)
-    from .feedback_check import quietly, shape_or_check
+    from .feedback_check import shape_or_check
     shaped = shape_or_check(args, assistant)  # --shape, --check, the person's --follow (#94, slice 3)
     if shaped is not None:
         return shaped
+    from .feedback_post import posting_call
+    posted = posting_call(args, assistant)  # --approve, --reconcile (#94, slice 4)
+    if posted is not None:
+        return posted
     d = read_settings()
     space = caller_space() or reactions.space_of(k, d)
     if getattr(args, "space", None):
@@ -539,7 +543,7 @@ def cmd_feedback(args):
     if (args.file or args.no) and not assistant:
         raise Fail("Only an Assistant asks the person and files feedback: run herdr-task feedback \"<one line>\" --details \"…\" "
                    "and your Assistant offers it. Carry on with your work.")
-    if not feedback_on(space, d) and not args.no and not (args.file and args.dry_run):
+    if not feedback_on(space, d) and not args.no and not (args.file and (args.dry_run or args.key)):  # a kept one: its origin's
         # Off: nothing recorded, and the record isn't opened for writing (a filing's preview still shows).
         try:
             key = args.key or find(problems_read(), line)
@@ -556,7 +560,8 @@ def cmd_feedback(args):
             return say(args, {"key": key, "changed": False, "why": "following"},
                        "The person follows an issue for this one on the Feedback page: nothing filed, nothing changed. Carry on.")
         if args.no:
-            ps[key] = {**(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
+            from .feedback_post import cleared  # a yes the person gave before is taken back (#94, slice 4)
+            ps[key] = {**cleared(p or {}), "id": key, "line": line, "state": "declined", "at": now(), "space": (p or {}).get("space") or space}
             return say(args, {"key": key, "state": "declined"}, "Remembered: the person said no. Never offer this one again.")
         if not args.file:
             if args.line and not args.key:  # a report: kept first, whatever happens next
@@ -565,14 +570,9 @@ def cmd_feedback(args):
                                          "details": trim(args.details) if args.details else None},
                                one_line(args.fix) if getattr(args, "fix", None) else None, getattr(args, "kind", None))
             answer, news = offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space)
-        else:
-            known = dict(p or {})
-            if known.get("state") == "filed" and not args.dry_run:
-                return say(args, {"key": key, "filed": True, "url": known.get("url")}, f"Already filed: {known.get('url')}. Nothing filed again.")
-            if known.get("state") == "filing" and now() - (known.get("at") or 0) < FILING_MS and not args.dry_run:
-                return say(args, {"key": key, "filed": False, "why": "filing"}, "It's being filed right now: nothing filed again.")
-            if not args.dry_run:
-                ps[key] = {**known, "line": line, "state": "filing", "at": now()}
+        elif not p and line and not args.dry_run and feedback_on(space, d):  # --file of one nobody reported: kept first
+            add_report(ps, key, {"at": now(), "space": space, "machine": d.get("here") or socket.gethostname(),
+                                 "from": from_of(k, labels, assistant), "line": line})
     if not args.file:
         # Saved first (the lock's end wrote it), then told: a report is never lost to a send that failed.
         if news:
@@ -585,23 +585,10 @@ def cmd_feedback(args):
                 return say(args, {"key": key, "sent": False, "kept": True, "why": "send-failed"},
                            "Kept, but it couldn't reach your Assistant now: it waits for the person. Carry on.")
         return say(args, *answer)
-    # Filing talks to GitHub: outside the lock, so an agent's report never waits on it. Marked
-    # "filing" meanwhile, so a second --file of the same problem can't file it twice.
-    try:
-        if not args.dry_run and known.get("search"):
-            quietly(key, d)  # checked again right before posting (#94)
-        return file_it(args, key, known, line, d, agent_of(k))
-    finally:
-        if not args.dry_run:
-            with problems() as ps:
-                now_p = ps.get(key) or {}
-                if now_p.get("state") == "filing":  # not filed (duplicates found, or gh failed): as it was, with any report since
-                    if known or now_p.get("reports"):
-                        ps[key] = {**{k: v for k, v in now_p.items() if k not in ("state", "at")},
-                                   **{k: known[k] for k in ("state", "at") if k in known}}
-                        ps[key].setdefault("state", "found")
-                    else:
-                        ps.pop(key, None)
+    # --file writes the draft and posts nothing; --file --rev N posts the draft the person said yes to, once (friction
+    # loop, slice 4, #94: feedback_post.py). GitHub is asked outside the lock: an agent's report never waits on it.
+    from .feedback_post import file_or_draft
+    return say(args, *file_or_draft(args, key, line, d, agent_of(k), space))
 
 
 def from_of(k, labels, assistant):
@@ -631,6 +618,8 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
         return ({"key": key, "sent": False, "why": "declined"}, "The person said no to this before: nothing to do. Carry on."), None
     if state == "filed":
         return ({"key": key, "sent": False, "why": "filed", "url": p.get("url")}, f"Already filed: {p.get('url')}. Nothing to do. Carry on."), None
+    if p and (p.get("decision") == "approved" or (p.get("post") or {}).get("state") in ("posting", "unsure")):
+        return ({"key": key, "sent": False, "why": "approved"}, "The person said yes to filing this one: nothing to do. Carry on."), None  # #94, slice 4
     if p and p.get("decision") == "following":  # the person follows an issue for it (#94): nothing to offer
         return ({"key": key, "sent": False, "why": "following", "url": (p.get("outcome") or {}).get("url")},
                 "The person follows an issue for this one: nothing to do. Carry on."), None
@@ -654,34 +643,3 @@ def offer_or_tell(args, ps, key, p, line, k, addr, labels, assistant, space):
     ps[key] = {**entry, "state": "telling", "by": ref}  # told once hold_news has held it
     return ({"key": key, "sent": True, "to": to}, "Sent to your Assistant: it asks the person whether to file it. Carry on with your work."), \
         (to, news_line(ref, title, line, args.details, key))
-
-
-def file_it(args, key, p, line, d, agent):
-    """The person said yes: a duplicate search first, then the issue (or a comment on one). Runs
-    outside STATE's lock (gh may be slow); notes it as filed after."""
-    from .output import say
-    repo = repo_of(args.repo) or feedback_repo(d)
-    p = p or {}
-    fields = {f: getattr(args, f, None) for f, _ in FIELDS}
-    if not fields.get("happened") and p.get("details"):
-        fields["happened"] = p["details"]
-    env = environment(p.get("agent") or agent, args.surface)
-    title = redact(one_line(args.title or line, 120))
-    body = issue_body(line, fields, env)
-    from .feedback_check import public_terms  # a shaped problem's public words, no path (#94, slice 3)
-    dups = [] if args.new else duplicates(repo, " ".join(public_terms(p["search"])) if p.get("search") else line) if not args.comment else []
-    if args.dry_run:
-        out = {"repo": repo, "title": title, "body": body, "duplicates": dups}
-        return say(args, out, f"Draft for {repo} (nothing filed):\n\nTitle: {title}\n\n{body}" +
-                   ("\n\nPossible duplicates: " + "; ".join(f"#{x['number']} {x['title']}" for x in dups) if dups else ""))
-    if dups:
-        return say(args, {"key": key, "filed": False, "duplicates": dups},
-                   "Possible duplicates are open:\n" + "\n".join(f"- #{x['number']} {x['title']} {x['url']}" for x in dups) +
-                   f"\nAsk the person: add a comment there instead (--comment <number>), or file a new one anyway (--new).")
-    if args.comment:
-        url = gh_with_body([GH, "issue", "comment", str(args.comment), "--repo", repo], body)
-    else:
-        url = gh_with_body([GH, "issue", "create", "--repo", repo, "--title", title], body)
-    with problems() as ps:
-        ps[key] = {**ps.get(key, p), "line": line, "state": "filed", "at": now(), "url": url}
-    return say(args, {"key": key, "filed": True, "url": url}, f"{'Commented' if args.comment else 'Filed'}: {url} — tell the person this link in one line.")

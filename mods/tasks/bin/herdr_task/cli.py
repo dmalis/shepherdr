@@ -141,7 +141,7 @@ def person_flags(argv):
         if a == "--":
             return False
         f = a.split("=")[0]
-        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect", "--follow")):
+        if len(f) > 2 and f.startswith("--") and any(full.startswith(f) for full in ("--person", "--later", "--undo", "--expect", "--follow", "--approve")):
             return True
     return False
 
@@ -365,7 +365,7 @@ def main():
     c.add_argument("--details", help="goal, what was tried, what went wrong, expected, suggested fix (no secrets, no logs whole)")
     c.add_argument("--key", help="the problem's key, as its news line or an earlier answer gave it")
     g = c.add_mutually_exclusive_group()
-    g.add_argument("--file", action="store_true", help="Assistant, after the person's yes: search open issues for a duplicate, then file it")
+    g.add_argument("--file", action="store_true", help="Assistant: write the draft, posting nothing (open issues like it named); with --rev N, post the draft the person said yes to, once")
     g.add_argument("--no", action="store_true", help="Assistant: the person said no; never offered again")
     g.add_argument("--list", action="store_true", help="what waits to be offered in this space")
     g.add_argument("--later", choices=["tomorrow", "week", "again"], help="the person's Not now, from the Feedback page (never an agent)")
@@ -374,6 +374,10 @@ def main():
     g.add_argument("--check", action="store_true", help="look for the problem (--key) on GitHub, read only, with its --search words")
     g.add_argument("--follow", metavar="URL", help="the person's Follow this one, from the Feedback page (never an agent): nothing posted")
     g.add_argument("--undo", action="store_true", help="the person's Undo or Restore of a Not now or a No, from the Feedback page (never an agent)")
+    g.add_argument("--approve", type=int, metavar="REV", help="the person's yes to draft REV, from the Feedback page's Post it (never an agent); --by chat: an Assistant's record of a yes said to a card that showed it")
+    g.add_argument("--reconcile", action="store_true", help="a post whose answer was lost: look for it on GitHub by its hidden marker, read only")
+    c.add_argument("--by", choices=["page", "chat"], help="--approve: where the person said yes (default page)")
+    c.add_argument("--rev", type=int, metavar="N", help="--file: post draft N, the one the person said yes to (without it, --file writes the draft and posts nothing)")
     for f, words in (("goal", "what they were trying to do"), ("happened", "what went wrong"), ("tried", "what was tried"),
                      ("expected", "what should have happened"), ("fix", "a suggested fix"), ("repro", "minimal steps to reproduce")):
         c.add_argument(f"--{f}", help=(f"--file: {words}" if f != "fix" else "a suggested fix in one line, for every Shepherdr user: kept with the report; --file puts it in the issue"))
@@ -387,8 +391,8 @@ def main():
     c.add_argument("--repo", help=argparse.SUPPRESS)  # a test's throwaway repo; Settings' otherwise
     h = c.add_mutually_exclusive_group()
     h.add_argument("--new", action="store_true", help="--file: file it even though duplicates are open")
-    h.add_argument("--comment", type=int, metavar="N", help="--file: add it as a comment on open issue N instead")
-    c.add_argument("--dry-run", action="store_true", help="--file: show the redacted draft and duplicates, file nothing")
+    h.add_argument("--comment", metavar="N", help="--file: a comment on issue N (or owner/name#N) in the feedback repo instead of a new issue")
+    c.add_argument("--dry-run", action="store_true", help="--file: show the redacted draft and duplicates, keep and file nothing")
     cmd("done", lambda a: cmd_state(a, "done"), "mark done without merging (the person's call: only when they ask; agents finish "
                                                 "with ready): a task on its own branch is closed unmerged, its branch and pull request left as they are")
     c = cmd("stop", cmd_stop, "the person's Stop: pause its agent like pressing Esc (it drops what it was doing and waits); the next "
