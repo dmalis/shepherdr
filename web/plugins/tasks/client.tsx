@@ -27,6 +27,8 @@ import { archiveTask, swipeActs } from './swipe.tsx'
 import { StatusIcon } from './icon.tsx'
 import { AfterMergeCard } from './after-merge.tsx'
 import { handUpCards } from '@plugins/alerts/hand-up.tsx'
+import { withGroups } from '@client/card-group.tsx'
+import { TASK_KINDS } from './groups.ts'
 import { fromSpace, rowWhere, TaskWhere } from './where.tsx'
 import { shortcutOf, shortcutRow, ShortcutBtn } from './shortcut.tsx'
 import { afterMergeNote, offersAfterMerge } from '@shared/after-merge.ts'
@@ -922,7 +924,8 @@ export default definePlugin({
     reg.panes.push({ id: 'tasks', View: TasksPane })
     reg.views.taskHead = TaskHead
     reg.views.taskTop = TaskTop
-    reg.chatCards.push({ order: 20, cards: taskCards })
+    // fork #279: more than 3 reviews (or stopped agents) in one chat are one card (groups.ts)
+    reg.chatCards.push({ order: 20, cards: withGroups(taskCards, TASK_KINDS) })
     reg.commands.push(...taskCommands())
   },
 })

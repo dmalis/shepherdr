@@ -215,6 +215,11 @@ has the exceptions (a header while the phone's keyboard is up, a sheet's rows).
   own air, never into it, since a chip's touch area reaches past its edge), and what comes next starts a row's padding
   further than the usual air, so an answer never reads as the next message's. A question that takes several answers
   keeps its chips and Send in a card: that card is the same group. A new speaker's gap gives way to a day's line.
+- **A run of one kind is one card:** more than 3 cards of one kind in one chat (reviews waiting, stopped agents,
+  Triage's findings) are one card that says how many and names the first two, and its Show them opens a sheet of each
+  card as it was ([`web/src/card-group.tsx`](../web/src/card-group.tsx)), as Android bundles four or more
+  notifications from one app. Answers in it stay one by one; a bulk action only where answering the set at once is
+  safe and the person's own call, never an agent's own prompt. A task's own thread never groups.
 - **One left edge:** in a chat, bubbles, cards, news rows and folds share the same left edge, and so do their icons.
   In a pane, content starts 16 px in: the scroll's 8 and the row's or block's own 8 (Files and Changes do; Target:
   some other panes still reach it by different sums).

@@ -7,6 +7,7 @@
 // `?case=handup` has Shepherdr's hand-up (with choices, one question over two tasks) and a wait past Ask me after (6b).
 // `?case=triage` switches Triage on for shop: its schedule, Settings › Triage and two yes cards in #shop's chat (fork #235).
 // `?case=drafts` holds 150 drafts for you in #shop: one card says how many and opens their list, 85 in one batch Yes (fork #235).
+// `?case=cards` adds 4 more tasks waiting for a review and 4 stopped agents in #shop: each kind one card past 3 (fork #279).
 // `?case=machines` gives the Feedback page other machines' problems: read now, out of reach, older, none (#94, slice 8).
 // `?case=fail` makes every action answer with an error, so a failed action's Report can be tried (#94, slice 7).
 // `?case=slowfiles` makes Files answer after 4 s (loading); #notes' folder is empty and #blog's can't be read (UI 18).
@@ -22,9 +23,9 @@ import { withAttention } from '../shared/attention.ts'
 
 const dist = join(fileURLToPath(new URL('../', import.meta.url)), 'dist')
 const port = Number(process.argv[2] || 7799)
-type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts'; watch: string[]; app?: string; build?: string } }
+type Sock = { send(s: string): void; data: { mode: 'normal' | 'empty' | 'down' | 'more' | 'long' | 'one' | 'five' | 'post' | 'ship' | 'machines' | 'handup' | 'triage' | 'drafts' | 'cards'; watch: string[]; app?: string; build?: string } }
 const socks = new Set<Sock>()
-const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')), drafts: structuredClone(snapshot('drafts')) }
+const state = { normal: structuredClone(snapshot('normal')), empty: structuredClone(snapshot('empty')), down: structuredClone(snapshot('down')), more: structuredClone(snapshot('more')), long: structuredClone(snapshot('long')), one: structuredClone(snapshot('one')), five: structuredClone(snapshot('five')), post: structuredClone(snapshot('post')), ship: structuredClone(snapshot('ship')), machines: structuredClone(snapshot('machines')), handup: structuredClone(snapshot('handup')), triage: structuredClone(snapshot('triage')), drafts: structuredClone(snapshot('drafts')), cards: structuredClone(snapshot('cards')) }
 const chats: Record<string, Chat> = structuredClone(seed)
 let n = 1000
 /** the group a Remove group took, for its Undo */
@@ -55,7 +56,7 @@ function longChat() {
   c.messages = [...old, ...c.messages]
 }
 function resetDemo() {
-  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage', 'drafts'] as const) state[mode] = structuredClone(snapshot(mode))
+  for (const mode of ['normal', 'empty', 'down', 'more', 'long', 'one', 'five', 'post', 'ship', 'machines', 'handup', 'triage', 'drafts', 'cards'] as const) state[mode] = structuredClone(snapshot(mode))
   for (const key of Object.keys(chats)) delete chats[key]
   Object.assign(chats, structuredClone(seed))
   longChat()
@@ -83,7 +84,8 @@ const chatFor = (s: Sock, key: string): Chat => {
   return s.data.mode === 'down' ? { ...chat, messages: chat.messages.map(({ suggest, suggests, ...m }) => m) } : chat
 }
 const each = (f: (snap: Snapshot) => void) => { for (const s of Object.values(state)) f(s); push() }
-const taskOf = (id: string) => state.normal.tasks.find((t) => t.id === id || `${t.id}/worker` === id)
+// fork #279: any day's task (`?case=cards` adds its own)
+const taskOf = (id: string) => Object.values(state).flatMap((s) => s.tasks).find((t) => t.id === id || `${t.id}/worker` === id)
 // a task Done or archived is no longer urgent (dmalis/shepherdr#119: web/shared/urgent.ts's rule, which the real service reads)
 const unmarked = (t: Task): Task => (t.urgent && (t.status === 'done' || t.archived) ? { ...t, urgent: undefined } : t)
 const patchTask = (id: string, p: Partial<Task>) => each((snap) => { snap.tasks = snap.tasks.map((t) => (t.id === id ? unmarked({ ...t, ...p }) : t)) })
@@ -297,6 +299,8 @@ function action(a: Record<string, any>): unknown {
   if (a.type === 'agent-update') return { ok: true, words: 'Codex is now 0.172.0. 1 other chat on this machine gets it when it restarts.' }
   if (a.type === 'task-start' && t) { patchTask(t.id, { status: 'work', started: Date.now() - 15 * 60_000, report: { msg: 'Just started', progress: 50 }, agent: { chat: `${t.id}/worker`, role: 'worker', cli: 'claude', status: 'work', running: true, age: '', note: '' } }); say(`${t.id}/worker`, { text: "Started. I'll tell you when it's ready for review." }); return { ok: true } }
   if (a.type === 'stop' && t) return patchTask(t.id, { status: 'need', stopped: { by: 'you' } }), { ok: true }
+  // fork #279: a stopped agent's Restart, so a grouped sheet's stopped cards can leave it
+  if (a.type === 'task-resume' && t) return patchTask(t.id, { status: 'work', state: 'work', stopped: undefined, needsAt: undefined, report: { msg: 'Carrying on' } }), { ok: true }
   if (a.type === 'rename') return each((snap) => { snap.places = snap.places.map((p) => (p.id === a.id ? { ...p, name: a.name } : p)); snap.sections = snap.sections?.map((s) => (s.id === a.id ? { ...s, name: a.name } : s)); snap.machines = snap.machines.map((m) => (m.id === a.id ? { ...m, name: a.name || (m.ownName ?? m.machine) } : m)) }), { ok: true }
   if (a.type === 'space-archive') return each((snap) => { snap.places = snap.places.map((p) => (p.id === a.place ? { ...p, archived: a.on } : p)) }), { ok: true }
   if (a.type === 'space-remove') return each((snap) => { snap.places = snap.places.filter((p) => p.id !== a.place) }), { ok: true }
@@ -428,7 +432,7 @@ Bun.serve<Sock['data'], never>({
       const build = /(?:^|;\s*)demo-build=(\w+)/.exec(req.headers.get('cookie') ?? '')?.[1]
       // ?case=fail: the day of the page opened last (its cookie can be reset by a later fetch of the start page)
       failing = c === 'fail'
-      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' || c === 'drafts' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
+      return server.upgrade(req, { data: { mode: c === 'empty' || c === 'down' || c === 'more' || c === 'long' || c === 'one' || c === 'five' || c === 'post' || c === 'ship' || c === 'machines' || c === 'handup' || c === 'triage' || c === 'drafts' || c === 'cards' ? c : 'normal', watch: [], app, build } }) ? undefined : new Response('no', { status: 400 })
     }
     if (path === '/api/screen/shot') return new Response(Bun.file(shotFile(url.searchParams.get('key') ?? '')), { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' } })
     // a background shell's last lines (chat/jobs.tsx)
